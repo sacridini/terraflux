@@ -234,7 +234,7 @@ land goes from 14.8% to 17.2% of the map, all of it beside existing towns. [[cha
 [[fragmentation.landscape_mosaic]].
 
 ```tfcompare
-caption: "The landscape mosaic within 675 m around the city of Hannover (1,000 × 1,000 cells of 25 m) at date A (left of the handle) and B (right), in GuidosToolbox's colours (pure agriculture dark blue, pure developed dark red, pure natural green; the mixes in between). The rings of agriculture-developed classes around the city and the villages widen."
+caption: "The landscape mosaic within 675 m around the city of Hannover (2,000 × 2,000 cells of 25 m) at date A (left of the handle) and B (right), in GuidosToolbox's colours (pure agriculture dark blue, pure developed dark red, pure natural green; the mixes in between). The rings of agriculture-developed classes around the city and the villages widen."
 before: { src: /img/tutorials/fragmentation/change-and-reports/lm-a-zoom.png, label: Date A }
 after: { src: /img/tutorials/fragmentation/change-and-reports/lm-b-zoom.png, label: Date B }
 ```
@@ -249,6 +249,137 @@ mosaic says not only how much land was built on, but how far the developed land 
 and natural land around it, which the areas of the land covers do not show.
 The `heatmap` table has every class of 103 with its share at both dates and the change; `heatmap_csv` is
 GuidosToolbox's delta_heatmap.csv.
+
+### In Python
+
+The library has all three, [`tf.fad_multiscale_change`][terraflux.fad_multiscale_change] for [[change.fad]],
+[`tf.fos_change`][terraflux.fos_change] for [[change.fos]] and
+[`tf.landscape_mosaic_change`][terraflux.landscape_mosaic_change] for [[change.mosaic]], and they give the numbers of
+the tables above. The graph makes date B in its nodes 2 and 3 (a random field and a [[raster.calc]]); here is the same
+rule in numpy, with the library's own `nlm.gaussian_field` (the same seed gives the same field), so that nothing but the
+example data is needed:
+
+```python
+import numpy as np
+import pandas as pd
+from scipy import ndimage
+import terraflux as tf
+
+def nbsum(mask, r):
+    """Cells of the mask in the (2r + 1) x (2r + 1) window of every cell (nbsum, with zeros outside the map)."""
+    return np.rint(ndimage.uniform_filter(mask.astype(float), size=2 * r + 1, mode="constant") * (2 * r + 1) ** 2)
+
+before = tf.load_raster(tf.example_data("input"))               # date A: 0 missing, 1 background, 2 forest
+f = before.values
+pressure = tf.nlm.gaussian_field(1000, 1000, autocorr_range=60, seed=28).values   # the model's range and seed
+b = np.where((f == 2) & (pressure > 0.8), 1,                                      # whole blocks lost
+    np.where((f == 2) & (pressure > 0.55) & (nbsum(f == 1, 3) >= 1), 1,           # edges retreat
+    np.where((f == 1) & (pressure < 0.15) & (nbsum(f == 2, 1) >= 4), 2, f)))      # a little regrowth
+after = before.copy()
+after.values[:] = b                                             # date B
+print((f == 2).sum(), (b == 2).sum(), "forest cells at A and B")
+```
+
+```text
+428490 354172 forest cells at A and B
+```
+
+With your own maps, `before` and `after` are two [`tf.load_raster`][terraflux.load_raster] of them, coded 0, 1 and 2 on
+the same grid. The change of FAD-MS runs both dates at the five windows (`window_sizes=` changes them):
+
+```python
+change = tf.fad_multiscale_change(before, after)                # A first: swapped, increases become decreases
+print(change.averages.round(2).to_string())
+for w, s in change.scales.items():
+    print(f"{str(w):>6}: {s.changed:7d} cells in another class, {s.frag_increase_pct:5.1f}% of them more fragmented")
+```
+
+```text
+        fad_av_a  fad_av_b  delta_fad_av  avcon_a  avcon_b  delta_avcon
+scale                                                                  
+7          85.20     83.59         -1.61    36.52    29.61        -6.90
+13         80.15     77.99         -2.16    34.35    27.63        -6.72
+27         73.54     70.14         -3.40    31.52    24.85        -6.67
+81         61.59     55.85         -5.74    26.40    19.79        -6.61
+243        51.40     43.44         -7.96    22.03    15.39        -6.64
+mscale     70.38     66.20         -4.18    30.16    23.45        -6.71
+     7:   77581 cells in another class,  99.7% of them more fragmented
+    13:  101383 cells in another class,  99.8% of them more fragmented
+    27:  103912 cells in another class,  99.9% of them more fragmented
+    81:  110405 cells in another class,  99.9% of them more fragmented
+   243:  141763 cells in another class, 100.0% of them more fragmented
+mscale:   86522 cells in another class,  99.9% of them more fragmented
+```
+
+The table of the part (`mscale` is its *average* row), with two decimals. `change.scales[27]` holds that window's
+matrix, `.matrix` (the cells of each class at A in each class at B, background first), `.percent` (the changed cells,
+as % of them), the areas and `frag_increase_pct` and `frag_decrease_pct`. The row of the intact forest:
+
+```python
+m = change.scales[27].matrix
+intact = m.loc["A6-Intact"]
+print(f"{intact.sum()} intact cells at A: {intact['B0-Background'] / intact.sum():.1%} cleared, "
+      f"{intact['B6-Intact'] / intact.sum():.1%} still intact")
+```
+
+```text
+31489 intact cells at A: 0.6% cleared, 59.9% still intact
+```
+
+`change.summary()` is GuidosToolbox's report (`FAD_change_mscale.txt`, below) of the average, and
+`change.summary(27)` of one scale.
+
+[`tf.fos_change`][terraflux.fos_change] takes the FOS maps of the two dates, made with the same settings:
+
+```python
+fos_a = tf.fos(before, window_size=27, method="FAC")
+fos_b = tf.fos(after, window_size=27, method="FAC")
+shift = tf.fos_change(fos_a.map, fos_b.map)
+print(shift.fg_gain, shift.fg_loss, shift.forcom, shift.diff_class, f"{shift.frag_increase_pct:.1f}%")
+```
+
+```text
+74 74281 353426 115983 99.9%
+```
+
+Gained, lost, common forest, common forest in another class, and the share of those more fragmented: the numbers of
+the FOS table. `shift.change_map` is the map (A − B + 100 on the common forest, 250 gained, 251 lost, 252 stable
+background), `shift.matrix_6x6` the matrix of classes, `shift.summary()` a report.
+
+For the mosaic, date B is the part's rule on CORINE, and the change of the heatmap is
+[`tf.landscape_mosaic_change`][terraflux.landscape_mosaic_change] of the two land covers in the three groups:
+
+```python
+corine = tf.load_raster(tf.example_data("clc"))                 # CORINE around Hannover, date A
+c = corine.values.astype(int)
+pressure = tf.nlm.gaussian_field(2000, 2000, autocorr_range=80, seed=5).values
+town = nbsum(c <= 11, 4)                                        # developed cells in the 9 x 9 window
+grows = (((c >= 12) & (c <= 22) & (pressure > 0.5) & (town >= 8))
+         | ((c >= 23) & (c <= 25) & (pressure > 0.75) & (town >= 20)))
+corine_b = corine.copy()
+corine_b.values[:] = np.where(grows, 2, c)                      # urban fabric (2) grows into the farmland
+print(f"developed land {(c <= 11).mean():.1%} to {(corine_b.values <= 11).mean():.1%} of the map")
+
+groups = [(1, 12, 3), (12, 23, 1), (23, 40, 2)]                 # developed, agriculture, natural; water: missing
+mosaic_change = tf.landscape_mosaic_change(tf.reclassify(corine, groups, others=0),
+                                           tf.reclassify(corine_b, groups, others=0), window_size=27)
+table = mosaic_change.table.groupby("recode_class_19").sum()    # the 103 classes in their 19
+table.index = [tf.LM19_CLASSES[i] for i in table.index]
+print(table.loc[["Pure Agriculture (100%)", "Developed-Agriculture", "Mosaic Agriculture-Developed", "Developed (>60%)"]].round(2))
+mosaic_change.to_csv("delta_heatmap.csv")                       # GuidosToolbox's delta_heatmap.csv
+```
+
+```text
+developed land 14.8% to 17.2% of the map
+                              percent_a  percent_b  change
+Pure Agriculture (100%)           28.65      26.82   -1.82
+Developed-Agriculture              3.83       4.88    1.05
+Mosaic Agriculture-Developed       3.82       4.36    0.54
+Developed (>60%)                   1.63       2.44    0.80
+```
+
+The classes of the part, with two decimals. `mosaic_change.table` has the shares of the 103 classes at both dates and
+their change, and `mosaic_change.triangle` the change on GuidosToolbox's triangle.
 
 ## GuidosToolbox's reports
 
@@ -323,5 +454,3 @@ The reports of the series:
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Vogt, P., Riitters, K. H., Caudullo, G., & Eckhardt, B. (2019). *FAO – State of the World's Forests: Forest fragmentation* (EUR 29972 EN). Publications Office of the European Union. https://doi.org/10.2760/145325
 - Wickham, J. D., Riitters, K. H., Wade, T. G., & Homer, C. (2008). Temporal change in fragmentation of continental US forests. *Landscape Ecology*. https://doi.org/10.1007/s10980-008-9258-z
-
-In Python: [Fragmentation in Python](/tutorials/fragmentation/fragmentation-in-python/).

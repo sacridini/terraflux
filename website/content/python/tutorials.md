@@ -25,7 +25,7 @@ and follow along.
     two on several computers and on a cluster are in [Parallel computing](/parallel/).
 
 - **[Habitat patterns](/tutorials/habitat-patterns/patterns-in-python/)**: Cores, edges, bridges and islets; objects by size; parcels and the shape of habitat boundaries.
-- **[Fragmentation](/tutorials/fragmentation/fragmentation-in-python/)**: Habitat density at one or many scales, fragmentation classes, landscape mosaics, contagion and entropy.
+- **[Fragmentation](/tutorials/fragmentation/)**: Habitat density at one or many scales, fragmentation classes, landscape mosaics, contagion and entropy, and their change between dates. The Python is in each part.
 - **[Landscape metrics](/tutorials/landscape-metrics/landscape-metrics-in-python/)**: Patch, class and landscape metrics, sample plots, moving windows, time series and spatial signatures.
 - **[Habitat networks](/tutorials/habitat-networks/habitat-networks-in-python/)**: Patches and distances as a graph: connectivity indices, the importance of every patch and link, protected-area connectivity.
 - **[Circuit connectivity](/tutorials/circuit-connectivity/circuit-connectivity-in-python/)**: Current flow between habitat areas and omnidirectional connectivity maps, on rasters and on networks.

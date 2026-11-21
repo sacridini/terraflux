@@ -6,7 +6,7 @@ order: 40
 
 Habitat density in moving windows, fragmentation classes, landscape mosaics,
 contagion, clustering, entropy and window statistics of percentage maps.
-Tutorial: [fragmentation](/tutorials/fragmentation/fragmentation-in-python/).
+Tutorial: [fragmentation](/tutorials/fragmentation/), the Python in each part.
 
 ## Habitat density
 

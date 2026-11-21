@@ -220,7 +220,7 @@ object.
 ## Next steps
 
 - Measure fragmentation at different observation scales in the
-  [fragmentation tutorial](/tutorials/fragmentation/fragmentation-in-python/).
+  [fragmentation tutorial](/tutorials/fragmentation/fragmentation-and-habitat-loss/#in-python).
 - Process many maps or maps larger than memory with MSPA in
   [large data & batch](/tutorials/large-data/large-data-in-python/).
 - Every function and option: [API reference](/python/api/patterns/).

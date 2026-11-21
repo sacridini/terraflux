@@ -81,7 +81,7 @@ the total change to the habitat area: a stable landscape has a low value.
 ## Shifts between fragmentation classes
 
 Compute the fragmentation of both dates at the same scale (see the
-[fragmentation tutorial](/tutorials/fragmentation/fragmentation-in-python/)), then compare:
+[fragmentation tutorial](/tutorials/fragmentation/fixed-observation-scale/#fos-in-python)), then compare:
 
 ```python
 frag_before = tf.fos(before, window_size=27)
@@ -112,7 +112,7 @@ the maps directly (it runs the multiscale density on both) or results of
 
 With two three-class land-cover maps (1 agriculture, 2 natural, 3 developed),
 `tf.landscape_mosaic_change(map_2000, map_2020, window_size=27)` compares
-their [landscape-mosaic heat maps](/tutorials/fragmentation/fragmentation-in-python/#landscape-mosaic): which
+their [landscape-mosaic heat maps](/tutorials/fragmentation/change-and-reports/#in-python): which
 compositions became more or less frequent. `tf.write_table(table, path)` writes it.
 
 ## Next steps

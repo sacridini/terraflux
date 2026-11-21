@@ -74,6 +74,12 @@ sections:
   about: { title: About, dir: about }
   glossary: { title: Glossary, dir: glossary }
 
+# Pages that moved: old URL path -> new URL path (an #anchor may follow). The build writes <old>/index.html, a page
+# that sends the reader (and the search engines) to the new one. An old path that is still a page, or a new one that
+# is not, fails the build.
+redirects:
+  /tutorials/fragmentation/fragmentation-in-python/: /tutorials/fragmentation/fragmentation-and-habitat-loss/#in-python
+
 # The tutorials' categories, in this order: a folder of content/tutorials/ each. `prefixes` are the operators
 # they cover (the subjects of the application's library); `cells` draws the category's small icon (3x3 cells:
 # 0 empty, 1 forest, 2 change).

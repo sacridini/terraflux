@@ -1343,6 +1343,49 @@ def check_graphs():
     print(f"--check: {len(GRAPHS)} graphs, {bad} with errors")
 
 
+def urls_of_pages(all_pages, cats, opgroups) -> list[str]:
+    """Every address the build writes a page at (the sitemap's list)."""
+    urls = ["/", "/download/", "/tutorials/", "/operators/"] + [f"/tutorials/{c['slug']}/" for c in cats]
+    return urls + [p.url for p in all_pages] + [f"/operators/{g['slug']}/" for g in opgroups]
+
+
+REDIRECT_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moved: {title}</title>
+<meta http-equiv="refresh" content="0; url={target}">
+<link rel="canonical" href="{canon}">
+<meta name="robots" content="noindex">
+</head>
+<body>
+<p>This page has moved to <a href="{link}">{link_text}</a>.</p>
+</body>
+</html>
+"""
+
+
+def write_redirects(out: pathlib.Path, pages: set[str]):
+    """`redirects:` of site.yaml: <out>/<old path>/index.html sends the reader to the new address.
+
+    Not in the sitemap or the search index (they are made from the pages). A redirect whose old path is a page, or
+    whose target is not one, fails the build."""
+    base = SITE["url"].rstrip("/")
+    for old, new in (SITE.get("redirects") or {}).items():
+        old = "/" + old.strip("/") + "/"
+        path, _, anchor = new.partition("#")
+        if old in pages:
+            raise SystemExit(f"redirects: {old} is a page; remove the redirect or the page")
+        if path not in pages:
+            raise SystemExit(f"redirects: {old} -> {new}: {path} is not a page")
+        target = rel_prefix(old) + new[1:]  # relative, as the site's links are
+        d = out / old.strip("/")
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "index.html").write_text(REDIRECT_PAGE.format(
+            title=html.escape(new), target=html.escape(target, quote=True), canon=html.escape(base + path, quote=True),
+            link=html.escape(target, quote=True), link_text=html.escape(new)), encoding="utf-8")
+
+
 def build(out: pathlib.Path, only: str | None = None, check=False, offline=False):
     t0 = time.time()
     WARNINGS.clear()
@@ -1470,13 +1513,13 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
         print(f"built {len(pages)} pages, {len(opgroups)} operator pages to read offline into {out} in "
               f"{time.time() - t0:.1f} s ({freed / 1e6:.0f} MB of PNG left out; {len(WARNINGS)} warnings)")
         return
+    write_redirects(out, set(urls_of_pages(all_pages, cats, opgroups)))
     # the page GitHub Pages shows for any missing address: links from the site's root, by <base>
     (out / "404.html").write_text(relativize(env.get_template("404.html").render(root=SITE["url"], page=None), "/"),
                                   encoding="utf-8")
     (out / "search.json").write_text(json.dumps(search, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
-    urls = ["/", "/download/", "/tutorials/", "/operators/"] + [f"/tutorials/{c['slug']}/" for c in cats]
-    urls += [p.url for p in all_pages] + [f"/operators/{g['slug']}/" for g in opgroups]
+    urls = urls_of_pages(all_pages, cats, opgroups)
     base = SITE["url"].rstrip("/")
     (out / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

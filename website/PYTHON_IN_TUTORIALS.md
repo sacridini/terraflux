@@ -168,17 +168,18 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `change-and-reports.md` | `change.fad` | partial | `fragmentation-in-python.md` | |
-| `fixed-observation-scale.md` | — | full | `fragmentation-in-python.md` | |
-| `fragmentation-and-habitat-loss.md` | — | full | `fragmentation-in-python.md` | |
+| `change-and-reports.md` | `change.fad` (of the script generator only: the library has `tf.fad_multiscale_change`, used) | partial | `fragmentation-in-python.md` (removed) | done |
+| `fixed-observation-scale.md` | — | full | `fragmentation-in-python.md` (removed) | done |
+| `fragmentation-and-habitat-loss.md` | — | full | `fragmentation-in-python.md` (removed) | done |
 
-`fragmentation-in-python.md`:
+`fragmentation-in-python.md` went into the parts (redirect `/tutorials/fragmentation/fragmentation-in-python/` to
+`fragmentation-and-habitat-loss/#in-python`, `redirects:` of `site.yaml`):
 - ## Habitat density in a moving window → fragmentation-and-habitat-loss
-- ## Several observation scales → fragmentation-and-habitat-loss ?
-- ## Fragmentation at a fixed observation scale → fixed-observation-scale
-- ## Landscape mosaic → fixed-observation-scale
-- ## Other window statistics → fixed-observation-scale ?
-- ## Choosing a window size → fragmentation-and-habitat-loss ?
+- ## Several observation scales → fragmentation-and-habitat-loss
+- ## Fragmentation at a fixed observation scale → fixed-observation-scale (FOS in Python, % cover in Python)
+- ## Landscape mosaic → fixed-observation-scale (the landscape mosaic in Python)
+- ## Other window statistics → fixed-observation-scale (density, contagion and entropy in Python; % cover in Python)
+- ## Choosing a window size → fragmentation-and-habitat-loss (the window in metres), fixed-observation-scale (the odd window)
 - ## Next steps → none (links)
 
 
@@ -521,6 +522,7 @@ No `*-in-python.md` page in this category.
 
 - Reason: its matrix, stats and report put together the tables of tf.fad_multiscale_change's scales (one per window) in Terraflux's layout: not in the script yet
 - Parts: `change-detection/forest-gain-and-loss`, `fragmentation/change-and-reports`
+- Only the script generator lacks it: the library has `tf.fad_multiscale_change`, which `fragmentation/change-and-reports` uses.
 
 ### `change.suggest` (2 parts)
 

@@ -209,6 +209,82 @@ fragmented, so it combines amount and fragmentation in one indicator.
     of the forest in each class at each window, and the average density. For one scale, choose it from the ecology of
     the species or process (the distance of edge effects, a home range); when in doubt, report FAD-MS.
 
+### In Python
+
+Both operators are in the library, as [`tf.fad`][terraflux.fad] and [`tf.fad_multiscale`][terraflux.fad_multiscale].
+The map is the part's `input.tif`, which the library ships as example data:
+
+```python
+import terraflux as tf
+
+forest = tf.load_raster(tf.example_data("input"))   # 0 missing, 1 background, 2 forest
+fad = tf.fad(forest, window_size=27)                # odd, 3 or more: 27 cells of 25 m are 675 m
+print(fad.stats.to_string(index=False))
+```
+
+```text
+ scale  intact_%  interior_%  dominant_%  transitional_%  patchy_%  rare_%  average_fad
+    27      7.35       32.72       32.18           13.99     12.21    1.55        73.54
+```
+
+These are the numbers of node 2. The result holds `fad.density` (0 to 100% on the forest, 101 on the background, 102
+on missing cells), `fad.classes` (1 rare to 6 intact), `fad.stats` and `fad.summary()`, a printable report. Save the
+density with the colours of the six classes, or the whole result (maps, tables and numbers) in a folder:
+
+```python
+tf.write_raster(fad.density, "fad27.tif")
+tf.save(fad, "fad27")
+```
+
+`tf.plot(fad)` draws the classes, their chart and the numbers. [`tf.fad`][terraflux.fad] takes a map coded 0, 1 and 2:
+for a map of classes, the operator's `foreground` is a [`tf.reclassify`][terraflux.reclassify] of it first
+(`tf.reclassify(classes, foreground=[23, 24, 25])`).
+
+At five scales, with the windows of node 3 (`window_sizes=(7, 27)` changes them):
+
+```python
+multi = tf.fad_multiscale(forest)
+print(multi.stats.set_index("window_size")[["intact_%", "interior_%", "average_fad", "avcon"]].to_string())
+```
+
+```text
+             intact_%  interior_%  average_fad  avcon
+window_size                                          
+7               51.74       13.86        85.20  36.52
+13              30.49       24.18        80.15  34.35
+27               7.35       32.72        73.54  31.52
+81               0.00       17.10        61.59  26.40
+243              0.00        5.60        51.40  22.03
+Average          0.00       16.91        70.38  30.16
+```
+
+The table has two decimals; the slider above rounds to one (80.15 is 80.1 there). `multi.single_scales[27]` is the
+density of one scale, `multi.multiscale_map` and `multi.classes` the combined map of five classes, the last row of the
+table its average.
+
+**Choosing the window.** It is a number of cells, odd and at least 3 (an even one raises a `ValueError`), and what it
+means is in map units: say it in metres and hectares, as the part does. Match it to the process (an edge effect, a
+home range, a seed dispersal distance), and when the right scale is unknown report several, which is what
+`fad_multiscale` is for:
+
+```python
+cell = 25   # metres
+for w in multi.window_sizes:
+    print(f"{w:3d} cells: {w * cell:5d} m, {(w * cell) ** 2 / 1e4:7.1f} ha")
+```
+
+```text
+  7 cells:   175 m,     3.1 ha
+ 13 cells:   325 m,    10.6 ha
+ 27 cells:   675 m,    45.6 ha
+ 81 cells:  2025 m,   410.1 ha
+243 cells:  6075 m,  3690.6 ha
+```
+
+The sample map is in degrees (EPSG:4326), as the pitfalls below say, so `cell = 25` is the nominal size the part
+assumes; with a projected map, read it from `forest.rio.resolution()`. Near missing data and the map's border only the
+cells with data count, in Python as in the application.
+
 ## Settings that change the answer
 
 - **The window**: above. In metres, it depends on the cell size: 27 cells are 675 m at 25 m, 2.7 km at 100 m.
@@ -255,5 +331,3 @@ fragmented, so it combines amount and fragmentation in one indicator.
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Vogt, P., Riitters, K. H., Caudullo, G., & Eckhardt, B. (2019). *FAO – State of the World's Forests: Forest fragmentation* (EUR 29972 EN). Publications Office of the European Union. https://doi.org/10.2760/145325
 - Wickham, J., & Riitters, K. H. (2019). Influence of high-resolution data on the assessment of forest fragmentation. *Landscape Ecology*, 34(9), 2169–2182. https://doi.org/10.1007/s10980-019-00820-z
-
-In Python: [Fragmentation in Python](/tutorials/fragmentation/fragmentation-in-python/).

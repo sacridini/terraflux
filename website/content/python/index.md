@@ -42,7 +42,7 @@ Where to go:
 
 - **[Habitat patterns](/tutorials/habitat-patterns/patterns-in-python/)**: split habitat into cores, edges,
   bridges, loops and islets; classify objects by size; describe the shape and texture of every patch.
-- **[Fragmentation](/tutorials/fragmentation/fragmentation-in-python/)**: habitat density at many observation
+- **[Fragmentation](/tutorials/fragmentation/)**: habitat density at many observation
   scales, fragmentation classes, landscape mosaics, contagion and spatial entropy, as maps and statistics.
 - **[Landscape metrics](/tutorials/landscape-metrics/landscape-metrics-in-python/)**: 130+ patch, class and
   landscape metrics, sample plots, moving windows, time series, spatial signatures and rasters larger than memory.

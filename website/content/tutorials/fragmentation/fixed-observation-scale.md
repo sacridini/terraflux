@@ -232,6 +232,71 @@ description.
 home range of a forest bird (a few hectares to tens), the area of a mammal's territory (hundreds of hectares). And
 report it in metres and hectares, not only in cells: the report does the conversion with `pixel_resolution`.
 
+### FOS in Python
+
+[`tf.fos`][terraflux.fos] is the operator: the map, `window_size`, `method` (`"FAD"`, `"FED"` or `"FAC"`), `classes`
+(5 or 6) and `connectivity` (8 or 4) are its settings. The three methods on the sample forest map, which the library
+ships as example data:
+
+```python
+import pandas as pd
+import terraflux as tf
+
+forest = tf.load_raster(tf.example_data("input"))   # 0 missing, 1 background, 2 forest
+fos = {m: tf.fos(forest, window_size=27, method=m) for m in ("FAD", "FED", "FAC")}
+table = pd.DataFrame({m: f.stats.set_index("class")["percent"] for m, f in fos.items()}).T
+table["Average"] = [f.average for f in fos.values()]
+print(table[["Intact", "Interior", "Dominant", "Transitional", "Patchy", "Rare", "Average"]].round(1))
+```
+
+```text
+class  Intact  Interior  Dominant  Transitional  Patchy  Rare  Average
+FAD       7.3      32.7      32.2          14.0    12.2   1.6     73.5
+FED      12.5      28.4      32.0          13.7    12.1   1.5     73.9
+FAC       6.9      30.1      31.4          14.6    13.8   3.2     70.6
+```
+
+The table of the part. The map of one method is `fos["FAC"].map` (0 to 100% on the forest, 101 background, 102
+missing), and with `classes=5` the intact share joins the interior. Besides the class shares, the result holds the
+numbers of GuidosToolbox's report; `summary()` is the report itself, the text of `fos.txt`:
+
+```python
+fac = fos["FAC"]
+print(f"{fac.n_patches} patches, average {fac.average_patch_size:.1f} cells; "
+      f"ECA {fac.eca:.0f}, COH {fac.coherence:.1f}%, AVCON {fac.avcon:.1f}%")
+```
+
+```text
+2850 patches, average 150.3 cells; ECA 221293, COH 51.6%, AVCON 30.3%
+```
+
+The report writes its hectares with `pixel_resolution` (25 m by default): give your map's cell size. The window
+sweep of the slider is a loop over `window_size`; the table is the stacked chart's data:
+
+```python
+rows = {}
+for w in (5, 9, 15, 27, 45, 81, 135):
+    s = tf.fos(forest, window_size=w, method="FAC")
+    rows[w] = {**s.stats.set_index("class")["percent"].round(2), "Average": round(s.average, 2)}
+profile = pd.DataFrame(rows).T[["Intact", "Interior", "Dominant", "Transitional", "Patchy", "Rare", "Average"]]
+print(profile.rename_axis("window"))
+```
+
+```text
+        Intact  Interior  Dominant  Transitional  Patchy  Rare  Average
+window                                                                 
+5        61.76      6.22     15.26          8.51    7.05  1.20    84.86
+9        43.10     14.25     21.32          9.71    9.38  2.25    80.28
+15       25.12     23.20     26.27         11.34   11.26  2.81    76.02
+27        6.88     30.13     31.40         14.61   13.83  3.16    70.59
+45        0.62     25.91     34.14         19.68   17.03  2.62    65.27
+81        0.00     15.45     32.49         27.75   22.31  2.01    58.45
+135       0.00      8.25     26.92         35.56   27.96  1.31    52.88
+```
+
+Two decimals here; the slider rounds them to one, so 15.45 shows there as 15.5. The window must be odd and at least 3;
+how to say it in metres is in [part 1's Python section](/tutorials/fragmentation/fragmentation-and-habitat-loss/#in-python).
+
 ## Density and contagion: Riitters' model
 
 ```tfgraph
@@ -294,6 +359,52 @@ it in a window around every cell:
 
 ![Entropy in windows of 27 cells](/img/tutorials/fragmentation/fixed-observation-scale/entropy27.png "The spatial entropy within 27 cells of every cell of the map. Dark where the window is all forest or all fields; bright where forest and fields are most intermingled, as in the valley's mosaic in the north.")
 
+### Density, contagion and entropy in Python
+
+| Function | Result |
+|---|---|
+| `tf.fad(forest, window_size=7)` | the density, \(P_f\) |
+| `tf.contagion_pff(forest, window_size=7)` | contagion, \(P_{ff}\): the chance that a neighbour of a forest cell is forest |
+| `tf.clustering_fac(forest, window_size=7)` | clustering: the share of all pairs of neighbours that are forest-forest |
+| `tf.spatial_entropy(forest)` | one index (0 to 100%) for the whole map |
+| `tf.spatial_entropy_map(forest, window_size=27)` | the same in a window around every cell (default 50) |
+
+The functions are [`tf.contagion_pff`][terraflux.contagion_pff], [`tf.clustering_fac`][terraflux.clustering_fac],
+[`tf.spatial_entropy`][terraflux.spatial_entropy] and [`tf.spatial_entropy_map`][terraflux.spatial_entropy_map]. The
+contagion and clustering maps are bytes, 0 to 100 on the forest, as in the application; `as_byte=False` gives 0 to 1
+with NaN off the forest. The library has no function for Riitters' six categories, which are a rule on two maps, a few
+lines of numpy (in the application, one [[raster.calc]]):
+
+```python
+import numpy as np
+
+pf = tf.fad(forest, window_size=7).density.values / 100        # density; 101 and 102 off the forest
+pff = tf.contagion_pff(forest, window_size=7).values / 100     # contagion; a byte map, 0-100 on the forest
+on = (pf <= 1) & (pff <= 1)                                    # the forest cells
+
+cat = np.zeros(pf.shape, dtype=int)                            # 0: not forest
+cat[on & (pf < 0.4)] = 5                                       # patch
+cat[on & (pf >= 0.4) & (pf < 0.6)] = 4                         # transitional
+cat[on & (pf >= 0.6) & (pf > pff)] = 3                         # edge
+cat[on & (pf >= 0.6) & (pf < pff)] = 2                         # perforated
+cat[on & (pf >= 0.6) & (pf == pff)] = 6                        # undetermined
+cat[on & (pf == 1)] = 1                                        # interior
+names = ["interior", "perforated", "edge", "transitional", "patch", "undetermined"]
+print({n: round(float((cat == i + 1).sum() / on.sum() * 100), 2) for i, n in enumerate(names)})
+
+entropy = tf.spatial_entropy(forest)                           # one number for the map
+entropy27 = tf.spatial_entropy_map(forest, window_size=27)     # a map, 0-100%
+print(round(entropy.entropy_index, 1), round(float(np.nanmax(entropy27)), 1))
+```
+
+```text
+{'interior': 51.74, 'perforated': 18.3, 'edge': 11.45, 'transitional': 8.42, 'patch': 7.05, 'undetermined': 3.05}
+32.5 84.4
+```
+
+The shares of the part, with two decimals (the part rounds them to one, so 11.45 is 11.5 there); the entropy is the
+32.5% of the map.
+
 ## % cover: tree cover of the United States
 
 ```tfgraph
@@ -340,6 +451,38 @@ Forest (30% cover or more) is 29.0% of the area with data, in 17,785 patches. It
 cover around forest cells) is 49.7%: dominant 38.3% of the forest, transitional 29.8%, patchy 28.8%, rare 2.9%, and
 interior a mere 0.2% (a window of 17 km with 90% mean cover is rare at this resolution).
 
+### % cover in Python
+
+[`tf.fos`][terraflux.fos] reads a % cover map by its values, as the operator does (`grayscale=True` forces it), and
+`gray_threshold` (default 30) decides which cells are forest. GraySpatCon's metrics are
+[`tf.gray_spatial_convolution`][terraflux.gray_spatial_convolution]: `metric` is `"mean"`, `"median"`, `"majority"`,
+`"min"`, `"max"`, `"range"`, `"stddev"`, `"shannon_diversity"`, `"shannon_evenness"` or `"diagonal_contagion"`.
+
+```python
+cover = tf.load_raster(tf.example_data("gscinput"))            # % tree cover, 0-100; 255 missing
+gray = tf.fos(cover, window_size=7, method="FAD", gray_threshold=30)   # forest: 30% cover or more
+valid = cover.values <= 100
+print(f"forest {(cover.values >= 30)[valid].mean() * 100:.1f}% of the area with data, "
+      f"{gray.n_patches} patches, average connectivity {gray.average:.1f}%")
+print(gray.stats.round(1).to_string(index=False))
+spread = tf.gray_spatial_convolution(cover, metric="stddev", window_size=7)   # float32; 255 stays missing
+print(spread.dtype, round(float(np.nanmax(spread)), 1))
+```
+
+```text
+forest 29.0% of the area with data, 17785 patches, average connectivity 49.7%
+       class  percent
+        Rare      2.9
+      Patchy     28.8
+Transitional     29.8
+    Dominant     38.3
+    Interior      0.2
+      Intact      0.0
+float32 48.3
+```
+
+The numbers of the part. `gray.grayscale` is `True`, and `gray.map` the connectivity, the mean cover in the window with FAD.
+
 ## The landscape mosaic
 
 ```tfgraph
@@ -385,6 +528,46 @@ the developed corner are under pressures that their density alone does not show.
     agriculture as the second class (10% or more), `Forest-Agriculture-Developed` the same with developed land at
     10% or more too, and `Mosaic ...` a mix where no class reaches 60%. Report the class numbers with their names.
 
+### The landscape mosaic in Python
+
+The land cover goes in as three classes, 1 agriculture, 2 natural, 3 developed and 0 missing: [`tf.reclassify`][terraflux.reclassify]
+makes it from CORINE (the ranges are `low <= value < high`), with the groups of the graph. The library names the natural
+class *Forest* in its class names; it is the same class.
+
+```python
+landcover = tf.load_raster(tf.example_data("clc"))             # CORINE around Hannover
+three = tf.reclassify(landcover, [(1, 12, 3),                  # developed
+                                  (12, 23, 1),                 # agriculture
+                                  (23, 40, 2)],                # natural; the water (40-44) is in none: missing
+                      others=0)
+mosaic = tf.landscape_mosaic(three, window_size=27)            # 19 classes; output_classes=103 for the finer ones
+stats = tf.landscape_mosaic_stats(three, window_size=27)       # the cells of each of the 103 classes
+shares = stats.groupby("recode_name_19")["percentage"].sum().sort_values(ascending=False)
+print(shares.head(6).round(2).to_string())
+```
+
+```text
+recode_name_19
+Pure Agriculture (100%)    28.65
+Agriculture (>60%)         12.33
+Agriculture-Developed       9.43
+Agriculture-Forest          8.83
+Pure Forest (100%)          8.62
+Forest-Agriculture          6.09
+```
+
+The largest classes of the part, with two decimals. `tf.plot(mosaic)` draws the map with the colours of the 19 classes (`tf.LM19_CLASSES` names them,
+`tf.lm_colormap()` colours them). The shares of the windows on GuidosToolbox's triangle, the *heatmap*, come from
+[`tf.landscape_mosaic_heatmap`][terraflux.landscape_mosaic_heatmap], which writes GuidosToolbox's `heatmap.csv`:
+
+```python
+heat = tf.landscape_mosaic_heatmap(three, window_size=27)
+heat.to_csv("heatmap.csv")
+```
+
+`heat.table` has the shares of the 103 classes and `heat.triangle` the 12 × 21 grid of the triangle. The change of the
+heatmap between two dates is in [part 3](/tutorials/fragmentation/change-and-reports/#in-python).
+
 ## Settings that change the answer
 
 - **The window**, above; and the cell size it multiplies.
@@ -424,5 +607,3 @@ the developed corner are under pressures that their density alone does not show.
 - Riitters, K. H., Wickham, J. D., Wade, T. G., & Vogt, P. (2012). Global survey of anthropogenic neighborhood threats to conservation of grass-shrub and forest vegetation. *Journal of Environmental Management*, 97, 116–121. https://doi.org/10.1016/j.jenvman.2011.11.009
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Vogt, P., Riitters, K., Rambaud, P., d'Annunzio, R., Lindquist, E., & Pekkarinen, A. (2022). GuidosToolbox Workbench: spatial analysis of raster maps for ecological applications. *Ecography*, 2022(3), e05864. https://doi.org/10.1111/ecog.05864
-
-In Python: [Fragmentation in Python](/tutorials/fragmentation/fragmentation-in-python/).

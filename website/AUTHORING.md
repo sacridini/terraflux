@@ -388,6 +388,10 @@ its own (the `*-in-python.md` pages are being merged into the parts and will go)
 - A topic that only the library has (dask and very large tables, several computers, prioritizr's API) is a part of
   its own in its category, all in Python.
 
+**A page that moves or goes.** Add it to `redirects:` in `site.yaml` (old URL path: new URL path, an `#anchor` may
+follow). The build writes `<old path>/index.html`: a page with a meta refresh, a canonical link, `noindex` and a visible
+link, out of the sitemap and the search. An old path that is still a page, or a target that is not one, fails the build.
+
 **Sidebar groups.** A section whose pages live in subfolders (`python/getting-started/x.md`, `python/api/x.md`,
 `python/api/x.md`) shows a heading for each subfolder, with a fold that opens
 for the page being read; the section's own pages (`python/index.md`, `python/changelog.md`) stay in the list. A
