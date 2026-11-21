@@ -153,8 +153,29 @@ pub fn polygon_arrays(geoms: &[&Geometry]) -> (Vec<f64>, Vec<i64>, Vec<i64>) {
     (xy, ring_off, geom_rings)
 }
 
+/// The grid refused when features cannot be burnt into it: no cells, more than the kernels' 32-bit sizes hold, a
+/// geotransform that is not finite or has a cell of size 0.
+pub fn check_grid(grid: &Grid) -> Result<()> {
+    let (w, h) = (grid.width, grid.height);
+    if w == 0 || h == 0 {
+        return Err(Error::msg(format!("the map's grid has no cells ({w} x {h})")));
+    }
+    if w > i32::MAX as usize || h > i32::MAX as usize || w.checked_mul(h).is_none() {
+        return Err(Error::msg(format!("the map's grid is too large ({w} x {h} cells)")));
+    }
+    let t = &grid.transform;
+    if t.iter().any(|v| !v.is_finite()) {
+        return Err(Error::msg(format!("the map's geotransform is not finite: {t:?}")));
+    }
+    if t[1] == 0.0 || t[5] == 0.0 {
+        return Err(Error::msg(format!("the map's cells have a size of 0: {t:?}")));
+    }
+    Ok(())
+}
+
 /// Every geometry (polygons) as its cells on the grid, as GDAL burns them.
 pub fn runs(geoms: &[&Geometry], grid: &Grid, all_touched: bool) -> Result<ffi::RunsOut> {
+    check_grid(grid)?;
     let (xy, ring_off, geom_rings) = polygon_arrays(geoms);
     if grid.transform[2] != 0.0 || grid.transform[4] != 0.0 {
         return Err(Error::msg("the map's grid is rotated: polygons are burnt on north-up grids"));
@@ -173,6 +194,7 @@ pub fn runs(geoms: &[&Geometry], grid: &Grid, all_touched: bool) -> Result<ffi::
 /// Burn the features into `out` (the grid's cells), value k for feature k: polygons first, then lines, then
 /// points; within each the later ones win, or the values add up.
 pub fn burn(out: &mut [f64], grid: &Grid, v: &Vector, values: &[f64], all_touched: bool, add: bool) -> Result<()> {
+    check_grid(grid)?;
     let idx = |f: &dyn Fn(&Geometry) -> bool| -> Vec<usize> { (0..v.len()).filter(|&i| f(&v.geometries[i])).collect() };
     let polys = idx(&|g| g.is_polygonal());
     if !polys.is_empty() {
@@ -498,6 +520,7 @@ impl Operator for Rasterize {
             Some(v) => return Err(Error::msg(format!("node {:?}: like: a map, not a {:?}", args.node, v.ty()))),
             None => return Err(Error::msg(format!("node {:?}: connect a map (like)", args.node))),
         };
+        check_grid(&grid).map_err(|e| Error::msg(format!("node {:?}: {e}", args.node)))?;
         let v = on_grid(vector_of(args, "vector")?, &grid)?;
         let (values, keep) = burn_values(args, &v)?;
         let fill = match args.params.get("fill") {

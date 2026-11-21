@@ -21,6 +21,7 @@ version.
 
 ### Fixed
 - **The instructions of `terraflux mcp` name the guide `multivariate`** (`crates/app/src/tools.rs`): it was missing from the list of guides there, and the test of the instructions failed without it; the new `movement` guide is listed too.
+- **`vector.rasterize` refuses a degenerate grid instead of crashing the process** (`crates/ops/src/vector.rs` `check_grid`, `crates/gdal/src/lib.rs`; test `crates/ops/tests/rasterize_grid.rs`): a map with no columns or rows made GDAL's rasterizer (which burns the lines) divide by zero (`STATUS_INTEGER_DIVIDE_BY_ZERO`); a size beyond 32 bits overflowed, and a geotransform that is not finite or with a cell of size 0 burnt nothing without a word. Now an error names the problem (no cells, too large, not finite, a cell of size 0), also for the other operators that burn features (objects, services, protected-area connectivity, species distribution).
 - **The gamma draws of `move.random_steps` and `move.random_numbers` are thread-safe**: R's `rgamma()` in the library's `movecore` kept its cached constants in statics and drew from the caller's generator through a global pointer, so two draws at once (two models running, or tests in parallel) used each other's generator or a null one and crashed (STATUS_ACCESS_VIOLATION, about one parallel run of the movement tests in twenty). Both are per thread now (terraflux-py 51acd76); the draws are the same. Test: `gamma_draws_on_several_threads_are_the_serial_ones`.
 
 ## [1.59.0] - 2026-11-20

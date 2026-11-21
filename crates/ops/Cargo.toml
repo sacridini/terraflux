@@ -49,3 +49,7 @@ path = "tests/main.rs"
 [[test]]
 name = "circuit_ini"
 path = "tests/circuit_ini.rs"
+
+[[test]]
+name = "rasterize_grid"
+path = "tests/rasterize_grid.rs"

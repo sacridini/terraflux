@@ -1699,6 +1699,16 @@ pub fn rasterize(
     all_touched: bool,
     add: bool,
 ) -> Result<()> {
+    // (GDAL's rasterizer divides by the block size of a grid: a grid of no cells crashes the process)
+    if width == 0 || height == 0 {
+        return Err(format!("rasterize: the grid has no cells ({width} x {height})"));
+    }
+    if width > c_int::MAX as usize || height > c_int::MAX as usize || width.checked_mul(height).is_none() {
+        return Err(format!("rasterize: the grid is too large ({width} x {height} cells)"));
+    }
+    if transform.iter().any(|t| !t.is_finite()) || transform[1] == 0.0 || transform[5] == 0.0 {
+        return Err(format!("rasterize: the grid's geotransform {transform:?} is not finite, or has a cell of size 0"));
+    }
     let g = gdal().map_err(String::from)?;
     let a = &g.api;
     if out.len() != width * height || geometries.len() != values.len() {

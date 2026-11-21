@@ -105,7 +105,7 @@ fn every_test_file_runs() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     // (a checkout with CRLF: the string below has LF, as Rust reads its literals)
     let main = include_str!("main.rs").replace("\r\n", "\n");
-    let apart: [&str; 1] = ["circuit_ini"];
+    let apart: [&str; 2] = ["circuit_ini", "rasterize_grid"];
     for f in std::fs::read_dir(dir).unwrap() {
         let p = f.unwrap().path();
         let stem = p.file_stem().unwrap().to_string_lossy().into_owned();
