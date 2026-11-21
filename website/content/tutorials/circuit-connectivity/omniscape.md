@@ -235,6 +235,99 @@ between small woods that no pair of large forests uses, and the impeded land aro
 connectivity study often uses both: Omniscape for the map of the region, Circuitscape for the links between the
 areas that matter.
 
+### In Python
+
+Omniscape is [`circuit.omniscape`][terraflux.circuit.omniscape]: the resistance, the radius in cells and the settings of
+the node. The resistance is the class table of [part 2](../resistance-surfaces/), made again here from the same land
+cover:
+
+```python
+import numpy as np
+import terraflux as tf
+from terraflux import circuit
+
+land = tf.load_raster("clc_100m.tif")
+groups = {1.0: [23, 24, 25], 2.0: [29], 5.0: [21, 26, 27, 32, 35, 36], 10.0: [18, 20], 20.0: [12],
+          30.0: [10, 11], 50.0: [7, 8, 9], 100.0: [1, 2, 3, 4, 5, 6, 40, 41]}    # part 2's table
+resistance = tf.reclassify(land, {c: r for r, cs in groups.items() for c in cs}, others=20.0, dtype="float64")
+
+flow = circuit.omniscape(
+    resistance,
+    radius=30,                  # window radius in cells: 3 km at 100 m
+    block_size=5,               # one target per 5 x 5 block, with the correction of the seams
+    flow_potential=True,        # the same windows over a resistance of 1
+    normalized_current=True,    # cumulative current / flow potential
+)
+print(list(flow.data_vars))
+```
+
+```text
+['cum_currmap', 'flow_potential', 'normalized_cum_currmap']
+```
+
+`flow` is a dataset of three maps on the resistance's grid, the three outputs of the node:
+
+| Output | Meaning |
+|---|---|
+| `cum_currmap` | the cumulative current: where movement concentrates |
+| `flow_potential` | the current if the whole landscape were equally easy to cross |
+| `normalized_cum_currmap` | their ratio: above 1 channelled, near 1 free, below 1 impeded |
+
+`tf.plot(flow)` draws them on a logarithmic scale and `tf.save(flow, "omniscape_out")` writes a GeoTIFF per map and the
+settings as a table. The shares of the part's slider are counted on the normalised current. Here are the four radii of
+the slider, with its blocks (the library solves every window exactly, so these are the part's numbers, in seconds rather than minutes):
+
+```python
+for radius, block in [(10, 3), (20, 5), (30, 5), (50, 7)]:
+    run = circuit.omniscape(resistance, radius=radius, block_size=block, flow_potential=True, normalized_current=True)
+    n = run["normalized_cum_currmap"].values
+    n = n[~np.isnan(n)]
+    print(f"radius {radius:2d}, block {block}: channelled (> 1.5) {100 * (n > 1.5).mean():4.1f}%, "
+          f"impeded (< 0.5) {100 * (n < 0.5).mean():4.1f}%, median {np.median(n):.2f}")
+```
+
+```text
+radius 10, block 3: channelled (> 1.5)  1.1%, impeded (< 0.5) 17.6%, median 0.90
+radius 20, block 5: channelled (> 1.5)  3.8%, impeded (< 0.5) 23.7%, median 0.78
+radius 30, block 5: channelled (> 1.5)  6.1%, impeded (< 0.5) 24.8%, median 0.76
+radius 50, block 7: channelled (> 1.5)  9.7%, impeded (< 0.5) 24.9%, median 0.75
+```
+
+The 3 km run (`flow`) is the one of the categories, with the part's thresholds on the normalised current (1 impeded, 2
+diffuse, 3 intensified, 4 channelised):
+
+```python
+n = flow["normalized_cum_currmap"].values
+classes = np.where(n < 0.5, 1, np.where(n < 1.5, 2, np.where(n < 2.5, 3, 4)))
+share = {k: round(100 * float((classes[~np.isnan(n)] == k).mean()), 1) for k in (1, 2, 3, 4)}
+print(share)
+```
+
+```text
+{1: 24.8, 2: 69.2, 3: 5.7, 4: 0.3}
+```
+
+A quarter of the land is impeded and 6% intensified or channelised, as in the part. The other settings of the node are
+arguments of the call:
+
+- `source=` an array of your own source strengths (a suitability, a density), with `source_threshold=`, and `r_cutoff=` to
+  stop cells above a resistance from sending; without them the sources are the conductance (`resistance_is_conductance=True`
+  reads a conductance instead).
+- `buffer=` cells beyond the radius in each window's circuit, `correct_artifacts=` (on) the seams between blocks, and
+  `four_neighbors=`.
+- `condition1=`, `condition2=` with `comparison1=`, `condition1_lower=`, `condition1_upper=` (and the `_future` maps,
+  `compare_to_future=`): conditional connectivity.
+- `memory_limit=` the bytes the solves may use (by default half of the physical memory): with large windows fewer
+  threads run at once when a full window's factorisation would not fit, which is the thing to watch on a large map,
+  since a window's memory grows with its size. `n_threads=` caps the cores.
+
+Omniscape's INI files run as they are, with every option of Omniscape 0.7:
+
+<!-- no-run -->
+```python
+circuit.omniscape_ini("my_omniscape.ini")
+```
+
 ## Settings that change the answer
 
 - **The radius**, as above. When the dispersal distance is uncertain, run two radii and look for channels present
@@ -269,5 +362,3 @@ areas that matter.
 - Landau, V. A., Shah, V. B., Anantharaman, R., & Hall, K. R. (2021). Omniscape.jl: software to compute omnidirectional landscape connectivity. *Journal of Open Source Software*, 6(57), 2829. https://doi.org/10.21105/joss.02829
 - McRae, B. H., Popper, K., Jones, A., et al. (2016). *Conserving nature's stage: mapping omnidirectional connectivity for resilient terrestrial landscapes in the Pacific Northwest*. The Nature Conservancy, Portland, Oregon.
 - Phillips, P., Clark, M. M., Baral, S., Koen, E. L., & Bowman, J. (2021). Comparison of methods for estimating omnidirectional landscape connectivity. *Landscape Ecology*, 36(6), 1647–1661. https://doi.org/10.1007/s10980-021-01254-2
-
-In Python: [Circuit connectivity in Python](/tutorials/circuit-connectivity/circuit-connectivity-in-python/).

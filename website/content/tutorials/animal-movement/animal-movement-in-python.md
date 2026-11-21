@@ -368,7 +368,7 @@ sinuosity's radians as if they were degrees. See
 - The [API reference](/python/api/move/) lists every option.
 - The [animal movement tutorials](/tutorials/animal-movement/) explain
   steps, sampling rates and step selection.
-- [Circuit connectivity](/tutorials/circuit-connectivity/circuit-connectivity-in-python/) and
+- [Circuit connectivity](/tutorials/circuit-connectivity/) and
   [distance & restoration](/tutorials/distance-restoration/distance-restoration-in-python/) model movement across a
   whole landscape from resistance maps, which tracks can calibrate.
 

@@ -301,6 +301,165 @@ and none of them appears on the corridor map. The effective resistance between t
     are almost always shown with a logarithmic or quantile stretch), and name the pinch points. McRae et al.
     (2012) and Dickson et al. (2019) give examples and advice.
 
+### In Python
+
+The four modes are [`circuit.circuitscape_pairwise`][terraflux.circuit.circuitscape_pairwise],
+[`circuit.circuitscape_one_to_all`][terraflux.circuit.circuitscape_one_to_all] (`all_to_one=True` for the other
+direction) and [`circuit.circuitscape_advanced`][terraflux.circuit.circuitscape_advanced]; they take the resistance
+and a raster of focal ids, and their results hold the same tables and maps as the nodes. The resistance is the table of
+[part 2](../resistance-surfaces/); the focal areas are the forests of 1,500 ha or more, found as in part 2 with
+[`tf.conn.node_table`][terraflux.conn.node_table] (the areas, in hectares) and [`HabitatGraph.to_raster`][terraflux.HabitatGraph]
+(the patch numbers painted on the map):
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+from terraflux import circuit, cost
+
+land = tf.load_raster("clc_100m.tif")
+groups = {1.0: [23, 24, 25], 2.0: [29], 5.0: [21, 26, 27, 32, 35, 36], 10.0: [18, 20], 20.0: [12],
+          30.0: [10, 11], 50.0: [7, 8, 9], 100.0: [1, 2, 3, 4, 5, 6, 40, 41]}    # part 2's table
+resistance = tf.reclassify(land, {c: r for r, cs in groups.items() for c in cs}, others=20.0, dtype="float64")
+
+nodes = tf.conn.node_table(land, habitat=[23, 24, 25], area_unit="ha")
+net = tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25], area_unit="ha")
+patch = net.to_raster(pd.Series(nodes["id"].values, index=nodes["id"]))
+patch = np.nan_to_num(patch.values).astype(int)
+
+large = nodes.loc[nodes["attribute"] >= 1500, "id"].tolist()
+print(large)
+cores = np.where(np.isin(patch, large), patch, 0)          # the focal areas: 0 outside them
+```
+
+```text
+[6, 8, 30, 45, 47, 55, 96, 110]
+```
+
+Pairwise mode, with the two maps of the part (`cum_map` the sum of the 28 pairs' currents, `max_map` their maximum):
+
+```python
+pairs = circuit.circuitscape_pairwise(resistance, cores, cum_map=True, max_map=True)
+ids = pairs.resistances[0, 1:].astype(int)               # ids in the first row and column
+matrix = pd.DataFrame(pairs.resistances[1:, 1:], index=ids, columns=ids)
+print(matrix.round(2).to_string())
+```
+
+```text
+      6     8     30    45    47    55    96    110
+6    0.00  4.16  3.38  5.75  4.21  5.02  5.50  6.92
+8    4.16  0.00  4.99  2.02  5.39  2.77  5.95  7.36
+30   3.38  4.99  0.00  6.33  0.96  5.03  3.23  4.63
+45   5.75  2.02  6.33  0.00  6.66  2.96  7.06  8.46
+47   4.21  5.39  0.96  6.66  0.00  5.23  2.75  4.13
+55   5.02  2.77  5.03  2.96  5.23  0.00  5.36  6.73
+96   5.50  5.95  3.23  7.06  2.75  5.36  0.00  1.85
+110  6.92  7.36  4.63  8.46  4.13  6.73  1.85  0.00
+```
+
+This is the matrix of the figure: 30 and 47 the closest (0.96), 96 and 110 next (1.85), 45 and 110 the most isolated
+(8.46); a `-1` would be a pair in parts of the landscape that do not touch. `pairs.cum_current` and `pairs.max_current` are
+numpy arrays on the resistance's grid (`tf.write_raster` or `tf.save` write them as GeoTIFFs). The correlation with the
+distance that the chart shows is a few lines more:
+
+```python
+centre = np.array([np.argwhere(cores == i).mean(axis=0) for i in ids])      # row, column of each forest
+apart = np.hypot(*(centre[:, None] - centre[None, :]).transpose(2, 0, 1)) * 0.1     # km, cells of 100 m
+upper = np.triu_indices(len(ids), 1)
+print("r =", round(np.corrcoef(apart[upper], matrix.values[upper])[0, 1], 2))
+```
+
+```text
+r = 0.91
+```
+
+One-to-all and all-to-one differ by one argument. One-to-all gives one effective resistance per forest, the ranking of
+the part; all-to-one measures none (its `resistances` are 0, as in Circuitscape) and its result is the current map:
+
+```python
+one = circuit.circuitscape_one_to_all(resistance, cores, cum_map=True)
+rank = pd.Series(one.resistances[:, 1], index=one.resistances[:, 0].astype(int))
+print(rank.round(2).sort_values().to_string())
+
+to_one = circuit.circuitscape_one_to_all(resistance, cores, cum_map=True, all_to_one=True)
+print("largest cumulative current:", round(float(one.cum_current.max()), 2), "one-to-all,",
+      round(float(to_one.cum_current.max()), 2), "all-to-one")
+```
+
+```text
+30     0.80
+47     0.80
+96     1.21
+8      1.36
+45     1.67
+110    1.80
+55     1.92
+6      2.47
+largest cumulative current: 2.39 one-to-all, 21.36 all-to-one
+```
+
+The advanced mode takes the sources and the grounds as maps. [`circuit.circuitscape_advanced`][terraflux.circuit.circuitscape_advanced]
+reads the resistance as the other modes do and `ground` as a resistance to ground (0 a direct ground, no value none;
+`ground_is_resistance=False` reads conductances). [`circuit.advanced`][terraflux.circuit.advanced] is the operator's
+form, with the conductances of the graph (`1 / r`) and an infinite conductance for a direct ground. Both give the
+same:
+
+```python
+source = np.where(cores == 55, 1.0, np.nan)                  # 1 A in every cell of the southern forest
+ground = np.where((cores > 0) & (cores != 55), 0.0, np.nan)  # a direct ground in the seven others
+adv = circuit.circuitscape_advanced(resistance, source, ground)
+print("voltage:", round(float(adv.voltage.max())), " largest current:", round(float(adv.current.max()), 1))
+
+direct = circuit.advanced(1 / resistance.values, np.nan_to_num(source),
+                          np.where((cores > 0) & (cores != 55), np.inf, 0.0))
+print("voltage:", round(float(np.nanmax(direct.voltage))), " largest current:", round(float(direct.current.max()), 1))
+```
+
+```text
+voltage: 20303  largest current: 348.4
+voltage: 20303  largest current: 348.4
+```
+
+The `voltage` is the "pressure" of dispersers from the source and the `current` the map of the figure. Circuitscape's other options are arguments of the calls: `polygons` and `mask` (short-circuit regions and cells left out),
+`four_neighbors` and `avg_resistances` (the connection scheme), `set_focal_node_currents_to_zero=True` (the `focal_zero` of
+the part) and, in pairwise mode, `included_pairs=` to restrict the pairs to those of a file.
+
+The least-cost corridor beside the current is the grid-distances library: a [`cost.transition`][terraflux.cost.transition]
+of the resistance (the conductance of a step is the reciprocal of the mean resistance of the two cells), corrected for the
+diagonals, and [`cost.acc_cost`][terraflux.cost.acc_cost] from each forest. The cells with a sum within a few percent of
+the least are the corridor:
+
+```python
+conductance = cost.transition(resistance, "mean", 8).map(lambda r: 1 / r, pairs="all")
+conductance = cost.geo_correction(conductance)
+two = (patch == 55) | (patch == 96)
+total = np.asarray(cost.acc_cost(conductance, patch == 55)) + np.asarray(cost.acc_cost(conductance, patch == 96))
+best = total.min()
+print(f"least cost {best:,.0f}; cells within 5%: {int(((total <= 1.05 * best) & ~two).sum()):,},"
+      f" within 10%: {int(((total <= 1.10 * best) & ~two).sum()):,}")
+
+between = circuit.circuitscape_pairwise(resistance, np.where(patch == 55, 1, np.where(patch == 96, 2, 0)))
+print("effective resistance between the two forests:", round(between.resistances[1, 2], 2))
+```
+
+```text
+least cost 202,287; cells within 5%: 7,133, within 10%: 14,771
+effective resistance between the two forests: 5.36
+```
+
+The numbers are the part's (202,287; 7,133 cells within 5% and 14,771 within 10%; 5.36). The corridor leaves out the two
+forests' own cells (`& ~two`), as the part does.
+
+Circuitscape's INI files run as they are, and write the files Circuitscape names:
+
+<!-- no-run -->
+```python
+circuit.circuitscape_ini("my_project.ini")      # raster or network, any mode
+```
+
+On networks, [`circuit.circuitscape_network_pairwise`][terraflux.circuit.circuitscape_network_pairwise] and
+`circuitscape_network_advanced(edges, sources, grounds)` take the edge lists of [part 1](../circuit-theory/#in-python).
+
 ## Settings that change the answer
 
 - **The resistance** ([part 2](../resistance-surfaces/)): the contrasts between classes sharpen or spread the
@@ -347,5 +506,3 @@ and none of them appears on the corridor map. The effective resistance between t
 - McRae, B. H., & Beier, P. (2007). Circuit theory predicts gene flow in plant and animal populations. *Proceedings of the National Academy of Sciences*, 104(50), 19885–19890. https://doi.org/10.1073/pnas.0706568104
 - McRae, B. H., Dickson, B. G., Keitt, T. H., & Shah, V. B. (2008). Using circuit theory to model connectivity in ecology, evolution, and conservation. *Ecology*, 89(10), 2712–2724. https://doi.org/10.1890/07-1861.1
 - McRae, B. H., Hall, S. A., Beier, P., & Theobald, D. M. (2012). Where to restore ecological connectivity? Detecting barriers and quantifying restoration benefits. *PLoS ONE*, 7(12), e52604. https://doi.org/10.1371/journal.pone.0052604
-
-In Python: [Circuit connectivity in Python](/tutorials/circuit-connectivity/circuit-connectivity-in-python/).

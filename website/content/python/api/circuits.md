@@ -7,7 +7,7 @@ order: 70
 Connectivity from electrical circuit theory: omnidirectional current with
 moving windows (Omniscape), current and effective resistance between focal
 points, sources and grounds, on rasters and on networks (Circuitscape).
-Tutorial: [circuit connectivity](/tutorials/circuit-connectivity/circuit-connectivity-in-python/).
+Tutorial: [circuit connectivity](/tutorials/circuit-connectivity/).
 
 `tf.omniscape` is at the top level; the other functions are in the
 `tf.circuit` module (`from terraflux import circuit`).

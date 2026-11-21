@@ -238,6 +238,91 @@ The three maps answer different questions:
     distances over many simulated landscapes and found them strongly correlated in most. As measures of isolation
     they often agree; as maps of where movement goes, they do not.
 
+### In Python
+
+Circuitscape's modes are in `terraflux.circuit`. The circuits of the part are lists of edges, the same table
+[[table.of]] makes: [`circuit.circuitscape_network_pairwise`][terraflux.circuit.circuitscape_network_pairwise] takes the
+edges (`from`, `to`, `resistance`) and the focal nodes:
+
+```python
+import numpy as np
+import terraflux as tf
+from terraflux import circuit
+
+edges = [[1, 2, 1], [2, 3, 1], [1, 4, 2], [4, 3, 2]]   # from, to, resistance: the third circuit
+net = circuit.circuitscape_network_pairwise(edges, [1, 3], current_maps=True)
+print(net.resistances)
+print(net.cum_branch_currents)
+```
+
+```text
+[[0.         1.         3.        ]
+ [1.         0.         1.33333333]
+ [3.         1.33333333 0.        ]]
+[[1.         2.         0.66666667]
+ [2.         3.         0.66666667]
+ [1.         4.         0.33333333]
+ [4.         3.         0.33333333]]
+```
+
+`resistances` has the node ids in its first row and column, the effective resistance between 1 and 3 is 1.333, and
+`cum_branch_currents` has a row per resistor (`from`, `to`, current): 0.667 A on 1-2 and 2-3, 0.333 A on 1-4 and 4-3.
+`graph_is_resistance=False` reads conductances; `voltage_maps=True` keeps the voltages. A circuit with sources and
+grounds of your choice is [`circuit.circuitscape_network_advanced`][terraflux.circuit.circuitscape_network_advanced],
+`circuitscape_network_advanced(edges, sources, grounds)`.
+
+The landscape with the wall is the part's two rasters, read by name. [`circuit.circuitscape_pairwise`][terraflux.circuit.circuitscape_pairwise]
+takes the resistance and the raster of areas (cells of one number form one focal region), and `cum_map=True` keeps the
+current through every cell (`cum_current`, a numpy array on the grid). The wall is in columns 48 to 51, the narrow gap
+in rows 8 to 10 and the wide one in rows 34 to 51:
+
+```python
+resistance = tf.load_raster("wall.tif")        # 1 everywhere, no value in the wall
+focal = tf.load_raster("focal.tif")            # 1 in the west, 2 in the east
+pairs = circuit.circuitscape_pairwise(resistance, focal, cum_map=True)
+print("effective resistance:", round(pairs.resistances[1, 2], 3))
+
+current = pairs.cum_current
+narrow, wide = current[8:11, 49], current[34:52, 49]     # the cells of each gap, in a column of the wall
+share = narrow.sum() / (narrow.sum() + wide.sum())
+print(f"through the narrow gap {share:.0%}, through the wide gap {1 - share:.0%}")
+print(f"per cell: {narrow.mean():.3f} A in the narrow gap, {wide.mean():.3f} A in the wide one")
+```
+
+```text
+effective resistance: 1.031
+through the narrow gap 26%, through the wide gap 74%
+per cell: 0.089 A in the narrow gap, 0.041 A in the wide one
+```
+
+These are the shares and the currents of the part. The same raster in [`circuit.omniscape`][terraflux.circuit.omniscape]
+(`radius=15`, `block_size=1`, so every cell is a target) gives the normalised current, and the least-cost path is
+[`tf.least_cost_path`][terraflux.least_cost_path] on `wall_0.tif`, where the wall is 0 (impassable) instead of no value:
+
+```python
+flow = circuit.omniscape(resistance, radius=15, block_size=1, flow_potential=True, normalized_current=True)
+normalized = flow.normalized_cum_currmap.values
+print("open land (median):", round(float(np.nanmedian(normalized)), 2))
+print("narrow gap:", round(float(np.nanmean(normalized[8:11, 48:52])), 1),
+      " wide gap:", round(float(np.nanmean(normalized[34:52, 48:52])), 1))
+
+areas = np.nan_to_num(focal.values)
+path = tf.least_cost_path(tf.load_raster("wall_0.tif"), areas == 1, areas == 2)
+rows = np.argwhere(path.lcp_mask.values)
+print("the path crosses the wall in rows", sorted({int(r) for r, c in rows if 48 <= c <= 51}))
+```
+
+```text
+open land (median): 1.0
+narrow gap: 3.4  wide gap: 1.3
+the path crosses the wall in rows [34]
+```
+
+The normalised current is 1 in the open land, 3.4 in the narrow gap and 1.3 in the wide one; the path goes through
+the wide gap, at its northern end (row 34), and says nothing about the narrow one. `flow` is a dataset with
+`cum_currmap`, `flow_potential` and `normalized_cum_currmap` (the part's [Omniscape](../omniscape/) reads them).
+`four_neighbors=True` and `avg_resistances=True` of the Circuitscape calls are the part's other settings.
+
 ## Settings that change the answer
 
 - **The resistance values**: the next part, [resistance surfaces](../resistance-surfaces/).

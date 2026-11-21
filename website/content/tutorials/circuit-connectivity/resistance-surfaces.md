@@ -104,7 +104,7 @@ water).
 Without a species distribution model, a simple stand-in is the **amount of forest around each cell**: a cell
 amid forest is good for a forest mammal, a cell in open farmland far from woods is poor. Two [[raster.calc]]
 nodes make it: `l >= 23 and l <= 25` (1 in forest, 0 elsewhere), then `nbmean(f, 5)`, the mean of that map over
-the 5 × 5 cells (500 × 500 m) around each cell, a suitability from 0 to 1. A third [[raster.calc]] applies Keeley's
+the square of radius 5 around each cell (11 × 11 cells, 1.1 × 1.1 km), a suitability from 0 to 1. A third [[raster.calc]] applies Keeley's
 transformation with \(c = 8\):
 
 ```text
@@ -113,7 +113,7 @@ transformation with \(c = 8\):
 
 ```tfgallery
 columns: 2
-caption: "Left: the stand-in suitability, the share of forest in the 500 × 500 m around each cell. Right: its resistance by Keeley's transformation with c = 8. Unlike the class resistance, it is soft at the forest edges and low wherever there is some forest nearby, including in the many small woods."
+caption: "Left: the stand-in suitability, the share of forest in the 1.1 × 1.1 km around each cell. Right: its resistance by Keeley's transformation with c = 8. Unlike the class resistance, it is soft at the forest edges and low wherever there is some forest nearby, including in the many small woods."
 images:
   - { src: /img/tutorials/circuit-connectivity/resistance-surfaces/suitability.png, caption: "Suitability" }
   - { src: /img/tutorials/circuit-connectivity/resistance-surfaces/from-suitability.png, caption: "Resistance from suitability" }
@@ -173,7 +173,7 @@ id = "suitability"
 op = "raster.calc"
 inputs = { f = "forest.map" }
 params = { expression = "nbmean(f, 5)" }
-note = "The share of forest in the 5 x 5 cells around."
+note = "The share of forest in the 11 x 11 cells around (radius 5)."
 
 [[nodes]]
 id = "from_suitability"
@@ -277,6 +277,105 @@ cell. Two solutions: burn the features into the resistance at the finest resolut
 roads with [[vector.rasterize]] and take the larger resistance of road and land cover), then resample with the
 largest value (`resampling = "max"` keeps the barrier), or keep the analysis at a finer resolution where the
 feature is wide enough. The same holds for corridors: a hedgerow lost at 100 m cannot channel any current.
+
+### In Python
+
+The reclassification, the neighbourhood mean and Circuitscape's pairwise mode are in the library as
+[`tf.reclassify`][terraflux.reclassify] and [`circuit.circuitscape_pairwise`][terraflux.circuit.circuitscape_pairwise],
+so the whole part runs in a few lines. The land cover is the part's [`clc_100m.tif`](/data/tutorials/habitat-networks/connectivity-as-a-graph/clc_100m.tif)
+(the file you downloaded for the graph). The resistance of each class is a table of `{class: value}`, built here from
+the classes of each value; a key may also be a range `(low, high)`, and `others=` gives the value of every class the
+table does not name (the `* -> 20` of the graph):
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+from terraflux import circuit
+from scipy import ndimage
+
+land = tf.load_raster("clc_100m.tif")
+
+# a resistance per group of CORINE classes (relative values, 1 to 100)
+groups = {1.0: [23, 24, 25],                   # forests
+          2.0: [29],                           # transitional woodland-shrub
+          5.0: [21, 26, 27, 32, 35, 36],       # semi-natural land
+          10.0: [18, 20],                      # pastures, complex cultivation
+          20.0: [12],                          # arable land
+          30.0: [10, 11],                      # green urban areas
+          50.0: [7, 8, 9],                     # mines, dumps, construction sites
+          100.0: [1, 2, 3, 4, 5, 6, 40, 41]}   # towns, industry, roads, water
+table = {c: r for r, cs in groups.items() for c in cs}
+resistance = tf.reclassify(land, table, others=20.0, dtype="float64")
+
+share = pd.Series(resistance.values.ravel()).value_counts(normalize=True).sort_index() * 100
+print(share.round(2).to_string())
+```
+
+```text
+1.0      20.63
+2.0       0.10
+5.0       3.61
+10.0      8.96
+20.0     50.35
+30.0      1.53
+50.0      0.47
+100.0    14.36
+```
+
+The three shares the part quotes (20.6, 50.4 and 14.4% at one decimal). The suitability has no operator of its own in the library: the
+share of forest in the square of radius 5 around each cell (what `nbmean(f, 5)` does, with the window cut at the
+map's edge) is a mean filter, and Keeley's transformation is the formula:
+
+```python
+forest = np.isin(land.values, [23, 24, 25]).astype(float)
+window = 11                                      # radius 5: 11 x 11 cells, 1.1 x 1.1 km
+suitability = (ndimage.uniform_filter(forest, window, mode="constant")
+               / ndimage.uniform_filter(np.ones_like(forest), window, mode="constant"))
+c = 8                                            # Keeley's shape: 0 is linear, larger c is more convex
+from_suitability = 100 - 99 * (1 - np.exp(-c * suitability)) / (1 - np.exp(-c))
+```
+
+The two forests are patches 55 and 96 of the habitat graph of the series. [`tf.conn.node_table`][terraflux.conn.node_table]
+gives the patches' areas and [`HabitatGraph.to_raster`][terraflux.HabitatGraph] paints their numbers on the map; the
+focal raster has 1 and 2 on the two forests and 0 elsewhere. Then one pairwise run per resistance (`weaker` and
+`stronger` are the part's `sqrt(r)` and `r ** 2`):
+
+```python
+nodes = tf.conn.node_table(land, habitat=[23, 24, 25], area_unit="ha")
+net = tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25], area_unit="ha")
+patch = net.to_raster(pd.Series(nodes["id"].values, index=nodes["id"]))
+patch = np.nan_to_num(patch.values).astype(int)
+print(nodes[nodes["id"].isin([55, 96])].to_string(index=False))
+
+two_forests = np.where(patch == 55, 1, np.where(patch == 96, 2, 0))
+surfaces = {"classes": resistance, "weaker": np.sqrt(resistance), "stronger": resistance ** 2,
+            "suitability": from_suitability}
+for name, surface in surfaces.items():
+    pairs = circuit.circuitscape_pairwise(surface, two_forests, cum_map=True)
+    print(f"{name:12s} effective resistance {pairs.resistances[1, 2]:7.2f}")
+```
+
+```text
+ id  attribute
+ 55     9151.0
+ 96     2860.0
+classes      effective resistance    5.36
+weaker       effective resistance    1.24
+stronger     effective resistance  105.00
+suitability  effective resistance   17.10
+```
+
+The effective resistances are the numbers of the slider (5.36, 1.24, 105 and 17.1). The result's `resistances` is a matrix with
+the ids in the first row and column, so the one between 1 and 2 is `[1, 2]`; `cum_current` is the map of the current
+(a numpy array on the resistance's grid) that the slider draws. [`tf.reclassify`][terraflux.reclassify] reads the table
+from a CSV too (`tf.load_table`), which is the way to keep the resistance of every class, with its source, next to the
+analysis.
+
+!!! note "Resistance and conductance"
+    [`circuit.circuitscape_pairwise`][terraflux.circuit.circuitscape_pairwise] reads a resistance by default
+    (`habitat_is_resistance=True`; `False` reads a conductance), and [`circuit.advanced`][terraflux.circuit.advanced]
+    reads a conductance (`1 / resistance`).
 
 ## Settings that change the answer
 
