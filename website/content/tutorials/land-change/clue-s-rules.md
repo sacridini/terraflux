@@ -372,6 +372,124 @@ Every rule, in words and as the model writes it: the matrix with its codes, the 
 restricted areas (their source and area), the history at the start and where it came from. And for each run,
 whether every year converged (`steps.csv`): rules make convergence harder.
 
+### In Python
+
+Every rule is an argument of [`Rules`][terraflux.simulate.Rules] (the settings of node 7 and the inputs of the
+history node), so the six runs of the table are six calls of one function. The matrix is a list of lists, rows the
+current class and columns the next, in the order of the demand (1, 2, 3); `restrictions` and `history` are maps (the
+two files of this part, read by name); [`Neighbourhood`][terraflux.simulate.Neighbourhood] takes `{class:
+threshold}` and, if wanted, the window `weights`. The model is that of part 4:
+
+```python
+import warnings
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("pie_landuse"))
+ef = tf.load_raster(S.example_data("pie_drivers"))
+start, obs = lu[0], lu[2]
+restr = tf.load_raster("pie_restrictions.tif")        # 1 where nothing may change
+hist = tf.load_raster("pie_history.tif")              # years each cell has had its class, 0 to 12
+
+forms = {1: ["elevation", "slope"], 2: ["elevation", "slope", "dist_built_1985"], 3: ["elevation", "slope"]}
+glm = S.LogisticRegression(forms).fit(start, ef)
+demand = S.AreaDemand.from_maps(lu, times=[0, 6, 14])
+clue = S.CLUE(jitter=0.0002, scale=1e-6, max_iter=1000, max_diff=50, mean_diff=50)
+
+
+def go(**rules):
+    """The model of part 4 with some rules: the simulation and the numbers of the table."""
+    rules.setdefault("elasticity", [0.2, 0.2, 0.2])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")                   # "did not meet the demand" in some runs
+        sim = S.Model(glm, demand, clue, S.Rules(**rules)).run(start, ef, seed=1)
+    first, last = sim.maps[1], sim.maps[-1]
+    ag = S.agreement(obs, last, start)
+    return sim, {"first_year": int(((first != start) & first.notnull()).sum()),
+                 "changed": int(((last != start) & last.notnull()).sum()),
+                 "built_lost": int(((start == 2) & (last != 2)).sum()),
+                 "converged": f"{int(sim.steps.converged.sum())} of 14",
+                 "agreement": round(100 * ag["overall"], 1), "fom": round(ag["figure_of_merit"], 3)}
+
+
+built_only = [[1, 1, 1], [0, 1, 0], [1, 1, 1]]            # the row of built land: 0, 1, 0
+lulcc = [[1, 1008, 105], [0, 1, 0], [-1, -2, 1]]          # lulcc's matrix, with time and demand codes
+runs = {
+    "elasticities only": go(),
+    "restricted block": go(restrictions=restr),
+    "built land cannot change": go(allowed=built_only),
+    "lulcc's matrix, history 1": go(allowed=lulcc),
+    "lulcc's matrix, history map": go(allowed=lulcc, history=hist),
+    "every rule": go(allowed=lulcc, history=hist, restrictions=restr, neighbourhood=S.Neighbourhood({2: 0.3})),
+}
+print(pd.DataFrame({k: v[1] for k, v in runs.items()}).T.to_string())
+```
+
+```text
+                            first_year changed built_lost converged agreement    fom
+elasticities only                13023   19522       2656  14 of 14      79.0  0.063
+restricted block                 10555   16990       2240  14 of 14      80.7  0.061
+built land cannot change          8402   14850          0  14 of 14      82.6  0.061
+lulcc's matrix, history 1         8404   15591          0  12 of 14      82.0  0.059
+lulcc's matrix, history map       5891   12419          0  14 of 14      84.3   0.06
+every rule                        4734   11217          0  14 of 14      85.1  0.061
+```
+
+The table of the part, row by row (the elasticities of part 4 are the default of `go`). With no `history`, every
+cell starts at 1, as lulcc; a map gives the starting ages and `sim.history` the ages at the end. The restricted
+block:
+
+```python
+block = restr.values == 1
+for name in ("elasticities only", "restricted block"):
+    last = runs[name][0].maps[-1].values
+    new_built = (last == 2) & (start.values != 2)
+    print(name, "- block changed:", int(((last != start.values) & block & ~np.isnan(last)).sum()),
+          "to built inside:", int((new_built & block).sum()), "outside:", int((new_built & ~block).sum()))
+```
+
+```text
+elasticities only - block changed: 2638 to built inside: 941 outside: 8020
+restricted block - block changed: 0 to built inside: 0 outside: 8547
+```
+
+Neighbourhood rules, with built land fixed by the matrix as in the part, and the patches of new built land counted
+with `scipy.ndimage.label` (8 neighbours):
+
+```python
+from scipy import ndimage
+
+rows = []
+for th in (0.0, 0.2, 0.3, 0.4, 0.5, 0.6):
+    nb = S.Neighbourhood({2: th}) if th else None         # 0.5: at least 5 built cells of the 3 x 3 window
+    sim, r = go(allowed=built_only, neighbourhood=nb)
+    new = (sim.maps[-1].values == 2) & (start.values != 2)
+    labels, n = ndimage.label(new, structure=np.ones((3, 3)))
+    rows.append({"threshold": th, "new_built": int(new.sum()), "patches": int(n),
+                 "mean_patch": round(float(new.sum() / n), 2), "years_converged": int(sim.steps.converged.sum()),
+                 "fom": r["fom"]})
+print(pd.DataFrame(rows).to_string(index=False))
+```
+
+```text
+ threshold  new_built  patches  mean_patch  years_converged   fom
+       0.0       6308     2968        2.13               14 0.061
+       0.2       6293     2815        2.24               14 0.061
+       0.3       6293     2512        2.51               14 0.062
+       0.4       6291     2214        2.84               14 0.061
+       0.5       6284     2168        2.90               14 0.060
+       0.6       3821     1741        2.19                6 0.046
+```
+
+The patches fall from 2,968 to 2,168 up to 0.5, and at 0.6 only 6 of 14 years meet the demand: the slider of the
+part. Two other options of `Neighbourhood`: `weights` (a window of odd sides, the same for all classes or
+`{class: window}`) and a threshold per class. The pitfalls of the part apply as they are: a rule on built land
+without the matrix converts the built cells that fail it (`go(neighbourhood=S.Neighbourhood({2: 0.5}))`), and a
+restricted cell whose class is no longer allowed is converted.
+
 ## Settings that change the answer
 
 - **The elasticities.** Part 4's slider: still the strongest setting of the reshuffle. Rules and elasticities

@@ -358,6 +358,103 @@ What this part's runs show, and how to read the same things in your own model:
 In a paper, report the demand (its source and its table), the regressions (their drivers and coefficients),
 the elasticities and rules, the allocation's settings, and whether every step converged.
 
+### In Python
+
+[`tf.simulate`](/python/api/simulate/) has CLUE-S as one piece of a model: the suitability
+([`LogisticRegression`][terraflux.simulate.LogisticRegression]), the demand
+([`AreaDemand`][terraflux.simulate.AreaDemand]), the competition ([`CLUE`][terraflux.simulate.CLUE]) and the rules
+([`Rules`][terraflux.simulate.Rules]), put together by [`Model`][terraflux.simulate.Model]. The Plum Island maps and
+drivers of this part ship with the library as example data. First the landscape and its change, which are the
+tables of the part:
+
+```python
+import warnings
+
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("pie_landuse"))    # bands 1985, 1991, 1999; 1 forest, 2 built, 3 other
+ef = tf.load_raster(S.example_data("pie_drivers"))    # elevation, slope, dist_built_1985
+start, obs = lu[0], lu[2]
+
+names = ["forest", "built", "other"]
+cells = pd.DataFrame({y: [int((lu.sel(band=y) == c).sum()) for c in (1, 2, 3)] for y in lu.band.values},
+                     index=names)
+print(cells)
+print(S.changes([start, obs], times=[1985, 1999]).matrix())   # cells from each class (rows) to each (columns)
+```
+
+```text
+         1985   1991   1999
+forest  49013  47031  45377
+built   37122  40350  43455
+other   27428  26182  24731
+to        1      2      3
+from                     
+1     44107   4250    656
+2        11  36957    154
+3      1259   2248  23921
+```
+
+The matrix is the change of 1985 to 1999 that the part counts (4,250 forest cells to built, 2,248 other to built,
+1,259 other to forest). `S.changes` also gives the intensity analysis of Aldwaik and Pontius.
+
+The three pieces of CLUE-S, with the settings of lulcc's vignette: a regression per class on its drivers, the
+demand as the straight line through the three maps (`times` are the years since the start, so 6 and 14), and the
+allocation. The suitability is a layer per class; the demand has a row per year:
+
+```python
+forms = {1: ["elevation", "slope"], 2: ["elevation", "slope", "dist_built_1985"], 3: ["elevation", "slope"]}
+glm = S.LogisticRegression(forms).fit(start, ef)
+suit = glm.predict(ef, landscape=start)                        # (class, y, x), values 0 to 1
+print(suit.mean(dim=["y", "x"]).round(3).to_series().to_dict())
+
+demand = S.AreaDemand.from_maps(lu, times=[0, 6, 14])          # a row per year, 1985 to 1999
+print(demand.table.loc[[0, 1, 14]])
+```
+
+```text
+{1: 0.432, 2: 0.327, 3: 0.242}
+            1        2        3
+time                           
+0     49013.0  37122.0  27428.0
+1     48683.0  37660.0  27220.0
+14    45377.0  43455.0  24731.0
+```
+
+Row 1 is the demand of 1986 the part quotes, a sixth of the way from the counts of 1985 to those of 1991. The
+iterations are `Model.run` stopped early: `max_iter` is the setting of the slider, run here on the first year only
+(one row of the demand). The tolerance is 50 cells, as in the part; a stopped run warns that the demand was not met,
+which is the point here:
+
+```python
+clue = dict(jitter=0.0002, scale=1e-6, max_diff=50, mean_diff=50)    # lulcc's vignette, not its defaults
+first_year = S.AreaDemand(demand.table.iloc[:2])
+for it in (1, 10, 60):
+    model = S.Model(glm, first_year, S.CLUE(max_iter=it, **clue), S.Rules(elasticity=[0.2, 0.2, 0.2]))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")                        # "did not meet the demand" for it = 1, 10
+        sim = model.run(start, ef, seed=1)                     # seed = R's set.seed(1), as lulcc
+    step = sim.steps.iloc[0]
+    moved = int(((sim.maps[1] != start) & sim.maps[1].notnull()).sum())
+    print(it, [int(step[f"cells_{c}"]) for c in (1, 2, 3)], "changed", moved, "converged", bool(step.converged))
+```
+
+```text
+1 [58305, 33330, 21928] changed 11916 converged False
+10 [53184, 34453, 25926] changed 11325 converged False
+60 [48690, 37610, 27263] changed 13023 converged True
+```
+
+The counts of the slider's frames 1, 10 and 60: forest 58,305, 53,184 and 48,690 against 48,683 asked, and 13,023
+cells changed in the converged year. `sim.steps` has a row per year with `iterations` (the passes made, one more than
+`max_iter` when it stops), `converged`, `max_diff`, `mean_diff` and the cells of each class. `seed` replaces the
+`rng.r` node: the generator is R's, and the same seed gives lulcc's map. The history of each cell
+(`lulcc.history`) is `Rules(history=...)` and `sim.history`, as [part 5](/tutorials/land-change/clue-s-rules/#in-python)
+shows. The settings of the table below are the arguments of `S.CLUE`; the loop over the years is what `Model.run`
+does, as [part 4](/tutorials/land-change/clue-s-model/#in-python) runs.
+
 ## Settings that change the answer
 
 The allocation has five settings, all in `allocation` of [[lulcc.step]]:

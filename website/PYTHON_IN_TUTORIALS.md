@@ -260,34 +260,34 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `a-cellular-automaton-by-hand.md` | — | full | `land-change-simulation-in-python.md` | |
-| `agents.md` | — | full | `land-change-simulation-in-python.md` | |
-| `calibration-and-many-runs.md` | — | no graph | `land-change-simulation-in-python.md` | |
-| `choosing-a-model.md` | — | no graph | `land-change-simulation-in-python.md` | |
-| `clue-s-ideas.md` | `lulcc.history`, `rng.r` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `clue-s-model.md` | `lulcc.history`, `rng.r` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `clue-s-rules.md` | `lulcc.history`, `rng.r` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `clumondo.md` | `clumondo.ages` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `coupled-agents.md` | `crafty.allocate`, `lulcc.history`, `rng.r` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `crafty.md` | `crafty.allocate` | partial | `land-change-simulation-in-python.md` | |
-| `dinamica-on-sibuyan.md` | — | full | `land-change-simulation-in-python.md` | |
-| `dynamic-drivers.md` | `lulcc.history`, `rng.r` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `expander-and-patcher.md` | `dinamica.step` | partial | `land-change-simulation-in-python.md` | |
-| `futures.md` | `futures.simulation` | partial | `land-change-simulation-in-python.md` | |
-| `gravity-potentials.md` | `dinamica.step` | partial | `land-change-simulation-in-python.md` | |
-| `land-demand.md` | `lulcc.history`, `plus.demand`, `rng.r` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `logistic-suitability.md` | — | full | `land-change-simulation-in-python.md` | |
-| `maps-larger-than-memory.md` | — | no graph | `land-change-simulation-in-python.md` | |
-| `molusce.md` | `molusce.step`, `molusce.total` | partial | `land-change-simulation-in-python.md` | |
-| `ordered-allocation.md` | `lulcc.history`, `rng.r` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `plus-cars.md` | `plus.demand` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `regional-demand.md` | `lulcc.history`, `rng.r` (downstream: `control.repeat`) | partial | `land-change-simulation-in-python.md` | |
-| `roads-that-grow.md` | `dinamica.step` | partial | `land-change-simulation-in-python.md` | |
-| `taking-a-stock.md` | — | full | `land-change-simulation-in-python.md` | |
-| `transition-rates-markov-chains.md` | — | full | `land-change-simulation-in-python.md` | |
-| `validating-a-simulation.md` | — | full | `land-change-simulation-in-python.md` | |
-| `weights-of-evidence.md` | — | full | `land-change-simulation-in-python.md` | |
-| `what-land-change-models-are.md` | `change.suggest` | partial | `land-change-simulation-in-python.md` | |
+| `a-cellular-automaton-by-hand.md` | — | full | merged, redirected | done |
+| `agents.md` | `agents.*` | gap | merged, redirected | gap |
+| `calibration-and-many-runs.md` | — | full | merged, redirected | done |
+| `choosing-a-model.md` | agents, CRAFTY | no graph | merged, redirected | done |
+| `clue-s-ideas.md` | — | full | merged, redirected | done |
+| `clue-s-model.md` | — | full | merged, redirected | done |
+| `clue-s-rules.md` | — | full | merged, redirected | done |
+| `clumondo.md` | — | full | merged, redirected | done |
+| `coupled-agents.md` | `agents.*`, `crafty.allocate` | gap | merged, redirected | gap |
+| `crafty.md` | `crafty.allocate` | gap | merged, redirected | gap |
+| `dinamica-on-sibuyan.md` | — | full | merged, redirected | done |
+| `dynamic-drivers.md` | — | full | merged, redirected | done |
+| `expander-and-patcher.md` | — | full | merged, redirected | done |
+| `futures.md` | — | full | merged, redirected | done |
+| `gravity-potentials.md` | — | full | merged, redirected | done |
+| `land-demand.md` | — | full | merged, redirected | done |
+| `logistic-suitability.md` | — | full | merged, redirected | done |
+| `maps-larger-than-memory.md` | tiled engine | gap | merged, redirected | gap |
+| `molusce.md` | — | full | merged, redirected | done |
+| `ordered-allocation.md` | — | full | merged, redirected | done |
+| `plus-cars.md` | — | full | merged, redirected | done |
+| `regional-demand.md` | — | full | merged, redirected | done |
+| `roads-that-grow.md` | — | full | merged, redirected | done |
+| `taking-a-stock.md` | — | full | merged, redirected | done |
+| `transition-rates-markov-chains.md` | — | full | merged, redirected | done |
+| `validating-a-simulation.md` | — | full | merged, redirected | done |
+| `weights-of-evidence.md` | `woe.fit` weights by hand | partial | merged, redirected | done |
+| `what-land-change-models-are.md` | — (`change.suggest` is pandas) | full | merged, redirected | done |
 
 `land-change-simulation-in-python.md`:
 - ## The data → none (shared data)
@@ -369,13 +369,14 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `evaluating-plans.md` | — | full | `conservation-plans-in-python.md`, `from-prioritizr-in-python.md`, `prioritization-in-python.md` | |
-| `linear-programming.md` | — | full | `conservation-plans-in-python.md`, `from-prioritizr-in-python.md`, `prioritization-in-python.md` | |
-| `marxan.md` | `prioritize.marxan`, `prioritize.proxirr` | partial | `conservation-plans-in-python.md`, `from-prioritizr-in-python.md`, `prioritization-in-python.md` | |
-| `multi-action-planning.md` | — | full | `conservation-plans-in-python.md`, `from-prioritizr-in-python.md`, `prioritization-in-python.md` | |
-| `spatial-design.md` | `prioritize.optimize` | partial | `conservation-plans-in-python.md`, `from-prioritizr-in-python.md`, `prioritization-in-python.md` | |
-| `systematic-conservation-planning.md` | — | full | `conservation-plans-in-python.md`, `from-prioritizr-in-python.md`, `prioritization-in-python.md` | |
-| `zonation.md` | — | full | `conservation-plans-in-python.md`, `from-prioritizr-in-python.md`, `prioritization-in-python.md` | |
+| `evaluating-plans.md` | — | full | merged, redirected | done |
+| `linear-programming.md` | — | full | merged, redirected | done |
+| `marxan.md` | — (`tf.prioritize.marxan`, `eval_proxirr`) | full | merged, redirected | done |
+| `multi-action-planning.md` | — | full | merged, redirected | done |
+| `spatial-design.md` | — (`problem(...).solve()`) | full | merged, redirected | done |
+| `systematic-conservation-planning.md` | — | full | merged, redirected | done |
+| `zonation.md` | — | full | merged, redirected | done |
+| `from-prioritizr.md` (new, Python only) | — | n/a | was `from-prioritizr-in-python.md` | done |
 
 `conservation-plans-in-python.md`:
 - ## The data → none (shared data)
@@ -503,11 +504,13 @@ No `*-in-python.md` page in this category.
 
 - Reason: R's generator (set.seed) is the library's private _core.RRandom: its functions take a seed instead
 - Parts: `land-change/clue-s-ideas`, `land-change/clue-s-model`, `land-change/clue-s-rules`, `land-change/coupled-agents`, `land-change/dynamic-drivers`, `land-change/land-demand`, `land-change/ordered-allocation`, `land-change/regional-demand`
+- Only the script generator lacks it: the `seed` of `Model.run` is R's set.seed (land-change batches A, B, C).
 
 ### `lulcc.history` (8 parts)
 
 - Reason: the Python library keeps the history of the classes inside tf.simulate.run's simulation
 - Parts: `land-change/clue-s-ideas`, `land-change/clue-s-model`, `land-change/clue-s-rules`, `land-change/coupled-agents`, `land-change/dynamic-drivers`, `land-change/land-demand`, `land-change/ordered-allocation`, `land-change/regional-demand`
+- Only the script generator lacks it: `Rules(history=...)` and `sim.history`.
 
 ### `raster.reproject` (4 parts)
 
@@ -518,6 +521,7 @@ No `*-in-python.md` page in this category.
 
 - Reason: the Python library allocates only within a whole model: tf.simulate.run(t0, t1, drivers, preset="dinamica", until=...) fits, validates and projects it
 - Parts: `land-change/expander-and-patcher`, `land-change/gravity-potentials`, `land-change/roads-that-grow`
+- Only the script generator lacks it: `ExpanderPatcher(steps=1)` in `Model.run`, potentials as `{(1, 2): map}`.
 
 ### `change.fad` (2 parts)
 
@@ -637,6 +641,10 @@ No `*-in-python.md` page in this category.
 - `terraflux run --tiled` (large-data/larger-than-memory): no tiled land-change engine in the library.
 - `metrics.window` by strips (landscape-metrics/large-maps, moving-windows): `tf.window_metrics` has no `block_rows`; the app reads rasters larger than memory by strips.
 - `metrics.sample`, `metrics.series`, `metrics.signatures` by blocks (landscape-metrics/large-maps): `sample_metrics`, `zonal_metrics`, `SpatioTemporalAnalysis`, `SpatialSignatureAnalysis` have no `block_rows` (only `Landscape` and the one-call functions on a raster on disk).
+- `agents.*` (land-change/agents, coupled-agents): `tf.simulate` has no agents.
+- `crafty.allocate` (land-change/crafty, coupled-agents, choosing-a-model): no CRAFTY in the library.
+- the tiled engine (`terraflux run --tiled`, `--disk`, `--coordinator`) (land-change/maps-larger-than-memory): only in the CLI; the library runs the exact engine in memory.
+- `woe.fit` with `weights` (land-change/weights-of-evidence): a range's weight set by hand, and the app's weights view; the library fits and reports weights but cannot be given one.
 
 ## Figures to make again
 - `circuit-connectivity/resistance-surfaces` suitability.png: its legend says "Forest within 500 m"; `nbmean(f, 5)` is an 11 x 11 window (1.1 km). Fix `unit=` in figures/circuit-connectivity/resistance-surfaces.py and make it again.
@@ -649,3 +657,6 @@ No `*-in-python.md` page in this category.
 - `move.fit_issf` / conditional logistic regression (animal-movement/step-selection): `tf.move` prepares the data (`random_steps`, `extract_covariates`) but has no clogit; the part's In Python fits it with a short numpy Newton-Raphson (statsmodels' ConditionalLogit is the alternative).
 - `swat.set` (terrain-hydrology/swat-plus, swat-plus-from-rasters): no library function; calibration.cal is edited as text (shown in swat-plus-from-rasters, Change a parameter in Python).
 - `species-distributions/fitting-models`: the part says the node's `threshold` output is 0.61; the library gives 0.48 for that model (0.66 with regmult=2, classes="lqh", as in evaluation-and-thresholds). Check in the app and correct the text (or the figure script).
+- land-change/weights-of-evidence: the text said 1,435 ranges (automatic increments); the library gives 1,444 and the text was changed without running the app. Check in the app.
+- land-change/regional-demand: CLUE with the island's and the sectors' demands gives -461/-201/+101 and -330/-79/-103 in the library against 468/214/+91 and 330/81/100 in the part (CARS matches exactly): parity of the allocation by region.
+- land-change/futures: calibration errors, validation (FOM 0.035 vs 0.034, quantity 0.011 vs 0.006) and incentive 2 (1,077 vs 1,166 cells) differ from the part: the patches' draws.

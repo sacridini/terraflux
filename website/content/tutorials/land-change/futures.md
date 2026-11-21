@@ -362,6 +362,117 @@ The demand of each subregion and its source; the pressure's settings; the potent
 the patch library (its period, the number and sizes of patches); the calibrated compactness and how it was chosen;
 the incentive power; the validation against an observed map; replicates (several seeds).
 
+### In Python
+
+Each node of step 1 is a piece of the library: [`development_pressure`][terraflux.simulate.development_pressure]
+(node 7), the potential ([`DevelopmentPotential`][terraflux.simulate.DevelopmentPotential]) and
+[`patch_library`][terraflux.simulate.patch_library] (node 11); the calibration of step 2 is
+[`calibrate_patches`][terraflux.simulate.calibrate_patches], and the simulation of step 3 a
+[`Model`][terraflux.simulate.Model] with [`PatchGrowing`][terraflux.simulate.PatchGrowing] and a
+[`DevelopmentDemand`][terraflux.simulate.DevelopmentDemand]. The Plum Island maps are the library's example data; the
+two subregions (the west and the east half of the map, in place of counties) are made from the column of each cell:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+import xarray as xr
+from scipy import ndimage
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("pie_landuse"))
+ef = tf.load_raster(S.example_data("pie_drivers"))
+dev85, dev91, dev99 = [(lu[k] == 2).where(lu[k].notnull()) for k in range(3)]     # built land: 1, else 0
+width = lu.sizes["x"]
+column = xr.zeros_like(lu[0], dtype=float) + xr.DataArray(np.arange(width), dims="x")
+counties = (1 + (column >= width // 2)).where(lu[0].notnull())                  # 1 west, 2 east
+
+pressure = S.development_pressure(dev85, 10, method="gravity", gamma=1.5, scaling_factor=1.0)   # node 7
+slope, elev = ef.sel(band="slope"), ef.sel(band="elevation")
+rows = {}
+for county in (1, 2):                      # the cells undeveloped in 1985, with their state in 1991 (node 9)
+    m = ((counties == county) & (dev85 == 0)).values
+    sample = pd.DataFrame({"developed": dev91.values[m], "devpressure": pressure.values[m],
+                           "slope": slope.values[m], "elevation": elev.values[m]}).dropna()
+    rows[county] = S.DevelopmentPotential.fit(sample, subregions=None).table.iloc[0]    # a glm, node 10
+potential = S.DevelopmentPotential(pd.DataFrame(rows).T)
+print(potential.table.round(6))
+```
+
+```text
+   intercept  devpressure     slope  elevation
+1  -3.234651     0.065690 -0.035282   0.000257
+2  -4.223066     0.132427 -0.028677   0.004273
+```
+
+The coefficients of the part's table (west -3.235, 0.066, -0.035, 0.0003; east -4.223, 0.132, -0.029, 0.0043).
+`DevelopmentPotential.fit` with a `subregion` column fits r.futures.potential's mixed model instead. The patch
+library, and the calibration of the compactness on 1985-1991 (the demand of the period, as the observed yearly rate):
+
+```python
+library = S.patch_library(dev85, dev91, subregions=counties, per_subregion=True)    # sizes per subregion
+sizes = np.concatenate(list(library.values()))
+print(len(sizes), "patches, mean", round(sizes.mean(), 1), "largest", sizes.max(), "single cells", round((sizes == 1).mean(), 2))
+
+drv = {"slope": slope, "elevation": elev}                  # the predictors, by name
+count = lambda m, county: int((m.where(counties == county) == 1).sum())
+rate = {c: (count(dev91, c) - count(dev85, c)) / 6 for c in (1, 2)}      # cells a year, 1985-1991
+print({c: round(r) for c, r in rate.items()}, "observed 1991-1999:", {c: count(dev99, c) - count(dev91, c) for c in (1, 2)})
+
+calibration_demand = S.DevelopmentDemand(pd.DataFrame({c: [round(r)] * 6 for c, r in rate.items()}, index=range(1986, 1992)))
+model = S.Model(potential, calibration_demand, S.PatchGrowing(library, subregions=counties))
+calibration = S.calibrate_patches(model, dev85, dev91, drv, compactness_means=[0.1, 0.3, 0.5, 0.7, 0.9],
+                                  compactness_ranges=[0.05, 0.3], repeat=4, seed=1, per_subregion=True)
+print(calibration.round(3).head(3).to_string(index=False))
+```
+
+```text
+1139 patches, mean 2.9 largest 44 single cells 0.48
+{1: 281, 2: 257} observed 1991-1999: {1: 1560, 2: 1545}
+ discount_factor  compactness_mean  compactness_range  area_error  compactness_error  combined_error
+             1.0               0.7               0.30       0.688              0.509           0.598
+             1.0               0.7               0.05       0.723              0.604           0.663
+             1.0               0.9               0.05       0.698              0.730           0.714
+```
+
+The library is the part's (1,139 patches, mean 2.9, largest 44, nearly half of one cell) and so is the demand
+(281 and 257 cells a year; 1,560 and 1,545 were developed in 1991-1999). The ranking puts a mean of 0.7 and a range
+of 0.3 first, as the part's table; the errors are other numbers, because the repeats draw other random patches (the
+ranking among the first is not sharp, as the part says). The simulation from 1991 with the best compactness, and
+the validation against 1999 ([`futures_validation`][terraflux.simulate.futures_validation]):
+
+```python
+demand = S.DevelopmentDemand(pd.DataFrame({c: [round(r)] * 8 for c, r in rate.items()}, index=range(1992, 2000)))
+best = calibration.iloc[0]
+
+
+def futures(incentive=1.0):
+    growth = S.PatchGrowing(library, subregions=counties, compactness_mean=float(best.compactness_mean),
+                            compactness_range=float(best.compactness_range), incentive_power=incentive)
+    return S.Model(potential, demand, growth).run(dev91, drv, seed=1)     # the pressure of 1991 is computed
+
+
+sim = futures()
+print([int((sim.maps[k] == 1).sum()) for k in (0, 1, 8)])
+print(sim.steps.iloc[[0, 7]].to_string())
+v = S.futures_validation(dev99, sim.maps[-1], dev91)
+print(round(v["figure_of_merit"], 3), round(float(v["total_quantity"]), 3), round(float(v["total_allocation"]), 3))
+```
+
+```text
+[40350, 40893, 44654]
+      year  developed_1  overflow_1  developed_2  overflow_2
+step                                                        
+1     1992          286           5          257           0
+8     1999          281           0          255           0
+0.035 0.011 0.053
+```
+
+The developed cells go from 40,350 in 1991 to 44,654 in 1999, as the slider (a few cells per year differ). `sim.steps`
+has the cells developed in each subregion and the `overflow` carried over, `sim.development` the year each cell was
+developed, and the figure of merit is the part's 0.034 (0.035 here), and the allocation disagreement its 0.053; the quantity
+disagreement is 0.011 here against its 0.006, because the patches drawn are not the application's.
+
 ## Settings that change the answer
 
 ### The incentive power: infill or sprawl
@@ -391,6 +502,36 @@ raise the potential (a larger scaling factor of the pressure) or keep the power 
 - **The patch library**: a library from a period of large developments makes large patches; `discount_factor`
   scales the sizes (below 1, smaller patches).
 - **The demand**: the most consequential choice, and the one validation exposed here.
+
+### The incentive power in Python
+
+`incentive_power` is an argument of `PatchGrowing`; the share of the new development next to the development of 1991
+is counted with a 3 x 3 dilation. The warnings are the model failing to find seeds, which is the failure to meet the
+demand of the part:
+
+```python
+import warnings
+
+old = dev91.values == 1
+near = ndimage.binary_dilation(old, structure=np.ones((3, 3)))
+for power in (0.25, 0.5, 1.0, 2.0):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")                     # "too many failed attempts to find a seed"
+        end = futures(power).maps[-1].values == 1
+    new = end & ~old
+    print(power, int(new.sum()), f"{100 * (new & near).sum() / new.sum():.0f}% next to the development of 1991")
+```
+
+```text
+0.25 4304 55% next to the development of 1991
+0.5 4304 64% next to the development of 1991
+1.0 4304 75% next to the development of 1991
+2.0 1077 94% next to the development of 1991
+```
+
+From 0.25 to 1 the share rises (53% to 77% in the part; the count of neighbours differs a little) with the 4,304 cells
+of the demand; at 2 the potentials raised to the power fail to place the demand and a quarter of it is developed
+(1,166 cells in the part, 1,077 here: other seeds).
 
 ## Common pitfalls
 

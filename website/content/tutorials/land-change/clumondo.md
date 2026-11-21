@@ -378,6 +378,112 @@ and the transitions (a cross table of the start and the end, or the map above). 
 demand, a CLUMondo result is a *scenario*: say which assumptions drive it (here, the rice yield of twice the
 grassland's is what makes intensification attractive).
 
+### In Python
+
+The settings of step 5 are the arguments of [`CLUMondo`][terraflux.simulate.CLUMondo], with the tables as
+DataFrames: [`Supply`][terraflux.simulate.Supply] (`supply`), [`ServiceDemand`][terraflux.simulate.ServiceDemand]
+(`demand`), `order`, and the conversion resistance as `Rules(elasticity=...)`, the matrix as `Rules(allowed=...)`.
+The `clumondo.ages` node is `Rules(history=10)`: the ages are drawn from 1 to 10 with the seed of the run, as CLUMondo
+draws them. The suitability is a [`LogisticRegression`][terraflux.simulate.LogisticRegression] of each system on
+the five drivers, as the `glm.fit` node:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))
+drivers = tf.load_raster(S.example_data("sibuyan_drivers"))
+land = lu[0].where(lu[0] != 255)                              # 1997: 1 forest, 2 coconut, 3 grassland, 4 rice, 5 other
+
+supply = pd.DataFrame([[0.0, 1.0], [0.2, 0.3], [1.0, 0.0], [2.0, 0.0], [0.0, 0.0]],
+                      index=[1, 2, 3, 4, 5], columns=["food", "wood"])      # what one cell supplies
+counts = np.array([(land == c).sum() for c in range(1, 6)])
+food0, wood0 = float(supply.food @ counts), float(supply.wood @ counts)       # supplied in 1997
+demand = pd.DataFrame({"food": [round(food0 * 1.03**t, 2) for t in range(11)],   # food +3 % a year
+                       "wood": [round(wood0, 2)] * 11})                          # wood stays
+print(counts, food0, wood0)
+print(demand.iloc[[0, 10]])
+```
+
+```text
+[4723 1158  839  224  282] 1518.6 5070.4
+       food    wood
+0   1518.60  5070.4
+10  2040.87  5070.4
+```
+
+The island supplied 1,518.6 units of food in 1997, and the demand asks for 2,040.9 after ten years; the wood stays at
+5,070.4. The suitability, the conversion order (rank of each system per service; -1 keeps a system out) and the run:
+
+```python
+f = ["dist_sea", "elevation", "slope", "dist_roads", "dist_urban"]
+glm = S.LogisticRegression({c: f for c in range(1, 6)}).fit(land, drivers)
+order = pd.DataFrame([[0, 2], [1, 1], [2, 0], [3, 0], [-1, -1]], index=supply.index, columns=supply.columns)
+allowed = [[1, 1, 1, 1, 0], [1, 1, 1, 1, 0], [110, 1, 1, 1, 0], [110, 1, 1, 1, 0], [0, 0, 0, 0, 1]]
+
+
+def clumondo(resistance):
+    allocation = S.CLUMondo(supply, order=order, weights=[1, 1], deviation="percent",
+                            mean_deviation=0.5, max_deviation=1.0, speed=0.05, max_loops=20000)
+    rules = S.Rules(elasticity=resistance, allowed=allowed, history=10)
+    return S.Model(glm, S.ServiceDemand(demand), allocation, rules).run(land, drivers, seed=1)
+
+
+sim = clumondo([0.8, 0.5, 0.3, 0.6, 1.0])                     # resistance of forest ... other
+print(sim)
+print(sim.steps[["loops", "converged", "max_deviation", "mean_deviation"]].iloc[[0, 1, 2, 9]].round(2))
+cells = pd.DataFrame({year: [int((sim.maps[k] == c).sum()) for c in range(1, 6)] for year, k in ((0, 0), (1, 1), (10, 10))},
+                     index=["forest", "coconut", "grassland", "rice", "other"])
+print(cells)
+```
+
+```text
+Simulation(10 steps, seed=1)
+      loops  converged  max_deviation  mean_deviation
+step                                                 
+1       168       True           0.66            0.48
+2        46       True           0.94            0.48
+3        24       True           0.69            0.41
+10       35       True           0.73            0.48
+             0     1     10
+forest     4723  4736  4708
+coconut    1158  1164  1085
+grassland   839   767   483
+rice        224   277   668
+other       282   282   282
+```
+
+`sim.maps` has the start and the ten years, `sim.steps` is `steps.csv` (the loops, `converged`, the deviations and
+the supply and the cells of each system), and every year converged. Grassland goes from 839 to 483 cells and rice from
+224 to 668, as the slider says. The supply against the demand, as the index of the chart (1997 = 100), and the
+transitions after ten years:
+
+```python
+idx = 100 * sim.supply.iloc[[0, -1]] / pd.Series({"food": food0, "wood": wood0})
+print(idx.round(1))
+print(pd.crosstab(sim.maps[0].values.ravel(), sim.maps[-1].values.ravel()))
+```
+
+```text
+       food   wood
+step              
+1     102.3  100.3
+10    134.1   99.3
+col_0   1.0   2.0  3.0  4.0  5.0
+row_0                           
+1.0    4650    73    0    0    0
+2.0      17  1012   67   62    0
+3.0      41     0  416  382    0
+4.0       0     0    0  224    0
+5.0       0     0    0    0  282
+```
+
+The food supply ends at 134.1 against a demand of 134.4, and the wood at 99.3 against 100. For a scenario with a
+supply that changes in time, `Supply({1: table_a, 5: table_b})` holds each table from its step; `CLUMondo` also takes
+`neighbourhood`, `preferences` and `patches`, and `Rules` the conversion by role (`roles`, `caps`, `succession`).
+
 ## Settings that change the answer
 
 The conversion resistance is the setting that most changes how a demand is met. Here the forest's resistance
@@ -420,6 +526,26 @@ Other settings that matter:
   looser ones let the supply drift from the demand.
 - **The `allowed` matrix and its time codes.** `110` for grassland to forest is a statement about succession;
   `1000 + t` codes make such changes happen whatever the demand.
+
+### The forest resistance in Python
+
+The slider is a loop over the first element of the resistance (the forest's), the rest as above:
+
+```python
+rows = {}
+for r in (0.0, 0.3, 0.6, 0.9):
+    s = clumondo([r, 0.5, 0.3, 0.6, 1.0])
+    rows[r] = {n: int((s.maps[-1] == c).sum()) for c, n in ((1, "forest"), (2, "coconut"), (3, "grassland"), (4, "rice"))}
+print(pd.DataFrame(rows).T)
+```
+
+```text
+     forest  coconut  grassland  rice
+0.0    4585     1489          1   869
+0.3    4608     1408        101   827
+0.6    4653     1255        284   752
+0.9    4727     1035        536   646
+```
 
 ## Common pitfalls
 

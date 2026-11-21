@@ -268,6 +268,68 @@ evidence, compare the contrast of the two variables ([Weights of evidence](/tuto
 Report the masses and their source, the exponent and how it was chosen, the units, and whether the potential
 was recomputed during the simulation.
 
+### In Python
+
+[`tf.surface.gravity`][terraflux.surface.gravity] is node 4: the sources are the cells with a value, the value is
+the mass, and `exponent` is \(\beta\). The towns of the part are made with the library's neutral landscape models
+with the same seeds and sizes ([`tf.nlm.percolation`][terraflux.nlm.percolation] and
+[`tf.nlm.gaussian_field`][terraflux.nlm.gaussian_field], `autocorr_range` being the application's `range`):
+
+```python
+import numpy as np
+import terraflux as tf
+from scipy import ndimage
+
+spots = tf.nlm.percolation(250, 250, resolution=100, prob=0.0004, seed=31)       # where the towns are
+size = tf.nlm.gaussian_field(250, 250, resolution=100, autocorr_range=60, seed=32)
+towns = (500 + 40000 * size**3).round().where(spots == 1)    # population; no value elsewhere
+pop = towns.values[~np.isnan(towns.values)]
+print(len(pop), int(pop.min()), int(pop.max()), int(pop.sum()), int((pop >= 5000).sum()),
+      round(float(pop[pop >= 5000].sum() / pop.sum()), 2))
+
+pull = tf.surface.gravity(towns, exponent=2)                 # distances in cells, as Dinamica EGO
+print(round(float(pull.min()), 1), round(float(pull.max())), round(float(pull.max() / pull.min())))
+```
+
+```text
+28 790 13135 82562 4 0.36
+3.6 13143 3637
+```
+
+28 towns of 790 to 13,135 people, 82,562 in all, the four largest holding 36%; the potential goes from 3.6 to
+13,100, a ratio of 3,640, as the part says. One step of clearing driven by it, beside the one driven by the distance
+to the nearest town: the potential becomes a probability \(P / (P + 500)\), the transition's rate is 3%, and
+[`ExpanderPatcher`][terraflux.simulate.ExpanderPatcher] (the node `dinamica.step`) places the cells. The probability
+is a dict `{(from, to): map}`, the rates a dict too:
+
+```python
+S = tf.simulate
+is_town = towns.notnull().values
+dist = ndimage.distance_transform_edt(~is_town, sampling=100)     # metres to the nearest town
+land = np.where(dist <= 300, 2.0, 1.0)                            # 1 forest, 2 cleared around the towns
+nearest = ndimage.distance_transform_edt(~is_town, return_indices=True)[1]
+nearest_pop = towns.values[nearest[0], nearest[1]]                # the population of the nearest town
+
+probability = {"pull": np.where(land == 1, pull.values / (pull.values + 500), 0),
+               "distance": np.where(land == 1, np.exp(-dist / 1500), 0)}
+alloc = S.ExpanderPatcher(steps=1, expansion=0.5, expander=(10, 60, 1.5), patcher=(10, 60, 1.5))
+for name, prob in probability.items():
+    sim = S.Model({(1, 2): prob}, {(1, 2): 0.03}, alloc).run(land, seed=1)
+    new = (sim.maps[-1].values == 2) & (land == 1)
+    print(f"{name:9s} {int(new.sum())} ha cleared, mean distance to a town {dist[new].mean() / 1000:.1f} km, "
+          f"{100 * (nearest_pop[new] >= 5000).mean():.0f}% next to a town of 5,000 or more")
+```
+
+```text
+pull      1851 ha cleared, mean distance to a town 0.7 km, 30% next to a town of 5,000 or more
+distance  1851 ha cleared, mean distance to a town 0.7 km, 16% next to a town of 5,000 or more
+```
+
+Both runs clear the same 1,851 ha at 0.7 km from a town; the clearing next to the four large towns is 16% with the
+distance and 30% with the potential, as the part reads it. In a model fitted on data the potential goes among the
+drivers (`WeightsOfEvidence` or `LogisticRegression`), and `S.gravity_of(4, exponent=2)` recomputes the pull of a
+class at every step as a dynamic variable ([Dynamic drivers](/tutorials/land-change/dynamic-drivers/)).
+
 ## Settings that change the answer
 
 ### The exponent
@@ -404,6 +466,47 @@ takes `direct` up to 2,000 sources or \(10^8\) source-cell pairs, `fft` beyond.
 The two maps are identical to the precision of the files written (float32). The difference grows with the map:
 for the potential of a land use class on a map of millions of cells, recomputed at every step of a simulation,
 `fft` (or `auto`) is the only practical choice.
+
+### The settings in Python
+
+Exponent, units, mask and method are arguments of `tf.surface.gravity`:
+
+```python
+for beta in (0.5, 1, 2, 3):                                  # the exponent
+    p = tf.surface.gravity(towns, exponent=beta)
+    print(beta, round(float(p.max() / p.min()), 1))
+
+metres = tf.surface.gravity(towns, exponent=2, unit="map")   # distances in map units (metres)
+print("unit=map / unit=cells:", f"{float((metres / pull).mean()):.0e}")
+
+frame = np.full((250, 250), np.nan)
+frame[50:200, 50:200] = 1                                    # the study area of 15 by 15 km
+inside = towns.where(~np.isnan(frame))                       # only the towns inside it
+with_all = tf.surface.gravity(towns, exponent=2, mask=frame)         # every town counts, inside the mask
+with_inside = tf.surface.gravity(inside, exponent=2, mask=frame)
+missed = (1 - with_inside / with_all).values
+print(int(inside.notnull().sum()), "towns inside; median share missed",
+      round(float(np.nanmedian(missed)), 2), "; cells missing more than 25%:",
+      round(float((missed > 0.25).sum() / np.isfinite(missed).sum()), 2))
+
+fft = tf.surface.gravity(towns, exponent=2, method="fft")    # the same sum by FFT; "direct" is the other
+print("fft equals direct:", bool(np.allclose(fft, pull, rtol=1e-9, atol=0)))
+```
+
+```text
+0.5 3.4
+1 30.9
+2 3637.2
+3 369618.8
+unit=map / unit=cells: 1e-04
+8 towns inside; median share missed 0.4 ; cells missing more than 25%: 0.72
+fft equals direct: True
+```
+
+The ratios are the slider's "highest / lowest" (3.4, 31, 3,640 and 370,000), `unit="map"` is exactly 10^-4 of the
+values in cells on 100 m cells, the potential inside the study area is underestimated by about 40% at the median
+cell without the 20 towns around it, and `method="auto"` takes the direct sum up to 2,000 sources. The sources under
+the cells the mask leaves out still count.
 
 ## Common pitfalls
 

@@ -35,7 +35,7 @@ Where to go:
 - [Get started](/python/getting-started/): installation, a first run, configuration, concepts, data and plotting.
 - [Tutorials](/python/tutorials/): each topic from the basics to the advanced options, on real maps.
 - The [API reference](/python/api/): every function and class, with its parameters and a runnable example.
-- [Migrating from prioritizr and prioriactions](/tutorials/spatial-prioritization/from-prioritizr-in-python/), and the
+- [Migrating from prioritizr and prioriactions](/tutorials/spatial-prioritization/from-prioritizr/), and the
   [changelog](/python/changelog/).
 
 ## What you can do
@@ -64,12 +64,12 @@ Where to go:
   null models: random maps, gradients, fractal surfaces, Gaussian fields, clusters and mosaics.
 - **[Biodiversity analysis](/tutorials/biodiversity/)**: species records in grid cells:
   richness, endemism, phylogenetic diversity and endemism, randomisations and regions.
-- **[Conservation priorities](/tutorials/spatial-prioritization/prioritization-in-python/)**: rank whole
+- **[Conservation priorities](/tutorials/spatial-prioritization/zonation/#in-python)**: rank whole
   landscapes for many species: performance curves, costs, reserves, connectivity and impact assessment.
 - **[Species distributions](/tutorials/species-distributions/)**: clean occurrence
   records, choose predictors and background points, fit and evaluate models with spatial folds, and project them
   to new climates.
-- **[Land change simulation](/tutorials/land-change/land-change-simulation-in-python/)**: project land use from
+- **[Land change simulation](/tutorials/land-change/)**: project land use from
   two maps: demand, transition potential and allocation, validation against the observed change, calibration,
   scenarios with replicates, and roads and stocks that change with the model.
 - **[Watershed simulation](/tutorials/terrain-hydrology/swat-plus-from-rasters/)**: the SWAT+ model from a DEM,

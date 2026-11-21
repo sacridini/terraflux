@@ -423,6 +423,107 @@ the drivers, their ranges and the significant weights (part 1); the patch settin
 number of replicates; the validation against an observed map with its metrics at several resolutions (the next
 series). Publish the model file: it holds every one of these choices, readable.
 
+### In Python
+
+The three fitted pieces of step 1 and the loop of step 2 are one [`Model`][terraflux.simulate.Model]:
+[`Markov`][terraflux.simulate.Markov] (node 1), [`WeightsOfEvidence`][terraflux.simulate.WeightsOfEvidence] (node 2),
+[`ExpanderPatcher`][terraflux.simulate.ExpanderPatcher] with the patches measured on the observed change (node 3),
+and `Model.run` is the loop, which computes the probabilities on the map of every step. The preset
+`S.presets.dinamica` fits the three at once, with the increments and categorical drivers of part 1, and the data are
+the library's example data:
+
+```python
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))        # bands 1997, 2011
+drivers = tf.load_raster(S.example_data("sibuyan_drivers"))   # the 13 drivers, by name
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)  # 255 is outside the island
+names = {1: "forest", 2: "coconut", 3: "grassland", 4: "rice", 5: "other"}
+
+ranges = {"dist_sea": 250, "dist_roads": 250, "dist_urban": 250, "dist_streams": 250, "elevation": 50,
+          "slope": 2, "aspect": 30, "pop_density": 50}        # the increments of part 1
+cat = ["diorite", "ultramafic", "sediments", "no_erosion", "moderate_erosion"]
+model = S.presets.dinamica(t0, t1, drivers, steps=14, woe={"ranges": ranges, "categorical": cat})
+print(model)
+print(model.demand.multi.clip(lower=0).round(3).loc[[1, 4]])               # the yearly rates of forest and rice
+```
+
+```text
+Model(potential=WeightsOfEvidence, demand=Markov(5 classes, steps=14), allocation=ExpanderPatcher)
+to        1      2      3      4    5
+from                                 
+1     0.991  0.002  0.005  0.002  0.0
+4     0.000  0.023  0.003  0.974  0.0
+```
+
+`steps=14` makes the rates the 14th root of the period's matrix (`model.demand`, node 1); `model.potential` holds the
+weights (`model.potential.table`, the table of part 1) and `model.allocation` the settings that
+[`S.presets.observed_patches`][terraflux.simulate.presets] measured on the change, the table of part 2 (the
+`isometry`, which cannot be measured, is 1.5). Running it is the loop of the part; the shares of the slider come from
+the maps, and `sim.steps` has the four columns of `steps.csv` for every transition:
+
+```python
+sim = model.run(t0, drivers, seed=1)                          # the 14 yearly maps after 1997
+total = float(t0.notnull().sum())
+shares = pd.DataFrame({year: [100 * float((sim.maps[k] == c).sum()) / total for c in names]
+                       for year, k in ((1997, 0), (1998, 1), (2011, 14))}, index=list(names.values()))
+print(shares.round(1))
+print("observed 2011:", [round(100 * float((t1 == c).sum()) / total, 1) for c in names])
+
+changed = [int(((sim.maps[k] != sim.maps[k - 1]) & sim.maps[k].notnull()).sum()) for k in range(1, 15)]
+print("cells changed per step:", min(changed), "to", max(changed))
+st = sim.steps
+print(st[["requested_1_3", "expanded_1_3", "patched_1_3", "patches_1_3"]].iloc[[0, 13]])
+print("expanded + patched = requested at every step:",
+      all((st[f"expanded_{t}"] + st[f"patched_{t}"] == st[f"requested_{t}"]).all()
+          for t in ("1_2", "1_3", "1_4", "2_3", "3_2", "4_2")))
+```
+
+```text
+           1997  1998  2011
+forest     65.4  64.8  57.6
+coconut    16.0  16.3  19.4
+grassland  11.6  11.9  15.1
+rice        3.1   3.2   4.0
+other       3.9   3.9   3.9
+observed 2011: [57.6, 19.4, 15.1, 4.0, 3.9]
+cells changed per step: 56 to 58
+      requested_1_3  expanded_1_3  patched_1_3  patches_1_3
+step                                                       
+1                25            24            1            2
+14               23            22            1            2
+expanded + patched = requested at every step: True
+```
+
+The figures of the part: the shares of 2011 are the observed ones to a tenth of a percent, every step changes 56 to
+58 cells, and forest to grassland asks for 25 cells in the first step, 24 made by the Expander. The validation of
+the part is [`S.validate`][terraflux.simulate.validate], which gives the three-map comparison, the fuzzy similarity
+([`S.fuzzy_similarity`][terraflux.simulate.fuzzy_similarity]) and the others in one object, and
+[`S.agreement`][terraflux.simulate.agreement] the hits and misses:
+
+```python
+check = S.validate(t0, t1, sim.maps[-1], factors=[1, 2, 4, 8], windows=[1, 3, 5])
+print(check.summary().round(3)[["figure_of_merit", "similarity_1", "similarity_3", "similarity_5"]])
+ag = S.agreement(t1, sim.maps[-1], t0)
+print({k: ag[k] for k in ("hits", "misses", "wrong_hits", "false_alarms")}, "of", int(((t0 != t1) & t1.notnull()).sum()),
+      "cells that changed")
+```
+
+```text
+figure_of_merit    0.466
+similarity_1       0.598
+similarity_3       0.706
+similarity_5       0.742
+Name: value, dtype: float64
+{'hits': 461, 'misses': 219, 'wrong_hits': 63, 'false_alarms': 247} of 743 cells that changed
+```
+
+461 of the 743 cells that changed were simulated with the right class, a figure of merit of 0.47, and the similarity
+in a window of 5 x 5 cells is 0.74, as in the part. The same fit, check and projection in one call is
+[`S.run`][terraflux.simulate.run], which the settings below use.
+
 ## Settings that change the answer
 
 ### The seed
@@ -491,6 +592,65 @@ set by hand, a road as a changed driver).
 - The number of steps: yearly steps from a 14-year period are the 14th root of the period's matrix; two steps of
   seven years are its square root. Choose the step that matches the questions (and the drivers that change).
 
+### Seeds, ranges and the projection in Python
+
+The seed is the argument of `run`, so the five seeds of the gallery are a loop, with the figure of merit and the
+fuzzy similarity in a window of 5 x 5 cells of each:
+
+```python
+for seed in (1, 2, 3, 4, 5):
+    other = model.run(t0, drivers, seed=seed).maps[-1]
+    v = S.validate(t0, t1, other, factors=[1], windows=[5]).summary()
+    print(seed, round(v["figure_of_merit"], 2), round(v["similarity_5"], 2))
+```
+
+```text
+1 0.47 0.74
+2 0.47 0.77
+3 0.44 0.72
+4 0.48 0.77
+5 0.43 0.74
+```
+
+The ranges of the weights: `S.presets.dinamica` without `woe` cuts every continuous driver into a hundred buffers
+(`woe=250` would be one increment for all, in each driver's units). The same seed with the chosen increments and with
+the automatic ones, through [`S.run`][terraflux.simulate.run], which fits the preset on the two maps, simulates the
+observed period from `t0` with one step per year, compares it with `t1` and (with `until`) projects from `t1`:
+
+```python
+proj = S.run(t0, t1, drivers, until=2025, preset="dinamica", seed=1,
+             woe={"ranges": ranges, "categorical": cat})
+auto = S.run(t0, t1, drivers, preset="dinamica", seed=1)
+print(round(proj.validation["figure_of_merit"], 2), "with the chosen ranges,",
+      round(auto.validation["figure_of_merit"], 2), "with the automatic ones")
+print(proj.report)
+```
+
+```text
+0.47 with the chosen ranges, 0.41 with the automatic ones
+        stage                                           detail
+0         fit  dinamica on 1997-2011, 14 step(s) in the period
+1  validation         figure of merit 0.4657, agreement 0.9268
+2  projection                     14 step(s) from 2011 to 2025
+```
+
+`proj.maps` has the observed 2011 and the projected years (`proj.maps.year`), `proj.settings` every choice and the
+seed, and `proj.redo(...)` repeats the run with something changed (`proj.redo(until=2040, seed=2)`). The projection
+of the part (`--start`, `--simulate`) is the projected map of 2025:
+
+```python
+last = proj.maps.sel(year=2025)
+print({names[c]: round(100 * float((last == c).sum()) / total, 1) for c in names})
+```
+
+```text
+{'forest': 50.7, 'coconut': 23.1, 'grassland': 17.8, 'rice': 4.4, 'other': 3.9}
+```
+
+Forest falls to 51% of the island and coconut and grassland together cover 41%, the projection of the part. The
+other settings are arguments of the preset: `patches` (the Expander's share, a number for all transitions),
+`isometry`, `prune_factor`, and `steps` of `Markov.from_maps` for another step than a year.
+
 ## Common pitfalls
 
 - **Validating on the calibration period.** A model fitted on 1997-2011 and compared with 2011 has only been
@@ -525,5 +685,3 @@ set by hand, a road as a changed driver).
 - Soares-Filho, B. S., Nepstad, D. C., Curran, L. M., Cerqueira, G. C., Garcia, R. A., Ramos, C. A., et al. (2006). Modelling conservation in the Amazon basin. *Nature*, 440(7083), 520–523. https://doi.org/10.1038/nature04389
 - Soares-Filho, B., Rodrigues, H., & Follador, M. (2013). A hybrid analytical-heuristic method for calibrating land-use change models. *Environmental Modelling & Software*, 43, 80–87. https://doi.org/10.1016/j.envsoft.2013.01.010
 - Verburg, P. H., Soepboer, W., Veldkamp, A., Limpiada, R., Espaldon, V., & Mastura, S. S. A. (2002). Modeling the spatial dynamics of regional land use: the CLUE-S model. *Environmental Management*, 30(3), 391–405. https://doi.org/10.1007/s00267-002-2630-x
-
-In Python: [Land change simulation in Python](/tutorials/land-change/land-change-simulation-in-python/).

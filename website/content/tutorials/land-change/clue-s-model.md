@@ -375,6 +375,92 @@ The demand (its source, its table); the regressions (formulas, coefficients, the
 elasticities and any rules; the allocation's settings; whether every year converged (`steps.csv`); the validation
 on an observed map at several resolutions, against persistence.
 
+### In Python
+
+The whole model is a [`Model`][terraflux.simulate.Model]: the regressions of node 1 and 2
+([`LogisticRegression`][terraflux.simulate.LogisticRegression]), the demand of node 3
+([`AreaDemand.from_maps`][terraflux.simulate.AreaDemand]), the settings of node 7
+([`CLUE`][terraflux.simulate.CLUE] and [`Rules`][terraflux.simulate.Rules]). The loop of node 6 is
+[`Model.run`][terraflux.simulate.Model], which carries the map and the history itself, and its `seed` is R's
+`set.seed` (nodes 4 and 5, `rng.r` and `lulcc.history`, need no code). The data are the library's example data, and
+the settings those of the part:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("pie_landuse"))     # 1985, 1991, 1999
+ef = tf.load_raster(S.example_data("pie_drivers"))
+start, obs = lu[0], lu[2]
+
+forms = {1: ["elevation", "slope"], 2: ["elevation", "slope", "dist_built_1985"], 3: ["elevation", "slope"]}
+glm = S.LogisticRegression(forms).fit(start, ef)               # fitted on the map the simulation starts from
+demand = S.AreaDemand.from_maps(lu, times=[0, 6, 14])          # a row per year, 1985 to 1999
+clue = S.CLUE(jitter=0.0002, scale=1e-6, max_iter=1000, max_diff=50, mean_diff=50)
+model = S.Model(glm, demand, clue, S.Rules(elasticity=[0.2, 0.2, 0.2]))
+sim = model.run(start, ef, seed=1)                             # 14 yearly maps after the start
+print(sim)
+print(sim.steps[["iterations", "converged", "cells_1", "cells_2", "cells_3"]].iloc[[0, 1, 13]])
+```
+
+```text
+Simulation(14 steps, seed=1)
+      iterations  converged  cells_1  cells_2  cells_3
+step                                                  
+1             52       True    48690    37610    27263
+2             98       True    48374    38151    27038
+14           258       True    45355    43427    24781
+```
+
+`sim.maps` is `(step, y, x)` with the start as step 0, and `sim.steps` is `steps.csv`: the passes, whether the year
+converged and the cells of each class (the table above, 48,690 forest cells against 48,683 asked in 1986). The
+gross change of each year is the difference of consecutive maps, and the validation of the part is
+[`S.agreement`][terraflux.simulate.agreement] (its table) and
+[`S.three_map_comparison`][terraflux.simulate.three_map_comparison] (the figure of merit at several block sizes):
+
+```python
+valid = sim.maps.notnull()
+changed = [int(((sim.maps[k] != sim.maps[k - 1]) & valid[k]).sum()) for k in range(1, 15)]
+print(changed[:3], "...", changed[-1])
+
+ag = S.agreement(obs, sim.maps[-1], start)                     # against the observed 1999
+print({k: ag[k] for k in ("hits", "misses", "wrong_hits", "false_alarms")})
+print(round(ag["figure_of_merit"], 3), round(ag["overall"], 3),
+      round(S.agreement(obs, start, start)["overall"], 3))     # the last: persistence, the map of 1985 unchanged
+
+tmc = S.three_map_comparison(start, obs, sim.maps[-1], factors=[1, 2, 4, 8, 16])
+print(tmc.figure_of_merit()["overall"].round(3).to_dict())
+```
+
+```text
+[13023, 597, 581] ... 441
+{'hits': 1609, 'misses': 5948, 'wrong_hits': 1021, 'false_alarms': 16892}
+0.063 0.79 0.924
+{1: 0.063, 2: 0.083, 4: 0.121, 8: 0.171, 16: 0.206}
+```
+
+The first year changes 13,023 cells for a net change of a few hundred, as the part explains. The counts are the
+part's: 1,609 hits, 5,948 misses, 1,021 wrong hits and 16,892 false alarms, a figure of merit of 0.063, 79.0% of
+the cells with the class of 1999 against 92.4% for persistence, and the figure of merit at blocks of 1 to 16 cells.
+`S.validate(start, obs, sim.maps[-1])` gathers these and the other comparisons in one call. Replicates are other
+seeds; as the part says, they differ little:
+
+```python
+ref = sim.maps[-1].values
+for seed in (2, 3, 4, 5):
+    other = model.run(start, ef, seed=seed).maps[-1].values
+    print(seed, int(((other != ref) & ~np.isnan(ref)).sum()), "cells of 1999 differ from seed 1")
+```
+
+```text
+2 32 cells of 1999 differ from seed 1
+3 31 cells of 1999 differ from seed 1
+4 27 cells of 1999 differ from seed 1
+5 33 cells of 1999 differ from seed 1
+```
+
 ## Settings that change the answer
 
 ### The elasticities
@@ -428,6 +514,63 @@ variables swing from one extreme to the other: in the last pass every cell of th
 map of that year is useless. lulcc's default (0.0005) is far too large here; on maps of 100,000 cells and more,
 start from 0.000001 to 0.00001 and check the first year. Always read `converged` in `steps.csv`.
 
+### The elasticities and the scale in Python
+
+Both are arguments of the model, so each slider is a loop over a value. `Rules(elasticity=...)` takes one value for
+all classes or one per class (a list in the class order, or `{class: value}`); `CLUE(scale=...)` and `max_iter`
+are the allocation's. A run that does not converge warns and keeps its last allocation, and `sim.steps.converged`
+says which years did. The six elasticities of the first slider, each with the cells that end in another class, the
+agreement with 1999 and the figure of merit:
+
+```python
+import warnings
+
+rows = {}
+for label, e in {"0, 0, 0": 0.0, "0.2, 0.2, 0.2": 0.2, "0.4, 0.4, 0.4": 0.4, "0.6, 0.6, 0.6": 0.6,
+                 "0.8, 0.8, 0.8": 0.8, "0.2, 0.9, 0.2": [0.2, 0.9, 0.2]}.items():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")                        # years that do not converge
+        s = S.Model(glm, demand, clue, S.Rules(elasticity=e)).run(start, ef, seed=1)
+    ag = S.agreement(obs, s.maps[-1], start)
+    rows[label] = {"changed": int(((s.maps[-1] != start) & s.maps[-1].notnull()).sum()),
+                   "fom": round(ag["figure_of_merit"], 3), "agreement": round(100 * ag["overall"], 1),
+                   "years_converged": int(s.steps.converged.sum())}
+print(pd.DataFrame.from_dict(rows, orient="index"))
+```
+
+```text
+               changed    fom  agreement  years_converged
+0, 0, 0          33430  0.058       68.5               14
+0.2, 0.2, 0.2    19522  0.063       79.0               14
+0.4, 0.4, 0.4     8267  0.063       87.3               14
+0.6, 0.6, 0.6     6446  0.064       88.6               13
+0.8, 0.8, 0.8     6351  0.065       88.7                7
+0.2, 0.9, 0.2    14856  0.061       82.5               14
+```
+
+The figure of merit stays between 0.058 and 0.065 while the change falls from a third of the landscape to the
+observed 8,578 cells, as the part reads it. The `scale` of the second slider, on the first year:
+
+```python
+first = S.AreaDemand(demand.table.iloc[:2])
+for scale in (1e-6, 1e-5, 1e-4):
+    c = S.CLUE(jitter=0.0002, scale=scale, max_iter=1000, max_diff=50, mean_diff=50)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        s = S.Model(glm, first, c, S.Rules(elasticity=0.2)).run(start, ef, seed=1)
+    row = s.steps.iloc[0]
+    print(scale, int(row.iterations), bool(row.converged), [int(row[f"cells_{k}"]) for k in (1, 2, 3)])
+```
+
+```text
+1e-06 52 True [48690, 37610, 27263]
+1e-05 5 True [48660, 37668, 27235]
+0.0001 1001 False [113563, 0, 0]
+```
+
+From 0.0001 the iteration variables overshoot and the whole landscape is forest, as in the slider. CLUE's default
+`scale` (0.0005, lulcc's) is the one that fails here: start from 1e-6 to 1e-5 and read `converged`.
+
 ## Common pitfalls
 
 - **Ignoring the first year.** A gross change far larger than the net change in the first year means the
@@ -455,5 +598,3 @@ start from 0.000001 to 0.00001 and check the first year. Always read `converged`
 
 - Moulds, S., Buytaert, W., & Mijic, A. (2015). An open and extensible framework for spatially explicit land use change modelling: the lulcc R package. *Geoscientific Model Development*, 8(10), 3215–3229. https://doi.org/10.5194/gmd-8-3215-2015
 - Verburg, P. H., Soepboer, W., Veldkamp, A., Limpiada, R., Espaldon, V., & Mastura, S. S. A. (2002). Modeling the spatial dynamics of regional land use: the CLUE-S model. *Environmental Management*, 30(3), 391–405. https://doi.org/10.1007/s00267-002-2630-x
-
-In Python: [Land change simulation in Python](/tutorials/land-change/land-change-simulation-in-python/).

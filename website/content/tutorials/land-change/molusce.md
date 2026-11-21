@@ -273,6 +273,98 @@ changed (`info`), against the counts; and the validation, with the figure of mer
 disagreement rather than kappa alone ([[validate.kappa]] gives MOLUSCE's kappas; [[validate.error_budget]] its
 error budget).
 
+### In Python
+
+The plugin's pieces are [`MolusceWoE`][terraflux.simulate.MolusceWoE] (its weights of evidence, fitted on the two
+maps with the bounds of the categories) and [`MolusceCA`][terraflux.simulate.MolusceCA] (its simulator), put
+together by a [`Model`][terraflux.simulate.Model] whose demand is the cross table. `S.presets.molusce` does the
+three in one call. The weights are those of the part's model (the values of `molusce.total` are what the fit
+gives), the generator is numpy's legacy one seeded with `seed`, as the plugin draws:
+
+```python
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))        # 1997, 2011
+drv = tf.load_raster(S.example_data("sibuyan_drivers"))
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)
+d = drv.sel(band=["elevation", "slope", "dist_roads"])
+bins = {"elevation": [50, 150, 300, 600], "slope": [4, 10, 16, 22], "dist_roads": [250, 500, 1000, 2000, 4000]}
+
+cross = pd.crosstab(t0.values.ravel(), t1.values.ravel())     # the "demand": cells of every transition
+print(cross)
+model = S.presets.molusce(t0, t1, d, bins=bins)               # MolusceWoE + the cross table + MolusceCA(1)
+print(model.potential)
+```
+
+```text
+col_0   1.0   2.0  3.0  4.0  5.0
+row_0                           
+1.0    4160   126  320  116    1
+2.0       0  1140   18    0    0
+3.0       0    77  745   16    1
+4.0       0    61    7  156    0
+5.0       0     0    0    0  282
+MolusceWoE(15 transitions, drivers=['elevation', 'slope', 'dist_roads'])
+```
+
+The cross table is the part's (4,160 forest cells stay, 126 become coconut, 320 grassland, 116 rice, 1 other). The
+check on the calibration period is one iteration from 1997 against 2011, with the figure of merit at blocks of
+1 to 8 cells ([`three_map_comparison`][terraflux.simulate.three_map_comparison]), then the same with a logistic
+regression as the potential:
+
+```python
+def fom(m):
+    sim = m.run(t0, d, seed=1)                                # one iteration from 1997
+    tmc = S.three_map_comparison(t0, t1, sim.maps[-1], factors=[1, 2, 4, 8])
+    return tmc.figure_of_merit()["overall"].round(4)
+
+forms = {c: ["elevation", "slope", "dist_roads"] for c in range(1, 6)}
+glm = S.LogisticRegression(forms).fit(t0, d)
+print(pd.DataFrame({"woe": fom(model), "glm": fom(S.Model(glm, cross, S.MolusceCA(1)))}))
+```
+
+```text
+           woe     glm
+factor                
+1       0.1363  0.0644
+2       0.1693  0.0720
+4       0.2203  0.0876
+8       0.2868  0.1187
+```
+
+These are the two curves of the chart. The projection from 2011 is two iterations from the later map, with the
+potential fitted on 2011 for the regression; `sim.steps` is the `info` table, a column `changed_<from>_<to>` per
+transition:
+
+```python
+cols = ["changed_1_2", "changed_1_3", "changed_1_4", "changed_3_2"]
+for name, pot in (("woe", S.MolusceWoE(bins).fit(t0, t1, d)), ("glm", S.LogisticRegression(forms).fit(t1, d))):
+    sim = S.Model(pot, cross, S.MolusceCA(2)).run(t1, d, seed=1)    # 2025 and 2039
+    forest = 100 * float((sim.maps[-1] == 1).sum()) / float(t1.notnull().sum())
+    print(name, f"forest in 2039: {forest:.1f}%")
+    print(sim.steps[cols])
+```
+
+```text
+woe forest in 2039: 45.3%
+      changed_1_2  changed_1_3  changed_1_4  changed_3_2
+step                                                    
+1             126          320           61           77
+2              70          307            0           77
+glm forest in 2039: 54.0%
+      changed_1_2  changed_1_3  changed_1_4  changed_3_2
+step                                                    
+1             126            9            0           77
+2             126            0            0           77
+```
+
+With the weights of evidence forest to rice changes 61 cells of 116 in the first iteration and none in the second;
+with the regression forest to grassland changes 9 cells of 320, and the forest keeps 54.0% of the island against
+45.3%. `weights_table()` of the fitted `MolusceWoE` is the plugin's table of weights, and `S.compare_maps` and
+`S.error_budget` give its kappas and error budget.
+
 ## Settings that change the answer
 
 - **The categories' bounds.** Coarse categories smooth the weights; fine ones fit noise, and categories without

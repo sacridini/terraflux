@@ -348,6 +348,114 @@ The patch settings of every transition (a table like the one above), how they we
 calibration period, given, or calibrated), the isometry, the `prune_factor` and the window. If the settings were
 calibrated, the metric and the range tried ([Calibration and many runs](/tutorials/land-change/calibration-and-many-runs/)).
 
+### In Python
+
+[`ExpanderPatcher`][terraflux.simulate.ExpanderPatcher] is node 8 and 9 in one: its settings are the `expansion`
+share and, per transition, `(mean, variance, isometry)` of the Expander's and of the Patcher's patches; the rates are
+the model's demand (a [`Markov`][terraflux.simulate.Markov] chain, or `{(from, to): rate}`), the probabilities its
+potential, and `Model.run` makes one step per row of the rates (`steps=1` here). The landscape drawn by chance, with
+the same seeds and settings as the part:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+from scipy import ndimage
+
+S = tf.simulate
+land = tf.nlm.random_cluster(150, 150, p=0.5, ai=[0.8, 0.2], seed=4, rescale=False)   # 1 forest, 2 farmland
+suit = tf.nlm.gaussian_field(150, 150, autocorr_range=30, seed=5)                     # the driver
+observed = land.where(~((land == 1) & (suit > 0.68)), 2)         # forest cleared where farming suits best
+drivers = suit.expand_dims(band=["suitability"])
+
+chain = S.Markov.from_maps(land, observed, steps=1)              # node 5
+woe = S.WeightsOfEvidence({"suitability": 0.05}).fit(land, observed, drivers)   # node 6; the probability is
+                                                                                 # computed by Model.run (node 7)
+def step(**patches):
+    ep = S.ExpanderPatcher(steps=1, **{"expansion": 0.5, "expander": (20, 200, 1.5),
+                                       "patcher": (20, 200, 1.5), **patches})
+    return S.Model(woe, chain, ep).run(land, drivers, seed=1)    # node 9
+
+sim = step()
+print(int(((land == 1) & (observed == 2)).sum()), "cells cleared in the observed change")
+print(sim.steps.T)
+```
+
+```text
+2410 cells cleared in the observed change
+step              1
+requested_1_2  2410
+expanded_1_2   1205
+patched_1_2    1205
+patches_1_2     116
+```
+
+`sim.steps` is the `info` table: `requested_1_2`, `expanded_1_2`, `patched_1_2` and `patches_1_2`, a row per step.
+The sliders of the part are this function with another setting; the clumps are the groups of new cells joined by
+their eight neighbours:
+
+```python
+def clumps(sim):
+    new = (sim.maps[-1].values == 2) & (land.values == 1)
+    _, n = ndimage.label(new, structure=np.ones((3, 3)))
+    return n
+
+rows = []
+for e in (0.0, 0.5, 1.0):                                        # the Expander's share
+    s = step(expansion=e)
+    rows.append({"setting": f"expansion {e}", **s.steps[["expanded_1_2", "patched_1_2", "patches_1_2"]].iloc[0],
+                 "clumps": clumps(s)})
+for size in (1, 4, 20, 80):                                      # mean patch size; variance half the mean squared
+    s = step(expander=(size, size * size / 2, 1.5), patcher=(size, size * size / 2, 1.5))
+    rows.append({"setting": f"size {size}", "patches_1_2": s.steps.patches_1_2.iloc[0], "clumps": clumps(s)})
+for iso in (0.5, 1.0, 2.0, 3.0):                                 # isometry
+    s = step(expander=(20, 200, iso), patcher=(20, 200, iso))
+    rows.append({"setting": f"isometry {iso}", "clumps": clumps(s)})
+print(pd.DataFrame(rows).set_index("setting").astype("Int64").to_string())
+```
+
+```text
+               expanded_1_2  patched_1_2  patches_1_2  clumps
+setting                                                      
+expansion 0.0             0         2410          119      78
+expansion 0.5          1205         1205          116      74
+expansion 1.0          2410            0          120      79
+size 1                 <NA>         <NA>         1972    1088
+size 4                 <NA>         <NA>          600     346
+size 20                <NA>         <NA>          116      74
+size 80                <NA>         <NA>           30      21
+isometry 0.5           <NA>         <NA>         <NA>      49
+isometry 1.0           <NA>         <NA>         <NA>      54
+isometry 2.0           <NA>         <NA>         <NA>      73
+isometry 3.0           <NA>         <NA>         <NA>      76
+```
+
+The clumps are the numbers of the sliders ("Clumps of new farmland"). The shares, sizes and isometry are arguments
+of `ExpanderPatcher` alone: a single tuple for every transition, or `{(from, to): (mean, variance, isometry)}`;
+`prune_factor` and `window` are its other settings, and `size_unit="hectares"` gives the sizes in hectares of the
+map's cells as Dinamica does.
+
+On Sibuyan the settings are measured on the observed change, as `patches.observe` does:
+`S.presets.observed_patches` returns the table above, and `S.presets.dinamica` uses it:
+
+```python
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))
+sd = tf.load_raster(S.example_data("sibuyan_drivers"))
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)
+obs = S.presets.observed_patches(t0, t1)
+print(obs[obs.cells > 60][["from", "to", "expansion", "expansion_mean", "expansion_variance",
+                           "new_mean", "new_variance"]].round(2).to_string(index=False))
+```
+
+```text
+ from  to  expansion  expansion_mean  expansion_variance  new_mean  new_variance
+    1   2       0.77           16.17              210.47      3.62          9.73
+    1   3       0.95           20.20             1212.43      1.89          1.43
+    1   4       0.24            4.67               17.56      5.87         73.98
+    3   2       0.94           12.00              187.67      1.00          0.00
+    4   2       0.92            4.67               13.39      5.00          0.00
+```
+
 ## Settings that change the answer
 
 The dashboards below are real runs of the model above, each with one setting changed and everything else as in
@@ -439,6 +547,42 @@ change. A small factor (2 or 3) makes the allocation nearly deterministic, the c
 highest probabilities; a large one (100) lets lower probabilities take part, spreading the change. `window`
 (`[3, 3]`) is the neighbourhood of the Expander's \(n_j\) and of the patches' growth: a larger window (`[5, 5]`)
 lets the Expander work a little further from the existing patches and makes growth smoother.
+
+### The settings on Sibuyan in Python
+
+The full model of part 3 with every transition's Expander share set to one value. The preset fits the chain, the
+weights and the measured patches; `dataclasses.replace` changes one setting of its allocation. The patches of each
+class on the whole island in 2011 are `tf.landscape_metrics` (`np`), as the slider says:
+
+```python
+from dataclasses import replace
+
+ranges = {"dist_sea": 250, "dist_roads": 250, "dist_urban": 250, "dist_streams": 250, "elevation": 50,
+          "slope": 2, "aspect": 30, "pop_density": 50}
+cat = ["diorite", "ultramafic", "sediments", "no_erosion", "moderate_erosion"]
+base = S.presets.dinamica(t0, t1, sd, steps=14, woe={"ranges": ranges, "categorical": cat})
+
+
+def patches_of(m):
+    r = tf.landscape_metrics(m.fillna(0).astype("int32"), level="class", metric=["np"])
+    return {int(c): int(v) for c, v in zip(r["class"], r["value"]) if c in (2, 3, 4)}
+
+
+print("observed 2011:", patches_of(t1))
+for e in (0.0, 0.5, 1.0):
+    model = S.Model(base.potential, base.demand, replace(base.allocation, expansion=e), base.rules)
+    print("expansion", e, patches_of(model.run(t0, sd, seed=1).maps[-1]))
+```
+
+```text
+observed 2011: {2: 16, 3: 17, 4: 34}
+expansion 0.0 {2: 23, 3: 20, 4: 31}
+expansion 0.5 {2: 18, 3: 22, 4: 26}
+expansion 1.0 {2: 8, 3: 15, 4: 17}
+```
+
+Coconut, grassland and rice (classes 2, 3, 4) have 23, 20 and 31 patches with the Patcher alone and 8, 15 and 17
+with the Expander alone, as the slider; `isometry`, `prune_factor` and `window` are changed the same way.
 
 ## Common pitfalls
 

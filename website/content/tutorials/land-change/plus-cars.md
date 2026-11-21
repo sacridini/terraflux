@@ -111,23 +111,33 @@ what LEAS does: for each class, the cells that gained it between the two maps ar
 could have gained it and did not are the absences; a sample of both (5 % of the cells, drawn from each group
 separately, as in the paper) trains a random forest of 50 trees.
 
-<!-- no-run -->
 ```python
+import numpy as np
+import pandas as pd
 import terraflux as tf
-import numpy as np, rasterio
 from sklearn.ensemble import RandomForestClassifier
 
 S = tf.simulate
-lu = tf.load_raster("pie_landuse.tif")
-ef = tf.load_raster("pie_drivers.tif")
-t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)      # 1985, 1991
+lu = tf.load_raster(S.example_data("pie_landuse"))       # bands 1985, 1991, 1999 (the part's pie_landuse.tif)
+ef = tf.load_raster(S.example_data("pie_drivers"))       # the part's pie_drivers.tif
+t0, t1, t99 = lu[0], lu[1], lu[2]                        # 1985, 1991, 1999; 255 is already missing
 
 leas = S.Estimator(RandomForestClassifier(n_estimators=50, min_samples_leaf=50, random_state=1),
                    target="expansion", classes=[1, 2, 3], sample=0.05, stratify=True, seed=1)
 leas.fit(t0, ef, t1=t1)
-print(leas.importance())                      # the contribution of each driver to each class
+print(leas.importance().round(4))             # the contribution of each driver to each class
 p = leas.predict(ef, landscape=t1)            # a layer per class: the growth probability
-# ... written to potential.tif, a band per class named "1", "2", "3"
+print(p.dims, round(float(p.sel({"class": 2}).max()), 3))
+# the part writes it to potential.tif, a band per class named "1", "2", "3"
+```
+
+```text
+                      1       2       3
+driver                                 
+dist_built_1985  0.3492  0.2972  0.2657
+elevation        0.3357  0.3687  0.3340
+slope            0.3151  0.3341  0.4004
+('class', 'y', 'x') 0.114
 ```
 
 `min_samples_leaf=50` keeps each leaf of the trees above 50 cells, which smooths the probabilities: with leaves
@@ -390,6 +400,71 @@ at the resolution where it becomes useful.
 allocation's), the CARS settings, and the figure of merit at several resolutions, with the number of replicates
 if you ran several seeds. The validation tutorials on [the category page](/tutorials/#land-change) explain these
 measures in detail.
+
+### CARS in Python
+
+The loop and the validation of steps 3 and 4 are a [`Model`][terraflux.simulate.Model] with
+[`CARS`][terraflux.simulate.CARS]: the growth probabilities above as the potential
+([`RasterPotential`][terraflux.simulate.RasterPotential]), the Markov chain of 1985-1991 as the demand (the
+`plus.demand` node: [`Markov`][terraflux.simulate.Markov] projected by the model, 8 steps), and the settings of the
+table. `S.presets.plus` fits LEAS, the chain and CARS in one call; here the pieces are the part's, so the numbers
+are its numbers:
+
+```python
+chain = S.Markov.from_maps(t0, t1, steps=6)                       # 1985-1991 in 6 yearly steps
+settings = dict(weights={1: 0.5, 2: 1.0, 3: 0.3}, decay=0.9, step_size=50, max_iter=5000, steps=8)
+
+
+def cars(**kw):
+    allocation = S.CARS(**{"seeds": 0.1, "window": 3, **settings, **kw})
+    return S.Model(S.RasterPotential(p), chain, allocation).run(t1, seed=1)   # 8 yearly maps from 1991
+
+
+sim = cars()
+print(sim.steps.iloc[[0, 1, 7]])
+tmc = S.three_map_comparison(t1, t99, sim.maps[-1], factors=[1, 2, 4, 8, 16])
+print(tmc.figure_of_merit()["overall"].round(3).to_dict())
+print("built 1999: simulated", int(sim.steps.cells_2.iloc[-1]), "observed", int((t99 == 2).sum()))
+```
+
+```text
+      iterations  converged  decays  gap  cells_1  cells_2  cells_3
+step                                                               
+1             20       True       8    0    46708    40874    25981
+2             22       True      11    0    46388    41394    25781
+8             21       True      17    0    44510    44434    24619
+{1: 0.03, 2: 0.054, 4: 0.111, 8: 0.222, 16: 0.366}
+built 1999: simulated 44434 observed 43455
+```
+
+`sim.steps` is `steps.csv` (`iterations`, `converged`, `decays`, `gap` and the cells of each class). The figure of
+merit at each block size is the chart of the part, and the demand of 1999 overestimates the built land as it says.
+The settings of the last section are arguments of `S.CARS`; the patches of built land are labelled with `scipy`:
+
+```python
+from scipy import ndimage
+
+
+def built_patches(m):
+    return int(ndimage.label(m.values == 2, structure=np.ones((3, 3)))[1])
+
+
+print("observed 1999:", built_patches(t99))
+for kw in ({"window": 3}, {"window": 5}, {"window": 9}, {"seeds": 0.0}, {"seeds": 1.0}):
+    print(kw, built_patches(cars(**kw).maps[-1]))
+```
+
+```text
+observed 1999: 839
+{'window': 3} 649
+{'window': 5} 1281
+{'window': 9} 1503
+{'seeds': 0.0} 639
+{'seeds': 1.0} 683
+```
+
+Windows of 3 and 9 give the 649 and 1,503 patches of the slider, and the seeds change the count by only a few
+dozen. `Rules(allowed=..., restrictions=...)` are the `allowed` matrix and the `restrictions` input of `cars.step`.
 
 ## Settings that change the answer
 
