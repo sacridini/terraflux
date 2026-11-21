@@ -25,7 +25,7 @@ fraction) or additive-benefit (ABF) rules, and sorted again until the order is
 consistent. Terraflux gives the rank maps and curves of the z5 program (v2.4)
 bit for bit, faster, with the curves of the ranking it returns (Zonation's own
 report those of the order before its last sort). The
-[tutorial](/tutorials/spatial-prioritization/prioritization-in-python/) walks through a project, and the
+[tutorial](/tutorials/spatial-prioritization/zonation/#in-python) walks through a project, and the
 [spatial prioritization tutorials](/tutorials/spatial-prioritization/) explain
 the method.
 
@@ -129,7 +129,7 @@ prioritizr 8.0.6's model bit for bit and the solvers reach the same optima as pr
 HiGHS is built in, with Terraflux's own engines in front of it for the problems it finds hard
 (covering problems of millions of units, budgeted objectives, boundary penalties by minimum cuts,
 multi-action plans); Gurobi is used when installed and asked for. Coming from R? The
-[migration guide](/tutorials/spatial-prioritization/from-prioritizr-in-python/) lists the equivalent of every function.
+[migration guide](/tutorials/spatial-prioritization/from-prioritizr/) lists the equivalent of every function.
 
 ```python
 import terraflux as tf

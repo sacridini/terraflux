@@ -299,6 +299,144 @@ Marxan 4's algorithm in Terraflux). In the results: the best run's cost, area, b
 met, the selection frequency map, and how many runs met every target. Ardron et al. (2010) give a full list of good
 practices, among them: never present the best run alone, since many runs are almost as good.
 
+### In Python
+
+Marxan is [`tf.prioritize.marxan`][terraflux.prioritize.marxan], the algorithm of Marxan 4 (annealing, iterative
+improvement, the greedy heuristics) with Marxan's own tables: `pu` (`id`, `cost`, `status`), `spec` (`id`, `prop` or
+`target`, `spf`), `puvspr` (`species`, `pu`, `amount`) and `bound` (`id1`, `id2`, `boundary`; a row with equal ids is a
+unit's boundary with the outside). Files read with pandas work as they are. For Serra Verde they come from the
+problem of the raster, whose planning units hold the amounts and the costs:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cost = tf.load_raster(P.example_data("cost"))
+features = tf.load_raster(P.example_data("features"))
+
+p = P.problem(cost, features).add_min_set_objective().add_relative_targets(0.3).add_binary_decisions()
+u = p.units                                       # cost, amounts and the cell of every planning unit
+ids = np.arange(1, u.n + 1)
+pu = pd.DataFrame({"id": ids, "cost": u.cost, "status": 0})          # status 2 locks in, 3 locks out
+spec = pd.DataFrame({"id": np.arange(1, 9), "prop": 0.3, "spf": 10.0})
+rij = u.rij.tocoo()                               # features x units
+puvspr = pd.DataFrame({"species": rij.row + 1, "pu": rij.col + 1, "amount": rij.data})
+
+# the boundaries: what the cells share, and (id1 == id2) what each has with the outside, at its full length
+bm = P.boundary_matrix(cost).tocsr()[u.index][:, u.index].tocoo()
+shared = np.bincount(bm.row[bm.row != bm.col], weights=bm.data[bm.row != bm.col], minlength=u.n)
+up = (bm.row < bm.col)
+bound = pd.concat([pd.DataFrame({"id1": ids[bm.row[up]], "id2": ids[bm.col[up]], "boundary": bm.data[up]}),
+                   pd.DataFrame({"id1": ids, "id2": ids, "boundary": bm.tocsr().diagonal() - shared})])
+print(len(pu), "units,", len(puvspr), "amounts,", len(bound), "boundaries")
+```
+
+```text
+4825 units, 8333 amounts, 14325 boundaries
+```
+
+The figures and numbers of the part leave `status` at 0 (nothing locked in or out), so their costs are of the plan
+without the reserves; to lock them, set `pu["status"]` from the rasters, as the graph's node 5 does. The runs are
+independent and start from `seed`; the same seed gives the same runs on any number of threads.
+
+```python
+def run(blm=0.0, spf=10.0, iters=10_000_000):
+    r = P.marxan(pu, spec.assign(spf=float(spf)), puvspr, bound, blm=blm, num_reps=10, num_iters=iters, seed=1)
+    return r, r.summary.loc[r.best_run - 1]       # the best run: the lowest score
+
+for spf in (1, 2, 5, 10):
+    r, b = run(spf=spf)
+    done = int((r.summary["Missing_Values"] == 0).sum())
+    print(f"SPF {spf:2d}: best {b['Cost'] / 1000:.1f} million USD, {int(b['Missing_Values'])} targets missed, "
+          f"{done} of 10 runs meet every target")
+```
+
+```text
+SPF  1: best 33.9 million USD, 4 targets missed, 0 of 10 runs meet every target
+SPF  2: best 38.8 million USD, 2 targets missed, 0 of 10 runs meet every target
+SPF  5: best 40.7 million USD, 0 targets missed, 6 of 10 runs meet every target
+SPF 10: best 41.6 million USD, 0 targets missed, 8 of 10 runs meet every target
+```
+
+The species penalty factor first, as the part says: the cheap plans of a low SPF are cheap because they fail.
+`r.penalties` has every feature's target and the penalty it costs when missed, `r.summary` Marxan's `_sum` file
+(`Score`, `Cost`, `Planning_Units`, `Connectivity` the boundary length, `Penalty`, `Shortfall`, `Missing_Values` and
+`MPM`, the least share of a target met), `r.solutions` every run's selection, `r.best` the best run's, and
+`r.frequency` the share of the runs that select each unit. The boundary length modifier next, the slider of the part:
+
+```python
+for blm in (0, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1):
+    r, b = run(blm=blm)
+    f = r.frequency["frequency"]
+    print(f"BLM {blm:5}: {b['Cost'] / 1000:.1f} million USD, {b['Connectivity'] / 1000:5.0f} km, "
+          f"{int(b['Planning_Units'])} cells, {int((f == 1).sum())} in every run")
+```
+
+```text
+BLM     0: 41.6 million USD,  1872 km, 859 cells, 31 in every run
+BLM 0.002: 40.2 million USD,  1442 km, 840 cells, 104 in every run
+BLM 0.005: 38.9 million USD,   966 km, 827 cells, 238 in every run
+BLM  0.01: 38.3 million USD,   648 km, 818 cells, 370 in every run
+BLM  0.02: 38.2 million USD,   442 km, 817 cells, 482 in every run
+BLM  0.05: 39.6 million USD,   314 km, 828 cells, 485 in every run
+BLM   0.1: 40.7 million USD,   276 km, 829 cells, 483 in every run
+```
+
+These are the part's numbers, to the digit: the same algorithm with the same seed gives the same runs, so the
+run of the app and this one are the same run. `r.best_run` is the run's number; `frequency` is the selection frequency map once put
+back on the raster (`cost.copy(data=...)` with the values at `u.index`).
+
+More iterations help, with diminishing returns, and every run stays above the proven optimum
+([part 4](../linear-programming/#in-python)), which here is 37.1 million USD:
+
+```python
+for millions in (0.1, 1, 10, 50):
+    r, b = run(iters=int(millions * 1e6))
+    worst = r.summary["Cost"].max() / 1000
+    print(f"{millions:5} million iterations: best {b['Cost'] / 1000:.1f}, worst {worst:.1f} million USD")
+```
+
+```text
+  0.1 million iterations: best 48.1, worst 49.5 million USD
+    1 million iterations: best 43.8, worst 45.0 million USD
+   10 million iterations: best 41.6, worst 42.0 million USD
+   50 million iterations: best 40.5, worst 40.9 million USD
+```
+
+Other options of the call are Marxan's own: `start_temp` (-1 Connolly's schedule, -2 the adaptive one), `cool_fac`,
+`num_temp`, `run_mode` (0, 1, 2 or 6), `heur_type`, `itimp_type`, `misslevel`, `cost_thresh`, `thresh_pen1`,
+`thresh_pen2`, `connectivity_in` and `n_threads`. The same annealing solves a [`Problem`][terraflux.prioritize.Problem]
+of the optimization chain (`add_anneal_solver(...)` instead of `add_highs_solver`), and
+[`tf.prioritize.eval_proxirr_marxan`][terraflux.prioritize.eval_proxirr_marxan] takes the three tables.
+
+ProxIRR is [`tf.prioritize.eval_proxirr`][terraflux.prioritize.eval_proxirr], of a problem with targets (its
+objective plays no part). `beta` and `gamma` are rasters like a solution's selection; `alpha` is a sparse matrix of the
+targets by units. The same problem on blocks of 5 x 5 cells comes from
+[`tf.prioritize.coarsen`][terraflux.prioritize.coarsen]:
+
+```python
+irr = P.eval_proxirr(p)
+r, b = run(blm=0.01)
+beta = irr.beta.values.ravel()[u.index]
+rank = lambda x: pd.Series(x).rank()
+print(f"cells of 1 km: largest beta {np.nanmax(irr.beta.values):.3f}, "
+      f"Spearman with the selection frequency at BLM 0.01: {rank(beta).corr(rank(r.frequency['frequency'])):.2f}")
+
+bcost, bfeatures = P.coarsen(cost, features, 5)
+blocks = P.problem(bcost, bfeatures).add_min_set_objective().add_relative_targets(0.3).add_binary_decisions()
+print(f"blocks of 25 km²: {int(bcost.notnull().sum())} units, largest beta {np.nanmax(P.eval_proxirr(blocks).beta.values):.2f}")
+```
+
+```text
+cells of 1 km: largest beta 0.026, Spearman with the selection frequency at BLM 0.01: 0.65
+blocks of 25 km²: 198 units, largest beta 0.33
+```
+
+Beta is 0.026 at most on the cells and a third on the blocks, as in the part. `triage=True` sets aside the targets
+that cannot be met instead of counting them as needed everywhere.
+
 ## Settings that change the answer
 
 ### The boundary length modifier

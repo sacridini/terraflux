@@ -255,6 +255,137 @@ conservation, the objective, the solver's gap, and the plan's costs by action an
 actions. Like every plan of this series, it is a decision-support tool: the costs and the sensitivities are estimates,
 and the people who will carry out the actions should see them.
 
+### In Python
+
+The library has both forms of the operators: from rasters, [`tf.prioritize.actions_raster_data`][terraflux.prioritize.actions_raster_data],
+and from tables, [`tf.prioritize.actions_data`][terraflux.prioritize.actions_data] (prioriactions' `inputData()`).
+The plan of the part, from Serra Verde's rasters:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cost = tf.load_raster(P.example_data("cost"))            # the monitoring cost of every cell
+features = tf.load_raster(P.example_data("features"))
+threats = tf.load_raster(P.example_data("threats"))      # deforestation and fire, 0 to 1
+
+d = P.actions_raster_data(cost, features, threats,
+                          action_cost=[30, 10],           # deforestation, fire (thousand USD per cell)
+                          target_recovery=0.3,            # of the amount each feature has under a threat
+                          target_conservation=0.1)        # of the amount it has where none reaches it
+sol = d.problem("minimizeCosts").add_highs_solver(gap=0.01).solve()
+maps = sol.maps()                                         # 0/1 bands: monitoring, deforestation, fire
+print(sol.status, f"{sol.objective / 1000:.1f} million USD, gap {sol.gap:.1%}")
+print({str(b): int(maps.sel(band=b).sum()) for b in maps.band.values})
+```
+
+```text
+optimal 57.6 million USD, gap 0.9%
+{'monitoring': 878, 'deforestation': 191, 'fire': 583}
+```
+
+The same plan as the part's map. The costs and the benefits are methods of the solution, with the most each feature
+could get from [`ActionsData.potential_benefit`][terraflux.prioritize.ActionsData]:
+
+```python
+print(sol.cost().round(0).to_string(index=False))
+ben = sol.benefit().set_index("feature").astype(float).round(1)
+ben.index = ben.index.astype(int)                         # the features are numbered 1 to 8, in the stack's order
+ben["maximum"] = d.potential_benefit().set_index("feature")["maximum.benefit"].round(1)
+print(ben.to_string())
+```
+
+```text
+ monitoring  threat_1  threat_2
+    46036.0    5730.0    5830.0
+         benefit.conservation  benefit.recovery  benefit.total  maximum
+feature                                                                
+1                        82.8             323.8          406.6   1534.1
+2                        34.3              76.5          110.8    465.6
+3                        56.0             267.6          323.6    825.1
+4                        41.7             282.7          324.5    972.5
+5                         1.3              18.4           19.7     47.6
+6                        20.7              49.5           70.2    217.3
+7                        44.9             114.8          159.7    425.4
+8                         0.0              19.9           19.9     26.9
+```
+
+`sol.maps()` is the stack of the plan (`tf.plot(maps)`), `sol.action_summary()` a table of the actions per unit
+(`format="long"` for one row per action), `sol.local_benefit` the benefit per unit and feature, and
+`sol.connectivity_penalty()` the boundary term. `blm` and `blm_actions` need `boundary=True` in the data. Targets are
+absolute amounts with `relative=False`; `curve` and `segments` of `problem` are the response of the benefit
+([the response curve](#the-response-curve)).
+
+With a budget instead of targets, the most total benefit:
+
+```python
+for budget in (10, 20, 30, 40, 60):
+    b = d.problem("maximizeBenefits", budget=budget * 1000).add_highs_solver(gap=0.01).solve().maps()
+    n = {str(k): int(b.sel(band=k).sum()) for k in b.band.values}
+    print(f"{budget:2d} million: {n['monitoring']:4d} monitored, {n['fire']:3d} against fire, "
+          f"{n['deforestation']} against deforestation")
+```
+
+```text
+10 million:  286 monitored,   0 against fire, 0 against deforestation
+20 million:  516 monitored,  70 against fire, 0 against deforestation
+30 million:  721 monitored, 225 against fire, 0 against deforestation
+40 million:  914 monitored, 370 against fire, 0 against deforestation
+60 million: 1279 monitored, 647 against fire, 0 against deforestation
+```
+
+Deforestation is never fought, as in the slider: the benefit per dollar of the widespread features on cheap land wins.
+
+Which features each threat harms is a table `sensitivity` (`feature` and `threat`, by name or position, and the
+optional `delta1` to `delta4`). Only the tamarin and the mangrove, only by deforestation:
+
+```python
+sensitivity = pd.DataFrame({"feature": ["golden_lion_tamarin", "mangrove"], "threat": ["deforestation"] * 2,
+                            "delta1": 0, "delta2": 1, "delta3": 0, "delta4": 1})
+ds = P.actions_raster_data(cost, features, threats, action_cost=[30, 10], target_recovery=0.3,
+                           target_conservation=0.1, sensitivity=sensitivity)
+ss = ds.problem("minimizeCosts").add_highs_solver(gap=0.01).solve()
+m = ss.maps()
+print(f"{ss.objective / 1000:.1f} million USD,", {str(k): int(m.sel(band=k).sum()) for k in m.band.values})
+```
+
+```text
+23.5 million USD, {'monitoring': 360, 'deforestation': 113}
+```
+
+For properties, watersheds or any units, the tables of the template (six units, two species, one threat):
+
+```python
+pu = pd.DataFrame({"id": [1, 2, 3, 4, 5, 6], "monitoring_cost": [2, 1, 3, 1, 2, 2]})
+feats = pd.DataFrame({"id": [1, 2], "target_recovery": [1, 1]})
+dist_features = pd.DataFrame({"pu": [1, 2, 3, 3, 4, 5, 6], "feature": [1, 1, 1, 2, 2, 2, 1], "amount": 1})
+thr = pd.DataFrame({"id": [1]})
+dist_threats = pd.DataFrame({"pu": [1, 2, 3, 4, 5], "threat": 1, "amount": 1, "action_cost": [1, 4, 2, 1, 2]})
+
+small = P.actions_data(pu, feats, dist_features, thr, dist_threats)
+ts = small.problem("minimizeCosts").add_highs_solver().solve()
+print(ts.objective)
+print(ts.action_summary().to_string(index=False))
+```
+
+```text
+5.0
+ pu   1  conservation  connectivity
+  1 1.0           0.0           0.0
+  2 0.0           0.0           0.0
+  3 0.0           0.0           0.0
+  4 1.0           0.0           0.0
+  5 0.0           0.0           0.0
+  6 0.0           0.0           0.0
+```
+
+The tables are the part's (`pu`, `features`, `dist_features`, `threats`, `dist_threats`, and the optional
+`sensitivity` and `boundary`): the plan monitors units 1 and 4 and acts in both, for 5. A solution of either form can
+also be a portfolio (`add_cuts_portfolio` and the others of the problem), and `add_directional_dependencies(flow)`
+makes an action in a unit depend on another's.
+
 ## Settings that change the answer
 
 ### A budget instead of targets

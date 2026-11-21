@@ -321,7 +321,7 @@ how much an edge between two zones counts in the boundary penalty.
 
 ```tfslider
 label: Boundary penalty (thousand USD per metre)
-caption: "The 30 % minimum set as the boundary penalty grows (solved within 1 %). The cost of the plan and its boundary, from prioritize.evaluate (edges to the sea at half their length), and the number of patches (8-connected)."
+caption: "The 30 % minimum set as the boundary penalty grows (solved within 1 %). The cost of the plan and its boundary, from prioritize.evaluate (edges to the sea at half their length), and the number of patches (4-connected: cells that share an edge)."
 frames:
   - { value: 0, src: /img/tutorials/spatial-prioritization/spatial-design/boundary_0.png, stats: { "Cost": "37.20 M USD", "Boundary": "490 km", "Patches": "30" } }
   - { value: 0.001, src: /img/tutorials/spatial-prioritization/spatial-design/boundary_0.001.png, stats: { "Cost": "37.26 M USD", "Boundary": "448 km", "Patches": "26" } }
@@ -423,6 +423,196 @@ Without the 20 % of strict protection, the plan has 452 strictly protected cells
 they move 81 cells into strict protection. Zoning plans make visible a choice that a plan of protected areas hides:
 how much of the targets may be met by land that is used.
 
+### In Python
+
+The part's five plans are one chain each, on Serra Verde's own rasters. The first, with a boundary penalty
+([`add_boundary_penalties`][terraflux.prioritize.Problem]), and what the evaluation reports apart:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cost = tf.load_raster(P.example_data("cost"))
+features = tf.load_raster(P.example_data("features"))
+
+p = P.problem(cost, features).add_min_set_objective().add_relative_targets(0.3).add_binary_decisions()
+plan = (p.add_boundary_penalties(0.01, edge_factor=0.5)     # cost per metre of boundary; edges at the sea count half
+         .add_highs_solver(gap=0.01).solve())
+km = P.eval_boundary_summary(p, plan)["boundary"].iloc[0] / 1000
+patches = P.eval_landscape_metrics(plan, metric="np", directions=4)["value"].iloc[0]
+print(f"cost {plan.cost / 1000:.2f} million USD (objective {plan.objective / 1000:.2f}), {km:.0f} km of boundary, "
+      f"{int(patches)} patches")
+```
+
+```text
+cost 37.67 million USD (objective 41.03), 336 km of boundary, 12 patches
+```
+
+`plan.objective` includes the penalty; `plan.cost` and [`tf.prioritize.eval_boundary_summary`][terraflux.prioritize.eval_boundary_summary]
+give the two apart (read the cost from `plan.cost`, never from the objective). The slider of the part is a loop over
+the penalty; the first value is the plan without one:
+
+```python
+for value in (0, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05):
+    q = p.add_boundary_penalties(value, edge_factor=0.5) if value else p
+    s = q.add_highs_solver(gap=0.01).solve()
+    km = P.eval_boundary_summary(p, s)["boundary"].iloc[0] / 1000
+    np_ = int(P.eval_landscape_metrics(s, metric="np", directions=4)["value"].iloc[0])
+    print(f"{value:5}: {s.cost / 1000:.2f} million USD, {km:3.0f} km, {np_:2d} patches")
+```
+
+```text
+    0: 37.20 million USD, 490 km, 30 patches
+0.001: 37.31 million USD, 486 km, 24 patches
+0.002: 37.31 million USD, 434 km, 25 patches
+0.005: 37.44 million USD, 390 km, 21 patches
+ 0.01: 37.67 million USD, 336 km, 12 patches
+ 0.02: 38.69 million USD, 274 km,  9 patches
+ 0.05: 39.97 million USD, 227 km,  5 patches
+```
+
+The numbers are the slider's, to the solver's gap: with 1 % several plans qualify, so one value may differ a little (12 patches at 0.01 here, 13 there). Patches count cells that share an edge (`directions=4`; the default of [`tf.prioritize.eval_landscape_metrics`][terraflux.prioritize.eval_landscape_metrics] is 8). Which penalty to take is a calibration, not a guess:
+[`tf.prioritize.calibrate_penalty`][terraflux.prioritize.calibrate_penalty] solves a set of values in parallel and
+chooses by the knee of the curve or by TOPSIS ([part 6](../evaluating-plans/#in-python)).
+
+Rules on the shape need coarser units: [`tf.prioritize.coarsen`][terraflux.prioritize.coarsen] sums the cost and the
+features over blocks, [`tf.prioritize.refine`][terraflux.prioritize.refine] brings a plan back to the fine grid.
+
+```python
+bcost, bfeatures = P.coarsen(cost, features, 3)              # blocks of 3 x 3 km
+blocks = P.problem(bcost, bfeatures).add_min_set_objective().add_relative_targets(0.2).add_binary_decisions()
+free = blocks.add_highs_solver(gap=0.01).solve()
+rule = blocks.add_neighbors_constraints(2).add_highs_solver(gap=0.01, time_limit=120).solve()   # two neighbours each
+for name, s in (("no rule", free), ("neighbors = 2", rule)):
+    print(f"{name:14s} {s.cost / 1000:.1f} million USD, {int(s.values.sum())} blocks")
+fine = P.refine(rule.selection, cost)                         # back on the 1 km grid
+print(int(fine.sum()), "cells of 1 km")
+```
+
+```text
+no rule        24.9 million USD, 64 blocks
+neighbors = 2  27.8 million USD, 65 blocks
+572 cells of 1 km
+```
+
+`add_neighbors_constraints(k, clamp=True)` lowers `k` for blocks with fewer neighbours, on the coast;
+`add_contiguity_constraints()` asks for one patch, with an exact model that is far more demanding (the part's
+34.0 million USD, not proved after three minutes). It is not run here:
+
+<!-- no-run -->
+```python
+one = blocks.add_contiguity_constraints().add_highs_solver(gap=0.01, time_limit=180).solve()
+one.status, one.gap
+```
+
+Both take `data=` (an adjacency matrix, [`tf.prioritize.adjacency_matrix`][terraflux.prioritize.adjacency_matrix])
+for planning units that are not cells.
+
+The connectivity along the tapir's habitat: a matrix over the blocks, weighted by the habitat of the species
+([`tf.prioritize.connectivity_matrix`][terraflux.prioritize.connectivity_matrix]), rewards linked blocks together:
+
+```python
+links = P.connectivity_matrix(bcost, bfeatures.sel(band="lowland_tapir"))
+for value in (0, 0.005):
+    q = blocks.add_connectivity_penalties(value, links) if value else blocks
+    s = q.add_highs_solver(gap=0.01).solve()
+    conn = P.eval_connectivity_summary(blocks, s, links)["connectivity"].iloc[0]
+    print(f"{value:5}: {s.cost / 1000:.1f} million USD, connectivity {conn / 1e6:.2f} million")
+```
+
+```text
+    0: 24.9 million USD, connectivity 0.43 million
+0.005: 25.0 million USD, connectivity 0.76 million
+```
+
+A positive penalty rewards the links, unlike the boundary's. `add_asym_connectivity_penalties` takes one-way
+matrices ([`tf.prioritize.decay_connectivity`][terraflux.prioritize.decay_connectivity] makes them from distances).
+
+Hexagons are polygons: [`tf.prioritize.h3_units`][terraflux.prioritize.h3_units] gives them with their cost, and the
+features are summed over each exactly:
+
+```python
+hexes = P.h3_units(cost, 7)                                  # about 5 km² each
+hp = P.problem(hexes, features, cost_column="cost").add_min_set_objective().add_relative_targets(0.3)
+hplan = hp.add_binary_decisions().add_highs_solver(gap=0.01).solve()
+print(f"{len(hexes)} hexagons, {int(hplan.values.sum())} selected, {hplan.cost / 1000:.1f} million USD")
+```
+
+```text
+984 hexagons, 185 selected, 38.5 million USD
+```
+
+`hplan.selection` is a table, a row per hexagon in the order of `hexes`; give it to `hexes` to map it. Any polygons
+work the same way (`P.problem(gdf, features, cost_column="cost")`).
+
+Zones: the costs are a dict with a layer per zone, a cell without a cost in a zone cannot go there, and
+`contribution` says how much of each feature a zone counts:
+
+```python
+costs = {"protect": cost, "use": cost * 0.45}                # sustainable use costs 45 % of the land
+zp = (P.problem(costs, features, contribution={"use": 0.5})  # and counts half of every feature
+        .add_min_set_objective()
+        .add_relative_targets(0.3)                           # summed over the zones
+        .add_relative_targets(0.2, zone="protect")           # of which 20 % strictly protected
+        .add_binary_decisions().add_highs_solver(gap=0.01))
+zplan = zp.solve()
+print(P.eval_n_summary(zp, zplan).astype({"n": int}).to_string(index=False))
+print(f"{zplan.cost / 1000:.1f} million USD")
+```
+
+```text
+summary    n
+overall 1101
+protect  534
+    use  567
+36.3 million USD
+```
+
+`zplan.zones` is the map of the zones (1 the first zone, 2 the second, 0 none), and every `eval_*` function gives a row
+overall and one per zone. The part's first plan has 533 and 569 cells (the same, within the gap); without the `zone="protect"` target it is the second. To put
+every unit in some zone, `add_mandatory_allocation_constraints()`; a zone's own lock is `add_locked_in_constraints({"protect": raster})`.
+
+A zone can be restoration. Here a third zone restores pasture and cropland (the land cover of the library: the share of each
+cell that can come back), costs a fifth of the land where there is something to restore, and counts, for every feature,
+that share of the cell (`contribution` takes a number, one per feature or a raster per zone); the reserves stay under
+protection and nothing goes to the cities:
+
+```python
+protected = tf.load_raster(P.example_data("protected"))
+urban = tf.load_raster(P.example_data("urban"))
+lc = tf.load_raster(P.example_data("land_cover"))
+anthropic = lc.sel(band="pasture") + lc.sel(band="cropland")           # the restorable share of every cell
+costs = {"protect": cost,
+         "use": cost * 0.45,
+         "restore": (cost * 0.2).where(anthropic > 0.2)}               # no cost: the cell cannot go there
+three = (P.problem(costs, features, contribution={"use": 0.5, "restore": anthropic})
+           .add_min_set_objective()
+           .add_relative_targets(0.3)                                  # counted over the three zones
+           .add_relative_targets(0.1, zone="protect")
+           .add_locked_in_constraints({"protect": protected})
+           .add_locked_out_constraints({z: urban for z in costs})
+           .add_boundary_penalties(0.0005)                             # compact zones
+           .add_highs_solver(gap=0.02))
+tplan = three.solve()
+print({z: round(c) for z, c in tplan.zone_costs.items()})
+print(P.eval_n_summary(three, tplan).astype({"n": int}).to_string(index=False))
+```
+
+```text
+{'protect': 26141, 'use': 9693, 'restore': 4619}
+summary    n
+overall 1294
+protect  560
+    use  450
+restore  284
+```
+
+The zones' costs are `tplan.zone_costs`; the solution's `zones` map has a class per zone. For the other ways to make a
+restoration plan, with how much of every converted cell to restore, see
+[restoration priorities](/tutorials/distance-restoration/several-benefits/#in-python).
+
 ## Settings that change the answer
 
 - **The penalty's value**, as the slider shows; it has units and depends on the landscape: calibrate it, never copy
@@ -464,4 +654,3 @@ how much of the targets may be met by land that is used.
 - Watts, M. E., Ball, I. R., Stewart, R. S., Klein, C. J., Wilson, K., Steinback, C., et al. (2009). Marxan with Zones: software for optimal conservation based land- and sea-use zoning. *Environmental Modelling & Software*, 24(12), 1513–1521. https://doi.org/10.1016/j.envsoft.2009.06.005
 - Williams, J. C., ReVelle, C. S., & Levin, S. A. (2005). Spatial attributes and reserve design models: a review. *Environmental Modeling & Assessment*, 10(3), 163–181. https://doi.org/10.1007/s10666-005-9007-5
 
-In Python: [Optimized conservation plans in Python](/tutorials/spatial-prioritization/conservation-plans-in-python/).

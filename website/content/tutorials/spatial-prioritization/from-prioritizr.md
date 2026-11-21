@@ -1,10 +1,12 @@
 ---
 title: "From prioritizr and prioriactions to Python"
-short: "From prioritizr to Python"
+short: 8. From prioritizr
 description: "tf.prioritize builds the same optimization models as the R packages prioritizr (8.0.6) and prioriactions (0.5.0), row by row, and keeps their vocabulary, so most scripts translate line by line."
-order: 918
+order: 80
 level: intermediate
 time: 20 min
+series: Systematic conservation planning
+part: 8
 ---
 
 `tf.prioritize` builds the same optimization models as the R packages
@@ -346,5 +348,5 @@ The example of prioriactions's documentation, in both:
 ## See also
 
 - [Spatial prioritization](/python/api/prioritization/): the API reference.
-- [Optimized conservation plans](/tutorials/spatial-prioritization/conservation-plans-in-python/): a complete plan, step by step.
+- [Optimal plans with linear programming](/tutorials/spatial-prioritization/linear-programming/#in-python): a complete plan in Python, step by step; the other parts have the same for Zonation, Marxan, spatial design, evaluation and actions.
 - [Systematic conservation planning: the ideas](/tutorials/spatial-prioritization/systematic-conservation-planning/): where the software fits.

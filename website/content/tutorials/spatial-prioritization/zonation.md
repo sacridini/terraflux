@@ -291,6 +291,207 @@ curves, and give a table of the share of every feature in the top fractions that
 10, 17 and 30 %). The `features` output gives every feature's sum, cells and quantization error, worth a line in the
 supplementary material.
 
+### In Python
+
+The same ranking is [`tf.prioritize.zonation`][terraflux.prioritize.zonation], Zonation 5 in C++ with the same rank
+maps and curves, bit for bit. The features are Serra Verde's stack (a raster, a list of rasters or files, or an
+`xarray`/`dask` stack of `features, y, x`; each is scaled to sum 1, and the bands' names name the features):
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cost = tf.load_raster(P.example_data("cost"))
+features = tf.load_raster(P.example_data("features"))
+protected = tf.load_raster(P.example_data("protected"))
+condition = tf.load_raster(P.example_data("condition"))
+
+res = P.zonation(features, cost=cost, rule="CAZ2")        # CAZ2 is the default rule
+print(res.iterations, f"iterations, mean ranking error {res.ranking_error:.3f} %, AUC {res.auc:.2f}")
+
+def kept(res, best):
+    """The share of every feature in the best `best` fraction, from the performance curves."""
+    fc = res.feature_curves
+    return fc.iloc[(fc["rank"] - (1 - best)).abs().argmin(), 1:].rename(lambda c: c.removeprefix("features_"))
+
+for best in (0.05, 0.1, 0.17, 0.3):
+    k = 100 * kept(res, best)
+    print(f"best {best:4.0%}: mean {k.mean():4.1f} %, worst off {k.min():4.1f} % ({k.idxmin()})")
+```
+
+```text
+20 iterations, mean ranking error 0.007 %, AUC 0.78
+best   5%: mean 18.5 %, worst off  6.4 % (lowland_tapir)
+best  10%: mean 34.0 %, worst off 12.8 % (lowland_tapir)
+best  17%: mean 50.5 %, worst off 23.4 % (lowland_tapir)
+best  30%: mean 71.3 %, worst off 43.7 % (jaguar)
+```
+
+`res.rank` is the rank map (0 the cell removed first, close to 1 the last; `tf.plot(res)` draws it with the curves),
+`res.feature_curves` the share of every feature that remains as the landscape is removed (the part's curves, `rank` is
+the fraction removed), `res.summary_curves` the mean, minimum and maximum and the area and cost remaining, and
+`res.features` every feature's sum, cells and quantization error. The slider's lines are the rows above. The best
+17 % of the land costs this share of the region's cost, from the summary:
+
+```python
+s = res.summary_curves
+i = (s["remaining_area"] / s["remaining_area"].iloc[0] - 0.17).abs().argmin()
+print(f"{s['remaining_cost'].iloc[i] / s['remaining_cost'].iloc[0]:.1%} of the cost")
+```
+
+```text
+13.0% of the cost
+```
+
+The rules, with costs: `rule` is `"CAZMAX"`, `"CAZ1"`, `"CAZ2"` or `"ABF"` (with `abf_z`), and `weights` multiplies
+the losses of the features. Without costs in the ranking, the cost is still tracked in the curves
+(`cost_in_ranking=False`, Zonation's `-x`):
+
+```python
+for rule in ("CAZMAX", "CAZ1", "CAZ2", "ABF"):
+    k = 100 * kept(P.zonation(features, cost=cost, rule=rule), 0.17)
+    print(f"{rule:6s} best 17 %: mean {k.mean():4.1f} %, tamarin {k['golden_lion_tamarin']:3.0f} %, tapir {k['lowland_tapir']:3.0f} %")
+
+def mean_for_budget(r, budget):
+    """The mean share of the features in the best cells that cost `budget` of the total."""
+    s = r.summary_curves
+    j = (s["remaining_cost"] / s["remaining_cost"].iloc[0] - budget).abs().argmin()
+    return 100 * r.feature_curves.iloc[j, 1:].mean()
+
+plain = P.zonation(features, cost=cost, cost_in_ranking=False)
+print(f"a fifth of the budget: {mean_for_budget(plain, 0.2):.1f} % without cost, {mean_for_budget(res, 0.2):.1f} % with")
+
+heavy = P.zonation(features, cost=cost, weights=[1, 1, 1, 1, 3, 1, 1, 3])      # the tamarin and the mangrove
+for name in ("golden_lion_tamarin", "mangrove"):
+    print(f"best 10 % of the {name}: {100 * kept(res, 0.1)[name]:.0f} % with weights 1, {100 * kept(heavy, 0.1)[name]:.0f} % with 3")
+```
+
+```text
+CAZMAX best 17 %: mean 50.7 %, tamarin  96 %, tapir  28 %
+CAZ1   best 17 %: mean 48.1 %, tamarin  61 %, tapir  19 %
+CAZ2   best 17 %: mean 50.5 %, tamarin  84 %, tapir  23 %
+ABF    best 17 %: mean 49.4 %, tamarin  67 %, tapir  16 %
+a fifth of the budget: 62.4 % without cost, 65.9 % with
+best 10 % of the golden_lion_tamarin: 55 % with weights 1, 93 % with 3
+best 10 % of the mangrove: 68 % with weights 1, 90 % with 3
+```
+
+The part's numbers (`abf_z` defaults to 0.25). Negative `weights` mark features to avoid; `weight_groups` with
+`group_weights` give a weight to a group, `groups` gives curves per group (`res.group_curves`).
+
+What is already protected goes in as a hierarchic mask (`hierarchic_mask`, a raster of levels), and its curves at the
+mask's own fraction are the gap analysis:
+
+```python
+masked = P.zonation(features, cost=cost, hierarchic_mask=protected)
+share = float((protected == 1).sum() / cost.notnull().sum())
+print(f"the protected areas are {share:.1%} of the land and hold:")
+print((100 * kept(masked, share)).round(0).astype(int).to_string())
+print("ranks of the mask's levels:", masked.hierarchic_mask_ranks)
+```
+
+```text
+the protected areas are 3.6% of the land and hold:
+jaguar                  4
+lowland_tapir           0
+harpy_eagle             7
+maned_wolf              6
+golden_lion_tamarin     0
+neotropical_otter      10
+araucaria_forest        7
+mangrove                0
+ranks of the mask's levels: {0: 0.0, 1: 0.9637305736541748}
+```
+
+Connectivity is a kernel per feature (`P.Kernel("negexp", distance_in_cells)`; shapes `uniform`, `triangular`,
+`negexp` and `gaussian`, and `cut`). The curves of a smoothed ranking are of the smoothed features; the part's slider
+counts the raw habitat held by the best 17 %, which is one more line:
+
+```python
+def raw_kept(r, best):
+    """The raw share of every feature in the cells ranked in the best `best` fraction."""
+    top = (r.rank >= 1 - best).astype(float)
+    return 100 * (features * top).sum(dim=("y", "x")) / features.sum(dim=("y", "x"))
+
+for d in (0, 2, 8):
+    kernels = [P.Kernel("negexp", d)] * 8 if d else None
+    r = P.zonation(features, cost=cost, connectivity=kernels)
+    k = raw_kept(r, 0.17)
+    print(f"kernel {d} cells: mean {k.mean():.1f} %, worst off {k.min():.1f} %")
+```
+
+```text
+kernel 0 cells: mean 50.5 %, worst off 23.4 %
+kernel 2 cells: mean 50.2 %, worst off 23.0 %
+kernel 8 cells: mean 44.5 %, worst off 18.9 %
+```
+
+The `LOAD` rule evaluates any given ranking with the same curves, so a hotspot map (the sum of the features) gets a
+performance curve too, and shows why complementarity beats richness:
+
+```python
+richness = (features / features.sum(dim=("y", "x"))).sum("band")
+hot = P.zonation(features, cost=cost, rule="LOAD", solution=richness)
+for name, r in (("richness", hot), ("CAZ2", res)):
+    k = 100 * kept(r, 0.3)
+    print(f"{name:8s} best 30 %: mean {k.mean():4.1f} %, tamarin {k['golden_lion_tamarin']:3.0f} %, mangrove {k['mangrove']:3.0f} %")
+```
+
+```text
+richness best 30 %: mean 72.3 %, tamarin 100 %, mangrove 100 %
+CAZ2     best 30 %: mean 71.3 %, tamarin 100 %, mangrove 100 %
+```
+
+Features need not be species maps. Any raster with a value in every cell works, for instance the share of each cell in
+some classes of a land-cover map (here the CORINE map of the library, in cells of 125 m):
+
+```python
+clc = tf.load_raster(tf.example_data("clc"))
+
+def share(*codes):
+    """The fraction of every 125 m cell (5 x 5 CORINE cells) in the classes."""
+    return clc.isin(codes).coarsen(x=5, y=5).mean().astype("float32")
+
+mires, grassland, forest = share(35, 36), share(18, 26), share(23, 24, 25)
+land = P.zonation([mires, grassland, forest], names=["mire", "grassland", "forest"])
+print(land.rank.shape, land.iterations, "iterations")
+```
+
+```text
+(400, 400) 79 iterations
+```
+
+`interaction` and `interaction2` link a feature to another's resources (a predator to its prey),
+`matrix_connectivity` with `matrices` lets features of related habitats count for one another, and `retention` is the
+share of a feature that stays in a cell when it leaves the network. Condition maps multiply the features
+(`condition=[condition] * 8`, one raster per feature, `renormalize=True` restores the weight). The full model of the
+part is the sum of these:
+
+```python
+full = P.zonation(features, cost=cost, rule="CAZ2",
+                  weights=[1, 1, 1, 1, 3, 1, 1, 3],
+                  hierarchic_mask=protected,
+                  condition=[condition] * 8,
+                  connectivity=[P.Kernel("negexp", 2)] * 8)
+print(full.iterations, f"iterations, AUC {full.auc:.3f}, the mask's ranks {full.hierarchic_mask_ranks}")
+```
+
+```text
+18 iterations, AUC 0.611, the mask's ranks {0: 0.0, 1: 0.9637305736541748}
+```
+
+The impact assessments of Zonation 5 are `impact` and `cumulative_impact` of the call, built with the
+[`ImpactScenario`][terraflux.prioritize.ImpactScenario] and [`Pressure`][terraflux.prioritize.Pressure] classes; the
+post-processing is a set of methods of the result: `res.area_statistics(areas)`, `res.solution_comparison(other)`,
+`res.histogram()` and `res.flexibility_map()`. `res.write("folder")` writes what `z5` writes (`rankmap.tif`,
+`feature_curves.csv`, `summary_curves.csv`...) and `tf.save(res, "folder")` the whole result. Ties in a plateau are
+broken by the order of the cells, as the part says, so ranks within a plateau carry no meaning. Large maps are read
+in blocks of rows and stored in one or two bytes per value (`bits=16` as `z5_16bit`, `storage=` to keep them in
+memory-mapped files for maps larger than the memory); `n_threads` defaults to the cores less a quarter, and the
+result does not depend on it.
+
 ## Settings that change the answer
 
 ### The rule
@@ -458,6 +659,31 @@ impact scenarios, `-p` a post-processing file. `mode` is z5's `--mode` (`CAZ2`, 
 gives exactly the rank map of [[prioritize.zonation]] with the same inputs (the largest difference between the two
 maps is 0), which the figure script checks.
 
+### Zonation 5 projects in Python
+
+[`tf.prioritize.run_project`][terraflux.prioritize.run_project] runs a project prepared for `z5` as it is, with the
+switches of the command line. The part's project is the download above; it gives the same ranking as the call with
+the weights, the mask and the cost:
+
+```python
+import zipfile
+
+zipfile.ZipFile("serra-verde-z5.zip").extractall(".")
+proj = P.run_project("serra-verde-z5/settings.z5", "-whX", mode="CAZ2")      # weights, mask, cost in the ranking
+same = P.zonation(features, cost=cost, rule="CAZ2", weights=[1, 1, 1, 1, 3, 1, 1, 3], hierarchic_mask=protected)
+print(type(proj).__name__, "largest difference of the rank maps:", float(abs(proj.rank - same.rank).max()))
+```
+
+```text
+ZonationResult largest difference of the rank maps: 0.0
+```
+
+`flags` are the switches of `z5` (`-w` weights, `-W` weight groups, `-c` conditions, `-r` retention, `-x` or `-X` the
+cost tracked or in the ranking, `-h` the mask, `-a` the analysis area, `-d -i -I -m` connectivity, `-s -e` impacts,
+`-p` post-processing); `mode` is `--mode`, and `output="folder"` writes Zonation's files.
+[`tf.prioritize.read_project`][terraflux.prioritize.read_project] reads the settings and the feature list without
+running them.
+
 ## Common pitfalls
 
 - **Reading a threshold of the rank as a plan that meets targets.** The best 17 % holds what the curves say, no
@@ -493,4 +719,3 @@ maps is 0), which the figure script checks.
 - Moilanen, A., Lehtinen, P., Kohonen, I., Jalkanen, J., Virtanen, E. A., & Kujala, H. (2022). Novel methods for spatial prioritization with applications in conservation, land use planning and ecological impact avoidance. *Methods in Ecology and Evolution*, 13(5), 1062–1072. https://doi.org/10.1111/2041-210X.13819
 - Montesino Pouzols, F., Toivonen, T., Di Minin, E., Kukkala, A. S., Kullberg, P., Kuusterä, J., Lehtomäki, J., Tenkanen, H., Verburg, P. H., & Moilanen, A. (2014). Global protected area expansion is compromised by projected land-use and parochialism. *Nature*, 516(7531), 383–386. https://doi.org/10.1038/nature14032
 
-In Python: [Conservation priorities in Python](/tutorials/spatial-prioritization/prioritization-in-python/).

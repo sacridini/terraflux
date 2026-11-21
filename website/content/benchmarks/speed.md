@@ -397,7 +397,7 @@ caption: "Where HiGHS gave no answer, its column shows the time limit and the sp
 #### Contiguity constraints
 
 Contiguity constraints are the exception. prioritizr's contiguity model is a restriction (it misses some patches, see the
-[migration guide](/tutorials/spatial-prioritization/from-prioritizr-in-python/#what-to-expect-when-you-compare-the-results));
+[migration guide](/tutorials/spatial-prioritization/from-prioritizr/#what-to-expect-when-you-compare-the-results));
 Terraflux solves the exact model: a patch heuristic, a first patch of the restricted model, directed cuts at the root, then
 HiGHS's branch and bound with the same cuts separated at its nodes (HiGHS is patched for it). This table compares quality, not
 time: [`tools/benchmark_connect.py`](https://github.com/sacridini/terraflux-py/blob/main/tools/benchmark_connect.py) (version

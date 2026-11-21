@@ -324,6 +324,179 @@ The plan meets **exactly** what was asked, at the least cost, and nothing more. 
 ranking does better (a lower sum of risks); by the targets, the plan does. A good workflow uses both: the ranking to
 explore before targets are agreed, the plan once they are, and this comparison to show what the targets leave out.
 
+### In Python
+
+Everything on this page is a function of [`tf.prioritize`](/python/api/prioritization/) that takes the problem and any
+solution: a plan of its own, a raster of the protected areas, Marxan's best run. The plan and its evaluation:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cost = tf.load_raster(P.example_data("cost"))
+features = tf.load_raster(P.example_data("features"))
+protected = tf.load_raster(P.example_data("protected"))
+
+p = (P.problem(cost, features).add_min_set_objective().add_relative_targets(0.3)
+       .add_binary_decisions().add_highs_solver(gap=0.001))
+plan = p.solve()
+
+cov = P.eval_target_coverage_summary(p, plan)             # per target: held, shortfall, met
+km = P.eval_boundary_summary(p, plan)["boundary"].iloc[0] / 1000
+risk = P.eval_extinction_risk(p, plan, z=0.25)["extinction_risk"].iloc[-1]
+print(f"{int(P.eval_n_summary(p, plan)['n'].iloc[0])} cells, {plan.cost / 1000:.1f} million USD, "
+      f"{km:.1f} km of boundary, {int(cov['met'].sum())} of 8 targets met, extinction risk {risk:.2f}")
+```
+
+```text
+812 cells, 37.1 million USD, 480.5 km of boundary, 8 of 8 targets met, extinction risk 1.86
+```
+
+The other summaries are [`eval_cost_summary`][terraflux.prioritize.eval_cost_summary],
+[`eval_feature_representation_summary`][terraflux.prioritize.eval_feature_representation_summary],
+[`eval_connectivity_summary`][terraflux.prioritize.eval_connectivity_summary] and
+[`eval_landscape_metrics`][terraflux.prioritize.eval_landscape_metrics]. A gap analysis is the same function with
+the existing reserves as the solution:
+
+```python
+gap = P.eval_target_coverage_summary(p, protected)
+print((100 * gap.set_index("feature")["relative_held"]).round(1).to_string())
+```
+
+```text
+feature
+jaguar                 4.0
+lowland_tapir          0.2
+harpy_eagle            6.8
+maned_wolf             5.8
+golden_lion_tamarin    0.0
+neotropical_otter      9.9
+araucaria_forest       6.8
+mangrove               0.0
+```
+
+The importance of the selected cells, four ways. Each is a raster over the plan's cells, rescaled from 0 to 1
+(`rescale=False` for the raw values); replacement cost solves the problem once per cell in parallel, with the
+problem's own gap, so give the problem a small one:
+
+```python
+importance = {
+    "replacement": P.eval_replacement_importance(p, plan),
+    "ferrier": P.eval_ferrier_importance(p, plan).sel(band="total"),      # a band per feature and `total`
+    "rarity": P.eval_rare_richness_importance(p, plan),
+    "rank": P.eval_rank_importance(p, plan, n=10)[0],                     # (ranks, the table of budgets)
+}
+sel = (plan.selection == 1).values.ravel()
+imp = pd.DataFrame({k: np.asarray(v).ravel()[sel] for k, v in importance.items()})
+print(len(imp), "selected cells")
+print(imp.rank().corr().round(2).to_string())                             # Spearman: the correlation of the ranks
+```
+
+```text
+812 selected cells
+             replacement  ferrier  rarity  rank
+replacement         1.00     0.55    0.46  0.44
+ferrier             0.55     1.00    0.86  0.73
+rarity              0.46     0.86    1.00  0.82
+rank                0.44     0.73    0.82  1.00
+```
+
+These are the part's table of Spearman correlations. Replacement cost is the slowest (one solve per cell) and the only
+one in money; Ferrier's and rarity-weighted richness are instant. A portfolio's `frequency` is a fifth view
+([part 4](../linear-programming/#in-python)).
+
+Calibrating the boundary penalty: the problem **without** it, and the values to try. The candidates are solved in
+parallel, and the knee and TOPSIS choose among them:
+
+```python
+cal = P.calibrate_penalty(p.add_highs_solver(gap=0.02), "boundary",
+                          values=[0.001, 0.002, 0.005, 0.01, 0.02, 0.05])
+tab = cal.table.assign(cost=cal.table["cost"] / 1000, boundary=cal.table["boundary"] / 1000)   # million USD, km
+print(tab[["value", "cost", "boundary", "knee", "topsis"]].round(2).to_string(index=False))
+for method in ("knee", "topsis"):
+    s = cal.best(method)
+    km = P.eval_boundary_summary(p, s)["boundary"].iloc[0] / 1000
+    print(f"{method:6s} {s.cost / 1000:.1f} million USD, {km:.0f} km")
+```
+
+```text
+ value  cost  boundary  knee  topsis
+  0.00 37.46     442.0 False   False
+  0.00 37.26     461.5 False   False
+  0.00 37.55     372.0 False   False
+  0.01 37.70     351.0  True   False
+  0.02 38.68     292.5 False   False
+  0.05 39.69     235.5 False    True
+knee   37.7 million USD, 351 km
+topsis 39.7 million USD, 236 km
+```
+
+`cal.solutions` are the candidates, `cal.best("knee")` and `cal.best("topsis")` the plans chosen, `tf.plot(cal)` draws
+the curve. Without `values`, `n=9` values are spread around Cohon's penalty ([`tf.prioritize.cohon_penalty`][terraflux.prioritize.cohon_penalty]);
+`penalty` is `"boundary"`, `"connectivity"`, `"asym_connectivity"` or `"linear"`. The part's hierarchical approach is
+[`tf.prioritize.calibrate_budget`][terraflux.prioritize.calibrate_budget] (the least boundary within a cost cap), and
+any other parameter, [`tf.prioritize.calibrate`][terraflux.prioritize.calibrate]. The values of the part's table were
+solved to 2 % too, so the knee and TOPSIS can differ a little from those of the app's run.
+
+What each budget buys, the Pareto front of the minimum shortfall problem:
+
+```python
+front = P.pareto_front(p, n=8)
+print(front.table[["value", "shortfall", "met", "efficient"]].round(2).to_string(index=False))
+```
+
+```text
+   value  shortfall  met  efficient
+ 4642.88       5.59    0       True
+ 9285.75       3.85    1       True
+13928.63       2.38    1       True
+18571.50       1.55    3       True
+23214.38       1.03    4       True
+27857.25       0.59    4       True
+32500.13       0.19    5       True
+37143.00       0.00    8       True
+```
+
+A ranking against a plan of the same cost: [`tf.prioritize.compare_zonation`][terraflux.prioritize.compare_zonation]
+ranks the cells with Zonation (CAZ2 by default, `rule=` and the other options of
+[`tf.prioritize.zonation`][terraflux.prioritize.zonation]) and takes the best cells up to the plan's cost:
+
+```python
+comp = P.compare_zonation(p, plan)
+print(comp.summary.round(2).to_string(index=False))
+print((100 * comp.table.set_index("feature")[["zonation", "milp"]]).round(0).astype(int).to_string())
+```
+
+```text
+  method    cost  units  boundary  mean_share_held
+    milp 37143.0  812.0  480500.0             0.36
+zonation 37125.1  715.0  527500.0             0.46
+                     zonation  milp
+feature                            
+jaguar                     22    30
+lowland_tapir              20    30
+harpy_eagle                38    44
+maned_wolf                 25    30
+golden_lion_tamarin        76    30
+neotropical_otter          53    30
+araucaria_forest           50    60
+mangrove                   85    30
+```
+
+`comp.selection` has the two selections as bands (`zonation` and `milp`).
+
+Everything of the page in one object, which `tf.plot` draws and `.save` writes as a web page:
+
+```python
+r = P.report(p, plan, extinction_z=0.25)
+page = tf.plot(r, show=False).save("serra_verde_plan.html")
+```
+
+`report` gathers the summaries, representation, targets, importance (Ferrier's, or rarity when the targets are
+not one per feature) and the extinction risk; `zonation=True` adds the comparison with a ranking.
+
 ## How to report a prioritization
 
 A plan is only as useful as its documentation. Whatever the method, a paper or a report should let a reader repeat the

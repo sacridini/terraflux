@@ -289,6 +289,155 @@ gap asked. In the results: the cost, the number and area of the units, the gap p
 the map. A sentence such as "the plan costs 44.0 million USD, within 0.003 % of the cheapest possible" is something
 Marxan's results cannot say. [Part 6](../evaluating-plans/) adds the importance of each place and a checklist.
 
+### In Python
+
+The chain of [part 1](../systematic-conservation-planning/#in-python), now with the locked areas. The two rasters are
+the part's `protected.tif` and `urban.tif`, which the library ships:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cost = tf.load_raster(P.example_data("cost"))
+features = tf.load_raster(P.example_data("features"))
+protected = tf.load_raster(P.example_data("protected"))     # 1 in the three protected areas
+urban = tf.load_raster(P.example_data("urban"))             # 1 in the three cities
+
+p = (P.problem(cost, features)
+       .add_min_set_objective()
+       .add_relative_targets(0.3)               # a number, or one per feature; add_absolute_targets for amounts
+       .add_binary_decisions())
+locked = (p.add_locked_in_constraints(protected)          # in every plan
+            .add_locked_out_constraints(urban)            # in none
+            .add_highs_solver(gap=0.001))
+plan = locked.solve()
+print(plan.status, f"{int(plan.values.sum())} cells, {plan.cost / 1000:.1f} million USD, gap {plan.gap:.3%}")
+```
+
+```text
+optimal 889 cells, 44.0 million USD, gap 0.003%
+```
+
+The `summary` of the operator is the solution's own fields: `status` (`optimal` when the gap asked for is reached),
+`objective`, `cost`, `gap`, `bound` and `seconds`, and `plan.coverage` is the `coverage` table. Any raster, column
+name, or list of units can lock; `add_locked_in_constraints` and `add_locked_out_constraints` take them all.
+The targets have more forms than the operator's settings: `add_loglinear_targets`, `add_manual_targets(table)`
+and `add_subregional_targets(regions, targets)`; `add_proportion_decisions()` and
+`add_semicontinuous_decisions(upper_limit)` are the other decisions.
+
+The six objectives with a budget of half the cost of the plan without locks (`add_max_utility_objective`,
+`add_min_shortfall_objective`, `add_min_largest_shortfall_objective`, `add_max_features_objective`,
+`add_min_extinction_risk_objective` and `add_max_cover_objective` take the budget as their argument):
+
+```python
+base = P.problem(cost, features).add_binary_decisions().add_highs_solver(gap=0.005)
+budget = 18_570                                    # thousand USD: half of the 30 % minimum set
+weights = 1000 / p.units.totals                  # one over each feature's total
+targets = base.add_relative_targets(0.3)
+plans = {
+    "max utility": base.add_max_utility_objective(budget),
+    "max utility, weighted": base.add_max_utility_objective(budget).add_feature_weights(weights),
+    "min shortfall": targets.add_min_shortfall_objective(budget),
+    "min largest shortfall": targets.add_min_largest_shortfall_objective(budget),
+    "max features": targets.add_max_features_objective(budget),
+    "min extinction risk": base.add_min_extinction_risk_objective(budget, z=0.25),
+}
+rows = {}
+for name, q in plans.items():
+    s = q.solve()
+    held = P.eval_feature_representation_summary(q, s).set_index("feature")["relative_held"]
+    risk = P.eval_extinction_risk(q, s)["extinction_risk"].iloc[-1]
+    rows[name] = {"met": int((held >= 0.3 - 1e-3).sum()), "mean %": 100 * held.mean(),
+                  "least %": 100 * held.min(), "worst": held.idxmin(), "risks": risk}
+print(pd.DataFrame(rows).T.to_string(float_format=lambda v: f"{v:.1f}"))
+```
+
+```text
+                      met mean % least %                worst risks
+max utility             2   21.1     0.0  golden_lion_tamarin   4.0
+max utility, weighted   2   29.1     2.1        lowland_tapir   2.6
+min shortfall           5   25.4     5.9        lowland_tapir   2.4
+min largest shortfall   1   19.7    16.1  golden_lion_tamarin   2.7
+max features            5   24.1     1.1        lowland_tapir   2.7
+min extinction risk     4   26.5     7.7        lowland_tapir   2.4
+```
+
+These are the part's table, within the solver's gap: max utility leaves the tamarin and the mangrove with nothing,
+the weighted version (one over each feature's total) lifts them, min shortfall meets five targets, and the sum of the
+risks is lowest for `min_extinction_risk`. `add_max_phylo_div_objective(budget, tree)` and
+`add_max_phylo_end_objective(budget, tree)` take a `tf.bio` tree or a Newick string.
+
+What each budget buys, as the slider shows it:
+
+```python
+shortfall = P.problem(cost, features).add_binary_decisions().add_relative_targets(0.3).add_highs_solver(gap=0.01)
+for b in (5, 10, 20, 30, 40):
+    q = shortfall.add_min_shortfall_objective(b * 1000)
+    rep = P.eval_feature_representation_summary(q, q.solve()).set_index("feature")["relative_held"]
+    share = (rep / 0.3).clip(upper=1)                 # the share of every target held
+    print(f"{b:2d} million: {int((share > 0.995).sum())} of 8 targets met, mean {share.mean():.0%} of target, "
+          f"worst {share.idxmin()} {share.min():.0%}")
+```
+
+```text
+ 5 million: 0 of 8 targets met, mean 32% of target, worst lowland_tapir 1%
+10 million: 1 of 8 targets met, mean 55% of target, worst lowland_tapir 6%
+20 million: 5 of 8 targets met, mean 83% of target, worst lowland_tapir 30%
+30 million: 6 of 8 targets met, mean 95% of target, worst jaguar 77%
+40 million: 8 of 8 targets met, mean 100% of target, worst jaguar 100%
+```
+
+`P.pareto_front(problem, n=10)` solves this for a range of budgets in parallel and marks the efficient ones
+([part 6](../evaluating-plans/#in-python)).
+
+The gap, and the proportion decisions, on the problem without locks:
+
+```python
+free = P.problem(cost, features).add_min_set_objective().add_relative_targets(0.3)
+for gap in (0.1, 0.01, 0.001):
+    s = free.add_binary_decisions().add_highs_solver(gap=gap).solve()
+    print(f"gap {gap:5}: {s.cost / 1000:.3f} million USD, proved {s.gap:.2%}, {int(s.values.sum())} cells")
+s = free.add_proportion_decisions().add_highs_solver(gap=0.001).solve()
+whole, part = int((s.values > 0.999).sum()), int(((s.values > 0.001) & (s.values < 0.999)).sum())
+print(f"proportions: {s.cost / 1000:.3f} million USD, {whole} whole cells and {part} in part")
+```
+
+```text
+gap   0.1: 37.196 million USD, proved 0.22%, 813 cells
+gap  0.01: 37.196 million USD, proved 0.22%, 813 cells
+gap 0.001: 37.143 million USD, proved 0.01%, 812 cells
+proportions: 37.115 million USD, 809 whole cells and 5 in part
+```
+
+The proof of the optimum (`gap=0`) takes 98 s on a desktop computer; it is not run here. With a boundary penalty, or
+connectivity rewards, the library's cut engine goes first and solves large problems far faster than HiGHS alone;
+`add_gurobi_solver(gap, time_limit, n_threads)` uses Gurobi where it is installed and licensed, and the
+other solver is HiGHS.
+
+Alternatives, a portfolio of plans within 2 % of the optimum:
+
+```python
+port = free.add_binary_decisions().add_highs_solver(gap=0.01).add_gap_portfolio(20, pool_gap=0.02).solve()
+f = port.frequency.values
+print(f"{len(port)} plans: {int(np.nansum(f == 1))} cells in all of them, {int(np.nansum((f > 0) & (f < 1)))} in some")
+print(port.summary.round(3).head(3).to_string(index=False))
+```
+
+```text
+20 plans: 794 cells in all of them, 20 in some
+  solution  objective    cost  status   gap
+solution_1    37196.1 37196.1 optimal 0.002
+solution_2    37197.3 37197.3 optimal 0.002
+solution_3    37198.0 37198.0 optimal 0.002
+```
+
+A [`Portfolio`][terraflux.prioritize.Portfolio] has `selection` (a band per plan: `solution_1`, `solution_2`...),
+`summary` and `frequency`, the share of the plans that select each cell. `add_cuts_portfolio(n)` gives the best plan
+and then the best that differs from it, `add_top_portfolio(n)` solves each to optimality and
+`add_shuffle_portfolio(n, seed=...)` solves the problem with its units in random orders.
+
 ## Settings that change the answer
 
 ### The gap
@@ -390,4 +539,3 @@ the solver. [Part 6](../evaluating-plans/) measures each place's importance dire
 - Schuster, R., Hanson, J. O., Strimas-Mackey, M., & Bennett, J. R. (2020). Exact integer linear programming solvers outperform simulated annealing for solving conservation planning problems. *PeerJ*, 8, e9258. https://doi.org/10.7717/peerj.9258
 - Underhill, L. G. (1994). Optimal and suboptimal reserve selection algorithms. *Biological Conservation*, 70(1), 85–87. https://doi.org/10.1016/0006-3207(94)90302-6
 
-In Python: [Optimized conservation plans in Python](/tutorials/spatial-prioritization/conservation-plans-in-python/).

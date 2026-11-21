@@ -327,6 +327,115 @@ the cost layer and its units, the targets, the objective and the solver with its
 cost, area and the share of every feature it holds, and a map. Part 6 gives a full checklist and shows how to
 compare plans.
 
+### In Python
+
+The library behind the operators is [`tf.prioritize`](/python/api/prioritization/). Serra Verde ships with it
+([`tf.prioritize.example_data`][terraflux.prioritize.example_data]), so there is nothing to download: the same
+rasters as the part's `serra-verde.zip`.
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+P = tf.prioritize
+cost = tf.load_raster(P.example_data("cost"))            # thousand USD per km²; no value at sea
+features = tf.load_raster(P.example_data("features"))    # eight bands, named by feature
+print(features.shape, int(cost.notnull().sum()), "planning units")
+```
+
+```text
+(8, 60, 90) 4825 planning units
+```
+
+A **problem** ([`tf.prioritize.problem`][terraflux.prioritize.problem]) is built by chaining: the planning units
+(the cells of the cost raster that have a value), the objective, the targets and the decisions. `solve()` returns a
+[`Solution`][terraflux.prioritize.Solution]:
+
+```python
+p = (P.problem(cost, features)
+       .add_min_set_objective()           # the cheapest set that meets every target
+       .add_relative_targets(0.3)         # 30 % of every feature's total
+       .add_binary_decisions()            # a cell is in or out
+       .add_highs_solver(gap=0.001))      # proved within 0.1 % of the optimum
+plan = p.solve()
+print(plan.status, f"{int(plan.values.sum())} cells, {plan.cost / 1000:.1f} million USD, gap {plan.gap:.3%}")
+print(plan.coverage[["feature", "relative_target", "relative_held", "met"]].round(3).to_string(index=False))
+```
+
+```text
+optimal 812 cells, 37.1 million USD, gap 0.011%
+            feature  relative_target  relative_held  met
+             jaguar              0.3          0.300 True
+      lowland_tapir              0.3          0.300 True
+        harpy_eagle              0.3          0.437 True
+         maned_wolf              0.3          0.302 True
+golden_lion_tamarin              0.3          0.300 True
+  neotropical_otter              0.3          0.300 True
+   araucaria_forest              0.3          0.602 True
+           mangrove              0.3          0.300 True
+```
+
+These are the numbers of the part: 812 cells, 37.1 million USD, the harpy eagle and the araucaria forest well above
+30 %. `plan.selection` is the plan as a raster (`tf.plot(plan)` draws it), `plan.values` the 0/1 per planning unit,
+and `plan.coverage` the table above. The solver is HiGHS, built in; the other options of the chain are in the next
+parts.
+
+The experiment of the richest cells: take cells from the highest sum of the eight features down until the money
+equals the plan's, and evaluate that selection like any other with
+[`tf.prioritize.eval_target_coverage_summary`][terraflux.prioritize.eval_target_coverage_summary], which takes any
+raster of 0 and 1 as the solution:
+
+```python
+score = features.sum("band").where(cost.notnull())          # the hotspot score
+c, s = cost.values.ravel(), score.values.ravel()
+order = np.argsort(-np.where(np.isnan(s), -1, s))           # richest first
+n = int((np.cumsum(np.where(np.isnan(c[order]), 0, c[order])) <= plan.cost).sum())
+hot = np.zeros(c.size)
+hot[order[:n]] = 1
+hot = cost.copy(data=hot.reshape(cost.shape)).where(cost.notnull())
+
+cov = P.eval_target_coverage_summary(p, hot)
+print(n, "richest cells,", int(cov["met"].sum()), "of 8 targets met")
+print((100 * cov.set_index("feature")["relative_held"]).round(0).astype(int).to_string())
+```
+
+```text
+920 richest cells, 5 of 8 targets met
+feature
+jaguar                 37
+lowland_tapir           7
+harpy_eagle            70
+maned_wolf             51
+golden_lion_tamarin     0
+neotropical_otter      40
+araucaria_forest       82
+mangrove                0
+```
+
+920 cells instead of the part's 919 (the last cell that fits is a tie of the budget); the same story: 82 % of the
+araucaria forest, 70 % of the eagle, 7 % of the tapir and nothing of the tamarin and the mangrove.
+
+The price of the target, as the slider shows it (here with a gap of 0.5 %, as the slider's plans):
+
+```python
+for t in (0.1, 0.2, 0.3, 0.4, 0.5):
+    s = (P.problem(cost, features).add_min_set_objective().add_relative_targets(t)
+           .add_binary_decisions().add_highs_solver(gap=0.005).solve())
+    print(f"{t:.0%}: {s.cost / 1000:5.1f} million USD, {s.values.sum() / cost.notnull().sum().item():.1%} of the land")
+```
+
+```text
+10%:  10.9 million USD, 5.3% of the land
+20%:  23.6 million USD, 11.1% of the land
+30%:  37.2 million USD, 16.8% of the land
+40%:  52.0 million USD, 22.9% of the land
+50%:  68.0 million USD, 29.1% of the land
+```
+
+Zonation, Marxan, the budget objectives, spatial rules and zones, each in its part, are the same chain with other
+calls.
+
 ## Settings that change the answer
 
 The **target** sets the price. The slider shows the cheapest plan for targets from 10 % to 50 % of every feature:
