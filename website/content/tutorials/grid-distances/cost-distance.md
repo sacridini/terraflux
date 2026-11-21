@@ -266,6 +266,164 @@ along its whole length.
     Beier et al. (2008) and Etherington (2016) are the references for the method; van Etten (2017) for gdistance,
     whose operators these are.
 
+### In Python
+
+All the `cost` operators are in the library, as `tf.cost`: gdistance's transitions, accumulated costs, paths and
+distances, with the same numbers. The graph reads two files of the part, `clc_100m.tif` and `forests.geojson`, which the
+reader has downloaded; the resistance is the graph's reclassification (node 2), here as a table of classes:
+
+```python
+import numpy as np
+from scipy import ndimage
+import terraflux as tf
+
+land = tf.load_raster("clc_100m.tif")
+classes = {23: 1, 24: 1, 25: 1, 29: 2, 21: 5, 26: 5, 27: 5, 32: 5, 35: 5, 36: 5, 18: 10, 20: 10, 12: 20,
+           10: 30, 11: 30, 7: 50, 8: 50, 9: 50, 1: 100, 2: 100, 3: 100, 4: 100, 5: 100, 6: 100, 40: 100, 41: 100}
+resistance = tf.reclassify(land, classes, others=20)           # every other class: 20, the graph's "* -> 20"
+
+tr = 1 / tf.cost.transition(resistance, "mean", 8)             # conductance = 1 / the mean resistance of the pair
+tr = tf.cost.geo_correction(tr, "c")                           # divided by the distance between the cells' centres
+print(tr)
+```
+
+```text
+Transition(500 x 500 cells, 8 directions, symmetric, conductance, 1994004 connections)
+```
+
+[`tf.cost.transition`][terraflux.cost.transition] connects every pair of neighbouring cells that both have a value (4, 8
+or 16 directions) with a function of the two values, `"mean"` here (a callable is accepted too, below); the `1 /` in
+front is the operator's `reciprocal = true`. [`tf.cost.geo_correction`][terraflux.cost.geo_correction] is the operator's
+`type = "c"` (`"r"` for random walks, `scale=True` for costs in cells, as in [part 2](../random-walks/)). On a grid in
+degrees the distances between the centres are those on the ellipsoid.
+
+The graph numbers the forests with its [[conn.nodes]] node; here they are the forests (8 neighbours, as there) that the
+five points of `forests.geojson` fall in, which are the same ones:
+
+```python
+forests = tf.load_vector("forests.geojson")
+xy = np.c_[forests.geometry.x, forests.geometry.y]            # south, north-east, south-west, north-west, far north-east
+patches, n_patches = ndimage.label(np.isin(land.values, [23, 24, 25]), structure=np.ones((3, 3)))
+col = np.rint((xy[:, 0] - land.x.values[0]) / 100).astype(int)     # the cell of each point (100 m cells)
+row = np.rint((land.y.values[0] - xy[:, 1]) / 100).astype(int)
+ids = patches[row, col]
+south = patches == ids[0]                                      # the southern forest as a mask
+print(n_patches, "forests;", int(south.sum()), "cells in the southern one")
+
+cost = tf.cost.acc_cost(tr, south)                             # origins: coordinates, or a mask of cells not 0
+print(round(float(cost.values[np.isfinite(cost.values)].max())), "is the highest accumulated cost")
+```
+
+```text
+154 forests; 9151 cells in the southern one
+512657 is the highest accumulated cost
+```
+
+[`tf.cost.acc_cost`][terraflux.cost.acc_cost] gives a DataArray of the accumulated cost, in map units times resistance
+(`inf` where no origin can be reached). `tf.plot(cost)` draws it; the isochrones of the figure are the contours of
+`cost.values / 1000` at 25, 50, 100, 150, 200, 300 and 400 (matplotlib's `contour`). Origins may also be points: a
+coordinate pair, an array or a GeoDataFrame.
+
+The paths and the costs between the five points, with the table of the part (least cost over straight distance):
+
+```python
+paths = tf.cost.shortest_path(tr, xy[0], xy[1:], output="lines")    # one origin, four goals: a GeoDataFrame of lines
+print((paths.length / 1000).round(1).tolist(), "km")
+
+least = tf.cost.cost_distance(tr, xy) / 1000                   # the least cost between every two points, in thousands
+straight = np.hypot(*(xy[:, None] - xy[None]).transpose(2, 0, 1)) / 1000
+print(least.round(1))
+print((least[0, 1:] / straight[0, 1:]).round(1), "cost per km from the southern forest")
+```
+
+```text
+[45.4, 25.5, 40.7, 70.9] km
+[[  0.  218.9 102.3 192.4 279.5]
+ [218.9   0.  230.8  75.2  61.1]
+ [102.3 230.8   0.  156.6 287.6]
+ [192.4  75.2 156.6   0.  132. ]
+ [279.5  61.1 287.6 132.    0. ]]
+[7.5 5.3 5.8 6.6] cost per km from the southern forest
+```
+
+The paths are 45.4, 25.5, 40.7 and 70.9 km long, in the order of the goals (to the north-eastern forest 45 km, 29 km
+straight; to the far north-eastern one 71 km, 43 km straight). The matrix is the graph's `least_costs` table, and the
+ratios the "Ratio" column. [`tf.cost.shortest_path`][terraflux.cost.shortest_path] also gives `output="cells"` (the cells
+of each path, row-major, origin first), `"transition"` (the share of the paths on each connection, the graph's `map`)
+and `"transitions"` (one per goal); among equally cheap paths it returns the one gdistance's Dijkstra does. The lines
+write with `tf.write_vector(paths, "paths.gpkg")`.
+
+The corridor of the last section is two accumulated costs added:
+
+```python
+north_east = patches == ids[1]
+both = cost + tf.cost.acc_cost(tr, north_east)                 # the best route between the forests, through each cell
+best = float(both.min())
+over = 100 * (both.values / best - 1)                          # % dearer than the least-cost path
+print(round(best), {limit: int(((over <= limit) & ~(south | north_east)).sum()) for limit in (2, 5, 10)})
+```
+
+```text
+202287 {2: 4003, 5: 7133, 10: 14771}
+```
+
+The least cost is the 202,287 of the text and the cells within 2, 5 and 10% are its 4,003, 7,133 and 14,771.
+
+#### Costs that depend on the direction
+
+A transition may have a value of its own for each direction (`symmetric=False`), which is what slopes need: the way back
+climbs where the way out descended. Library example data, the elevation of the Maungawhau volcano in Auckland (10 m
+cells), with Tobler's hiking function (about 6 km/h on a gentle descent, slower uphill and on steep descents):
+
+```python
+dem = tf.load_raster(tf.cost.example_data("maungawhau"))
+rise = tf.cost.transition(dem, "diff", 8, symmetric=False)    # elevation to - elevation from
+slope = tf.cost.geo_correction(rise)                          # rise / distance
+speed = slope.map(lambda s: 6 * np.exp(-3.5 * np.abs(s + 0.05)) / 3.6, pairs="all")   # m/s
+conductance = tf.cost.geo_correction(speed)                   # 1 / seconds per step
+A, B = (2667670, 6479000), (2667800, 6479400)                 # the foot of the volcano, and the other side
+print((tf.cost.cost_distance(conductance, [A, B]) / 60).round(1))    # minutes, from the rows to the columns
+```
+
+```text
+[[0.  7.5]
+ [8.1 0. ]]
+```
+
+`map(..., pairs="all")` applies the function to every pair of neighbours, also to the flat ones whose rise is 0 (which
+had no connection). The cost of a step is the reciprocal of the conductance, here seconds. The two directions differ: 7.5
+minutes out, 8.1 back. The accumulated time and the routes:
+
+```python
+time_from_a = tf.cost.acc_cost(conductance, A)
+there = tf.cost.shortest_path(conductance, A, B, output="lines")
+back = tf.cost.shortest_path(conductance, B, A, output="lines")
+tf.plot([(time_from_a / 60).rename("minutes from A"), there, back])      # one map, three layers
+print(round(float(time_from_a.max()) / 60, 1), round(there.length.iloc[0]), round(back.length.iloc[0]))
+```
+
+```text
+11.6 487 487
+```
+
+![Travel time from A and the routes to B and back](/img/python/cost_hiking.png)
+
+Every cell of the volcano is less than 12 minutes from A; the two routes are equally long (487 m) but take different
+lines around the crater.
+
+#### Other options of the transition
+
+- **Directions**: 16 directions add the knight moves (two cells one way, one the other), which make least-cost routes
+  less angular; 4 gives staircases.
+- **Longitude/latitude grids**: the distances between cells are geodesic, and on a grid spanning 360 degrees the columns
+  wrap around the 180th meridian.
+- **Any rule**: a callable receives the two cells' values (`x[0]` the first cell, `x[1]` the second) for all connections
+  at once; `map`, `*`, `+` and numbers combine transitions; [`tf.cost.sum_reciprocal`][terraflux.cost.sum_reciprocal]
+  adds resistances in series, and [`tf.cost.normalize`][terraflux.cost.normalize] gives the random walk's probabilities
+  (part 2).
+- **Speed**: the graph is never built as a matrix; least-cost searches run directly on the grid, and several sources in
+  parallel (4 million cells: a cost surface in 0.6 s).
+
 ## Settings that change the answer
 
 - **The resistance**, above all its contrasts (see the [sensitivity analysis](/tutorials/circuit-connectivity/resistance-surfaces/)).
@@ -306,5 +464,3 @@ along its whole length.
 - Dijkstra, E. W. (1959). A note on two problems in connexion with graphs. *Numerische Mathematik*, 1(1), 269–271. https://doi.org/10.1007/BF01386390
 - Etherington, T. R. (2016). Least-cost modelling and landscape ecology: concepts, applications, and opportunities. *Current Landscape Ecology Reports*, 1(1), 40–53. https://doi.org/10.1007/s40823-016-0006-9
 - van Etten, J. (2017). R package gdistance: distances and routes on geographical grids. *Journal of Statistical Software*, 76(13). https://doi.org/10.18637/jss.v076.i13
-
-In Python: [Routes on grids in Python](/tutorials/grid-distances/grid-routes-in-python/).

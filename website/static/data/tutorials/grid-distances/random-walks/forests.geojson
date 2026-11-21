@@ -1,0 +1,86 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::3035"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": 1,
+    "forest": 55,
+    "name": "South"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4286700.0,
+     3238550.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": 2,
+    "forest": 96,
+    "name": "North-east"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4295500.0,
+     3266450.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": 3,
+    "forest": 8,
+    "name": "South-west"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4267600.0,
+     3240850.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": 4,
+    "forest": 30,
+    "name": "North-west"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4271000.0,
+     3267950.0
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": 5,
+    "forest": 110,
+    "name": "Far north-east"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     4305100.0,
+     3276950.0
+    ]
+   }
+  }
+ ]
+}

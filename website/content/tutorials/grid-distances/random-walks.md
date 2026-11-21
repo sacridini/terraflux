@@ -291,6 +291,187 @@ Random walkers waste so much on wandering that distance matters relatively less 
     observed movements; without movement data, present a range. van Etten (2017) documents the gdistance
     functions these operators reproduce.
 
+### In Python
+
+The same walks are in `tf.cost`: [`tf.cost.passage`][terraflux.cost.passage] ([[cost.passage]]),
+[`tf.cost.rsp_distance`][terraflux.cost.rsp_distance], [`tf.cost.commute_distance`][terraflux.cost.commute_distance]
+and [`tf.cost.cost_distance`][terraflux.cost.cost_distance], on the data of part 1 (`clc_100m.tif` and
+`forests.geojson`, in the folder of the part's downloads). The two transitions are the graph's two corrections of one
+transition, with `scale=True` (costs in cells):
+
+```python
+import numpy as np
+from scipy import ndimage
+import terraflux as tf
+
+land = tf.load_raster("clc_100m.tif")
+classes = {23: 1, 24: 1, 25: 1, 29: 2, 21: 5, 26: 5, 27: 5, 32: 5, 35: 5, 36: 5, 18: 10, 20: 10, 12: 20,
+           10: 30, 11: 30, 7: 50, 8: 50, 9: 50, 1: 100, 2: 100, 3: 100, 4: 100, 5: 100, 6: 100, 40: 100, 41: 100}
+resistance = tf.reclassify(land, classes, others=20)
+base = 1 / tf.cost.transition(resistance, "mean", 8)
+for_costs = tf.cost.geo_correction(base, "c", scale=True)      # for least costs and RSP
+for_walks = tf.cost.geo_correction(base, "r", scale=True)      # for random walks: also the width across the connection
+
+forests = tf.load_vector("forests.geojson")
+xy = np.c_[forests.geometry.x, forests.geometry.y]
+patches, _ = ndimage.label(np.isin(land.values, [23, 24, 25]), structure=np.ones((3, 3)))
+col = np.rint((xy[:, 0] - land.x.values[0]) / 100).astype(int)
+row = np.rint((land.y.values[0] - xy[:, 1]) / 100).astype(int)
+ids = patches[row, col]
+south, north_east = patches == ids[0], patches == ids[1]       # the two forests as masks, as in part 1
+outside = ~(south | north_east)
+
+def summary(p):
+    """The slider's numbers: the peak passage outside the forests and the cells with passage >= 0.01."""
+    v = p.values
+    return round(float(np.nanmax(v[outside])), 2), int(((v >= 0.01) & outside).sum())
+
+walk = tf.cost.passage(for_walks, south, north_east)           # no theta: the random walk
+print("random walk", summary(walk))
+for theta in (0.00001, 0.0001, 0.0003, 0.001, 0.003, 0.01):
+    rsp = tf.cost.passage(for_costs, south, north_east, theta=theta)     # theta: 0 to 20, per cell of cost
+    expected = tf.cost.rsp_distance(for_costs, xy[:1], xy[1:2], theta=theta)[0, 0]
+    print(theta, summary(rsp), round(float(expected), 1))
+```
+
+```text
+random walk (0.03, 1701)
+1e-05 (0.05, 5166) 6957.0
+0.0001 (0.07, 8832) 5855.5
+0.0003 (0.12, 8891) 5224.5
+0.001 (0.28, 5641) 4179.1
+0.003 (0.52, 4111) 3528.7
+0.01 (0.72, 3302) 3125.7
+```
+
+These are the numbers of the slider's frames (the peak and the count of cells; the expected cost is that of the RSP
+distance table below). Origins and goals are masks here, or points; with `theta` the passages are those of the randomised
+shortest paths, `None` (or leaving it out) gives the random walk, and the options of [[cost.passage]] are
+`total_net="total"` (both directions counted), `output="transition"` (the passages per connection) and, without theta,
+`gdistance_compat=False` (the exact currents).
+
+The three distances between the five forests:
+
+```python
+least = tf.cost.cost_distance(for_costs, xy)                    # least costs, in cells of forest
+commute = tf.cost.commute_distance(for_walks, xy)               # needs a symmetric transition
+rsp_d = tf.cost.rsp_distance(for_costs, xy, xy, theta=0.0001)   # matrices: from the rows to the columns
+print(least.round(0))
+print((commute / 1e6).round(2))
+
+rank = lambda a: a.argsort().argsort()
+pairs = np.triu_indices(len(xy), 1)
+print([round(float(np.corrcoef(rank(least[pairs]), rank(m[pairs]))[0, 1]), 2) for m in (commute, rsp_d)])
+print(round(commute[pairs].min() / commute[pairs].max(), 2), round(least[pairs].min() / least[pairs].max(), 2))
+```
+
+```text
+[[   0. 2189. 1023. 1924. 2795.]
+ [2189.    0. 2308.  752.  611.]
+ [1023. 2308.    0. 1566. 2876.]
+ [1924.  752. 1566.    0. 1320.]
+ [2795.  611. 2876. 1320.    0.]]
+[[0.   3.01 1.78 2.68 3.53]
+ [3.01 0.   3.41 2.21 1.64]
+ [1.78 3.41 0.   2.79 3.94]
+ [2.68 2.21 2.79 0.   2.72]
+ [3.53 1.64 3.94 2.72 0.  ]]
+[0.95, 0.98]
+0.42 0.21
+```
+
+The matrices are the part's table, with the commute distances in millions; the rank correlations of the least costs with
+the commute distance and with the RSP distance (0.003 gives 0.98 too) are the 0.95 and 0.98 of the text, and the closest
+pair is at 42% of the farthest for commute distances against 21% for least costs. `method=2` in `rsp_distance` weights
+the steps by `P ** theta` instead of `exp(-theta * cost) * P`, and `total_net="total"` counts every passage instead of
+the net ones.
+
+#### Walks on a transition of another kind
+
+Nothing above needs the landscape of the part: a transition from any rule can be walked. On the volcano of part 1 (the
+direction-dependent walking speed of Tobler's function, costs in seconds, so theta is per second), the passages of the
+walk from A to B at four values of theta, as the share of cells with a passage above 0.01:
+
+```python
+dem = tf.load_raster(tf.cost.example_data("maungawhau"))
+slope = tf.cost.geo_correction(tf.cost.transition(dem, "diff", 8, symmetric=False))
+speed = slope.map(lambda s: 6 * np.exp(-3.5 * np.abs(s + 0.05)) / 3.6, pairs="all")
+conductance = tf.cost.geo_correction(speed)                    # 1 / seconds per step
+A, B = (2667670, 6479000), (2667800, 6479400)
+passages = {theta: tf.cost.passage(conductance, A, B, theta=theta) for theta in (0, 0.001, 0.01, 1)}
+print({theta: round(float((p > 0.01).mean()), 3) for theta, p in passages.items()})
+print(tf.cost.rsp_distance(conductance, [A], [B], theta=0.1).round(0))
+symmetric = tf.cost.geo_correction(1 / tf.cost.transition(dem, "mean", 8))
+print(tf.cost.commute_distance(symmetric, [A, B]).round(0))
+```
+
+```text
+{0: 0.917, 0.001: 0.18, 0.01: 0.118, 1: 0.019}
+[[534.]]
+[[    0. 35013.]
+ [35013.     0.]]
+```
+
+![Passages of the walk from A to B for four values of theta](/img/python/cost_theta.png)
+
+The random walk (theta = 0) passes through 92% of the volcano's cells with more than 0.01; with theta = 0.001 (per second
+of walking) 18%, and with 1 it keeps to a narrow band (2%) along the least-cost route. The randomised walk takes 534 s on
+average, 83 s more than the least-cost route (451 s). The commute distance, for symmetric transitions only, is the
+effective resistance of the circuit view times the sum of all conductances.
+
+#### The overlap of routes from a common origin
+
+[[cost.path_inc]] has its own function, [`tf.cost.path_inc`][terraflux.cost.path_inc]: if populations spread from one
+origin, two whose routes share much of the way should be closer genetically than two whose routes split early. The
+example data hold the genetic distances between 23 European populations of the Y-chromosome haplogroup R1b1b2 and their
+locations, and a map of Europe (land = 1, 1/3 degree cells):
+
+```python
+europe = tf.load_raster(tf.cost.example_data("europe"))
+pops = tf.load_table(tf.cost.example_data("pop_coord"))
+genetic = tf.load_table(tf.cost.example_data("gen_dist")).set_index("population")
+walk_europe = tf.cost.geo_correction(tf.cost.transition(europe, "mean", 16), "r", scale=True)
+
+pop_xy = pops[["x", "y"]].to_numpy()
+routes = tf.cost.path_inc(walk_europe, (37.0, 39.0), pop_xy)    # from Anatolia
+pairs = np.triu_indices(len(pops), 1)
+g = genetic.loc[pops["population"], pops["population"]].to_numpy()[pairs]
+print({name: round(float(np.corrcoef(m[pairs], g)[0, 1]), 2) for name, m in routes.items()})
+```
+
+```text
+{'overlap': -0.73, 'nonoverlap': 0.56}
+```
+
+`path_inc` computes, for every population, the flow of a random walk from the origin to it on every connection, then for
+every pair the flow the two routes share (`overlap`) and the flow they do not (`nonoverlap`), each connection weighted by
+its cost. The more two routes overlap, the smaller the genetic distance (a correlation of -0.73). For comparison, least
+costs and commute distances over the same map:
+
+```python
+coast = tf.cost.geo_correction(tf.cost.transition(europe, "mean", 16), "c")
+least_cost = tf.cost.cost_distance(coast, pop_xy)
+commute_eu = tf.cost.commute_distance(walk_europe, pop_xy)
+print(round(float(np.corrcoef(least_cost[pairs], g)[0, 1]), 2),
+      round(float(np.corrcoef(commute_eu[pairs], g)[0, 1]), 2))
+```
+
+```text
+0.59 -0.03
+```
+
+![Genetic distance against route overlap and least-cost distance](/img/python/cost_europe.png)
+
+Least-cost distances over land explain less (0.59) and commute distances, which ignore the direction of spread, nothing
+(-0.03). Correlations between the pairs of one set of points are not independent: test them with a Mantel test
+(permuting the populations) before drawing conclusions. `path_inc(..., weight=...)` takes another transition or a list
+of them as the weight of the connections; [`tf.cost.barriers`][terraflux.cost.barriers]`(r, breaks=[...])` marks the
+connections that cross given values (without breaks, the boundaries between categories) and
+[`tf.cost.areas`][terraflux.cost.areas]`(r)` those inside each category, to ask how much of the routes' overlap happens
+across a barrier or in an area. On a longitude/latitude grid, random walks need `geo_correction(tr, "r")`, which also
+shrinks the north-south connections towards the poles; linear systems are factorised with a nested-dissection sparse
+Cholesky (4 million cells: a random-walk passage map in 4.5 s).
+
 ## Settings that change the answer
 
 - **θ**, as above, relative to the cost units. Rescale the costs (`scale`) and θ changes meaning.
@@ -334,5 +515,3 @@ Random walkers waste so much on wandering that distance matters relatively less 
 - Saerens, M., Achbany, Y., Fouss, F., & Yen, L. (2009). Randomized shortest-path problems: two related models. *Neural Computation*, 21(8), 2363–2404. https://doi.org/10.1162/neco.2009.11-07-643
 - van Etten, J. (2017). R package gdistance: distances and routes on geographical grids. *Journal of Statistical Software*, 76(13). https://doi.org/10.18637/jss.v076.i13
 - van Etten, J., & Hijmans, R. J. (2010). A geospatial modelling approach integrating archaeobotany and genetics to trace the origin and dispersal of domesticated plants. *PLoS ONE*, 5(8), e12060. https://doi.org/10.1371/journal.pone.0012060
-
-In Python: [Routes on grids in Python](/tutorials/grid-distances/grid-routes-in-python/).
