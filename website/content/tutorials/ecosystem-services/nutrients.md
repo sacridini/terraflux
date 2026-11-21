@@ -398,6 +398,114 @@ surface path only, and how much nitrogen you assign to the subsurface (`proporti
 a scenario looks better or worse. The index of connectivity is the same in both years (it does not depend on the
 land use); everything that changes comes from the loads and the retention.
 
+### In Python
+
+[`tf.services.ndr`][terraflux.services.ndr] takes the elevation, the land use map, the runoff proxy (here the annual
+rain), the biophysical table and the watersheds, with `threshold` and the subsurface settings
+`subsurface_critical_length` and `subsurface_efficiency` (required for nitrogen). The files of Ribeirão Claro are the zip of the series ([ribeirao-claro.zip](/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip)), unzipped into `ribeirao-claro/`; the rasters load as xarray maps and the tables as pandas data frames. The nutrient
+table of the part is a second zip ([ribeirao-claro-ndr.zip](/data/tutorials/ecosystem-services/nutrients/ribeirao-claro-ndr.zip)),
+unzipped beside the first. In the application the type of the loads is a setting; in the library it is two columns of
+the table, `load_type_n` and `load_type_p`, `"measured-runoff"` for export coefficients as here or
+`"application-rate"` for the fertilizer applied:
+
+```python
+import zipfile
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+zipfile.ZipFile("ribeirao-claro.zip").extractall(".")           # the files of Ribeirão Claro
+zipfile.ZipFile("ribeirao-claro-ndr.zip").extractall(".")       # and the nutrient table, beside them
+
+def read(name):
+    return tf.load_raster(f"ribeirao-claro/{name}.tif")
+
+dem, lulc, rain = read("dem"), read("lulc_2020"), read("precipitation")
+biophysical = tf.load_table("ribeirao-claro/biophysical_ndr.csv")   # loads, efficiencies, critical lengths
+watersheds = tf.load_vector("ribeirao-claro/watersheds.gpkg")
+print(biophysical.to_string(index=False))
+# the loads are export coefficients, already what the runoff carries: InVEST's `load_type` columns say so
+biophysical["load_type_n"] = biophysical["load_type_p"] = "measured-runoff"
+
+nutrients = tf.services.ndr(dem, lulc, rain, biophysical, watersheds,
+                            threshold=1000, k=2,
+                            subsurface_critical_length=200, subsurface_efficiency=0.8)
+print("IC_0:", round(nutrients.ic_0, 2), "| mean of the runoff proxy:", round(nutrients.runoff_proxy_mean, 1))
+print(nutrients.watersheds.drop(columns="geometry").round(1).to_string(index=False))
+```
+
+```text
+ lucode  load_n  eff_n  crit_len_n  proportion_subsurface_n  load_p  eff_p  crit_len_p
+      1     2.5   0.80         150                      0.3    0.10   0.80         150
+      2     8.0   0.40          60                      0.3    0.50   0.45          60
+      3    20.0   0.15          30                      0.4    1.50   0.20          30
+      4     4.0   0.60         100                      0.3    0.25   0.60         100
+      5    12.0   0.05          30                      0.1    1.80   0.05          30
+      6     0.0   0.00          30                      0.0    0.00   0.00          30
+IC_0: -1.18 | mean of the runoff proxy: 1491.5
+ ws_id  n_surface_load  n_surface_export  n_subsurface_export  n_total_export  n_subsurface_load  p_surface_load  p_surface_export
+     1          8872.3            1395.9               1087.3          2334.1             4676.7           879.0             134.0
+     2          6624.8            1100.6                798.7          1800.0             3465.2           677.6             108.3
+```
+
+The maps are in kg / ha / year: `n_surface_export`, `n_subsurface_export`, `n_total_export`, `p_surface_export`, the
+delivery ratios `ndr_n` and `ndr_p`, `effective_retention_n` and `_p`, `ic`, `stream` and `drains_to_stream`;
+`ic_0` and `runoff_proxy_mean` are numbers of the result, and `watersheds` has the loads and exports in kg a year.
+`nitrogen=False` or `phosphorus=False` leave a nutrient out, `k` (2) is Borselli's, and `method` `"mfd"` or `"d8"`.
+The settings sections of the part are loops over the same call:
+
+```python
+def totals(r):
+    t = r.watersheds
+    return {"n_surface": round(t.n_surface_export.sum()), "n_total": round(t.n_total_export.sum()),
+            "p_surface": round(float(t.p_surface_export.sum()), 1)}
+
+# multiple flow directions against D8
+d8 = tf.services.ndr(dem, lulc, rain, biophysical, watersheds, threshold=1000, k=2, method="d8",
+                     subsurface_critical_length=200, subsurface_efficiency=0.8)
+print("mfd", totals(nutrients), round(nutrients.ic_0, 2))
+print("d8 ", totals(d8), round(d8.ic_0, 2))
+
+# the subsurface parameters
+for l_sub, eff in ((50, 0.8), (800, 0.8), (200, 0.5), (200, 0.95)):
+    r = tf.services.ndr(dem, lulc, rain, biophysical, watersheds, threshold=1000, k=2,
+                        subsurface_critical_length=l_sub, subsurface_efficiency=eff)
+    print(f"l_sub {l_sub}, eff {eff}:", totals(r)["n_total"], "kg of nitrogen a year")
+```
+
+```text
+mfd {'n_surface': 2497, 'n_total': 4134, 'p_surface': 242.3} -1.18
+d8  {'n_surface': 2998, 'n_total': 4718, 'p_surface': 292.1} -1.44
+l_sub 50, eff 0.8: 4077 kg of nitrogen a year
+l_sub 800, eff 0.8: 4438 kg of nitrogen a year
+l_sub 200, eff 0.5: 6480 kg of nitrogen a year
+l_sub 200, eff 0.95: 2961 kg of nitrogen a year
+```
+
+And the scenario of 2040, with the change of each total:
+
+```python
+# the scenario of 2040
+n40 = tf.services.ndr(dem, read("lulc_2040"), rain, biophysical, watersheds, threshold=1000, k=2,
+                      subsurface_critical_length=200, subsurface_efficiency=0.8)
+cols = ["n_surface_load", "n_surface_export", "n_subsurface_load", "n_subsurface_export", "n_total_export",
+        "p_surface_load", "p_surface_export"]
+now, then = nutrients.watersheds[cols].sum(), n40.watersheds[cols].sum()
+print(pd.DataFrame({"2020": now, "2040": then, "change %": (then / now - 1) * 100}).round(1).to_string())
+```
+
+```text
+                        2020     2040  change %
+n_surface_load       15497.0  19716.8      27.2
+n_surface_export      2496.6   2252.9      -9.8
+n_subsurface_load     8141.9  11004.3      35.2
+n_subsurface_export   1886.1   2318.4      22.9
+n_total_export        4134.1   4472.9       8.2
+p_surface_load        1556.6   2164.4      39.0
+p_surface_export       242.3    243.0       0.3
+```
+
 ## Settings that change the answer
 
 ### The stream threshold

@@ -119,6 +119,38 @@ is still 100%, so what the river and the small woods lose, arable land gains.
     hit it. `mode` gives a cleaner map with biased shares. For the area of each class, compute it on the fine
     map; for a coarse map to model with, use `mode`, and report the shares at both resolutions.
 
+### Coarsen in Python
+
+In the library, [`tf.reproject`][terraflux.reproject] with `res=` and no `crs` changes the cell size in the map's own
+CRS (the same `resampling` names as the node: `"mode"`, `"average"`, `"nearest"`, `"bilinear"`, `"sum"`...), and
+[`tf.clip`][terraflux.clip] cuts the 15 x 15 km window out of the CORINE excerpt, as the node of
+[Cut and join](#cut-and-join-rasterclip-and-rastermosaic) does. New to the library? Start with the
+[quickstart](/python/getting-started/quickstart/) and the [installation](/python/getting-started/installation/).
+
+```python
+import terraflux as tf
+
+landcover = tf.load_raster(tf.example_data("clc"))
+window = tf.clip(landcover, (4261250, 3267500, 4276250, 3282500))        # x and y bounds in the map's CRS: 600 x 600 cells of 25 m
+print(window.shape)
+
+for size in [25, 100, 250, 500]:
+    coarse = window if size == 25 else tf.reproject(window, res=size, resampling="mode")   # the same CRS, bigger cells
+    share = coarse.to_series().value_counts(normalize=True) * 100
+    print(f"{size:3d} m {coarse.shape}: arable {share[12]:.1f}%, broad-leaved {share[23]:.2f}%, river {share[40]:.2f}%, {len(share)} classes")
+```
+
+```text
+(600, 600)
+ 25 m (600, 600): arable 50.2%, broad-leaved 2.75%, river 0.58%, 15 classes
+100 m (150, 150): arable 50.3%, broad-leaved 2.71%, river 0.57%, 15 classes
+250 m (60, 60): arable 51.4%, broad-leaved 2.72%, river 0.28%, 15 classes
+500 m (30, 30): arable 53.0%, broad-leaved 2.00%, river 0.11%, 14 classes
+```
+
+The numbers of the slider. `resampling="auto"` (the default) follows the rule of the node: a raster of whole numbers
+is classes, decimals are values.
+
 ## The three rules of aggregation
 
 When cells grow, every new cell covers many old ones and must summarise them. The right summary depends on what
@@ -149,6 +181,26 @@ images:
     The same rule decides what `auto` does: Terraflux's `auto` treats a raster stored as **whole numbers** as
     classes and one stored as **decimals** as values. An elevation model stored as `int16`, as SRTM often is,
     would be resampled as classes (nearest or mode); give `resampling = "bilinear"` (or `average`) yourself.
+
+### The three rules in Python
+
+The same forest map (1 forest, 0 not) at 100 m by the three rules. It is a `float32` copy, as the warning says: the
+`average` of whole numbers would be whole numbers.
+
+```python
+forest = ((window >= 23) & (window <= 25)).astype("float32")                # 1 forest, 0 not, as decimals
+by_mode = tf.reproject(forest, res=100, resampling="mode")
+by_mean = tf.reproject(forest, res=100, resampling="average")
+by_sum = tf.reproject(forest, res=100, resampling="sum")
+print(f"mode: {float(by_mode.mean()) * 100:.1f}% of the cells; mean: 0 to {float(by_mean.max()):.0f}; "
+      f"sum: {int(by_sum.sum()):,} cells (25 m: {int(forest.sum()):,})")
+```
+
+```text
+mode: 24.7% of the cells; mean: 0 to 1; sum: 89,231 cells (25 m: 89,231)
+```
+
+The caption's numbers: 24.7% by majority, and the sum keeps the total, 89,231 cells.
 
 ## Put a map on another's grid: raster.match
 
@@ -217,6 +269,27 @@ features of a prioritization); it would refuse maps of different grids.
     4. **Put on the reference grid** adds a [[raster.match]] node with that resampling and a note saying why.
        **Every raster > Put the N other rasters off the grid on it** does it for all of them at once.
 
+### Match in Python
+
+[`tf.match_grid`][terraflux.match_grid] is [[raster.match]]: the CRS, cells and extent of `like` (a raster or the
+path of one). The part's coarse product is made here by reprojecting the forest map to degrees (cells of 0.006°,
+averaged) and then put back on the window's grid:
+
+```python
+product = tf.reproject(forest, "EPSG:4326", res=0.006, resampling="average")
+matched = tf.match_grid(product, window)                                     # bilinear for decimals, as auto
+print(product.shape, str(product.rio.crs), "->", matched.shape, str(matched.rio.crs), float(matched.min()) >= 0)
+```
+
+```text
+(23, 38) EPSG:4326 -> (600, 600) EPSG:3035 True
+```
+
+The product has 23 rows and 38 columns (the part's has 37 columns: the library and the application
+suggest slightly different corners for the grid); the result is the window's grid, 600 x 600 cells in EPSG:3035. [`tf.reproject`][terraflux.reproject] with
+`like=` does the same and also takes vectors, and `tf.load_raster(path, like=window)` matches while reading. To make a
+stack, concatenate the maps (`xarray.concat`) once they are on one grid.
+
 ## Cut and join: raster.clip and raster.mosaic
 
 [[raster.clip]] cuts rasters to an `extent`, `[xmin, ymin, xmax, ymax]` in their own coordinates, keeping their
@@ -273,6 +346,12 @@ images:
   - { src: /img/tutorials/getting-started/one-grid/tiles.png, caption: "tiles/*.tif" }
   - { src: /img/tutorials/getting-started/one-grid/mosaic.png, caption: "raster.mosaic" }
 ```
+
+### Clip and mosaic in Python
+
+`tf.clip` (above) cuts to bounds, or to polygons (a `GeoDataFrame`), keeping the cells as they are. The library has no
+counterpart of [[raster.mosaic]], the joining of a folder of tiles into one raster: `tf.load_raster("tiles/*.tif")`
+collects them, one raster per file, and a mosaic is made in the application or with GDAL's `gdalwarp`.
 
 ## From the command line: terraflux resample
 

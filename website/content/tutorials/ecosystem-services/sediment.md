@@ -292,6 +292,111 @@ digits: 0
 caption: "The two watersheds in 2020 and 2040. Soil loss rises by 63% and export by 40%: the riparian restoration traps part of the extra sediment, so export grows less than soil loss."
 ```
 
+### In Python
+
+[`tf.services.sdr`][terraflux.services.sdr] takes the elevation, the two soil factors R and K, the land use map, the
+table of cover and practice factors and the watersheds, and the stream `threshold` (cells of flow accumulation).
+The files of Ribeirão Claro are the zip of the series ([ribeirao-claro.zip](/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip)), unzipped into `ribeirao-claro/`; the rasters load as xarray maps and the tables as pandas data frames.
+
+```python
+import zipfile
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+zipfile.ZipFile("ribeirao-claro.zip").extractall(".")   # the files of Ribeirão Claro, in ribeirao-claro/
+
+def read(name):
+    return tf.load_raster(f"ribeirao-claro/{name}.tif")
+
+dem, erosivity, erodibility, lulc = read("dem"), read("erosivity"), read("erodibility"), read("lulc_2020")
+biophysical = tf.load_table("ribeirao-claro/biophysical_sdr.csv")   # lucode, usle_c, usle_p
+watersheds = tf.load_vector("ribeirao-claro/watersheds.gpkg")
+
+sed = tf.services.sdr(dem, erosivity, erodibility, lulc, biophysical, watersheds,
+                      threshold=1000)   # cells of flow accumulation from which a cell is a stream
+print(sed.watersheds.drop(columns="geometry").round(1).to_string(index=False))
+```
+
+```text
+ ws_id  usle_tot  sed_export  sed_dep  avoid_exp  avoid_eros
+     1   20176.3      1046.3  19149.2    57517.3   1019235.3
+     2   16612.5       875.2  15718.2    43248.8    658562.8
+```
+
+The maps are in t / ha / year: `usle`, `rkls`, `sdr`, `ic`, `sed_export`, `sed_deposition`, `avoided_export`,
+`avoided_erosion`, plus `stream` and `drains_to_stream`. `watersheds` has the totals in t a year (`usle_tot`,
+`sed_export`, `sed_dep`, `avoid_exp`, `avoid_eros`), and `intermediate` the rasters of the chain (`slope`,
+`flow_accumulation`, `d_up`, `d_dn`...). The table of the soil loss, delivery ratio and export of each class is a few
+lines on the maps:
+
+```python
+# the soil loss, delivery ratio and export of each class (tons per hectare and year, means)
+cls = lulc.values
+rows = []
+for k, name in {1: "Forest", 2: "Pasture", 3: "Cropland", 4: "Eucalyptus", 5: "Urban"}.items():
+    m = (cls == k) & ~np.isnan(sed.usle.values)
+    rows.append((name, np.nanmean(sed.usle.values[m]), np.nanmean(sed.sdr.values[m]), np.nanmean(sed.sed_export.values[m])))
+print(pd.DataFrame(rows, columns=["class", "usle", "sdr", "export"]).round(3).to_string(index=False))
+```
+
+```text
+     class      usle   sdr  export
+    Forest  0.878000 0.038   0.034
+   Pasture 23.143999 0.053   1.247
+  Cropland 15.846000 0.048   0.771
+Eucalyptus 12.490000 0.045   0.619
+     Urban  5.291000 0.059   0.352
+```
+
+Borselli's `k` (default 2), `ic_0` (0.5), `sdr_max` (0.8) and `l_max` are settings of the call too, `method` is
+`"mfd"` (the default) or `"d8"`, and `drainage=` takes a map of the cells that drain straight into the streams, the
+roads of the part. The totals of the part's settings sections:
+
+```python
+def totals(r):
+    t = r.watersheds
+    return round(t.sed_export.sum()), round(t.sed_dep.sum())
+
+# Borselli's k
+for k in (0.5, 2, 4):
+    r = tf.services.sdr(dem, erosivity, erodibility, lulc, biophysical, watersheds, threshold=1000, k=k)
+    print("k =", k, "export, deposition (t / yr):", totals(r))
+
+# D8 against multiple flow directions, and roads that drain straight into the streams
+d8 = tf.services.sdr(dem, erosivity, erodibility, lulc, biophysical, watersheds, threshold=1000, method="d8")
+roads = tf.services.sdr(dem, erosivity, erodibility, lulc, biophysical, watersheds, threshold=1000,
+                        drainage=read("roads_2020"))
+print("mfd", totals(sed), "| d8", totals(d8), "| roads drain", totals(roads))
+```
+
+```text
+k = 0.5 export, deposition (t / yr): (4, 36785)
+k = 2 export, deposition (t / yr): (1921, 34867)
+k = 4 export, deposition (t / yr): (6002, 30787)
+mfd (1921, 34867) | d8 (2423, 33214) | roads drain (2099, 34365)
+```
+
+And the scenario of 2040, with the change of each total:
+
+```python
+# the scenario of 2040
+s40 = tf.services.sdr(dem, erosivity, erodibility, read("lulc_2040"), biophysical, watersheds, threshold=1000)
+cols = ["usle_tot", "sed_export", "sed_dep", "avoid_exp", "avoid_eros"]
+now, then = sed.watersheds[cols].sum(), s40.watersheds[cols].sum()
+print(pd.DataFrame({"2020": now, "2040": then, "change %": (then / now - 1) * 100}).round(1).to_string())
+```
+
+```text
+                 2020       2040  change %
+usle_tot      36788.8    60089.4      63.3
+sed_export     1921.5     2685.8      39.8
+sed_dep       34867.3    57403.6      64.6
+avoid_exp    100766.1   114111.2      13.2
+avoid_eros  1677798.1  1654497.5      -1.4
+```
+
 ## Settings that change the answer
 
 ### Borselli's k

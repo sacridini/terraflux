@@ -135,6 +135,31 @@ classes with a [[raster.legend]] node after it, as above.
     fills the table with one row for each of them, ready to edit. For a continuous map it shows the range instead,
     and **4 equal ranges** writes four rules of ranges of the same width, giving 1 to 4.
 
+### Reclassify in Python
+
+[`tf.reclassify`][terraflux.reclassify] takes the rules as a dictionary, a list or a table. A range is
+`(low, high)` and holds `low <= v < high`, so CORINE's `1..11` is `(1, 12)`. New to the library? Start with the
+[quickstart](/python/getting-started/quickstart/) and the [installation](/python/getting-started/installation/).
+
+```python
+import terraflux as tf
+
+landcover = tf.load_raster(tf.example_data("clc"))          # the part's clc.tif, shipped with the library
+groups = tf.reclassify(landcover, {(1, 12): 1, (12, 23): 2, (23, 26): 3, (26, 35): 4, (35, 40): 5, (40, 45): 6})
+share = groups.to_series().value_counts(normalize=True).sort_index() * 100
+print(share.round(1).to_dict())
+```
+
+```text
+{1: 14.8, 2: 61.2, 3: 20.6, 4: 0.3, 5: 1.5, 6: 1.5}
+```
+
+The shares of the chart's caption: farmland 61.2%, forest 20.6%, urban land 14.8%. Values the table does not hold keep
+their own value (`others="keep"`); `others=0` is the rule `* -> 0`, `others="nodata"` makes them no data, and
+`foreground=` makes the habitat map of MSPA (see [Your first model](../first-model/#in-python)). The names and
+colours of the classes are not an operator here: [`tf.write_raster`][terraflux.write_raster] takes them as
+`colormap=` (a dictionary of class to colour), and the plots of [`tf.plot`][terraflux.plot] choose their own.
+
 ## Map algebra: raster.calc
 
 [[raster.calc]] computes a map cell by cell from an **expression** over its inputs. The inputs take any names you
@@ -191,6 +216,37 @@ images:
     `nbmean(x, 20)` means 20 cells, so its distance depends on the resolution: 500 m on this 25 m map, 600 m on a
     30 m map. The radius is a whole number, written in the expression or given by a number input of the node
     (`nbmean(forest, r)` with an input `r = 20`), which a batch or a scenario can then change.
+
+### Map algebra in Python
+
+A map is an `xarray.DataArray`, so its algebra is numpy's: comparisons give booleans, and the neighbourhood functions
+`nbmean` and `nbmin` are `scipy.ndimage` filters (a square of radius 20 is a filter of side 41). The same two
+examples on the 15 x 15 km window, which [`tf.clip`][terraflux.clip] cuts out of the map:
+
+```python
+import numpy as np
+from scipy import ndimage
+
+window = tf.clip(landcover, (4261250, 3267500, 4276250, 3282500))          # the 15 x 15 km window, 600 x 600 cells
+is_forest = ((window >= 23) & (window <= 25)).values.astype("float32")
+ones = np.ones_like(is_forest)
+# nbmean(forest, 20): the mean of the 41 x 41 cells around each cell, those outside the map left out
+share = ndimage.uniform_filter(is_forest, 41, mode="constant") / ndimage.uniform_filter(ones, 41, mode="constant")
+# nbmin(forest, 1): a forest cell with a non-forest cell among its 8 neighbours is edge
+inner = ndimage.minimum_filter(is_forest, 3, mode="nearest") == 1
+edge = (is_forest == 1) & ~inner
+print(f"share of forest within 500 m: {share.min():.2f} to {share.max():.2f}")
+print(f"forest cells: {int(is_forest.sum()):,}; edge {int(edge.sum()):,} ({edge.mean() * 100:.1f}%), "
+      f"interior {int((is_forest.astype(bool) & inner).sum()):,} ({(is_forest.astype(bool) & inner).mean() * 100:.1f}%)")
+```
+
+```text
+share of forest within 500 m: 0.00 to 1.00
+forest cells: 89,231; edge 10,620 (2.9%), interior 78,611 (21.8%)
+```
+
+The same counts as the caption of the two maps. Cells with no data stay `NaN` in a `float` array and make the result
+missing, as in the expression; `np.where(cond, a, b)` is `a if cond else b`. The radius is in cells here too.
 
 ## Fill gaps: raster.fill
 
@@ -296,6 +352,30 @@ images:
   - { src: /img/tutorials/getting-started/reclassify-calculate-save/hillshade.png, caption: "Hillshade" }
 ```
 
+### Slope in Python
+
+[`tf.reproject`][terraflux.reproject] with a `crs` and `res` (the cell size, in the units of the new CRS) is
+[[raster.reproject]], and [`tf.surface.terrain`][terraflux.surface.terrain] computes the slope with Horn's method. The
+elevation model is the library's `orelevation`:
+
+```python
+elevation = tf.load_raster(tf.surface.example_data("orelevation"))            # SRTM, EPSG:4326
+utm = tf.reproject(elevation, "EPSG:32610", res=30)                          # metres, cells of 30 m
+slope = tf.surface.terrain(utm, "slope")                                     # degrees, Horn's method
+print(utm.shape, f"slope: mean {float(slope.mean()):.1f}, max {float(slope.max()):.0f} degrees")
+```
+
+```text
+(371, 273) slope: mean 18.0, max 57 degrees
+```
+
+The mean (18°) and the maximum (57°) are the part's; the grid has one more row and one more column than the part's
+272 x 370 cells, (with `res=` alone, the library suggests the corners of the new grid itself).
+`terrain` also gives the aspect (`"aspect"`), in degrees or radians (`unit=`), and four-neighbour slopes
+(`neighbors=4`); [`tf.surface.tri`][terraflux.surface.tri] and [`tf.surface.tpi`][terraflux.surface.tpi] are the
+ruggedness and the topographic position. The library has no hillshade and no counterpart of [[raster.fill]]'s filling
+of gaps: for these, the application (or GDAL's own `gdaldem` and `gdal_fillnodata`).
+
 ## Save the results
 
 ### raster.write: a GeoTIFF, in the smallest type
@@ -319,6 +399,31 @@ A map written from a [[raster.legend]] carries its names and colours into the fi
 `terraflux_legend`), so Terraflux shows them when the file is read again. The bands of a stack are written with
 its layers' names as their descriptions (GDAL's band names, which QGIS and R show), so the file reads back with the
 same layers; a band that had no name in the file it came from is written without one.
+
+### Writing in Python
+
+[`tf.write_raster`][terraflux.write_raster] is [[raster.write]]: `dtype` is the cell type (numpy's names:
+`uint8`, `int32`, `float64`...), and the file is compressed (`compress="deflate"` is the node's compression;
+the library's default is `"lzw"`). The six groups in three types:
+
+```python
+import os
+
+for dtype in ["uint8", "int32", "float64"]:
+    path = tf.write_raster(groups, f"groups_{dtype}.tif", dtype=dtype, compress="deflate")
+    print(f"{dtype:8s} {os.path.getsize(path) / 1024:5.0f} KB on disk, {groups.size * np.dtype(dtype).itemsize / 1e6:4.1f} MB in memory")
+```
+
+```text
+uint8      125 KB on disk,  4.0 MB in memory
+int32      187 KB on disk, 16.0 MB in memory
+float64    284 KB on disk, 32.0 MB in memory
+```
+
+The memory is the table's; the files are 9% to 28% larger than the part's (115, 171 and 221 KB) because the
+library's Deflate setting differs from the application's. Without `dtype` it keeps the map's own (here `uint8`);
+`nodata=` sets the value that means no data, and `band_names=` names the bands of a stack. [`tf.save`][terraflux.save]
+writes a whole result (maps, tables and numbers) to a folder.
 
 ### raster.convert: other formats, cloud-optimised GeoTIFFs
 

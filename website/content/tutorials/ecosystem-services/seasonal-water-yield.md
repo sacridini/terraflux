@@ -527,6 +527,133 @@ poor condition, or the next soil group, and run again. The unchanged cells keep 
 −0.004 mm on average): with \(\gamma = 1\) a cell's baseflow is the positive part of its own recharge, and the
 recharge of an unchanged cell hardly moves.
 
+### In Python
+
+[`tf.services.seasonal_water_yield`][terraflux.services.seasonal_water_yield] takes the elevation, the land use map,
+the table of curve numbers and crop coefficients and the watersheds, with the monthly rain and ET0, the soil groups
+and the rain events of each month. The files of Ribeirão Claro are the zip of the series ([ribeirao-claro.zip](/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip)), unzipped into `ribeirao-claro/`; the rasters load as xarray maps and the tables as pandas data frames. The months, soil groups and table of the part are a second zip
+([seasonal-inputs.zip](/data/tutorials/ecosystem-services/seasonal-water-yield/seasonal-inputs.zip)), unzipped beside
+the first. The twelve months are a raster of twelve bands (a list of twelve rasters or a dict by month, 1 to 12, also
+do), `rain_events` twelve numbers (or a table of `month` and `events`, or a `climate_zones` raster with its table):
+
+```python
+import zipfile
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+zipfile.ZipFile("ribeirao-claro.zip").extractall(".")          # the files of Ribeirão Claro
+zipfile.ZipFile("seasonal-inputs.zip").extractall(".")         # the months, the soil groups and the curve numbers
+
+dem = tf.load_raster("ribeirao-claro/dem.tif")
+lulc = tf.load_raster("ribeirao-claro/lulc_2020.tif")
+rain = tf.load_raster("ribeirao-claro/precipitation_monthly.tif")   # twelve bands, January to December
+et0 = tf.load_raster("ribeirao-claro/et0_monthly.tif")
+soils = tf.load_raster("ribeirao-claro/soil_group.tif")             # 1 to 4: hydrologic groups A to D
+biophysical = tf.load_table("ribeirao-claro/biophysical_swy.csv")   # cn_a to cn_d and kc_1 to kc_12
+watersheds = tf.load_vector("ribeirao-claro/watersheds.gpkg")
+events = [18, 15, 13, 7, 6, 4, 3, 3, 6, 10, 12, 16]                 # the rain events of each month
+print(rain.shape)
+
+swy = tf.services.seasonal_water_yield(dem, lulc, biophysical, watersheds, threshold=1000,
+                                       precipitation=rain, et0=et0, soil_group=soils, rain_events=events)
+means = {k: round(float(getattr(swy, k).mean()), 1) for k in ("quickflow", "aet", "local_recharge", "baseflow")}
+print(means)
+```
+
+```text
+(12, 180, 240)
+{'quickflow': 95.2, 'aet': 980.3, 'local_recharge': 436.5, 'baseflow': 464.0}
+```
+
+`quickflow`, `local_recharge`, `baseflow`, `aet`, `precipitation`, `vri`, `stream` and the routing maps (`l_avail`,
+`l_sum_avail`, `l_sum`, `b_sum`) are annual maps in mm. `watersheds` has `qb` and `vri_sum` and `monthly` a row by
+polygon (`geom_id`, its row) and month, in m³; dividing the sums by the area of the polygon gives the part's
+table of the two watersheds:
+
+```python
+# the polygons: qb and vri_sum; the monthly table (m3 by polygon and month, geom_id is the row of the polygon)
+def by_watershed(r):
+    t = r.watersheds.drop(columns="geometry").assign(area_ha=watersheds.area.values / 1e4)
+    year = r.monthly.groupby("geom_id")[["quickflow", "baseflow"]].sum()
+    t["quickflow_mm"] = year.quickflow.values / watersheds.area.values * 1000   # m3 over the area, in mm
+    t["baseflow_mm"] = year.baseflow.values / watersheds.area.values * 1000
+    t["baseflow_Mm3"] = year.baseflow.values / 1e6
+    return t
+
+print(by_watershed(swy).round(3).to_string(index=False))
+print(swy.monthly.head(3).round(0).to_string(index=False))
+```
+
+```text
+ ws_id      qb  vri_sum  geom_id  area_ha  quickflow_mm  baseflow_mm  baseflow_Mm3
+     1 368.756    0.397        0  1826.91       106.118      406.242         7.422
+     2 431.464    0.315        1  1238.13        98.002      461.560         5.715
+ geom_id  month  quickflow  baseflow  precipitation
+       0      1   403149.0  618473.0      4904287.0
+       0      2   281460.0  618473.0      3772544.0
+       0      3   204663.0  618473.0      3017992.0
+```
+
+The scenario is the same call with the other land use map. The quickflow and baseflow are the monthly table over the
+area of the watersheds, as in the part; evapotranspiration and recharge the means of the cells:
+
+```python
+# the scenario of 2040
+future = tf.load_raster("ribeirao-claro/lulc_2040.tif")
+s40 = tf.services.seasonal_water_yield(dem, future, biophysical, watersheds, threshold=1000,
+                                       precipitation=rain, et0=et0, soil_group=soils, rain_events=events)
+area = watersheds.area.sum()                      # m2
+rows = {}
+for name, col in (("quickflow (mm)", "quickflow"), ("baseflow (mm)", "baseflow")):
+    rows[name] = [r.monthly[col].sum() / area * 1000 for r in (swy, s40)]
+for name, col in (("aet, mean of the cells (mm)", "aet"), ("local recharge, mean of the cells (mm)", "local_recharge")):
+    rows[name] = [float(getattr(r, col).mean()) for r in (swy, s40)]
+t = pd.DataFrame(rows, index=["2020", "2040"]).T
+t["change %"] = (t["2040"] / t["2020"] - 1) * 100
+print(t.round(1).to_string())
+```
+
+```text
+                                         2020   2040  change %
+quickflow (mm)                          102.8  118.7      15.5
+baseflow (mm)                           428.6  458.3       6.9
+aet, mean of the cells (mm)             980.3  932.3      -4.9
+local recharge, mean of the cells (mm)  436.5  466.8       6.9
+```
+
+The settings of the part are arguments of the call: `beta` and `gamma` (one number each), `alpha` (one number, or
+twelve, here the previous month's share of the rain), `threshold` and `method`. `recharge=` routes a local recharge
+map of your own through the baseflow instead of computing it:
+
+```python
+def run(**kw):
+    kw = {"threshold": 1000, "rain_events": events, **kw}
+    return tf.services.seasonal_water_yield(dem, lulc, biophysical, watersheds, precipitation=rain, et0=et0,
+                                            soil_group=soils, **kw)
+
+# beta, gamma and alpha (the previous month's share of the rain), the stream threshold, D8
+for name, r in {"beta 0": run(beta=0), "beta 0.1": run(beta=0.1), "gamma 0": run(gamma=0),
+                "stream threshold 250": run(threshold=250), "d8": run(method="d8")}.items():
+    print(f"{name:20s} AET {float(r.aet.mean()):6.1f}  recharge {float(r.local_recharge.mean()):6.1f}  "
+          f"baseflow {float(r.baseflow.mean()):7.1f}")
+
+p = rain.mean(dim=("x", "y")).values
+alpha = np.roll(p, 1) / p.sum()         # December's share of the year for January, and so on
+r = run(alpha=list(alpha))
+print(f"alpha of the previous month AET {float(r.aet.mean()):6.1f}  recharge {float(r.local_recharge.mean()):6.1f}")
+```
+
+```text
+beta 0               AET  891.9  recharge  524.9  baseflow   524.9
+beta 0.1             AET  970.4  recharge  446.4  baseflow   473.9
+gamma 0              AET  891.9  recharge  524.9  baseflow  4126.9
+stream threshold 250 AET  980.3  recharge  402.1  baseflow   455.4
+d8                   AET  974.5  recharge  453.8  baseflow   471.1
+alpha of the previous month AET  978.6  recharge  438.2
+```
+
 ## Settings that change the answer
 
 ### Beta: the water a cell may take from upslope

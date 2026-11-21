@@ -459,6 +459,128 @@ Rarity is a property of classes, not of places: every cell of a class has the sa
     quality-weighted area for each scenario, the maps of degradation and of the change of quality, and say that
     the index is relative.
 
+### In Python
+
+[`tf.services.habitat_quality`][terraflux.services.habitat_quality] takes the land use map, the threats table, the
+sensitivity table and one map per threat. The files of Ribeirão Claro are the zip of the series ([ribeirao-claro.zip](/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip)), unzipped into `ribeirao-claro/`; the rasters load as xarray maps and the tables as pandas data frames. The threats table is InVEST's own (`threat`, `max_dist`,
+`weight`, `decay`: `"linear"` or `"exponential"`), where the model of the part writes it in the settings; the threat
+maps are a dict by the threats' names (a 3-D map with a band per threat also does). The first run, with InVEST's
+default `half_saturation=0.05`:
+
+```python
+import zipfile
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+zipfile.ZipFile("ribeirao-claro.zip").extractall(".")   # the files of Ribeirão Claro, in ribeirao-claro/
+
+lulc = tf.load_raster("ribeirao-claro/lulc_2020.tif")
+sensitivity = tf.load_table("ribeirao-claro/sensitivity.csv")   # lucode, habitat and a column per threat
+threats = tf.load_table("ribeirao-claro/threats.csv")           # threat, max_dist, weight, decay
+print(threats.to_string(index=False))
+
+# one map per threat (cells other than 0 are the threat), by the threats' names
+threat_maps = {t: tf.load_raster(f"ribeirao-claro/{t}_2020.tif") for t in threats.threat}
+
+hq = tf.services.habitat_quality(lulc, threats, sensitivity, threat_maps, half_saturation=0.05)
+print(list(hq.degradation), list(hq.threats["current"]))
+print("highest degradation:", round(float(hq.degradation["current"].max()), 3))
+```
+
+```text
+threat  max_dist  weight       decay
+ crops       800     0.7      linear
+ roads      1500     0.8 exponential
+ urban      2500     1.0 exponential
+['current'] ['crops', 'roads', 'urban']
+highest degradation: 0.702
+```
+
+`degradation`, `quality`, `threats` (the degradation by threat) and `rarity` are dicts by scenario: `"current"` and,
+when the call has them, `"future"` and `"base"`. `half_saturation` is required (InVEST's default is 0.05); the sweep of the part's section on it, on the forest cells of 2020:
+
+```python
+# the half-saturation constant: the mean quality of the forest cells
+forest = lulc.values == 1
+for k in (0.05, 0.1, 0.2, 0.35, 0.5):
+    q = tf.services.habitat_quality(lulc, threats, sensitivity, threat_maps, half_saturation=k).quality["current"]
+    print(f"k = {k}: mean quality of the forest {np.nanmean(q.values[forest]):.3f}, "
+          f"{np.mean(q.values[forest] < 0.5) * 100:.1f}% below 0.5")
+```
+
+```text
+k = 0.05: mean quality of the forest 0.051, 100.0% below 0.5
+k = 0.1: mean quality of the forest 0.204, 95.2% below 0.5
+k = 0.2: mean quality of the forest 0.511, 45.4% below 0.5
+k = 0.35: mean quality of the forest 0.757, 13.0% below 0.5
+k = 0.5: mean quality of the forest 0.867, 2.3% below 0.5
+```
+
+Protection is `access=`: polygons with an `access` column (1 outside them, as in the part) or a raster. The mean
+quality of the forest inside the park and its buffer zone, with and without it:
+
+```python
+# protection: polygons with an `access` column (1 outside them), a park (0) and its buffer zone (0.5)
+access = tf.load_vector("ribeirao-claro/access.gpkg")
+print(access[["name", "access"]].to_string(index=False))
+
+k = 0.35
+free = tf.services.habitat_quality(lulc, threats, sensitivity, threat_maps, half_saturation=k)
+protected = tf.services.habitat_quality(lulc, threats, sensitivity, threat_maps, half_saturation=k, access=access)
+from rasterio import features
+zone = features.rasterize([(g, i + 1) for i, g in enumerate(access.geometry)], out_shape=lulc.shape,
+                          transform=lulc.rio.transform())
+for i, name in enumerate(access.name, start=1):
+    m = (zone == i) & forest
+    print(f"{name}: forest quality {np.nanmean(free.quality['current'].values[m]):.3f} without, "
+          f"{np.nanmean(protected.quality['current'].values[m]):.3f} with access")
+```
+
+```text
+       name  access
+       park     0.0
+buffer zone     0.5
+park: forest quality 0.910 without, 1.000 with access
+buffer zone: forest quality 0.801 without, 0.955 with access
+```
+
+The scenario adds `future=` and `future_threat_maps=`, the rarity `base=` (its own threat maps are optional): the
+quality and the degradation of the future map are `hq.quality["future"]` and `hq.degradation["future"]`, and
+`rarity_table` has `scenario`, `lucode` and `rarity` for the current and the future map:
+
+```python
+# the scenario of 2040 (its own threat maps) and the rarity of the classes against 1985
+future = tf.load_raster("ribeirao-claro/lulc_2040.tif")
+future_maps = {t: tf.load_raster(f"ribeirao-claro/{t}_2040.tif") for t in threats.threat}
+base = tf.load_raster("ribeirao-claro/lulc_1985.tif")
+
+hq = tf.services.habitat_quality(lulc, threats, sensitivity, threat_maps, half_saturation=0.35,
+                                 future=future, future_threat_maps=future_maps, base=base)
+for year, q, lu in (("2020", hq.quality["current"], lulc), ("2040", hq.quality["future"], future)):
+    print(year, "mean quality of the forest", round(float(np.nanmean(q.values[lu.values == 1])), 3))
+print(hq.rarity_table.round(3).to_string(index=False))
+```
+
+```text
+2020 mean quality of the forest 0.757
+2040 mean quality of the forest 0.674
+scenario  lucode  rarity
+ current       1   0.593
+ current       2   0.473
+ current       3   0.289
+ current       4   0.000
+ current       5   0.111
+ current       6   0.500
+  future       1   0.679
+  future       2   0.505
+  future       3   0.192
+  future       4   0.000
+  future       5   0.052
+  future       6   0.500
+```
+
 ## Settings that change the answer
 
 ### The half-saturation constant

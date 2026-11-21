@@ -204,6 +204,32 @@ whole cell or disappears; this is the first thing to keep in mind when you choos
     copies them as text, for your notes or a methods section. For `clc.tif`: EPSG:3035, 2000 x 2000 cells, cell
     size 25 x 25, extent from x 4,261,250 to 4,311,250 and y 3,232,500 to 3,282,500, `uint8`, no data: none.
 
+### Open a raster in Python
+
+[`tf.load_raster`][terraflux.load_raster] reads a raster into an `xarray.DataArray`: the values, and the facts the
+Metadata button lists (CRS, cell size, extent, type, no data) in its `rio` accessor. The library ships `clc.tif`. New to
+the library? Start with the [quickstart](/python/getting-started/quickstart/) and the
+[installation](/python/getting-started/installation/).
+
+```python
+import terraflux as tf
+
+clc = tf.load_raster(tf.example_data("clc"))                 # CORINE around Hanover
+print(clc.shape, clc.dtype, str(clc.rio.crs), clc.rio.resolution())
+x0, y0, x1, y1 = clc.rio.bounds()
+print(f"x {x0:,.0f} to {x1:,.0f}, y {y0:,.0f} to {y1:,.0f}; no data: {clc.rio.nodata}")
+```
+
+```text
+(2000, 2000) uint8 EPSG:3035 (25.0, -25.0)
+x 4,261,250 to 4,311,250, y 3,232,500 to 3,282,500; no data: None
+```
+
+The facts of the Metadata box for `clc.tif`. The shape is rows x columns, and the cell height is negative because rows
+go down. `tf.load_raster(path, chunks="auto")` reads lazily, tile by tile, for a raster larger than memory (the node
+reads only the header the same way); `band=` chooses a band, `clip=` reads only a region, and [`tf.plot`][terraflux.plot]
+draws the map.
+
 ## Colours: classes or a ramp
 
 Terraflux chooses colours by **what the values are**, as terraflux-py's plots do: a map of a few whole numbers is
@@ -324,6 +350,49 @@ every band of every file becomes a layer, named after the files (**Open a folder
 operators' pane, or **A folder...** beside `path`). The files must share a grid to form a stack; files of
 different grids are shown one by one, and [[raster.match]] puts them on one grid first (see
 [One grid for all your maps](../one-grid/)).
+
+### Bands, no data and saving in Python
+
+A file of several bands loads as a stack, with the band names as a `band` coordinate; `sel(band=...)` is the node's
+`band` setting. Sibuyan's land use has two (1997 and 2011), and its sea is 255. The file declares it as the no-data value
+(`rio.nodata`), but it stays a number in the array, so it is masked here:
+
+```python
+landuse = tf.load_raster(tf.simulate.example_data("sibuyan_landuse"))    # two bands: 1997 and 2011
+print(landuse.band.values.tolist(), landuse.shape)
+land97 = landuse.sel(band="1997").where(landuse.sel(band="1997") != 255)   # the sea is 255: no data
+print(f"{int(land97.notnull().sum()):,} of {land97.size:,} cells have a value")
+share = land97.to_series().value_counts(normalize=True).sort_index() * 100
+print(share.round(1).to_dict())
+
+drivers = tf.load_raster(tf.simulate.example_data("sibuyan_drivers"))    # a stack: 13 bands on one grid
+print(drivers.shape, drivers.band.values[:4].tolist(), "...")
+```
+
+```text
+['1997', '2011'] (2, 108, 128)
+7,226 of 13,824 cells have a value
+{1.0: 65.4, 2.0: 16.0, 3.0: 11.6, 4.0: 3.1, 5.0: 3.9}
+(13, 108, 128) ['dist_sea', 'pop_density', 'diorite', 'ultramafic'] ...
+```
+
+The part's 7,226 cells with a value, and forest 65.4% and coconut 16.0% of the island. Without the mask, 255 would be a
+class of its own, 47.7% of the cells (the pitfall of the part). Class names and colours go into the file with
+[`tf.write_raster`][terraflux.write_raster], whose `colormap=` is a dictionary of class to colour; it keeps the
+georeferencing and chooses no type unless `dtype=` says:
+
+```python
+tf.write_raster(land97, "sibuyan_1997.tif", dtype="uint8", nodata=255)   # the smallest type that holds the classes
+print(tf.load_raster("sibuyan_1997.tif").rio.nodata)
+```
+
+```text
+255
+```
+
+[`tf.save`][terraflux.save] writes a whole result (maps, tables, numbers) to a folder. A folder or a pattern of files
+(`tf.load_raster("forest/*.tif")`) is read as many rasters, and `stack=True` makes them one stack (see the
+function's reference for the grids).
 
 ## Large rasters
 

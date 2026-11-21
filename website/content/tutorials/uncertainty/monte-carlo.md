@@ -308,6 +308,88 @@ note = "Errors that move together (shared parameters): the sum of the standard d
     (\( s_{tot}^2 = (1-\rho)\sum s_i^2 + \rho\,(\sum s_i)^2 \)). Treating shared errors as independent is the most
     common way of reporting a total far more precise than it is.
 
+### In Python
+
+Everything above is in the library, as `tf.uncertainty`. The functions take the model as a Python function of the
+parameters, `f(p)` with `p` a 1-D array, so the canopy is an ordinary variable the function closes over, and the
+result may be a number or a map. The canopy is drawn with [`tf.nlm.gaussian_field`][terraflux.nlm.gaussian_field]
+with the template's range and seed. New to the library? Start with the
+[quickstart](/python/getting-started/quickstart/) and the [installation](/python/getting-started/installation/).
+
+```python
+import numpy as np
+import terraflux as tf
+
+canopy = tf.nlm.gaussian_field(100, 100, autocorr_range=15, seed=61)   # 0 to 1, as node 1
+means, sds = [250, 1.5, 0.47], [25, 0.15, 0.02]                        # a, b and the carbon fraction
+
+def carbon(p):                                  # the model: one draw of the parameters in, a map out
+    a, b, fraction = p
+    return a * canopy ** b * fraction
+
+mc = tf.uncertainty.monte_carlo(carbon, means, sds, n=500, seed=1)
+print(f"mean up to {float(mc.mean.max()):.1f} t/ha, sd up to {float(mc.sd.max()):.1f} t/ha")
+q_low, q_high = mc.quantiles.reshape(2, *canopy.shape)                 # one row per quantile, one column per cell
+print(f"cell (50, 50), canopy {float(canopy[50, 50]):.2f}: mean {float(mc.mean[50, 50]):.1f}, "
+      f"sd {float(mc.sd[50, 50]):.1f}, 95% between {q_low[50, 50]:.1f} and {q_high[50, 50]:.1f}")
+relative = 100 * mc.sd / mc.mean
+print(f"relative sd: {float(relative.min()):.0f}% to {float(relative.max()):.0f}%")
+
+low, high = tf.uncertainty.interval(mc.mean, mc.sd, level=0.9)         # the node 'interval'
+print(f"90% normal interval of the cell: {float(low[50, 50]):.1f} to {float(high[50, 50]):.1f}")
+```
+
+```text
+mean up to 116.8 t/ha, sd up to 12.9 t/ha
+cell (50, 50), canopy 0.50: mean 41.9, sd 6.3, 95% between 30.2 and 55.1
+relative sd: 11% to 54%
+90% normal interval of the cell: 31.6 to 52.2
+```
+
+These are the part's numbers: the draws are numpy's (`default_rng(seed)`), so the seed gives the same maps as the
+node. [`tf.uncertainty.monte_carlo`][terraflux.uncertainty.monte_carlo] returns `mean`, `sd` and `quantiles` (a row
+per quantile, a column per cell, hence the reshape; `quantiles=` chooses them), and `samples` with `keep=True`.
+Unlike the node, it draws **correlated** parameters when given a `covariance` matrix instead of `sd`, which is the
+way out of the pitfall of independent coefficients below; `on=tf.helpers()` computes the draws on other computers.
+[`tf.uncertainty.interval`][terraflux.uncertainty.interval] makes the normal interval.
+
+The delta method and the total, from the same function:
+
+```python
+mc5 = tf.uncertainty.monte_carlo(carbon, means, sds, n=5000, seed=1)
+delta = tf.uncertainty.delta_method(carbon, means, sds)               # no draws: finite-difference derivatives
+gap = abs(delta.sd - mc5.sd) / mc5.sd
+print(f"delta against Monte Carlo (5,000 draws): sd differs {100 * float(gap.mean()):.1f}% on average, "
+      f"at most {float(abs(delta.sd - mc5.sd).max()):.2f} t/ha")
+print(f"value at the means minus the Monte Carlo mean: {float((delta.value - mc5.mean).mean()):.2f} t/ha")
+print("jacobian:", delta.jacobian.shape, "(a row per cell, a column per parameter)")
+
+total = float(mc5.mean.sum())
+independent = tf.uncertainty.sum_sd(mc5.sd, method="quadratic")
+shared = tf.uncertainty.sum_sd(mc5.sd, method="linear")
+print(f"total {total:,.0f} t; sd if independent {independent:,.0f}, if shared {shared:,.0f}")
+
+# the total itself, drawn: the function returns one number per draw
+drawn = tf.uncertainty.monte_carlo(lambda p: carbon(p).sum(), means, sds, n=5000, seed=1)
+lo, hi = drawn.quantiles.ravel()
+print(f"total drawn: sd {float(drawn.sd):,.0f} t, 95% between {lo:,.0f} and {hi:,.0f}")
+```
+
+```text
+delta against Monte Carlo (5,000 draws): sd differs 1.0% on average, at most 0.12 t/ha
+value at the means minus the Monte Carlo mean: -0.19 t/ha
+jacobian: (10000, 3) (a row per cell, a column per parameter)
+total 527,228 t; sd if independent 728, if shared 71,184
+total drawn: sd 69,755 t, 95% between 397,938 and 673,067
+```
+
+The same figures as the text above: the shortcut's deviations are 1% off, the independent sum 728 t, the shared one
+71,184 t and the drawn total 69,755 t. [`tf.uncertainty.delta_method`][terraflux.uncertainty.delta_method] takes the
+same `covariance`, a `scheme` (`"central"` or `"forward"`) and `method="linear"`;
+[`tf.uncertainty.sum_sd`][terraflux.uncertainty.sum_sd] takes `weights` and a `correlation` from 0 to 1, and
+[`tf.uncertainty.product_sd`][terraflux.uncertainty.product_sd] the uncertainty of a product of two uncertain
+quantities.
+
 ## Common pitfalls
 
 - **Standard errors or standard deviations?** The `parameters` take the standard deviation of the parameter's

@@ -443,6 +443,93 @@ fill the yield whatever the wild bees do, so their y_wild does not tell what the
     scenario the mean abundance on the crop and the farms' yields. Say that the abundances are relative indices and
     that the yields are shares of the yield with full pollination.
 
+### In Python
+
+[`tf.services.pollination`][terraflux.services.pollination] takes the land use map, the guild table and the
+biophysical table, and `farms=`. The files of Ribeirão Claro are the zip of the series ([ribeirao-claro.zip](/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip)), unzipped into `ribeirao-claro/`; the rasters load as xarray maps and the tables as pandas data frames. The tables and the farms of the part are a second zip
+([pollination-inputs.zip](/data/tutorials/ecosystem-services/pollination/pollination-inputs.zip)), unzipped beside
+the first: the guild table is a data frame (InVEST's `guilds.csv`, where the model of the part writes the guilds in
+its settings) and the farms a `GeoDataFrame`:
+
+```python
+import zipfile
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+zipfile.ZipFile("ribeirao-claro.zip").extractall(".")        # the files of Ribeirão Claro
+zipfile.ZipFile("pollination-inputs.zip").extractall(".")    # the guilds, the biophysical table and the farms
+
+lulc = tf.load_raster("ribeirao-claro/lulc_2020.tif")
+guilds = tf.load_table("pollination/guilds.csv")             # a row per guild: alpha, abundance, nesting, activity
+biophysical = tf.load_table("pollination/biophysical.csv")   # a row per class: nesting and flowers
+print(guilds[["species", "alpha", "relative_abundance"]].to_string(index=False))
+
+bees = tf.services.pollination(lulc, guilds, biophysical)
+print(list(bees.supply), list(bees.abundance["ground"]))
+print("mean abundance, wet season:", {s: round(float(np.nanmean(bees.abundance[s]["wet"])), 4) for s in bees.abundance})
+```
+
+```text
+  species  alpha  relative_abundance
+   ground    400                 0.4
+stingless    700                 0.4
+carpenter   1000                 0.2
+['carpenter', 'ground', 'stingless'] ['dry', 'wet']
+mean abundance, wet season: {'carpenter': 0.032, 'ground': 0.0812, 'stingless': 0.0514}
+```
+
+`supply` and `abundance` are dicts by species (`abundance[species][season]`) and `total_abundance` is by season.
+With `farms=` the result has `farms`, the polygons with the mean abundance in the farm's season (`p_abund`), the
+wild pollinator yield (`pdep_y_w`), the yield index (`y_tot`) and its wild part (`y_wild`), and the maps
+`farm_pollinators`, `total_yield` and `wild_yield`; `intermediates=True` also keeps the maps of the chain (the
+kernels, the nesting and floral resources, the convolutions):
+
+```python
+farms = tf.load_vector("pollination/farms.gpkg")   # farm, crop_type, half_sat, season, p_dep, p_managed...
+bees = tf.services.pollination(lulc, guilds, biophysical, farms=farms)
+cols = ["farm", "p_managed", "p_abund", "pdep_y_w", "y_tot", "y_wild"]
+print(bees.farms[cols].round(3).head(6).to_string(index=False))
+print(bees.farms[["p_abund", "y_tot", "y_wild"]].mean().round(3).to_string())
+```
+
+```text
+ farm  p_managed  p_abund  pdep_y_w  y_tot  y_wild
+    1        0.0    0.189     0.816  0.954   0.204
+    2        0.0    0.188     0.815  0.954   0.204
+    3        0.3    0.185     0.700  1.000   0.175
+    4        0.0    0.188     0.815  0.954   0.204
+    5        0.0    0.189     0.815  0.954   0.204
+    6        0.0    0.189     0.816  0.954   0.204
+p_abund    0.169
+y_tot      0.954
+y_wild     0.195
+```
+
+The scenario is the same call with the land use of 2040, and the half saturation of the crop a column of the farms:
+
+```python
+# the scenario of 2040 on the same farms, and the half saturation of the crop
+future = tf.load_raster("ribeirao-claro/lulc_2040.tif")
+bees40 = tf.services.pollination(future, guilds, biophysical, farms=farms)
+print("farms, mean abundance and wild yield: 2020", bees.farms[["p_abund", "y_wild"]].mean().round(3).tolist(),
+      "2040", bees40.farms[["p_abund", "y_wild"]].mean().round(3).tolist())
+
+for h in (0.05, 0.1, 0.2, 0.3):
+    f = farms.assign(half_sat=h)
+    r = tf.services.pollination(lulc, guilds, biophysical, farms=f)
+    print(f"half_sat {h}: mean wild pollinator yield {r.farms.pdep_y_w.mean():.3f}")
+```
+
+```text
+farms, mean abundance and wild yield: 2020 [0.169, 0.195] 2040 [0.137, 0.186]
+half_sat 0.05: mean wild pollinator yield 0.780
+half_sat 0.1: mean wild pollinator yield 0.645
+half_sat 0.2: mean wild pollinator yield 0.447
+half_sat 0.3: mean wild pollinator yield 0.321
+```
+
 ## Settings that change the answer
 
 ### The foraging distance

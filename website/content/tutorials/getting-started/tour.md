@@ -289,6 +289,38 @@ group (`preparation/temperature`), and its cells are traced the same way.
 in words; **Explain with an MCP assistant**, in the cell's right-click menu, keeps it for an assistant connected
 through `terraflux mcp` and copies a request to paste in it ([AI assistants](/cli/assistants/)).
 
+### In Python
+
+The template is three calls of the library; nothing else of this tour (the window, the library of operators, the
+Viewer) has a counterpart in code. New to the library? Start with the
+[quickstart](/python/getting-started/quickstart/) and the [installation](/python/getting-started/installation/).
+Same landscape (300 x 300 cells, the same weights and seed), the same forest made the foreground, the same MSPA
+with an edge of one cell:
+
+```python
+import terraflux as tf
+
+landscape = tf.nlm.random_cluster(300, 300, p=0.55, ai=[0.3, 0.15, 0.55], seed=7, rescale=False)   # classes 1, 2, 3
+forest = tf.reclassify(landscape, foreground=3)             # class 3 = forest becomes 2, the rest 1
+morph = tf.mspa(forest, edge_width=1, connectivity=8)
+print(tf.mspa_stats(morph).loc[["Core", "Edge", "Branch", "Islet"], ["pixels", "pct_foreground"]].round(1))
+```
+
+```text
+        pixels  pct_foreground
+class                         
+Core     33183            68.4
+Edge      7857            16.2
+Branch    1357             2.8
+Islet      763             1.6
+```
+
+[`tf.nlm.random_cluster`][terraflux.nlm.random_cluster] takes the classes' weights as `ai` (the operator's `weights`);
+`rescale=False` keeps the classes as 1, 2 and 3 instead of values from 0 to 1. [`tf.reclassify`][terraflux.reclassify]
+with `foreground=` is the operator's rules `3 -> 2` and `* -> 1`; [`tf.mspa`][terraflux.mspa] takes the settings of
+the node, and `tf.mspa_stats` the area of each class. In the application, *File > Python script* writes a whole model
+as a script of the library.
+
 ## The operators' library
 
 Terraflux has about 300 operators. There are three ways to add one to a model.

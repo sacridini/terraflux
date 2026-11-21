@@ -331,6 +331,118 @@ caption: "The two watersheds in 2020 and 2040. Clearing forest raises the yield 
 This is the value of going from supply to service: the yield alone says the scenario is good for water, the
 realized supply says the gain goes to the new consumers, not to the reservoir.
 
+### In Python
+
+[`tf.services.water_yield`][terraflux.services.water_yield] takes the land use map, the biophysical table, four
+rasters (rain, reference evapotranspiration, root restricting layer depth, plant available water content) and
+`seasonality` (Z). The files of Ribeirão Claro are the zip of the series ([ribeirao-claro.zip](/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip)), unzipped into `ribeirao-claro/`; the rasters load as xarray maps and the tables as pandas data frames. The first call has no polygons, so it gives the maps only:
+
+```python
+import zipfile
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+zipfile.ZipFile("ribeirao-claro.zip").extractall(".")   # the files of Ribeirão Claro, in ribeirao-claro/
+
+def read(name):
+    return tf.load_raster(f"ribeirao-claro/{name}.tif")
+
+lulc = read("lulc_2020")
+biophysical = tf.load_table("ribeirao-claro/biophysical_wy.csv")   # lucode, lulc_veg, root_depth, kc
+rain, eto, depth, pawc = read("precipitation"), read("eto"), read("depth"), read("pawc")
+
+wy = tf.services.water_yield(lulc, biophysical, rain, eto, depth, pawc, seasonality=10)
+print(float(wy.wyield.mean()), "mm of mean yield")
+```
+
+```text
+722.143310546875 mm of mean yield
+```
+
+`wyield`, `aet`, `pet` and `fractp` are maps in mm a year. With `watersheds=` (and `subwatersheds=`) the result has
+those polygons with the means (`precip_mn`, `PET_mn`, `AET_mn`, `wyield_mn`, mm) and the yield volume (`wyield_vol`,
+m³); `demand=` adds the consumption and the realized supply (`consum_vol`, `rsupply_vl`, m³) and `demand` as a map;
+`valuation=` (it needs the demand) adds the hydropower, `hp_energy` in kWh a year and `hp_val`, its net present
+value. The volumes here are in m³ and the energy in kWh; the part's table shows them in millions of m³, MWh and
+thousands:
+
+```python
+watersheds = tf.load_vector("ribeirao-claro/watersheds.gpkg")          # ws_id
+subwatersheds = tf.load_vector("ribeirao-claro/subwatersheds.gpkg")    # subws_id
+demand = tf.load_table("ribeirao-claro/demand.csv")                    # lucode, demand (m3 / yr / cell)
+valuation = tf.load_table("ribeirao-claro/valuation.csv")              # by ws_id: the hydropower plant
+
+wy = tf.services.water_yield(lulc, biophysical, rain, eto, depth, pawc, seasonality=10,
+                             watersheds=watersheds, subwatersheds=subwatersheds,
+                             demand=demand, valuation=valuation)
+cols = ["ws_id", "precip_mn", "AET_mn", "wyield_mn", "wyield_vol", "consum_vol", "rsupply_vl", "hp_energy", "hp_val"]
+print(wy.watersheds[cols].round(1).to_string(index=False))
+print(wy.subwatersheds[["subws_id", "precip_mn", "wyield_mn", "wyield_vol", "consum_vol"]].round(1).to_string(index=False))
+```
+
+```text
+ ws_id  precip_mn  AET_mn  wyield_mn  wyield_vol  consum_vol  rsupply_vl  hp_energy   hp_val
+     1     1481.6   792.7      688.9  12585100.4    561225.0  12023875.4   627934.9 401447.7
+     2     1506.0   797.7      708.3   8769786.9    554700.0   8215086.9   429024.7 190162.5
+ subws_id  precip_mn  wyield_mn  wyield_vol  consum_vol
+        1     1564.3      760.9   6123267.4    181230.0
+        2     1416.5      632.2   6461833.0    379995.0
+        3     1572.2      758.8   4144182.9    151690.0
+        4     1453.8      668.4   4625603.9    403010.0
+```
+
+The scenario is the same call with the other land use map; the table of the part, in million m³ and MWh:
+
+```python
+# the scenario: the same model on the land use of 2040
+wy40 = tf.services.water_yield(read("lulc_2040"), biophysical, rain, eto, depth, pawc, seasonality=10,
+                               watersheds=watersheds, demand=demand, valuation=valuation)
+def summary(r):
+    t = r.watersheds.set_index("ws_id")
+    return pd.concat({"Yield (million m3)": t.wyield_vol / 1e6, "Consumption (million m3)": t.consum_vol / 1e6,
+                      "Realized supply (million m3)": t.rsupply_vl / 1e6, "Hydropower (MWh / yr)": t.hp_energy / 1e3})
+
+print(pd.DataFrame({"2020": summary(wy), "2040": summary(wy40)}).round(3).to_string())
+```
+
+```text
+                                       2020     2040
+                             ws_id                  
+Yield (million m3)           1       12.585   13.061
+                             2        8.770    9.168
+Consumption (million m3)     1        0.561    1.037
+                             2        0.555    1.145
+Realized supply (million m3) 1       12.024   12.024
+                             2        8.215    8.024
+Hydropower (MWh / yr)        1      627.935  627.967
+                             2      429.025  419.020
+```
+
+Z is a loop. The library has no `precision` setting: as InVEST, it computes in the type of its inputs (the
+`"auto"` of the application), float32 rasters giving float32 maps, so to force 64 bits convert the rasters with
+`astype("float64")`, as the last lines do: the largest difference is the 0.0003 mm of the part.
+
+```python
+# the seasonality constant Z: the mean yield and the volume of the two watersheds
+for z in (1, 10, 30):
+    r = tf.services.water_yield(lulc, biophysical, rain, eto, depth, pawc, seasonality=z, watersheds=watersheds)
+    print(f"Z = {z:2d}: {float(r.wyield.mean()):6.0f} mm, {r.watersheds.wyield_vol.sum() / 1e6:.1f} million m3")
+
+# the arithmetic follows the dtype of the inputs: float32 rasters give float32 maps
+wide = tf.services.water_yield(lulc, biophysical, rain.astype("float64"), eto.astype("float64"),
+                               depth.astype("float64"), pawc.astype("float64"), seasonality=10)
+print(wy.wyield.dtype, wide.wyield.dtype, float(abs(wide.wyield - wy.wyield).max()))
+```
+
+```text
+Z =  1:   1089 mm, 32.7 million m3
+Z = 10:    722 mm, 21.4 million m3
+Z = 30:    577 mm, 16.8 million m3
+float32 float64 0.0003337264060974121
+```
+
 ## Settings that change the answer
 
 ### The seasonality constant Z

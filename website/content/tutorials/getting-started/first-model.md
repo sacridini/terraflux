@@ -269,6 +269,66 @@ chart:
 This is why a paper must report the edge width it used, and why a value chosen from the biology of the species is
 better than the default. The tutorial [MSPA](../../habitat-patterns/mspa/) goes through MSPA's other settings.
 
+### In Python
+
+The three nodes are three calls of the library, which ships `clc.tif` as example data (new to the library? Start with
+the [quickstart](/python/getting-started/quickstart/) and the [installation](/python/getting-started/installation/)).
+[`tf.reclassify`][terraflux.reclassify] with `foreground=` makes the 1/2 map MSPA reads, in one line instead of the
+two rules; [`tf.mspa`][terraflux.mspa] runs MSPA and [`tf.mspa_stats`][terraflux.mspa_stats] counts its classes:
+
+```python
+import terraflux as tf
+
+landcover = tf.load_raster(tf.example_data("clc"))          # CORINE around Hanover: 2000 x 2000 cells of 25 m
+forest = tf.reclassify(landcover, foreground=[23, 24, 25])  # 2 = forest (the foreground), 1 = everything else
+print(f"forest: {int((forest == 2).sum()):,} of {forest.size:,} cells")
+
+morph = tf.mspa(forest, edge_width=2)                       # 2 cells of 25 m = a 50 m edge
+stats = tf.mspa_stats(morph)
+stats["km2"] = stats["pixels"] * 625 / 1e6                  # cells of 625 m2
+print(stats.loc[["Core", "Edge", "Branch", "Bridge", "Islet", "Loop", "Perforation"]].round(1))
+```
+
+```text
+forest: 824,612 of 4,000,000 cells
+             pixels  pct_data  pct_foreground    km2
+class                                               
+Core         671624      16.8            81.4  419.8
+Edge         134248       3.4            16.3   83.9
+Branch        13546       0.3             1.6    8.5
+Bridge         4713       0.1             0.6    2.9
+Islet            40       0.0             0.0    0.0
+Loop             49       0.0             0.0    0.0
+Perforation     392       0.0             0.0    0.2
+```
+
+These are the numbers of the table above (the library counts four cells as branch that the part's table groups with
+islets, loops and perforations: 13,546 against 13,542). `pct_data` is the share of the whole map and
+`pct_foreground` the share of the forest. Keep the map as a file with `tf.write_raster(morph, "forest_mspa.tif")`
+([`tf.write_raster`][terraflux.write_raster] puts MSPA's colours into the file), and repeat the experiment of the
+slider on the 15 x 15 km window ([`tf.clip`][terraflux.clip] cuts it), one `edge_width` at a time:
+
+```python
+tf.write_raster(morph, "forest_mspa.tif")
+
+window = tf.clip(forest, (4261250, 3267500, 4276250, 3282500))      # x and y bounds, in the map's CRS
+for width in [1, 2, 3, 4, 6, 8]:
+    s = tf.mspa_stats(tf.mspa(window, edge_width=width))
+    print(f"edge {width * 25:3d} m: core {s.loc['Core', 'pct_foreground']:.1f}%, edge {s.loc['Edge', 'pct_foreground']:.1f}%")
+```
+
+```text
+edge  25 m: core 88.1%, edge 11.3%
+edge  50 m: core 77.2%, edge 19.7%
+edge  75 m: core 70.0%, edge 24.2%
+edge 100 m: core 63.6%, edge 28.0%
+edge 150 m: core 51.1%, edge 33.7%
+edge 200 m: core 41.1%, edge 35.8%
+```
+
+The same numbers as the slider. `tf.mspa` also takes `connectivity` (8 or 4), `transition` and `internal`, the other
+settings of [[landscape.mspa]]; a map larger than memory goes to [`tf.mspa_tiled`][terraflux.mspa_tiled].
+
 ## Run to a node, and the cache
 
 You rarely need to run the whole model. **Run to here** (or ++ctrl+enter++) runs the node selected and only the

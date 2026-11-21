@@ -148,6 +148,58 @@ layers = [{ from = "landcover.raster" }, { from = "reserves.vector" }, { from = 
     QGIS. For polygons, **Add, and data for it...** does that and opens the data catalog to download data cut to
     the area: a [[data.download]] node with the area at its `area` input, no data outside it.
 
+### Read features in Python
+
+[`tf.load_vector`][terraflux.load_vector] reads a file in any format OGR reads into a `geopandas.GeoDataFrame`
+(attributes, geometries and CRS; `layer=` chooses a layer of a GeoPackage), and
+[`tf.write_vector`][terraflux.write_vector] writes one. The part's three layers were made for it and are not shipped,
+so this block makes them again (the same three forests grown by 150 m, the same road, the same twelve plots with seed
+12) on the window of the library's CORINE example; a reader with their own files starts at `load_vector`. New to the
+library? Start with the [quickstart](/python/getting-started/quickstart/) and the
+[installation](/python/getting-started/installation/).
+
+```python
+import geopandas as gpd
+import numpy as np
+from rasterio import features
+from shapely.geometry import LineString, Point, shape
+import terraflux as tf
+
+x0, y0, x1, y1 = 4261250, 3267500, 4276250, 3282500                         # the window, EPSG:3035 metres
+landcover = tf.clip(tf.load_raster(tf.example_data("clc")), (x0, y0, x1, y1))
+
+# reserves around the three largest forests
+forest = np.isin(landcover.values, [23, 24, 25]).astype("uint8")
+polys = [shape(g) for g, _ in features.shapes(forest, mask=forest == 1, transform=landcover.rio.transform(), connectivity=4)]
+reserves = []
+for p in sorted(polys, key=lambda p: -p.area)[:3]:
+    r = p.buffer(150).buffer(-60).simplify(80)                 # the forest grown by 150 m, as a manager would draw it
+    reserves.append(shape({"type": "Polygon", "coordinates": [list(r.exterior.coords)]}))
+reserves = gpd.GeoDataFrame({"id": [1, 2, 3], "name": ["South", "North", "West"], "year": [1984, 1998, 2011]},
+                            geometry=reserves, crs="EPSG:3035")
+road = gpd.GeoDataFrame({"name": ["planned road"], "lanes": [2]}, crs="EPSG:3035", geometry=[LineString(
+    [(x0 + 300, y0 + 2600), (x0 + 4800, y0 + 5200), (x0 + 8200, y0 + 6100), (x0 + 11000, y0 + 9400), (x1 - 300, y0 + 12800)])])
+rng = np.random.default_rng(12)
+plots = gpd.GeoDataFrame({"plot": range(1, 13)}, crs="EPSG:3035", geometry=[
+    Point(x0 + 1000 + rng.random() * 13000, y0 + 1000 + rng.random() * 13000) for _ in range(12)])
+tf.write_vector(reserves, "reserves.gpkg")                      # the files the part reads
+tf.write_vector(road, "road.gpkg")
+tf.write_vector(plots, "plots.gpkg")
+
+reserves = tf.load_vector("reserves.gpkg")
+print(reserves.assign(ha=reserves.area / 1e4).round(0)[["id", "name", "ha"]].to_string(index=False))
+```
+
+```text
+ id  name     ha
+  1 South 1095.0
+  2 North 1107.0
+  3  West  992.0
+```
+
+These are the areas of the polygons themselves; the part's table below counts cells (16,837 cells x 625 m² = 1,052 ha
+for South). [`tf.plot`][terraflux.plot] draws them, and the land cover under them.
+
 ## Burn polygons into the grid
 
 Most methods work on rasters, so polygons often have to become a map: a map of reserves for a prioritization,
@@ -198,6 +250,26 @@ after: { src: /img/tutorials/getting-started/vector-data/edge_touched.png, label
 
 Two more settings matter when features overlap: `merge = "replace"` (the default: the last feature wins) or
 `merge = "add"` (values added up, for example to count how many polygons cover each cell).
+
+### Burn polygons in Python
+
+[`tf.rasterize`][terraflux.rasterize] is [[vector.rasterize]]: the vector, the raster whose grid to use (`like`), and
+`field=` (an attribute) or `value=`, `fill=`, `all_touched=` and `merge=` (`"replace"` or `"add"`).
+
+```python
+burnt = tf.rasterize(reserves, landcover, field="id")           # 1, 2, 3 inside a reserve, 0 outside
+print(f"the reserves cover {float((burnt > 0).mean()) * 100:.1f}% of the window")
+touched = tf.rasterize(reserves, landcover, field="id", all_touched=True)
+print("cells per reserve, centres vs every cell touched:",
+      [(int((burnt == i).sum()), int((touched == i).sum())) for i in (1, 2, 3)])
+```
+
+```text
+the reserves cover 14.0% of the window
+cells per reserve, centres vs every cell touched: [(16837, 17178), (17703, 18256), (15861, 16368)]
+```
+
+The part's 14.0%, and its 16,837 cells against 17,178 for South.
 
 ## Statistics of a map in each polygon
 
@@ -267,6 +339,31 @@ The area is the number of cells times 625 m² (25 x 25 m). The North reserve is 
 forest: its outline takes in part of a town (the red patch inside it on the map above). That is the kind of
 check a zonal table makes easy.
 
+### Zonal statistics in Python
+
+[`tf.zonal_stats`][terraflux.zonal_stats] takes a raster and polygons (or a raster of zone labels) and returns the
+polygons' attributes with a column per statistic (`stats=`: the names of the node's `stats`, `"p90"` for a
+percentile). The mean of the 1/0 forest map is the share:
+
+```python
+is_forest = ((landcover >= 23) & (landcover <= 25)).astype("float32")      # 1 forest, 0 not: its mean is a share
+shares = tf.zonal_stats(is_forest, reserves, stats=["count", "mean"])      # the reserves' attributes, plus a column per statistic
+cover = tf.zonal_stats(landcover, reserves, stats=["majority", "unique"])
+table = shares[["name", "count", "mean"]].join(cover[["majority", "unique"]])
+table["ha"] = table["count"] * 625 / 1e4                                   # cells of 625 m2
+print(table.round(3).to_string(index=False))
+```
+
+```text
+ name  count  mean  majority  unique       ha
+South  16837 0.790      24.0       7 1052.312
+North  17703 0.713      24.0       9 1106.438
+ West  15861 0.767      24.0       6  991.312
+```
+
+The part's table: 79.0%, 71.3% and 76.7% of forest, class 24 the most common in each, 7, 9 and 6 classes.
+[`tf.zonal_map`][terraflux.zonal_map] paints each zone's statistic back on the grid.
+
 ## Values of a map at points
 
 At each sampling plot, what is the land cover? [[vector.extract]] reads a map (or every layer of a stack) at
@@ -320,6 +417,37 @@ note = "The mean of the 1/0 forest map within 250 m: the share of forest around 
 Seven of the twelve random plots fell on arable land, about what you would expect when half of the area is arable.
 The output `table` holds the plot's attributes and the values; the output `vector` is the points with the values
 as new attributes, to write or to show.
+
+### Values at points in Python
+
+[`tf.extract`][terraflux.extract] is [[vector.extract]]: `method="nearest"` (default) or `"bilinear"`, and `buffer=`
+(a radius in the map's units) with `stats=` for the surroundings of each point. The output is the points with a column
+per band (named after the raster, here `clc`) or per statistic.
+
+```python
+plots = tf.load_vector("plots.gpkg")
+at_plots = tf.extract(landcover, plots)                                    # the cell under each point
+around = tf.extract(is_forest, plots, buffer=250, stats=["mean"])          # the share of forest within 250 m
+print(plots[["plot"]].assign(landcover=at_plots["clc"].astype(int), forest_250m=around["mean"].round(3)).to_string(index=False))
+```
+
+```text
+ plot  landcover  forest_250m
+    1         12        0.000
+    2         12        0.000
+    3         12        0.000
+    4         36        0.000
+    5         18        0.222
+    6         12        0.000
+    7         12        0.000
+    8         12        0.000
+    9          2        0.000
+   10         12        0.000
+   11         21        0.130
+   12         24        0.663
+```
+
+The part's table, plot by plot.
 
 ## Distances to features
 
@@ -376,6 +504,32 @@ the distance to cells of some values (to class 40, water courses, for example), 
     **Distance to these features**, **Burn into the grid** and **Statistics of the reference map in each
     polygon**. Each adds the operator's node, already connected, with a note saying why. See
     [One grid for all your maps](../one-grid/).
+
+### Distances in Python
+
+A distance to features is a rasterized line and a distance transform; a buffer is the `GeoDataFrame`'s own. The
+distance of a line needs every cell it touches (`all_touched=True`), and `scipy.ndimage.distance_transform_edt` measures
+to the nearest cell in cells, so the cell size (25 m) turns it into metres:
+
+```python
+from scipy import ndimage
+
+road = tf.load_vector("road.gpkg")
+on_road = tf.rasterize(road, landcover, all_touched=True).values > 0        # a line needs every cell it touches
+distance = ndimage.distance_transform_edt(~on_road) * 25                   # metres from each cell to the nearest road cell
+corridor = road.buffer(500)                                                # the land within 500 m
+print(f"distance to the road: 0 to {distance.max() / 1000:.1f} km; "
+      f"{float((distance <= 500).mean()) * 100:.1f}% of the window within 500 m")
+tf.write_vector(gpd.GeoDataFrame(geometry=corridor), "corridor.gpkg")
+```
+
+```text
+distance to the road: 0 to 10.9 km; 8.5% of the window within 500 m
+```
+
+The 10.9 km of the picture; 8.5% of the cells are within 500 m, against the part's 8.4%
+(a tenth of a point apart). [`tf.write_vector`][terraflux.write_vector] chooses the format by the
+extension, as [[vector.write]] does.
 
 ## Common pitfalls
 

@@ -305,6 +305,91 @@ When you report a study, give for each model: the version of the model (InVEST 3
 maps and their resolution, the tables (in a supplement), the settings, and the totals for each scenario; show
 the maps of the **difference** between scenarios, not only the maps of each.
 
+### In Python
+
+The four models live in `tf.services` ([`carbon`][terraflux.services.carbon],
+[`habitat_quality`][terraflux.services.habitat_quality], [`water_yield`][terraflux.services.water_yield] and
+[`sdr`][terraflux.services.sdr]), each one call with the maps and tables of its tutorial. The files of Ribeirão Claro are the zip of the series ([ribeirao-claro.zip](/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip)), unzipped into `ribeirao-claro/`; the rasters load as xarray maps and the tables as pandas data frames. The smallest model, the carbon of 2020, with the table read from the CSV and typed in
+the code (the counterpart of the [[table.of]] graph above); a result keeps its maps and tables, and `save` writes them
+all to a folder:
+
+```python
+import pathlib
+import zipfile
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+zipfile.ZipFile("ribeirao-claro.zip").extractall(".")   # the files of Ribeirão Claro, in ribeirao-claro/
+lulc = tf.load_raster("ribeirao-claro/lulc_2020.tif")
+
+# the smallest model: a land use map and a table by class (here from the file; a DataFrame works too)
+pools = tf.load_table("ribeirao-claro/carbon_pools.csv")
+carbon = tf.services.carbon(lulc, pools)
+print(carbon.totals.to_string(index=False))
+
+# the same table written in the code (the counterpart of table.of)
+typed = pd.DataFrame([[1, 140, 35, 95, 12], [2, 3, 6, 60, 0.5], [3, 4, 1, 45, 0.5],
+                      [4, 75, 18, 70, 6], [5, 5, 1, 30, 0], [6, 0, 0, 0, 0]],
+                     columns=["lucode", "c_above", "c_below", "c_soil", "c_dead"])
+print(tf.services.carbon(lulc, typed).totals.total.iloc[0] == carbon.totals.total.iloc[0])
+
+# a result keeps its maps (xarray) and its tables (pandas); save writes them all to a folder
+folder = carbon.save("carbon_2020")
+print(sorted(p.name for p in pathlib.Path(folder).iterdir()))
+```
+
+```text
+                  label     total units
+Baseline Carbon Storage 583479.63     t
+True
+['pools_c_above.tif', 'pools_c_below.tif', 'pools_c_dead.tif', 'pools_c_soil.tif', 'storage.tif', 'summary.json', 'totals.csv']
+```
+
+The four models of the series on a land use map, as one function, run for 2020 and 2040; these are the numbers of the
+table of the results (the water is the total of the two watersheds, the habitat quality the mean of the forest):
+
+```python
+# the four models on one land use map: a function of the map, as the four tutorials set them up
+def read(name):
+    return tf.load_raster(f"ribeirao-claro/{name}.tif")
+
+def table(name):
+    return tf.load_table(f"ribeirao-claro/{name}.csv")
+
+watersheds = tf.load_vector("ribeirao-claro/watersheds.gpkg")
+threats, sensitivity = table("threats"), table("sensitivity")
+
+def four(year):
+    lu = read(f"lulc_{year}")
+    c = tf.services.carbon(lu, table("carbon_pools"))
+    h = tf.services.habitat_quality(lu, threats, sensitivity,
+                                    {t: read(f"{t}_{year}") for t in threats.threat}, half_saturation=0.35)
+    w = tf.services.water_yield(lu, table("biophysical_wy"), read("precipitation"), read("eto"), read("depth"),
+                                read("pawc"), seasonality=10, watersheds=watersheds)
+    s = tf.services.sdr(read("dem"), read("erosivity"), read("erodibility"), lu, table("biophysical_sdr"),
+                        watersheds, threshold=1000)
+    return {"Carbon stored (t C)": c.totals.total.iloc[0],
+            "Habitat quality, mean of the forest": float(np.nanmean(h.quality["current"].values[lu.values == 1])),
+            "Water yield of the two watersheds (million m3 / year)": w.watersheds.wyield_vol.sum() / 1e6,
+            "Sediment exported to the rivers (t / year)": s.watersheds.sed_export.sum()}
+
+t = pd.DataFrame({y: four(y) for y in (2020, 2040)})
+t["change %"] = (t[2040] / t[2020] - 1) * 100
+print(t.round({2020: 3, 2040: 3, "change %": 1}).to_string())
+```
+
+```text
+                                                             2020        2040  change %
+Carbon stored (t C)                                    583479.630  471459.285     -19.2
+Habitat quality, mean of the forest                         0.757       0.674     -10.9
+Water yield of the two watersheds (million m3 / year)      21.355      22.230       4.1
+Sediment exported to the rivers (t / year)               1921.469    2685.827      39.8
+```
+
+Each tutorial of the series has its own Python section with the settings of its model.
+
 ## Settings that change the answer
 
 Three choices change every model of this series:

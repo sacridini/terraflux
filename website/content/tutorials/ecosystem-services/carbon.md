@@ -329,6 +329,129 @@ hectare cleared loses.
     change. For a valuation, give the price, its unit (per ton of C or of CO₂), the discount rate and the change
     of the price, and test other rates (next section).
 
+### In Python
+
+[`tf.services.carbon`][terraflux.services.carbon] is the carbon model: the land use map and the table of pools, and
+with `future=` the second map. The files of Ribeirão Claro are the zip of the series ([ribeirao-claro.zip](/data/tutorials/ecosystem-services/ideas/ribeirao-claro.zip)), unzipped into `ribeirao-claro/`; the rasters load as xarray maps and the tables as pandas data frames. The pools table is a data frame with `lucode`, `c_above`, `c_below`,
+`c_soil` and `c_dead` (a `dict` `{code: {"c_above": ...}}` also does):
+
+```python
+import zipfile
+
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+# the files of Ribeirão Claro (the zip of the series' first tutorial) unzip into ribeirao-claro/
+zipfile.ZipFile("ribeirao-claro.zip").extractall(".")
+
+lulc = tf.load_raster("ribeirao-claro/lulc_2020.tif")
+future = tf.load_raster("ribeirao-claro/lulc_2040.tif")
+pools = tf.load_table("ribeirao-claro/carbon_pools.csv")   # lucode, c_above, c_below, c_soil, c_dead
+
+c = tf.services.carbon(lulc, pools)
+print(c.totals.to_string(index=False))
+print(list(c.pools))
+print(float(c.storage.max()))
+```
+
+```text
+                  label     total units
+Baseline Carbon Storage 583479.63     t
+['c_above', 'c_below', 'c_soil', 'c_dead']
+282.0
+```
+
+The result `c` has `storage` (a map, t C / ha), `pools` (a dict with the four maps) and `totals`, a table of `label`,
+`total` and `units`: the 583,480 t C of the part's map. Cells with no land use are `NaN`, and are not counted. With
+the future map and the valuation settings the result also has `storage_future`, `pools_future`, `change` and `npv`
+(maps), and `valuation`, the factor that turns a change in carbon into money (32.71 here, the \(\frac{P}{n}\sum\dots\)
+of the part):
+
+```python
+c = tf.services.carbon(lulc, pools, future=future,
+                       price=50, discount_rate=5, rate_change=0,   # per ton of carbon; % a year
+                       year=2020, future_year=2040)
+print(c.totals.to_string(index=False))
+print(round(c.valuation, 2))
+```
+
+```text
+                             label         total    units
+           Baseline Carbon Storage  5.834796e+05        t
+          Alternate Carbon Storage  4.714593e+05        t
+          Change in Carbon Storage -1.120203e+05        t
+Net Present Value of Carbon Change -3.664555e+06 currency
+32.71
+```
+
+`price` is per ton of **carbon**, `discount_rate` and `rate_change` are percents a year, and `future_year` must come
+after `year`; a future map on another grid is put on the baseline's grid first. The tables of the part are a few
+lines of pandas on the maps (the area of a cell is 0.09 ha):
+
+```python
+# the carbon of each class in both years, and the conversions that cause the change
+a, b = lulc.values, future.values
+ha = 30 * 30 / 10000
+names = {1: "Forest", 2: "Pasture", 3: "Cropland", 4: "Eucalyptus", 5: "Urban", 6: "Water"}
+by_class = pd.DataFrame({
+    "class": list(names.values()),
+    "2020": [np.nansum(c.storage.values[a == k]) * ha for k in names],
+    "2040": [np.nansum(c.storage_future.values[b == k]) * ha for k in names]}).round()
+print(by_class.to_string(index=False))
+
+rows = [(names[i], names[j], (m := (a == i) & (b == j)).sum() * ha, float(np.nansum(c.change.values[m])) * ha)
+        for i in names for j in names if i != j]
+moves = pd.DataFrame(rows, columns=["from", "to", "hectares", "t_C"]).query("hectares > 0")
+print(moves.sort_values("t_C").round(1).head(3).to_string(index=False))
+```
+
+```text
+     class     2020     2040
+    Forest 434303.0 298545.0
+   Pasture  98804.0  87132.0
+  Cropland  38723.0  66289.0
+Eucalyptus   9628.0  14860.0
+     Urban   2022.0   4633.0
+     Water      0.0      0.0
+   from       to  hectares       t_C
+ Forest  Pasture     532.2 -113086.1
+ Forest Cropland      82.0  -18980.7
+Pasture Cropland     568.0  -10791.8
+```
+
+The settings of the part are loops over the same call: the net present value for other discount rates and prices'
+changes (a change of the price acts as a second discount rate, so 0% and 5% give the same as 5% and 0%), and the
+soil carbon of pasture changed in the table:
+
+```python
+# the net present value of the change for other discount rates and changes of the price
+for rate in (0, 5, 12):
+    for change in (0, 5):
+        v = tf.services.carbon(lulc, pools, future=future, price=50, discount_rate=rate, rate_change=change,
+                               year=2020, future_year=2040)
+        print(f"discount {rate:2d}%, price change {change}%: {v.totals.total.iloc[3] / 1e6:6.2f} million")
+
+# the soil carbon of pasture (class 2) from 40 to 95 t C / ha
+for soil in (40, 60, 95):
+    t = pools.copy()
+    t.loc[t.lucode == 2, "c_soil"] = soil
+    v = tf.services.carbon(lulc, t, future=future).totals.total
+    print(f"soil {soil}: stock {v.iloc[0]:,.0f} t C, change {v.iloc[2]:,.0f} t C")
+```
+
+```text
+discount  0%, price change 0%:  -5.60 million
+discount  0%, price change 5%:  -3.66 million
+discount  5%, price change 0%:  -3.66 million
+discount  5%, price change 5%:  -2.58 million
+discount 12%, price change 0%:  -2.34 million
+discount 12%, price change 5%:  -1.80 million
+soil 40: stock 555,047 t C, change -108,662 t C
+soil 60: stock 583,480 t C, change -112,020 t C
+soil 95: stock 633,237 t C, change -117,898 t C
+```
+
 ## Settings that change the answer
 
 ### The discount rate

@@ -170,6 +170,30 @@ the size of the raster, and the result is again a raster on disk.
     Before you click, check **Its values are**: *classes*, *values* or *counts*. Prepare guesses from the data,
     and the guess decides the resampling.
 
+### Reproject in Python
+
+[`tf.reproject`][terraflux.reproject] is [[raster.reproject]]: the target CRS (`"EPSG:32610"`, a WKT, a PROJ string,
+or a raster or vector whose CRS is taken), `res=` for the cell size in the new CRS's units and `resampling=`. The
+elevation model ships with the library. New to the library? Start with the
+[quickstart](/python/getting-started/quickstart/) and the [installation](/python/getting-started/installation/).
+
+```python
+import numpy as np
+import terraflux as tf
+
+elevation = tf.load_raster(tf.surface.example_data("orelevation"))          # SRTM, degrees
+utm = tf.reproject(elevation, "EPSG:32610", res=30)
+print(elevation.shape, str(elevation.rio.crs), "->", utm.shape, str(utm.rio.crs))
+```
+
+```text
+(371, 371) EPSG:4326 -> (371, 273) EPSG:32610
+```
+
+The map in metres is 273 columns wide and 371 rows high (the part says 272 x 370: with `res=` alone, the library
+suggests the corners of the new grid itself). Without `res`, the cell size is about the source's. `like=` puts a raster
+on the grid of another (CRS, cells and extent), and a vector (a `GeoDataFrame`) goes to a CRS or to a raster's CRS the same way. The CRS of a raster is `raster.rio.crs`.
+
 ## Choose the resampling method by the data
 
 When a new cell falls between old cells, where does its value come from?
@@ -207,6 +231,32 @@ count thousands of tiny patches along every edge. With `auto` the result is iden
     Classes: `near` (or `mode` when cells grow). Measurements: `bilinear` (or `average` when cells grow).
     Counts: `sum`. When in doubt, leave `auto` and check what Prepare thinks the values are.
 
+### The resampling method in Python
+
+`resampling="auto"` takes the nearest cell for whole numbers and bilinear for decimals; the other names are the
+table's (`"nearest"`, `"mode"`, `"bilinear"`, `"cubic"`, `"lanczos"`, `"average"`, `"sum"`...). The cost of bilinear on
+classes, on the 15 x 15 km window:
+
+```python
+landcover = tf.load_raster(tf.example_data("clc"))
+window = tf.clip(landcover, (4261250, 3267500, 4276250, 3282500))
+near = tf.reproject(window, "EPSG:4326", resampling="nearest")              # what "auto" does for classes
+bilinear = tf.reproject(window, "EPSG:4326", resampling="bilinear")         # never for classes
+ok = near != near.rio.nodata
+changed = (bilinear != near) & ok
+invented = set(np.unique(bilinear.values[ok.values])) - set(np.unique(window.values))
+print(f"bilinear: {changed.sum() / ok.sum() * 100:.1f}% of the cells changed class; "
+      f"{np.isin(bilinear.values, list(invented)).sum() / ok.sum() * 100:.1f}% in {len(invented)} classes that are not in the window")
+print("auto equals nearest:", bool((tf.reproject(window, "EPSG:4326") == near).all()))
+```
+
+```text
+bilinear: 6.7% of the cells changed class; 4.5% in 26 classes that are not in the window
+auto equals nearest: True
+```
+
+The numbers of the text above.
+
 ## Terrain in degrees
 
 Slope, aspect and hillshade compare heights in metres with horizontal distances. On an elevation model in
@@ -224,6 +274,26 @@ the default gives nearly the slope of the projected model. The option `-s 111120
 in both directions), which older versions of GDAL needed, now *underestimates* the slopes at 43° N by about 10%,
 because it treats the shorter degrees of longitude as if they were degrees of latitude. The safest way, whatever
 the software, is to reproject the elevation model to a projected CRS in metres first.
+
+### Slope in degrees in Python
+
+[`tf.surface.terrain`][terraflux.surface.terrain] knows when the cells are degrees: it converts them to metres
+(geodesics on the WGS84 ellipsoid) by itself, so no `-s` option is needed.
+
+```python
+slope_utm = tf.surface.terrain(utm, "slope")
+slope_deg = tf.surface.terrain(elevation, "slope")                          # knows the cells are degrees
+for name, s in [("UTM, 30 m", slope_utm), ("degrees", slope_deg)]:
+    print(f"slope, {name:9s}: mean {float(s.mean()):.1f}, 90th percentile {float(s.quantile(0.9)):.1f}")
+```
+
+```text
+slope, UTM, 30 m: mean 18.0, 90th percentile 29.3
+slope, degrees  : mean 18.5, 90th percentile 30.2
+```
+
+The table's first two rows (18.0° and 29.3°; 18.4° and 30.2° for the degrees: the library's mean is 18.5°). Reproject
+first anyway when you can, as the text says.
 
 ## A file without a CRS
 
@@ -254,6 +324,25 @@ note = "Classes: the nearest cell (auto)."
 The reprojected map falls at 122.41° to 122.71° E and 12.27° to 12.51° N: on Sibuyan. That check, the result
 landing where the place really is, is the way to confirm a guessed CRS; a basemap under the map (++b++ in the
 viewer) shows it at a glance. [[raster.match]] has the same `source_crs` setting.
+
+### A file without a CRS in Python
+
+The CRS of a raster is written with `rio.write_crs`, and [`tf.reproject`][terraflux.reproject] does the rest. The
+land use of Sibuyan ships with the library's simulation data:
+
+```python
+sibuyan = tf.load_raster(tf.simulate.example_data("sibuyan_landuse"), band=1)
+sibuyan = sibuyan.rio.write_crs("EPSG:32651")                               # the file has none: say what it is
+wgs84 = tf.reproject(sibuyan, "EPSG:4326")
+x0, y0, x1, y1 = wgs84.rio.bounds()
+print(f"{x0:.2f} to {x1:.2f} E, {y0:.2f} to {y1:.2f} N")
+```
+
+```text
+122.41 to 122.71 E, 12.27 to 12.51 N
+```
+
+On Sibuyan, as the part found.
 
 ## Common pitfalls
 
