@@ -254,6 +254,131 @@ images:
     the classic examples of mapping weighted endemism; González-Orozco et al. (2011) of richness and endemism of a
     genus across a continent.
 
+### In Python
+
+The same analysis is in the library as [`tf.bio`][terraflux.bio.BaseData] (a port of Biodiverse, as the operators
+are). The records are the part's `sites.csv`, which the library ships as example data:
+
+```python
+import terraflux as tf
+
+bd = tf.bio.BaseData.from_table(
+    tf.bio.example_data("sites"),
+    group_columns=["x", "y"],            # the columns that place a record
+    label_columns=["genus", "species"],  # joined with ":" ("Genus:sp1")
+    cell_sizes=[100000, 100000],         # snapped to cells of 100 km
+)
+print(bd)
+print("records:", int(bd.counts.sum()), " cell-species pairs:", int(bd.counts.nnz))
+print(bd.label_range.describe()[["min", "50%", "max"]])
+print("species in 5 cells or fewer:", int((bd.label_range <= 5).sum()))
+```
+
+```text
+BaseData(127 groups, 31 labels, cell_sizes=[100000.0, 100000.0], 365 records)
+records: 1795  cell-species pairs: 365
+min     1.0
+50%     7.0
+max    49.0
+Name: range, dtype: float64
+species in 5 cells or fewer: 13
+```
+
+[`BaseData.from_table`][terraflux.bio.BaseData] is node 1. The `365 records` of its repr are the filled cells of the
+table (a cell with a species), not the 1,795 records of the file. `bd.groups` and `bd.labels` list the cells (named
+`"x:y"`) and the species, `bd.counts` is the sparse cells by species table (a `scipy` matrix) and `bd.label_range`
+the range of each species in cells, the chart's numbers above. `count_columns=` and `binarise=True` are the
+operator's settings of the same names. The other sources have a constructor each: `BaseData.from_dataframe` (a
+table in memory), `from_raster`, `from_vector`, `from_hex` and `from_h3`, and
+[`tf.bio.read_occurrences`][terraflux.bio.read_occurrences] reads GBIF and Darwin Core downloads.
+
+[`tf.bio.spatial_analysis`][terraflux.bio.spatial_analysis] is [[bio.spatial]]: a condition (or two) and the
+calculations by name. This loop makes the four neighbourhoods of the slider:
+
+```python
+import pandas as pd
+
+conds = {
+    "cell alone": "sp_self_only()",
+    "100 km": "sp_circle (radius => 100000)",
+    "200 km": "sp_circle (radius => 200000)",
+    "300 km": "sp_circle (radius => 300000)",
+}
+rows, results = [], {}
+for name, cond in conds.items():
+    results[name] = tf.bio.spatial_analysis(bd, cond, ["richness", "endemism_whole"])
+    t = results[name].table
+    rows.append({
+        "neighbourhood": name,
+        "richness_max": t["RICHNESS_ALL"].max(),
+        "richness_mean": t["RICHNESS_ALL"].mean().round(1),
+        "WE_max": t["ENDW_WE"].max().round(2),
+        "CWE_max": t["ENDW_CWE"].max().round(2),
+    })
+print(pd.DataFrame(rows).to_string(index=False))
+```
+
+```text
+neighbourhood  richness_max  richness_mean  WE_max  CWE_max
+   cell alone          11.0            2.9    2.34     0.33
+       100 km          15.0            6.0    3.04     0.48
+       200 km          17.0            8.6    5.37     0.49
+       300 km          18.0           10.8    8.29     0.57
+```
+
+They are the numbers of the slider. The result's `table` has a row per cell and a column per index
+(`RICHNESS_ALL`, `ENDW_WE`, `ENDW_CWE`, `ENDW_RICHNESS`, `ENDW_SINGLE`); the list indices go to `lists`. The
+Biodiverse conditions of the table above, `sp_block (size => 500000)` and `$D <= 250000` included, are strings the
+same way, and a second condition (a list of two) gives the second neighbourhood of the indices that compare them.
+The rank correlations of the reading above, with `pandas`:
+
+```python
+for name in ("cell alone", "200 km"):
+    t = results[name].table
+    print(name, t[["RICHNESS_ALL", "ENDW_WE", "ENDW_CWE"]].corr(method="spearman").round(2).iloc[0, 1:].to_dict())
+```
+
+```text
+cell alone {'ENDW_WE': 0.82, 'ENDW_CWE': 0.28}
+200 km {'ENDW_WE': 0.89, 'ENDW_CWE': 0.33}
+```
+
+These are 0.82 and 0.89 for WE and 0.28 and 0.33 for CWE where the text says 0.80, 0.88, 0.27 and 0.32: the figures'
+script ranked ties one after the other, `pandas` gives tied cells the same mean rank. The reading does not change.
+
+The cell size is the one setting that makes a new `BaseData`:
+
+```python
+rows = []
+for size in (50000, 100000, 200000):
+    b = tf.bio.BaseData.from_table(
+        tf.bio.example_data("sites"), group_columns=["x", "y"],
+        label_columns=["genus", "species"], cell_sizes=[size, size],
+    )
+    t = tf.bio.spatial_analysis(b, "sp_self_only()", ["richness", "endemism_whole"]).table
+    rows.append({
+        "cell_km": size // 1000, "cells": len(t),
+        "richness_max": t["RICHNESS_ALL"].max(),
+        "richness_mean": t["RICHNESS_ALL"].mean().round(1),
+        "WE_max": t["ENDW_WE"].max().round(2),
+    })
+print(pd.DataFrame(rows).to_string(index=False))
+```
+
+```text
+ cell_km  cells  richness_max  richness_mean  WE_max
+      50    277           8.0            2.0    1.70
+     100    127          11.0            2.9    2.34
+     200     51          13.0            4.1    2.45
+```
+
+For the maps, `results["200 km"].to_raster("ENDW_WE")` is an `xarray.DataArray` of the cells (31 rows by 21 columns
+here) that [`tf.write_raster`][terraflux.write_raster] saves as a GeoTIFF, and
+`results["200 km"].to_geodataframe()` gives the cells as polygons with their indices. `res.to_biodiverse_csv(path)`
+writes the table as Biodiverse's own "Delimited text" export does. [`tf.bio.list_calculations()`][terraflux.bio.list_calculations]
+lists the calculations and the indices each returns. Every analysis takes `n_threads`; by default the library uses
+the cores less a quarter, and `TERRAFLUX_THREADS` caps it for the whole session.
+
 ## Settings that change the answer
 
 ### The cell size
@@ -310,5 +435,3 @@ the scale while keeping the cells' precision.
 - Laffan, S. W., & Crisp, M. D. (2003). Assessing endemism at multiple spatial scales, with an example from the Australian vascular flora. *Journal of Biogeography*, 30(4), 511–520. https://doi.org/10.1046/j.1365-2699.2003.00875.x
 - Laffan, S. W., Lubarsky, E., & Rosauer, D. F. (2010). Biodiverse, a tool for the spatial analysis of biological and related diversity. *Ecography*, 33(4), 643–647. https://doi.org/10.1111/j.1600-0587.2010.06237.x
 - Laffan, S. W., Ramp, D., & Roger, E. (2013). Using endemism to assess representation of protected areas – the family Myrtaceae in the Greater Blue Mountains World Heritage Area. *Journal of Biogeography*, 40(3), 570–578. https://doi.org/10.1111/jbi.12001
-
-In Python: [Biodiversity analysis in Python](/tutorials/biodiversity/biodiversity-in-python/).

@@ -159,6 +159,95 @@ check of how robust the regions are.
     dendrogram beside the map. Laffan et al. (2016) show how range-weighted indices of turnover sharpen the
     boundaries between regions; Kreft and Jetz (2010) give the general framework.
 
+### In Python
+
+[`tf.bio.cluster`][terraflux.bio.cluster] is [[bio.cluster]]. It makes the dendrogram once; `cut(k)` gives the regions
+of any cut of it, so the part's slider is a loop. The cells are the part's, from the library's example records:
+
+```python
+import pandas as pd
+import terraflux as tf
+
+bd = tf.bio.BaseData.from_table(
+    tf.bio.example_data("sites"),
+    group_columns=["x", "y"], label_columns=["genus", "species"], cell_sizes=[100000, 100000],
+)
+cl = tf.bio.cluster(bd, "SORENSON", "link_average", prng_seed=1)   # the operator's seed is prng_seed here
+regions = cl.cut(5)                    # a Series: the cluster (1 to 5) of every cell
+print(regions.value_counts().sort_index().to_string())
+for k in (3, 4, 5, 6, 8):
+    print(k, cl.cut(k).value_counts().sort_values(ascending=False).tolist())
+```
+
+```text
+cluster
+1    49
+2    24
+3    17
+4    13
+5    24
+3 [73, 30, 24]
+4 [73, 24, 17, 13]
+5 [49, 24, 24, 17, 13]
+6 [49, 24, 21, 17, 13, 3]
+8 [43, 21, 19, 17, 13, 6, 5, 3]
+```
+
+These are the sizes of the five regions and the slider's "cells per region". The cluster numbers are the
+library's and need not be the colours of the maps above. `regions` is indexed by the cells' names (`"x:y"`),
+and `bd.to_raster(regions)` makes the map as an `xarray.DataArray`. `cl.tree` is the dendrogram, a
+[`Tree`][terraflux.bio.Tree] (`cl.tree.to_newick()` for other software), and `cl.nodes` has a row per node with
+its parent, its `length` (up to 0.69 here) and Biodiverse's values for the join; the dendrogram of the figure
+is drawn from them. `calculations=["richness"]` (as the operator's) adds the indices of the nodes to `cl.table`; pass it to see it.
+
+The index and the linkage are the second and third arguments, so the comparison of the indices is a call each:
+
+```python
+cj = tf.bio.cluster(bd, "JACCARD", "link_average", prng_seed=1)
+print("Jaccard gives the same regions:", bool((cj.cut(5) == regions).all()))
+cs = tf.bio.cluster(bd, "S2", "link_average", prng_seed=1)
+print(pd.crosstab(regions, cs.cut(5)))
+```
+
+```text
+Jaccard gives the same regions: True
+cluster   1  2   3   4   5
+cluster                   
+1        43  2   4   0   0
+2         3  0   0  21   0
+3         1  0   1   0  15
+4         4  8   0   0   1
+5         0  0  24   0   0
+```
+
+The table counts the cells of each Sorenson region (rows) by S2 region (columns): 43 of the 49 cells of the largest
+Sorenson region stay together, and the others move. The linkages are `link_average`, `link_average_unweighted`,
+`link_minimum`, `link_maximum` and `link_recalculate`; the indices include `BRAY_CURTIS` and, with `tree=`,
+`PHYLO_SORENSON`. `conditions=` (a Biodiverse spatial condition) restricts the joins to neighbouring cells,
+`definition_query=` keeps only the cells that pass it (the species-poor cells of the pitfalls below), `tie_breaker=` is
+the operator's and `clear_singletons=True` leaves out the cells that joined nothing when a condition leaves several roots. [`tf.bio.region_grower`][terraflux.bio.region_grower]
+is [[bio.region_grower]]: the same call, with the index to maximise in place of the dissimilarity
+(`tf.bio.region_grower(bd, "RICHNESS_ALL", prng_seed=1)`).
+
+The results of the three parts can be kept in one file, or exported for tools that read Biodiverse's tables:
+
+```python
+res = tf.bio.spatial_analysis(bd, "sp_circle (radius => 200000)", ["richness", "endemism_whole_lists"])
+tf.bio.save_session("study.lsbio", sites=bd, indices=res, regions=cl)
+res.to_biodiverse_csv("indices.csv")                                  # the scalar indices
+res.to_biodiverse_csv("endemism_weights.csv", "ENDW_WTLIST")          # a list index
+print(sorted(tf.bio.load_session("study.lsbio")))
+```
+
+```text
+['indices', 'regions', 'sites']
+```
+
+[`tf.bio.save_session`][terraflux.bio.save_session] stores basedatas, trees, matrices and results (here the
+analysis and the clustering) in one file and [`tf.bio.load_session`][terraflux.bio.load_session] reads them back as a
+dictionary of the same names. `to_biodiverse_csv` writes Biodiverse's own "Delimited text" export, for scripts that
+read its tables; the second argument is the list to write (`SPATIAL_RESULTS`, the scalar indices, by default).
+
 ## Settings that change the answer
 
 - **The index**: presence (Sorenson, Jaccard), turnover only (S2), abundance (Bray-Curtis), phylogenetic

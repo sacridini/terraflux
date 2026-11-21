@@ -62,7 +62,7 @@ Where to go:
   hilltops.
 - **[Neutral landscapes](/tutorials/neutral-landscapes/)**: simulated landscapes as
   null models: random maps, gradients, fractal surfaces, Gaussian fields, clusters and mosaics.
-- **[Biodiversity analysis](/tutorials/biodiversity/biodiversity-in-python/)**: species records in grid cells:
+- **[Biodiversity analysis](/tutorials/biodiversity/)**: species records in grid cells:
   richness, endemism, phylogenetic diversity and endemism, randomisations and regions.
 - **[Conservation priorities](/tutorials/spatial-prioritization/prioritization-in-python/)**: rank whole
   landscapes for many species: performance curves, costs, reserves, connectivity and impact assessment.

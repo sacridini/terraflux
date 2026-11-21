@@ -213,6 +213,89 @@ documentation reports for the same data and seed, which Biodiverse also gives.
     CANAPE map with its counts, and how many tips of the tree had no record. Mishler et al. (2014) and Thornhill
     et al. (2017) are good models.
 
+### In Python
+
+All three steps are in the library, with the part's records, tree and seed (both files ship as example data):
+
+```python
+import terraflux as tf
+
+bd = tf.bio.BaseData.from_table(
+    tf.bio.example_data("sites"),
+    group_columns=["x", "y"], label_columns=["genus", "species"], cell_sizes=[100000, 100000],
+)
+tree = tf.bio.read_tree(tf.bio.example_data("tree"))     # Newick or Nexus, guessed from the file
+print(tree)
+print("total length", round(tree.total_length, 1))
+
+res = tf.bio.spatial_analysis(
+    bd, "sp_circle (radius => 200000)",
+    ["richness", "endemism_whole", "pd", "pe", "phylo_rpe2"], tree=tree,
+)
+t = res.table
+print(t[["RICHNESS_ALL", "PD", "PE_WE", "PHYLO_RPE2"]].describe().round(2).loc[["mean", "max"]])
+print("PD~richness", round(t["PD"].corr(t["RICHNESS_ALL"], method="spearman"), 2),
+      "PE~WE", round(t["PE_WE"].corr(t["ENDW_WE"], method="spearman"), 2))
+```
+
+```text
+Tree("'Example_tree'", 61 nodes, 31 terminals)
+total length 21.2
+      RICHNESS_ALL     PD  PE_WE  PHYLO_RPE2
+mean          8.57   6.20   1.55        1.00
+max          17.00  11.91   3.77        2.28
+PD~richness 0.99 PE~WE 0.96
+```
+
+[`tf.bio.read_tree`][terraflux.bio.read_tree] is [[bio.tree]] (`index=` picks one tree of a file with several;
+[`tf.bio.read_trees`][terraflux.bio.read_trees] reads them all), and [`tf.bio.spatial_analysis`][terraflux.bio.spatial_analysis]
+takes the tree as `tree=`. The result has the columns `PD`, `PD_P`, `PE_WE`, `PE_WE_P`, `PHYLO_RPE2`,
+`PHYLO_RPE_NULL2` and `PHYLO_RPE_DIFF2`, and the numbers are those of the maps and the scatter above. A
+[`Tree`][terraflux.bio.Tree] converts to Bio.Phylo, DendroPy and ete (`to_biopython()`, `to_dendropy()`, `to_ete()`),
+and `tf.bio.Tree.from_biopython(...)` and the like convert back; `tree.to_newick()` writes it for other software.
+
+The randomisation takes the result of the analysis, so it repeats its condition, calculations and tree:
+
+```python
+rnd = tf.bio.randomise(res, "rand_structured", iterations=999, seed=2024)
+p = rnd.p_rank()
+pe = p["PE_WE"]
+print("PE p-rank: >=0.95", (pe >= 0.95).sum(), " >=0.99", (pe >= 0.99).sum(), " <=0.01", (pe <= 0.01).sum())
+
+canape = rnd.canape()
+names = {0: "not significant", 1: "neo", 2: "palaeo", 3: "mixed", 4: "super"}
+print(canape["CANAPE_CODE"].astype(int).map(names).value_counts().to_string())
+```
+
+```text
+PE p-rank: >=0.95 17  >=0.99 2  <=0.01 19
+CANAPE_CODE
+not significant    92
+mixed              28
+palaeo              5
+super               2
+```
+
+[`tf.bio.randomise`][terraflux.bio.randomise] is [[bio.randomise]], and its numbers are those of the p-rank map and of
+the CANAPE table (no cell is neo-endemic, so the class does not appear). `p_rank()` is a table with the columns of
+`res.table`: a value of 0.95 or more means the observed index beat 95% of the randomisations, 0.05 or less that it
+was lower than 95% of them. `canape()` has `CANAPE_CODE` (0 to 4, as the operator's) and a 0 or 1 column for each
+class (`NEO`, `PALAEO`, `MIXED`, `SUPER`). The same seed gives Biodiverse's randomisations.
+
+The result is a [`Randomisation`][terraflux.bio.Randomisation]: `rnd.run(900)` adds iterations to it (the count
+is in `rnd.iterations`), `rnd.z_scores()` gives the z-scores and `rnd.comparison()` Biodiverse's counters (the
+`C_` columns), and `rnd.save(...)` stores it. A
+different null model is another name: `rand_independent_swaps`, `rand_curveball`, `rand_diffusion`,
+`rand_random_walk` or `rand_csr_by_group`, as in the settings below.
+
+Biodiverse's other families of indices use the same calls: **properties** of the cells or the species
+([`tf.bio.read_properties`][terraflux.bio.read_properties], then `bd.set_group_properties(...)` and
+`bd.set_label_properties(...)`) feed `gpprop_stats` and `lbprop_stats`, and numeric labels such as body sizes
+or dates `numeric_label_stats`. **Label matrices** ([`tf.bio.read_matrix`][terraflux.bio.read_matrix],
+[[bio.matrix]]) feed `matrix_stats` and `mx_rao_qe`. **Phylogenetic community structure** (Webb et al., 2002) is
+`nri_nti_expected_values` with `phylo_mpd_mntd1`: the net relatedness and nearest taxon indices. All are names in
+the `calculations` list of `spatial_analysis`.
+
 ## Settings that change the answer
 
 - **The phylogeny.** Branch lengths are what PD and PE measure: a dated tree, a molecular one, or one with equal
@@ -251,5 +334,4 @@ documentation reports for the same data and seed, which Biodiverse also gives.
 - Mishler, B. D., Knerr, N., González-Orozco, C. E., Thornhill, A. H., Laffan, S. W., & Miller, J. T. (2014). Phylogenetic measures of biodiversity and neo- and paleo-endemism in Australian *Acacia*. *Nature Communications*, 5, 4473. https://doi.org/10.1038/ncomms5473
 - Rosauer, D., Laffan, S. W., Crisp, M. D., Donnellan, S. C., & Cook, L. G. (2009). Phylogenetic endemism: a new approach for identifying geographical concentrations of evolutionary history. *Molecular Ecology*, 18(19), 4061–4072. https://doi.org/10.1111/j.1365-294X.2009.04311.x
 - Thornhill, A. H., Baldwin, B. G., Freyman, W. A., et al. (2017). Spatial phylogenetics of the native California flora. *BMC Biology*, 15(1). https://doi.org/10.1186/s12915-017-0435-x
-
-In Python: [Biodiversity analysis in Python](/tutorials/biodiversity/biodiversity-in-python/).
+- Webb, C. O., Ackerly, D. D., McPeek, M. A., & Donoghue, M. J. (2002). Phylogenies and community ecology. *Annual Review of Ecology and Systematics*, 33, 475–505. https://doi.org/10.1146/annurev.ecolsys.33.010802.150448

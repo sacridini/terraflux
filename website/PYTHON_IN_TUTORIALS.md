@@ -42,9 +42,9 @@ section to part are by title and description only. Counts: animal-movement 7/0/1
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `phylogenetic-endemism.md` | — | full | `biodiversity-in-python.md` | |
-| `regions.md` | — | full | `biodiversity-in-python.md` | |
-| `richness-and-endemism.md` | — | full | `biodiversity-in-python.md` | |
+| `phylogenetic-endemism.md` | — | full | merged, redirected | done |
+| `regions.md` | — | full | merged, redirected | done |
+| `richness-and-endemism.md` | — | full | merged, redirected | done |
 
 `biodiversity-in-python.md`:
 - ## From records to a BaseData → richness-and-endemism ?

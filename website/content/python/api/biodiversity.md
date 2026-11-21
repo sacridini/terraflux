@@ -13,8 +13,8 @@ Reading data gives the same groups, labels and sample counts as Biodiverse
 with the same settings: coordinates are snapped to the cell grid the same
 way and groups and labels get the same names (coordinates or name parts joined
 with `:`), so results can be compared one to one. The
-[biodiversity tutorial](/tutorials/biodiversity/biodiversity-in-python/) walks through a complete
-study.
+[biodiversity tutorials](/tutorials/biodiversity/) walk through a complete
+study, with the Python in each part.
 
 <!-- no-run -->
 ```python
