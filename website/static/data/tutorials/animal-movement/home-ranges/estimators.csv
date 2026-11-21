@@ -1,0 +1,9 @@
+estimator,bandwidth (m),core 50 % (km²),home range 95 % (km²)
+Minimum convex polygon,,1.77,8.08
+"Kernel density, reference bandwidth",261,2.38,9.99
+"Kernel density, reference scaled to one part",258,2.36,9.91
+"Kernel density, plug-in bandwidth",35,0.48,3.21
+"Kernel density, cross-validated bandwidth",26,0.37,2.73
+"LoCoH, k = 47",,0.32,3.41
+Dynamic Brownian bridge,,0.61,7.87
+"Dynamic Brownian bridge, gaps over 2 h left out",,0.25,3.6

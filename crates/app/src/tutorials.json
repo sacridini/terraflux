@@ -1472,6 +1472,58 @@
      ]
     },
     {
+     "slug": "home-ranges",
+     "title": "Home ranges and utilisation distributions",
+     "template": "Home range of a track",
+     "models": [],
+     "files": [
+      "/data/tutorials/animal-movement/home-ranges/animals.csv",
+      "/data/tutorials/animal-movement/home-ranges/bandwidth-slider.csv",
+      "/data/tutorials/animal-movement/home-ranges/bandwidths.csv",
+      "/data/tutorials/animal-movement/home-ranges/dbgb.csv",
+      "/data/tutorials/animal-movement/home-ranges/estimators.csv",
+      "/data/tutorials/animal-movement/home-ranges/gap-slider.csv",
+      "/data/tutorials/animal-movement/home-ranges/interval.csv",
+      "/data/tutorials/animal-movement/home-ranges/location-error.csv",
+      "/data/tutorials/animal-movement/home-ranges/overlap-bandwidth.csv",
+      "/data/tutorials/animal-movement/home-ranges/overlap.csv",
+      "/data/tutorials/animal-movement/home-ranges/patrol.csv",
+      "/data/tutorials/animal-movement/home-ranges/window.csv",
+      "/data/tutorials/animal-movement/home-ranges/windows.csv"
+     ]
+    },
+    {
+     "slug": "corridors-and-validation",
+     "title": "Observed corridors and validating connectivity",
+     "template": "Observed corridors against current",
+     "models": [],
+     "files": [
+      "/data/tutorials/animal-movement/corridors-and-validation/corridor-sensitivity.csv",
+      "/data/tutorials/animal-movement/corridors-and-validation/relief-classes.csv",
+      "/data/tutorials/animal-movement/corridors-and-validation/relief.csv",
+      "/data/tutorials/animal-movement/corridors-and-validation/ud-distance-matrix.csv",
+      "/data/tutorials/animal-movement/corridors-and-validation/ud-distance-pairs.csv",
+      "/data/tutorials/animal-movement/corridors-and-validation/ud-distance-reg.csv",
+      "/data/tutorials/animal-movement/corridors-and-validation/validation-animals.csv",
+      "/data/tutorials/animal-movement/corridors-and-validation/validation-quantile.csv",
+      "/data/tutorials/animal-movement/corridors-and-validation/validation.csv"
+     ]
+    },
+    {
+     "slug": "cleaning-and-thinning",
+     "title": "Clean a track of GPS errors and thin it",
+     "template": "Cleaning a track",
+     "models": [],
+     "files": [
+      "/data/tutorials/animal-movement/cleaning-and-thinning/detection.csv",
+      "/data/tutorials/animal-movement/cleaning-and-thinning/limit.csv",
+      "/data/tutorials/animal-movement/cleaning-and-thinning/m4-with-errors.csv",
+      "/data/tutorials/animal-movement/cleaning-and-thinning/stages.csv",
+      "/data/tutorials/animal-movement/cleaning-and-thinning/thin-distance.csv",
+      "/data/tutorials/animal-movement/cleaning-and-thinning/thin-time.csv"
+     ]
+    },
+    {
      "slug": "animal-movement-in-python",
      "title": "Animal movement in Python",
      "template": null,

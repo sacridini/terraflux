@@ -1,0 +1,9 @@
+setting,speed threshold (m/s),circular variance,corridor segments,share of all segments
+the default: quantiles of these tracks,0.157,0.376,17,0.5
+"speed 0.05 m/s, circular variance 0.2",0.05,0.2,42,1.2
+speed 0.02 m/s,0.02,0.2,70,1.9
+speed 0.10 m/s,0.1,0.2,10,0.3
+circular variance 0.1,0.05,0.1,11,0.3
+circular variance 0.4,0.05,0.4,108,3.0
+min_segments 5,0.05,0.2,11,0.3
+min_segments 10,0.05,0.2,1,0.0

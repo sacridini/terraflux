@@ -1,0 +1,6 @@
+interval,locations,MCP 95 %,KDE reference 95 %,KDE plug-in 95 %,LoCoH k = √n 95 %,dBBMM 95 %
+"as recorded (2 minutes, with gaps)",8958,8.77,9.25,3.44,3.74,
+10 minutes,2228,8.08,9.99,3.21,3.41,7.87
+30 minutes,1235,8.05,10.02,3.06,3.05,9.37
+1 hour,798,7.88,10.24,2.92,2.76,9.05
+2 hours,403,7.63,11.07,2.94,3.11,11.04

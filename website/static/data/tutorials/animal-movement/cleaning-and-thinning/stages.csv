@@ -1,0 +1,5 @@
+stage,locations,distance (km),fastest step (m/s),MCP 100 % (km²),MCP 95 % (km²)
+M4 as recorded (no errors put in),8958,375.6,9.8,11.65,8.77
+with the errors,8958,556.6,155.1,40.84,13.64
+after the GPS quality,8908,444.6,59.4,17.29,12.93
+after the speed limit,8881,403.9,10.2,15.4,10.52

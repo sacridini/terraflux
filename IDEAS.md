@@ -5225,7 +5225,7 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   do Movebank à validação, com os operadores e os templates) e os conselhos do `check_model` (o `location_error`
   obrigatório no dBBMM, a janela ímpar e maior que a margem, o intervalo de amostragem irregular, a grade grande
   demais, a velocidade máxima sem massa nem modo).
-- **7. Documentação (M).** Três partes novas da série `website/content/tutorials/animal-movement/` (áreas de vida e
+- **7. Documentação (M). Feito (2026-11-21):** as partes 6 (`home-ranges`), 7 (`corridors-and-validation`) e 8 (`cleaning-and-thinning`) da série, com as figuras e os dados dos scripts (cada script roda a biblioteca e os mesmos modelos pelo Terraflux e compara); a página da API do Python, sete linhas da acurácia, os tempos das pontes contra o R e o `website/tools/make_accuracy_view.py` (f072bb7); os CHANGELOGs postos em ordem. Achados dos tutoriais: o UD dos fishers não acompanha a corrente do Omniscape (rho 0,05) e os segmentos de corredor sim (3,5 vezes); nenhum sinal de que sigam as curvas de nível (subida de 4,3 m contra 3,8 m nos passos aleatórios), o que o bloco do relevo retoma. Plano original: Três partes novas da série `website/content/tutorials/animal-movement/` (áreas de vida e
   UDs; corredores observados e a validação da conectividade; limpeza e desbaste), com as figuras pelo `movefig.py`;
   a página da API do Python (`website/content/python/api/move.md`), as linhas do `accuracy_tools.csv` e do
   benchmark de acurácia (contra o amt, o move2utils e o move), os tempos contra o R, as referências (Horne et al.

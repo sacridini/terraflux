@@ -1,0 +1,5 @@
+what was put in,locations,dropped by the GPS quality,flagged by the speed,left in the track
+"jump, poor fix",30,30,0,0
+"jump, good-looking fix",30,0,10,20
+"poor fix, right position",20,20,0,0
+untouched fixes,8878,0,17,8861

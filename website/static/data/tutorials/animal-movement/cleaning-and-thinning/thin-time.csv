@@ -1,0 +1,4 @@
+method,locations,median lag (min),lags within ± 1 min of 10,lags under 5 min,lags over 60 min (gaps)
+one per clock interval (move.filter_per_interval),2938,10.1,56.6,4.6,210
+"move.thin_time, 10 min ± 1",2202,10.1,71.1,0.0,258
+"move.thin_time, 10 min ± 3",3091,9.7,35.4,0.0,215

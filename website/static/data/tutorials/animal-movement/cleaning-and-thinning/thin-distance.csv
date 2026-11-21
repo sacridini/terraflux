@@ -1,0 +1,5 @@
+night of M4,locations,median step (m),shortest step (m),longest step (m),median time lag (min)
+All the locations,246,32.6,1.8,493.5,2.0
+"move.thin_time, 30 minutes",33,124.0,1.0,915.9,30.0
+"move.thin_distance, 100 m (step)",82,109.7,13.8,513.2,5.7
+"move.thin_distance, 100 m ± 10 (interval)",58,104.3,8.1,527.3,7.7

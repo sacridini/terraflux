@@ -154,3 +154,70 @@ def cover_image(path: pathlib.Path):
     # lightened, so tracks show over it
     rgb = 1 - 0.45 * (1 - rgb)
     return rgb, [b.left, b.right, b.bottom, b.top]
+
+
+# ---------------------------------------------------------------------------------------------- the library's side
+# Parts 6 to 8 (home ranges, corridors, cleaning) compute with the terraflux library (tf.move) and check the
+# operators against it: the same tracks, projected as the models' move.aeqd_crs nodes project them.
+
+
+def clean_tracks():
+    """The fishers as the first two parts clean them: located, visible and one record per time (tf.move)."""
+    import terraflux as tf
+
+    t = tf.load_tracks(tf.move.example_data("fishers"))
+    t = tf.move.filter_movebank_visible(t)
+    t = t[~t.geometry.is_empty]
+    return tf.move.filter_unique(t).reset_index(drop=True)
+
+
+def projected(tracks, center="centroid"):
+    """The tracks in metres on their local azimuthal equidistant projection (move.aeqd_crs) and its CRS."""
+    import terraflux as tf
+
+    crs = tf.move.aeqd_crs(tracks, center=center)
+    return tracks.to_crs(crs).reset_index(drop=True), crs
+
+
+def thin(tracks, interval):
+    """One location about every `interval` (move.thin_time)."""
+    import terraflux as tf
+
+    return tracks[tf.move.thin_time(tracks, interval)].reset_index(drop=True)
+
+
+def kmaxes(ax, title=None, grid=True):
+    """Axes of a map in metres, labelled in kilometres from the centre of the projection."""
+    ax.set_aspect(1)
+    ax.grid(grid)
+    ax.set_xlabel("km east of the centre")
+    ax.set_ylabel("km north of the centre")
+    ax.tick_params(labelsize=8.5)
+    ax.xaxis.set_major_formatter(lambda v, _: f"{v / 1000:g}")
+    ax.yaxis.set_major_formatter(lambda v, _: f"{v / 1000:g}")
+    if title:
+        ax.set_title(title, fontsize=10.5)
+
+
+def kmscale(ax, km=1, where=(0.05, 0.06)):
+    """A scale bar of km kilometres in axes in metres."""
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+    x = x0 + where[0] * (x1 - x0)
+    y = y0 + where[1] * (y1 - y0)
+    ax.plot([x, x + km * 1000], [y, y], color=figs.INK, lw=2.5, solid_capstyle="butt", zorder=6)
+    ax.text(x + km * 500, y + 0.012 * (y1 - y0), f"{km} km", ha="center", va="bottom", fontsize=8.5, color=figs.INK,
+            zorder=6)
+
+
+def outline(ax, geom, **kw):
+    """The boundary of a (multi)polygon in axes in metres."""
+    import geopandas as gpd
+
+    gpd.GeoSeries([geom]).boundary.plot(ax=ax, **kw)
+
+
+def fill(ax, geom, **kw):
+    import geopandas as gpd
+
+    gpd.GeoSeries([geom]).plot(ax=ax, **kw)

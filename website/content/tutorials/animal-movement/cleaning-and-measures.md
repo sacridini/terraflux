@@ -302,7 +302,9 @@ line cuts its route.
 
 The usual remedy follows from the figure: do not compute speeds over very short lags. Thin the tracks to one
 location per interval (below) or resample them (part 4) before measuring speeds, and screen the steps above a
-plausible speed by eye, on the map, before removing them.
+plausible speed by eye, on the map, before removing them. [Part 8](../cleaning-and-thinning/) goes on from here:
+it drops the fixes a GPS marks as unreliable, flags the steps faster than the animal can move with a limit
+from its body mass, and thins a track to a regular interval in time or in distance.
 
 ### Each animal
 
@@ -385,6 +387,8 @@ interval; `random` with a different `seed` gives a different track).
   local projection, fill gaps, and compare with tracks of random motion.
 - [Regular steps and track summaries](../steps-and-summaries/): [[move.resample]] for steps of a regular
   interval, and summaries of each track.
+- [Clean a track of GPS errors and thin it](../cleaning-and-thinning/): the errors a record does not announce, the
+  speed limit of an animal, and [[move.thin_time]] and [[move.thin_distance]].
 - The operators' reference: [[move.filter_movebank_visible]], [[move.filter_unique]],
   [[move.filter_per_interval]], [[move.time_lags]], [[move.distance]], [[move.speed]], [[move.azimuth]],
   [[move.turn_angle]], [[move.segments]].

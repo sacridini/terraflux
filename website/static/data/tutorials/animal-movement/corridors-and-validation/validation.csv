@@ -1,0 +1,7 @@
+surface,use,Spearman's rho,use in the best 10 %,area of the best 10 %,use ratio,cells
+Omniscape current,the UD,0.047,6.8,10.0,0.68,4702
+Omniscape current,corridor segments,0.046,26.9,7.7,3.48,13248
+Omniscape current,the locations,0.086,7.5,6.5,1.15,18170
+resistance (lower is better),the UD,0.167,90.9,70.1,1.3,4702
+uniform resistance (a control),the UD,-0.016,0.0,10.0,0.0,4702
+uniform resistance (a control),corridor segments,-0.004,0.0,0.0,nan,13248

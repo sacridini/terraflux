@@ -14194,6 +14194,499 @@
   "container": false
  },
  {
+  "name": "move.corridor",
+  "doc": "Mark the segments of the tracks that run along a corridor (move2utils' mt_corridor, LaPoint et al. 2013). A segment is the step from a location to the next of its track. It is a corridor segment when (1) it is fast (its speed, m/s, is at least speed_threshold), (2) the directions of the segments around it agree (the circular variance of their pseudo-azimuths, (2 azimuth) mod 2 pi, so that two animals walking the same path in opposite directions agree, is at most circvar_threshold): the neighbours are the segments, of all tracks together, whose midpoints lie within half its own length from its midpoint (the circle of that radius as GEOS draws it, a polygon of 120 vertices, the boundary included), itself included, and (3) it has at least min_segments neighbours and strictly more neighbours that satisfy 1 and 2 than not. A threshold left out is a quantile of the tracks (the 0.75 quantile of the speeds, the 0.25 quantile of the circular variances, R's type 7), with a warning: for corridors that can be compared between animals, give the thresholds, computed once on all of them. The search radius assumes a regular sampling interval (a warning where it is very irregular). Longitude / latitude is projected to a local azimuthal equidistant projection (move.aeqd_crs) for the neighbourhoods and the directions. Columns added to each location, for the segment leaving it (none at the last location of a track and at empty locations): corridor (\"corridor\" or \"not corridor\"), corridor_speed (m/s), corridor_azimuth (degrees, on the working projection), corridor_circvar (none with fewer than two neighbours) and corridor_n_neighbours. The tracks need a coordinate system.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points, each track's rows consecutive in time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the columns of the corridors"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   },
+   {
+    "name": "lines",
+    "type": "vector",
+    "required": true,
+    "doc": "the corridor segments as two-point lines, with their columns"
+   },
+   {
+    "name": "speed_threshold",
+    "type": "number",
+    "required": true,
+    "doc": "the speed threshold used, m/s"
+   },
+   {
+    "name": "circvar_threshold",
+    "type": "number",
+    "required": true,
+    "doc": "the circular variance threshold used"
+   },
+   {
+    "name": "thresholds",
+    "type": "table",
+    "required": true,
+    "doc": "a row: speed_threshold, circvar_threshold, min_segments"
+   }
+  ],
+  "params": [
+   {
+    "name": "speed_threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the speed (m/s) from which a segment is fast (the 0.75 quantile of the speeds)"
+   },
+   {
+    "name": "circvar_threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the circular variance, in [0, 1], up to which the directions around a segment agree (the 0.25 quantile of the variances)"
+   },
+   {
+    "name": "min_segments",
+    "type": "number",
+    "required": false,
+    "doc": "the fewest neighbours (all of them, the segment itself included) of a corridor segment (2)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "A corridor segment is fast and has neighbours going the same way: a property of the movement, not a route. A threshold left out is a quantile of these tracks (the upper quartile of the speeds, the lower quartile of the circular variances; a warning says so), so about a quarter of the segments pass the speed whatever the animals do and the flag is relative to the data: to compare animals, seasons or sites, give both thresholds, computed once on all of them. min_segments counts every neighbour, the segment itself included, not only the qualifying ones (as move2utils does). The neighbours are the segments, of all the tracks together, whose midpoints lie within half the segment's length of its midpoint, so the sampling interval should be regular (a warning when it is very irregular): thin to one interval first (move.thin_time). Longitude / latitude is projected to a local azimuthal equidistant projection and the speeds are m/s; the tracks need a coordinate system. lines gives the corridor segments as two-point lines."
+ },
+ {
+  "name": "move.dbbmm_ud",
+  "doc": "The utilization distribution of the dynamic Brownian bridge, a band for each track (move2utils' mt_dbbmm_ud, Kranstauber et al. 2012; Horne et al. 2007): each pair of consecutive locations is a Brownian bridge whose variance is the motion variance of the locations (move.dbbmm_variance) plus the location error at its ends; it is walked in steps of time_step (minutes, by default a fifteenth of the shortest time lag) and each step spreads a bivariate normal over the cells within four standard deviations of its position. The cells add the steps' densities times the cell area and each band is divided by its sum: the probability of the animal being in the cell, summing to 1 (the tracks share one grid, so the bands compare directly). Only the segments of interest count (move.mask_segments). The tracks may come with the columns of move.dbbmm_variance, used as they are (a location_error given here replaces the errors they hold; with longitude / latitude the projection is the centroid's, recomputed from the tracks given), or without them: the variance is then computed here with window_size, margin, location_error and location_error_na. The grid: the raster like (never enlarged: an error says how large it has to be), or the box of the locations widened by ext_factor of its sides, in cells of res or dim_size cells along its longest side (100), enlarged when the bridges' windows do not fit (told only with verbose); the cost grows with the cells times the steps: a coarse grid first. The distribution is computed and given in the coordinate system of the tracks when it is projected in metres, else in the local azimuthal equidistant projection of move.aeqd_crs centred on the middle of the ranges of longitude and latitude (metres); crs input warps it back to the coordinate system of the tracks (GDAL bilinear, cells below 0 made 0, each band summed to 1 again: not the same bits on every machine). With bursts (move.resample) a band is a burst, named track__burst. A track with fewer locations than window_size gets no band (a warning).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points, each track's rows consecutive in time"
+   },
+   {
+    "name": "like",
+    "type": "raster",
+    "required": false,
+    "doc": "the raster whose grid to compute on (north up, projected in metres); else one made from the locations"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "ud",
+    "type": "stack",
+    "required": true,
+    "doc": "a band for each track (or burst), the cells summing to 1"
+   }
+  ],
+  "params": [
+   {
+    "name": "res",
+    "type": "number",
+    "required": false,
+    "doc": "without like: the cell size, in the units of the computing CRS"
+   },
+   {
+    "name": "dim_size",
+    "type": "integer",
+    "required": false,
+    "doc": "without like: the cells along the longest side (100)"
+   },
+   {
+    "name": "ext_factor",
+    "type": "number",
+    "required": false,
+    "doc": "the box of the locations widened by this fraction of its sides (0.5)"
+   },
+   {
+    "name": "time_step",
+    "type": "number",
+    "required": false,
+    "doc": "the step of the integration over time, minutes (a fraction of the shortest lag)"
+   },
+   {
+    "name": "window_size",
+    "type": "integer",
+    "required": false,
+    "doc": "without the variance columns: the locations of a window, odd (31)"
+   },
+   {
+    "name": "margin",
+    "type": "integer",
+    "required": false,
+    "doc": "without the variance columns: odd, window_size at least 2 margin + 1 (11)"
+   },
+   {
+    "name": "location_error",
+    "type": "any",
+    "required": false,
+    "doc": "the standard deviation of the location error, metres: none, a number, a column or auto"
+   },
+   {
+    "name": "location_error_na",
+    "type": "text",
+    "required": false,
+    "doc": "what a missing error becomes (median)",
+    "choices": [
+     "median",
+     "mean",
+     "zero",
+     "approx"
+    ]
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "projected (default): the computing CRS; input: the CRS of the tracks",
+    "choices": [
+     "projected",
+     "input"
+    ]
+   },
+   {
+    "name": "max_cells",
+    "type": "number",
+    "required": false,
+    "doc": "the most cells a grid made from res or dim_size may have (1e8)"
+   },
+   {
+    "name": "verbose",
+    "type": "bool",
+    "required": false,
+    "doc": "say when the grid was enlarged to hold the bridges (false)"
+   },
+   {
+    "name": "burst",
+    "type": "text",
+    "required": false,
+    "doc": "auto (default: the bursts of move.resample are tracks of their own), none, or a column"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Start coarse: the cost grows with the cells times the steps of the bridges (the shortest time lag over time_step), so try dim_size 50 to 100 or a res of a few GPS errors, look at the result, then refine. The grid reaches ext_factor of the box of the locations beyond them and is enlarged, silently unless verbose, so that the bridges fit; a template (like) is never enlarged and an error says how large it has to be. The distribution of each track (or burst: move.resample, a band named track__burst) sums to 1 and the tracks share one grid, so the bands compare directly (move.ud_distance, move.home_range_overlap). It is in the CRS the tracks are in when that is projected in metres, else in a local projection (move.aeqd_crs) in metres; crs = input warps it back (bilinear: the numbers change a little). The 0.95 and 0.5 contours of move.ud_volume (levels) are the usual home range and core area. A track shorter than window_size gets no band (a warning)."
+ },
+ {
+  "name": "move.dbbmm_variance",
+  "doc": "The motion variance of the dynamic Brownian bridge along each track (move2utils' mt_dbbmm_variance, Kranstauber et al. 2012): a window of window_size locations slides along the track; in each, the Brownian motion variance that best explains the locations between their neighbours (every second one left out in turn, as a bridge between its neighbours) is found by maximum likelihood, and so is one with a break point in it, kept when it lowers the BIC. The variance of a location is the mean over the windows that cover it, margin - 1 locations at the start and margin at the end have none. window_size and margin are odd, window_size at least 2 margin + 1 (move.suggest_window proposes them from the sampling); a track with fewer locations than window_size is skipped, with a warning (an error when it is the only one). location_error is the standard deviation of the location error, in metres: a number, the name of a column, or auto (the column eobs_horizontal_accuracy_estimate, else the classes of argos_lc: 3 250 m, 2 500 m, 1 1500 m, 0 and A 5000 m, B 10000 m); it matters, because a real error taken for movement makes the variance (and the distribution) too large; missing values are filled in each track by location_error_na (median, mean, zero or approx, along the track). Longitude / latitude is projected to the local azimuthal equidistant projection of move.aeqd_crs (centred on the centroid) for the computation; the variance is in m^2 per minute (the CRS's unit squared for other projections). Columns added to the locations: motion_variance (empty where no window covers), in_windows (the windows that cover), interest (1 where every window covers: the segments of the distribution, which move.mask_segments can leave out of it) and location_error (the errors used). With bursts (move.resample) each burst is a track of its own.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points, each track's rows consecutive in time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the columns of the variance"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "location_error",
+    "type": "any",
+    "required": false,
+    "doc": "the standard deviation of the location error, metres: none, a number, a column or auto"
+   },
+   {
+    "name": "window_size",
+    "type": "integer",
+    "required": false,
+    "doc": "the locations of a window, odd (31)"
+   },
+   {
+    "name": "margin",
+    "type": "integer",
+    "required": false,
+    "doc": "odd, window_size at least 2 margin + 1 (11)"
+   },
+   {
+    "name": "location_error_na",
+    "type": "text",
+    "required": false,
+    "doc": "what a missing error becomes (median)",
+    "choices": [
+     "median",
+     "mean",
+     "zero",
+     "approx"
+    ]
+   },
+   {
+    "name": "burst",
+    "type": "text",
+    "required": false,
+    "doc": "auto (default: the bursts of move.resample are tracks of their own), none, or a column"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Choose the window by the animal's behaviour, not by the table: window_size locations should span a few changes of behaviour (several hours to days for most GPS tracks) and margin, odd and at most (window_size - 1) / 2, is how many locations at the ends of the track are left without a variance; move.suggest_window proposes both from the sampling interval (target_hours). A short window finds more changes and is noisier. The location error is what makes the distribution honest: an error taken for movement inflates the variance, so give the receiver's (a number in metres, a column, or auto for e-obs and Argos data) and fill missing values on purpose (location_error_na). A long gap makes a wide bridge that puts probability on the straight line across it: leave such bridges out of the distribution (move.mask_segments, gap) or thin the track first (move.thin_time). The columns it adds go on to move.dbbmm_ud, which uses them as they are."
+ },
+ {
+  "name": "move.dbgb_ud",
+  "doc": "The utilization distribution of the directional Brownian bridge, a band for each track (move2utils' mt_dbgb_ud): as move.dbbmm_ud, but each step of a bridge spreads a bivariate normal with two standard deviations, along and across the direction from the bridge's position to the next location (move.dbgb_variance), over the cells within five of the larger one, with time_step by default a twentieth of the shortest time lag. Only the core of each track counts (the locations every window of the variance covers) and in it the segments of seg_interest (move.mask_segments): it needs long tracks and a template (like) larger than the dBBMM's, as the windows reach farther. margin is 15 by default. The other settings and the output are those of move.dbbmm_ud.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points, each track's rows consecutive in time"
+   },
+   {
+    "name": "like",
+    "type": "raster",
+    "required": false,
+    "doc": "the raster whose grid to compute on (north up, projected in metres); else one made from the locations"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "ud",
+    "type": "stack",
+    "required": true,
+    "doc": "a band for each track (or burst), the cells summing to 1"
+   }
+  ],
+  "params": [
+   {
+    "name": "res",
+    "type": "number",
+    "required": false,
+    "doc": "without like: the cell size, in the units of the computing CRS"
+   },
+   {
+    "name": "dim_size",
+    "type": "integer",
+    "required": false,
+    "doc": "without like: the cells along the longest side (100)"
+   },
+   {
+    "name": "ext_factor",
+    "type": "number",
+    "required": false,
+    "doc": "the box of the locations widened by this fraction of its sides (0.5)"
+   },
+   {
+    "name": "time_step",
+    "type": "number",
+    "required": false,
+    "doc": "the step of the integration over time, minutes (a fraction of the shortest lag)"
+   },
+   {
+    "name": "window_size",
+    "type": "integer",
+    "required": false,
+    "doc": "without the variance columns: the locations of a window, odd (31)"
+   },
+   {
+    "name": "margin",
+    "type": "integer",
+    "required": false,
+    "doc": "without the variance columns: odd, window_size at least 2 margin + 1 (15)"
+   },
+   {
+    "name": "location_error",
+    "type": "any",
+    "required": false,
+    "doc": "the standard deviation of the location error, metres: none, a number, a column or auto"
+   },
+   {
+    "name": "location_error_na",
+    "type": "text",
+    "required": false,
+    "doc": "what a missing error becomes (median)",
+    "choices": [
+     "median",
+     "mean",
+     "zero",
+     "approx"
+    ]
+   },
+   {
+    "name": "crs",
+    "type": "text",
+    "required": false,
+    "doc": "projected (default): the computing CRS; input: the CRS of the tracks",
+    "choices": [
+     "projected",
+     "input"
+    ]
+   },
+   {
+    "name": "max_cells",
+    "type": "number",
+    "required": false,
+    "doc": "the most cells a grid made from res or dim_size may have (1e8)"
+   },
+   {
+    "name": "verbose",
+    "type": "bool",
+    "required": false,
+    "doc": "say when the grid was enlarged to hold the bridges (false)"
+   },
+   {
+    "name": "burst",
+    "type": "text",
+    "required": false,
+    "doc": "auto (default: the bursts of move.resample are tracks of their own), none, or a column"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Only the core of each track counts (the locations every window of the variance covers), and the bridges reach five standard deviations of the larger variance: a template (like) must be larger than the dBBMM's, which an error says how much, or leave like out and give res or dim_size. The advice of move.dbbmm_ud applies: start with a coarse grid."
+ },
+ {
+  "name": "move.dbgb_variance",
+  "doc": "The variances of the directional Brownian bridge along and across the movement (move2utils' mt_dbgb_variance): as move.dbbmm_variance, but each leave-one-out residual of a window is split along the direction from the expected position to the next location (the parallel part) and across it (the orthogonal part); each axis has a variance of its own and up to one break point of its own, found by the BIC in four steps (none, the parallel axis alone, the orthogonal alone, the second given the first). The standard deviation of a location is the root of the mean variance of the windows that cover it. margin is 15 by default (odd, window_size at least 2 margin + 1). Columns added: para_sd and orth_sd (standard deviations, empty where no window covers), n_estim (the windows that cover), seg_interest (1 where every window covers: the segments of the distribution, which move.mask_segments can leave out) and dbgb_location_error (the errors used). The dBGB suits movement with a direction (a persistent walk); it needs a long track: windows of 31 locations with margins of 15 leave a core of few. The other settings are those of move.dbbmm_variance.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points, each track's rows consecutive in time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the columns of the variance"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "location_error",
+    "type": "any",
+    "required": false,
+    "doc": "the standard deviation of the location error, metres: none, a number, a column or auto"
+   },
+   {
+    "name": "window_size",
+    "type": "integer",
+    "required": false,
+    "doc": "the locations of a window, odd (31)"
+   },
+   {
+    "name": "margin",
+    "type": "integer",
+    "required": false,
+    "doc": "odd, window_size at least 2 margin + 1 (15)"
+   },
+   {
+    "name": "location_error_na",
+    "type": "text",
+    "required": false,
+    "doc": "what a missing error becomes (median)",
+    "choices": [
+     "median",
+     "mean",
+     "zero",
+     "approx"
+    ]
+   },
+   {
+    "name": "burst",
+    "type": "text",
+    "required": false,
+    "doc": "auto (default: the bursts of move.resample are tracks of their own), none, or a column"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The directional bridge splits the variance along and across the direction the animal is heading, so it suits a persistent walk (migration, patrolling) and needs a long track: each of its two variances may have its own break point, so give windows of at least 31 locations and a margin of 15. The columns it adds go on to move.dbgb_ud. For tracks without a clear direction the dBBMM (move.dbbmm_variance) is the safer model."
+ },
+ {
   "name": "move.distance",
   "doc": "The distance from each location to the next of its track (move2's mt_distance, the same numbers): on the sphere of S2 (radius 6 371 010 m, as sf::st_distance with s2) in longitude / latitude, the straight line in the coordinate system's units otherwise. NaN at the last location of each track.",
   "inputs": [
@@ -14350,7 +14843,7 @@
  },
  {
   "name": "move.extract_covariates",
-  "doc": "The values of rasters at locations, or at the ends or starts of steps (amt's extract_covariates): the value of the cell holding each point (terra's extract: a point on the edge between two cells takes the cell to its right / below), none outside the raster or on no data. Connect the rasters as inputs of any names (forest, elev...): a column each, named by its input (a stack's layers input_layer). The points are taken to each raster's coordinate system.",
+  "doc": "The values of rasters at locations, or at the ends or starts of steps (amt's extract_covariates): the value of the cell holding each point (terra's extract: a point on the edge between two cells takes the cell to its right / below), none outside the raster or on no data. Connect the rasters as inputs of any names (forest, elev...): a column each, named by its input (a stack's layers input_layer). The points are taken to each raster's coordinate system. With where = along (steps) the values are those of the cells each step crosses, from its start to its end (amt's extract_covariates_along: terra's extract of the line with its defaults, every cell the line touches, the coordinates rounded to 15 significant digits as amt's paste0 does; a step that touches no cell takes the cells of its two ends, one outside the raster gives one missing value): the summaries in stats become the columns <layer>_along_<stat> (mean, min, max of the cells with data; ascent and descent: the sum of the rises and of the falls between successive cells along the step, as a positive number; delta: |last - first|), and the values themselves come out as the table `along`. The rasters must share one grid, north up.",
   "inputs": [
    {
     "name": "tracks",
@@ -14371,6 +14864,12 @@
     "type": "table",
     "required": true,
     "doc": "their attributes that are numbers"
+   },
+   {
+    "name": "along",
+    "type": "table",
+    "required": false,
+    "doc": "with where = along: the values of the cells each step crosses, one row per cell in terra's order (cell number, not along the step): step (1-based, as amt's ID) and a column per raster (or layer)"
    }
   ],
   "params": [
@@ -14378,17 +14877,25 @@
     "name": "where",
     "type": "text",
     "required": false,
-    "doc": "steps: at their end (default), start or both (columns suffixed _start and _end)",
+    "doc": "steps: at their end (default), start or both (columns suffixed _start and _end), or along (the cells the step crosses)",
     "choices": [
      "end",
      "start",
-     "both"
+     "both",
+     "along"
     ]
+   },
+   {
+    "name": "stats",
+    "type": "any",
+    "required": false,
+    "doc": "with where = along: the summaries to add, a list or a comma text of mean, min, max, ascent, descent, delta (default: all six)"
    }
   ],
   "access": "global",
   "container": false,
-  "extra": "any"
+  "extra": "any",
+  "advice": "where = along reads the cells the straight line of each step touches (all of them, as amt's extract_covariates_along), not only its ends: on a DEM, the ascent and descent are the sums of the rises and falls between successive cells along the step and delta is |last - first|. A step that follows a contour line has a small ascent and descent, one that climbs straight up has ascent = delta; in an iSSF a negative coefficient on ascent means the animal follows the contour lines (avoids climbing), a negative one on descent the same going down. The cells are those the line touches, so the cells beside a long step count as much as the cells under it; mean, min and max leave the cells without data out, and a step wholly outside the raster has missing values. All the rasters must share one grid; the table `along` gives the values themselves (the step is its 1-based number), in terra's order (by cell number), not along the step."
  },
  {
   "name": "move.filter_gps_quality",
@@ -14783,6 +15290,251 @@
   "advice": "Both ends of a step faster than the limit are flagged: the data cannot tell which fix is wrong. Drop the locations without a position first (move.filter_gps_quality), and filter the GPS quality before the speeds, since poor fixes make the false jumps. jitter is the noise floor of the device (metres): steps shorter than it are flagged too. This is only the hard cap of move2utils: no automatic limit, no cascade of detectors; a species with long bursts of real speed (a pigeon racing) needs a limit from its own biology (mass and mode, or v_max)."
  },
  {
+  "name": "move.home_range",
+  "doc": "The home range of each track (the library's home_range, from amt 0.3.1, Signer, Fieberg and Avgar 2019), by one of three methods, as polygons with their areas. mcp: the minimum convex polygon of the locations nearest to their mean (the squared distance at most the quantile of each level, R's type 7; Worton 1989): the polygon of level 0.95 is the hull of 95 % of them. kde: the kernel density estimate (a bivariate normal kernel, KernSmooth's bkde2D, evaluated at the template's grid laid over its edges), its isopleths the contour lines of the cumulative distribution (R's contourLines) at each level, closed into polygons and united (a hole is filled); the template (like) must hold them: a contour that reaches its edge is an error, so give a larger template. bandwidth ref (the reference bandwidth sqrt((var x + var y) / 2) n^(-1/6): it oversmooths a track with several centres of use), ref_scaled (the reference one reduced until the level's isopleth has at most num_parts polygons: the highest level, between 0.0001 and 0.9999), pi (the plug-in one of KernSmooth's dpik, raised to the power 5/6 as amt does), lscv (least-squares cross-validation over 100 bandwidths from 0.1 to 2 times the reference: it undersmooths, and its minimum may be at an end of the range, a warning), a number (the same for x and y) or a list (x, y). rescale none, unitvar or xvar scales the coordinates first (ref, pi, lscv). locoh: the local convex hulls of Getz et al. (2007): the hull of each location and its neighbours (type k: the n nearest, as a rule about the square root of the number of locations; r: those within the distance n; a: those whose cumulative distance, nearest first, is at most n), buffered by rand_buffer, taken from the smallest and united until they hold each level of the locations; the level reached (to 2 digits) is the one recorded. The tracks must be projected (not longitude / latitude: amt's areas of those come from s2 on a plane in degrees; project them with move.aeqd_crs) with a track column (or one track). Each track alone; without like, one template made for all of them (amt's make_trast: the bounding box of all the locations grown by factor, cells of res, by default 1/100 of its largest side), so that their UDs can be compared. The polygons are listed as amt's hr_isopleths lists them: each track from its highest level down, with the level, what (estimate) and area (the CRS's unit squared, GDAL's OGR sums). The UD (kde only) has a band for each track, the cells summing to 1.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points in a projected coordinate system"
+   },
+   {
+    "name": "like",
+    "type": "raster",
+    "required": false,
+    "doc": "kde: the raster whose cells the estimate takes (north up); else one made from the locations (res, factor)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "polygons",
+    "type": "vector",
+    "required": true,
+    "doc": "a polygon for each track and level: track, level, what and area"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the areas: track, level and area, as the polygons"
+   },
+   {
+    "name": "ud",
+    "type": "stack",
+    "required": false,
+    "doc": "kde: the UD of each track, the cells summing to 1"
+   },
+   {
+    "name": "bandwidths",
+    "type": "table",
+    "required": false,
+    "doc": "kde: the bandwidth of each track: hx and hy"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "mcp (default), kde or locoh",
+    "choices": [
+     "mcp",
+     "kde",
+     "locoh"
+    ]
+   },
+   {
+    "name": "levels",
+    "type": "any",
+    "required": false,
+    "doc": "the share of the use each polygon holds: a number or a list, in [0, 1] (0.95)"
+   },
+   {
+    "name": "bandwidth",
+    "type": "any",
+    "required": false,
+    "doc": "kde: ref (default), ref_scaled, pi, lscv, a number or a list (x, y)"
+   },
+   {
+    "name": "rescale",
+    "type": "text",
+    "required": false,
+    "doc": "kde bandwidths ref, pi, lscv: scale the coordinates first (none)",
+    "choices": [
+     "none",
+     "unitvar",
+     "xvar"
+    ]
+   },
+   {
+    "name": "which_min",
+    "type": "text",
+    "required": false,
+    "doc": "lscv: the lowest criterion (global) or the largest local minimum",
+    "choices": [
+     "global",
+     "local"
+    ]
+   },
+   {
+    "name": "num_parts",
+    "type": "integer",
+    "required": false,
+    "doc": "ref_scaled: the most polygons wanted (1)"
+   },
+   {
+    "name": "res",
+    "type": "number",
+    "required": false,
+    "doc": "kde without like: the cell size (1/100 of the largest side)"
+   },
+   {
+    "name": "factor",
+    "type": "number",
+    "required": false,
+    "doc": "kde without like: the box grown by this factor, 1 or more (1.5)"
+   },
+   {
+    "name": "type",
+    "type": "text",
+    "required": false,
+    "doc": "locoh: k (default), a or r",
+    "choices": [
+     "k",
+     "a",
+     "r"
+    ]
+   },
+   {
+    "name": "n",
+    "type": "number",
+    "required": false,
+    "doc": "locoh: the neighbours (k: a whole number, 10), the radius (r) or the cumulative distance (a)"
+   },
+   {
+    "name": "rand_buffer",
+    "type": "number",
+    "required": false,
+    "doc": "locoh: the buffer of the hulls, the CRS's units, so that collinear locations have an area (1e-5)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-local-identifier, track, id, individual or animal; none: one track)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "A home range is a summary of where the animal was, not of where it can go: it depends on how many locations there are and how they are spaced in time, so compare animals only with similar samples. mcp is the hull of the locations nearest to the centre (level 0.95 drops the farthest 5 %): one outlying location moves the 100 % polygon a long way, which is why levels below 1 are used, and the polygon includes all the empty ground between the locations. kde is a smooth estimate with a UD: the bandwidth decides everything. ref (the default) oversmooths when the animal has several centres of use (one big blob over them all); ref_scaled shrinks it until the isopleth has at most num_parts polygons; pi (a plug-in estimate) is usually better for such tracks; lscv undersmooths (a polygon round each cluster) and may not converge (its choice is an end of its range: a warning); a number gives it in the CRS's units. The template (like, or res and factor) must hold every isopleth: a contour that reaches its edge is an error, so make it larger (factor) or lower the level; and with several tracks one template holds them all, which is what makes their UDs and overlaps comparable (give the same like to every node that is compared). Cells much larger than the bandwidth warn that the grid is too coarse. A kernel's isopleths are the contours of the cumulative distribution, united: a hole inside one (a place the animal avoids) is filled. locoh builds a hull round each location and its k nearest neighbours (k about the square root of the number of locations is the usual start; type r and a take a distance instead) and takes the smallest first: it follows barriers (rivers, coasts) that mcp and kde cross, and the level reached is the share of locations actually held, as near the level asked as the hulls allow. Areas are in the CRS's unit squared: project longitude / latitude first (move.aeqd_crs), which is refused here."
+ },
+ {
+  "name": "move.home_range_overlap",
+  "doc": "The overlap between the home ranges of tracks (amt's hr_overlap, Fieberg and Kochanny 2005), for the pairs of tracks of a move.home_range output: consecutive ones, all (each against each other, both ways) or the first against the others (which). type hr: the share of the area of the first's polygon that the second's covers, at each level: needs the polygons (the tracks must have the same levels). The others are indices of two kernel UDs on the same grid (the ud of move.home_range): phr (the probability the second animal uses the first's home range: the sum of the second's UD over the cells where the first's is positive), vi (volume of intersection, the sum of the smaller of the two cells), ba (Bhattacharyya's affinity), udoi (the UD overlap index, which exceeds 1 when both are concentrated in the same cells) and hd (Hellinger's distance, 0 for equal UDs). With conditional the UDs are cut to the cells inside each level's isopleth (the levels of the polygons, or levels) and rescaled, a row for each level; else one row, at level 1. The UD is rescaled to sum to 1 again here, so the indices differ from amt's in the last digits.",
+  "inputs": [
+   {
+    "name": "polygons",
+    "type": "vector",
+    "required": false,
+    "doc": "type hr: the polygons of move.home_range"
+   },
+   {
+    "name": "ud",
+    "type": "any",
+    "required": false,
+    "doc": "the other types: the ud of move.home_range, a band for each track"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "from, to (the tracks), level and overlap"
+   }
+  ],
+  "params": [
+   {
+    "name": "type",
+    "type": "text",
+    "required": false,
+    "doc": "hr (default), phr, vi, ba, udoi or hd",
+    "choices": [
+     "hr",
+     "phr",
+     "vi",
+     "ba",
+     "udoi",
+     "hd"
+    ]
+   },
+   {
+    "name": "conditional",
+    "type": "bool",
+    "required": false,
+    "doc": "the UDs conditional on each level: the cells in the isopleth (false)"
+   },
+   {
+    "name": "which",
+    "type": "text",
+    "required": false,
+    "doc": "the pairs: consecutive (default), all or one_to_all",
+    "choices": [
+     "consecutive",
+     "all",
+     "one_to_all"
+    ]
+   },
+   {
+    "name": "levels",
+    "type": "any",
+    "required": false,
+    "doc": "conditional: the levels (those of the polygons, else 0.95)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track in the polygons (the first)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "type hr compares the polygons (the share of the first animal's polygon that the second covers: not symmetric, and not a measure of how much they use the shared ground); the others compare the UDs of kernel estimates made on the same template: vi (the shared volume, 0 to 1 and symmetric), ba (Bhattacharyya's affinity), udoi (above 1 when both concentrate their use in the same few cells), hd (a distance, 0 for equal UDs) and phr (the probability that the second animal is in the first's home range). conditional cuts the UDs to the isopleth of each level first, so the overlap of the cores (0.5) is not drowned by the tails: it gives a row for each level. Overlap of home ranges is not interaction: the animals can use the same ground in different seasons. The levels of all the polygons must be the same, and the UDs must be the bands of one raster."
+ },
+ {
+  "name": "move.intensity_use",
+  "doc": "The intensity of use of each track (amt's intensity_use): the length of the track (the sum of the distances between consecutive locations) over the square root of the area of its 100 % minimum convex polygon, so that it is a number without a unit: how many times the animal went back and forth over the ground it covered. The tracks must be projected (not longitude / latitude: project them with move.aeqd_crs) with a track column, or are one track; the locations are taken in the order they are given.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points in a projected coordinate system"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the track and its intensity_use"
+   }
+  ],
+  "params": [
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-local-identifier, track, id, individual or animal; none: one track)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The length of the track over the square root of the area of its 100 % minimum convex polygon, a number without a unit: the larger it is, the more the animal went over the same ground again; a track whose locations lie on a line has no area and gives infinity. It grows with the sampling rate (more locations, a longer track), so compare tracks sampled at the same interval (move.thin_time). Locations are taken in the order given."
+ },
+ {
   "name": "move.interpolate",
   "doc": "Locations at given times between the recorded ones (move2's mt_interpolate). Without times, the records without a location (empty points) get one between the locations before and after them. With times (a list, or a unit such as 1 hour or 15 mins for a regular sequence from the first to the last time), a record is added for each time within the span of each track that the track does not have, and located. A location is placed on the great circle between its neighbours in proportion to the time (in longitude / latitude, and through it in a projected system, as move2 does with s2), on the straight line without a coordinate system. Gaps longer than max_time_lag are left empty. Ordered by track and time.",
   "inputs": [
@@ -14841,6 +15593,83 @@
   ],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "move.mask_segments",
+  "doc": "Leave segments out of the distribution (move2utils' mt_mask_segments): interest (seg_interest for the dBGB) becomes 0 for them. The segment i of a track is the bridge from its location i to i + 1 (from 0, R counts from 1), the one that the time between two fixes spans: leave out the bridges across long gaps, as the vignette 'UD_gap_aware_ud' of move2utils does (gap, in hours: the segments whose time lag is longer), or the ones you name: segments, a list of numbers from 0 to n - 2 applied to every track, or an object by track (the names of the bands of move.dbbmm_ud) with a list each; column, a column of the tracks that is not 0 (or empty) where the segment starting there is left out. The tracks must have the columns of move.dbbmm_variance or move.dbgb_variance. With bursts (move.resample) the tracks are the bursts.",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with the columns of the variance"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks with interest updated"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "segments",
+    "type": "any",
+    "required": false,
+    "doc": "the segments to leave out: a list of numbers, or an object by track"
+   },
+   {
+    "name": "gap",
+    "type": "number",
+    "required": false,
+    "doc": "leave out the segments whose time lag is longer than this, hours"
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "a column of the tracks: not 0 where the segment is left out"
+   },
+   {
+    "name": "model",
+    "type": "text",
+    "required": false,
+    "doc": "which of the two to mask, when the tracks have the columns of both",
+    "choices": [
+     "dbbmm",
+     "dbgb"
+    ]
+   },
+   {
+    "name": "burst",
+    "type": "text",
+    "required": false,
+    "doc": "auto (default: the bursts of move.resample are tracks of their own), none, or a column"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Use it for the bridges that cross a gap in the tracking (gap: hours), which would put probability on a straight line through places the animal may not have visited. The masked bridges leave no mass in the distribution and the rest is normalised to 1, so the distribution describes the time actually followed. The segment i is the bridge from location i to location i + 1, counted from 0."
  },
  {
   "name": "move.max_speed",
@@ -15374,6 +16203,49 @@
   "container": false
  },
  {
+  "name": "move.suggest_window",
+  "doc": "A window size and margin for move.dbbmm_variance from the sampling of each track (move2utils' mt_suggest_dbbmm_window, without its plot): the window covers about target_hours at the median time lag (an odd number of locations, at least 11 and at most a quarter of the track), the margin is a quarter of it (odd, at least 3, at most (window_size - 1) / 2). A window much shorter than the movement's changes of behaviour sees none of them; a longer one averages them. A track with fewer than 11 locations or fewer than two time lags above zero gets no suggestion (a warning, empty numbers). The table has a row for each track: window_size, margin, median_dt_secs, window_hours, n (locations) and n_windows (the whole windows that fit).",
+  "inputs": [
+   {
+    "name": "tracks",
+    "type": "vector",
+    "required": true,
+    "doc": "the tracks: points, each track's rows consecutive in time"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the suggestion for each track"
+   }
+  ],
+  "params": [
+   {
+    "name": "target_hours",
+    "type": "number",
+    "required": false,
+    "doc": "the hours a window should cover (4)"
+   },
+   {
+    "name": "time",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the time (default: timestamp, time, datetime, date_time or t)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: individual-tag-local-identifier, individual-local-identifier, track, track_id, id, individual or animal)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "It reads the median time lag, so it is a starting point for regular sampling; with an irregular one the window covers more or less time than target_hours. Tracks with fewer than 11 locations have no suggestion. Check the result against the behaviour of the animal and the length of the track (at least a few windows)."
+ },
+ {
   "name": "move.thin_distance",
   "doc": "Thin each track so that the kept locations are about distance metres of travel apart (move2utils' mt_thin_distance). The distance of each step is move.distance's, in metres whatever the CRS's unit, added along the track in the order of the rows. method step (default): the first location, then each one at which the travel since the last kept one reaches distance; interval: the longest chain whose successive travel is within distance +/- tolerance, by the dynamic programme of move.thin_time over the cumulative distance (a single step longer than distance + tolerance splits the track). Empty locations must be dropped first (move.filter_gps_quality).",
   "inputs": [
@@ -15834,6 +16706,271 @@
   ],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "move.ud_distance",
+  "doc": "The earth mover's distance between utilisation distributions (move2utils' emd): the cost of moving one UD's probability onto the other's, the sum over pairs of cells of the probability moved times the distance between the cells' centres, least over all ways of moving it (Wasserstein-1, Rubner et al. 2000). The UDs must share one grid: the bands of a raster (one per track, such as a dBBMM UD of several tracks) or two rasters (ud and ud_b, one UD each). Each UD is first cut to the cells inside its mask_quantile volume contour (the cells holding the most probability, together that much of it) and its weights renormalised. method sinkhorn (default) is Cuturi's (2013) entropic regularisation: the distances scaled to [0, 1] by their largest, reg the regularisation, iterated until the scaling vector changes less than tol or max_iter times; close to the exact value (a fraction of a percent on typical UDs) and far faster. method exact is Rubner's transportation solver as R's emdist has it (Euclidean cost, the weights and coordinates in single precision, at most exact_max_iter improving iterations): practical on coarse grids only, its memory grows with the square of the cells (the cells of both UDs together). The distance is in the grid's units (metres with gc); gc uses great-circle (haversine, on a sphere of 6 378 137 m) distances for UDs on longitude / latitude grids (a warning for such a grid without it). threshold clips the cost at a distance (the EMD-hat of Pele and Werman 2009; not with exact). For two UDs the distance is a number; the table has a row for each pair of bands (each UD before the ones after it), with their names.",
+  "inputs": [
+   {
+    "name": "ud",
+    "type": "any",
+    "required": true,
+    "doc": "the UDs: a raster with a band for each, or one UD with ud_b"
+   },
+   {
+    "name": "ud_b",
+    "type": "any",
+    "required": false,
+    "doc": "the other UD, on the same grid, to give a number"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row for each pair: a, b (the names of the bands) and distance"
+   },
+   {
+    "name": "distance",
+    "type": "number",
+    "required": false,
+    "doc": "the distance, when there are two UDs"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "sinkhorn (default) or exact",
+    "choices": [
+     "sinkhorn",
+     "exact"
+    ]
+   },
+   {
+    "name": "mask_quantile",
+    "type": "number",
+    "required": false,
+    "doc": "in (0, 1]: the cells outside this volume contour are dropped (0.999); 1 keeps (almost) all"
+   },
+   {
+    "name": "reg",
+    "type": "number",
+    "required": false,
+    "doc": "Sinkhorn's regularisation of the distance scaled to [0, 1] (0.05): smaller is closer to the exact value and needs more iterations (below 0.01 it may underflow)"
+   },
+   {
+    "name": "max_iter",
+    "type": "integer",
+    "required": false,
+    "doc": "Sinkhorn's most iterations (500)"
+   },
+   {
+    "name": "tol",
+    "type": "number",
+    "required": false,
+    "doc": "Sinkhorn stops when the scaling vector changes (largest absolute difference) less than this (1e-9)"
+   },
+   {
+    "name": "gc",
+    "type": "bool",
+    "required": false,
+    "doc": "great-circle distances in metres, for UDs on longitude / latitude grids (false)"
+   },
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": false,
+    "doc": "clip the cost at this distance (metres with gc, else the grid's units); Sinkhorn only"
+   },
+   {
+    "name": "exact_max_iter",
+    "type": "integer",
+    "required": false,
+    "doc": "the most iterations of the exact solver (500)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The UDs must be on one grid (the bands of one raster, as the UDs of several animals come; no resampling is done). Each UD is first cut to the cells holding mask_quantile of its probability, and the work grows with the product of the cells of the two UDs: for large UDs lower mask_quantile or coarsen the grid. Sinkhorn's distance depends on reg (smaller is closer to the exact one and needs more iterations; below 0.01 it may underflow) and is small, not zero, between a UD and itself; the distances of a table are comparable only with the same settings. exact is Rubner's solver as R's emdist has it: Euclidean cost in single precision, memory that grows with the square of the cells of both UDs together, so a coarse grid (a few thousand cells); it takes no gc and no threshold, and a warning says when it stopped at exact_max_iter. On a longitude / latitude grid set gc (great-circle distances, in metres): without it the distance is in degrees, which mixes north-south and east-west, and a warning says so."
+ },
+ {
+  "name": "move.ud_outer_probability",
+  "doc": "The outer probability of locations (move2utils' ud_outer_probability): the volume of the distribution at each one, the share of the probability in the cells at least as likely as the cell that holds the location: small inside the core of the use, near 1 far out; empty for a location outside the raster. It flags the fixes the animal's own distribution finds unlikely (GPS errors, excursions). The points are taken to the raster's coordinate system. A distribution of several bands needs band (the name of a band, or its position from 1). Column added: outer_probability.",
+  "inputs": [
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations: points"
+   },
+   {
+    "name": "ud",
+    "type": "any",
+    "required": true,
+    "doc": "the distribution: the ud of move.dbbmm_ud, move.dbgb_ud or move.home_range"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "points",
+    "type": "vector",
+    "required": true,
+    "doc": "the locations with the column outer_probability"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "band",
+    "type": "any",
+    "required": false,
+    "doc": "the band of a distribution of several: its name or its position from 1"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "A location with a probability near 1 lies where the animal's own distribution gives it hardly any use: the locations to look at as outliers or excursions. A location outside the raster has no value."
+ },
+ {
+  "name": "move.ud_volume",
+  "doc": "The volume of a distribution (move2utils' ud_volume): each cell's cumulative probability when the cells are added from the largest value down, a band for each band of the input. The cells with volume up to 0.95 are the smallest area that holds 95 % of the use. A band whose total is not positive is left as it is, missing cells stay missing, cells of equal value are taken in the order of the cells. With levels (numbers in [0, 1], 0.5 and 0.95 for the core and the home range) the contours of the volume at those levels are also given as polygons (R's contourLines, as move.home_range's kde isopleths: a band's contour that reaches the raster's edge is an error: use a larger grid), each with its band, level and area.",
+  "inputs": [
+   {
+    "name": "ud",
+    "type": "any",
+    "required": true,
+    "doc": "the distribution: the ud of move.dbbmm_ud, move.dbgb_ud or move.home_range"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "volume",
+    "type": "stack",
+    "required": true,
+    "doc": "the volume of each band"
+   },
+   {
+    "name": "polygons",
+    "type": "vector",
+    "required": false,
+    "doc": "with levels: a polygon for each band and level"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": false,
+    "doc": "with levels: the areas, as the polygons"
+   }
+  ],
+  "params": [
+   {
+    "name": "levels",
+    "type": "any",
+    "required": false,
+    "doc": "the levels of the contours: a number or a list, in [0, 1]"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The volume of a cell is the probability in the cells at least as likely as it: the contour at 0.95 bounds the smallest area that holds 95 % of the use (the home range), the one at 0.5 the core. The polygons (levels) come from the contour lines of the whole grid, so a contour that reaches the edge of the raster is an error: use a larger grid (ext_factor) for a track near the edge."
+ },
+ {
+  "name": "move.validate",
+  "doc": "Does the use of the animals follow a connectivity surface? Zeller et al.'s (2018) validation with movement data, in numbers (not in R: the definitions are the library's tf.move.validate; of the paper only the abstract was available). The surface gives each cell a score, higher where movement is better: the surface itself for kind current (a current, a cost-distance kernel) and binary (a least-cost corridor: the cells that are not 0), minus the surface for kind resistance. The corridors are the cells with a score at or above a cut: threshold (a surface value: from it up for a current, up to it for a resistance) or else the quantile of the scores over the whole surface (R's type 7; 0.9 makes the best 10 % of the cells the corridors); a binary surface takes neither. The use is a UD (a raster, or a raster with a band per track), read on the surface's grid (the same grid cell by cell, otherwise the surface at each UD cell centre, nearest cell, the centres reprojected when the CRSs differ; each band cut to the cells where the surface has a value and renormalised to 1, coverage the part of its mass that was on such cells; the compared area is those cells), or points (each counts 1 in the cell that holds it; the compared area is the cells with a value inside the bounding box of the kept points' cells, track by track), or lines (move.corridor's lines: each segment is cut into ceil(length / spacing) equal pieces, spacing half the surface's smaller cell side, and each piece counts its length at its midpoint: the use is the length of line in each cell). The table has a row for each track and then pooled (the mean of the tracks' normalised UDs, or all the points or lines together): rho, Spearman's rank correlation between the use and the score (average ranks for ties; positive always means the animals use better cells more, also for a resistance; for a UD over the cells inside its support volume contour, the UD's probability being the use; for points and lines over all compared cells, the use being the number of points or the length of line, most cells 0: a tie; no p-value, cells next to each other are not independent); use_fraction, the share of the use inside the corridors; area_fraction, the share of the compared cells that are corridors; use_ratio, their quotient (used against available: above 1 the corridors catch more of the use than their area, 1 is chance); surface_used and surface_available, the mean surface value weighted by the use and over the compared cells; n_cells, the cells the correlation ran over; and coverage. The note reads the pooled row in words, threshold is the surface value the corridors start at, and corridor is the 1 / 0 raster of the corridors.",
+  "inputs": [
+   {
+    "name": "use",
+    "type": "any",
+    "required": true,
+    "doc": "the use: a UD raster (a band for each track), the tracks' points, or lines such as move.corridor's"
+   },
+   {
+    "name": "surface",
+    "type": "raster",
+    "required": true,
+    "doc": "the connectivity surface: a current, a resistance or a corridor"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row for each track and pooled: track, n_cells, rho, use_fraction, area_fraction, use_ratio, surface_used, surface_available, coverage"
+   },
+   {
+    "name": "note",
+    "type": "text",
+    "required": true,
+    "doc": "the pooled row in words"
+   },
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": true,
+    "doc": "the surface value the corridors start at (none for binary)"
+   },
+   {
+    "name": "corridor",
+    "type": "raster",
+    "required": true,
+    "doc": "the corridor cells as 1, the others 0, no data where the surface has none"
+   }
+  ],
+  "params": [
+   {
+    "name": "kind",
+    "type": "text",
+    "required": false,
+    "doc": "current (default), resistance or binary",
+    "choices": [
+     "current",
+     "resistance",
+     "binary"
+    ]
+   },
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the surface value that makes a corridor: from it up (current), up to it (resistance)"
+   },
+   {
+    "name": "quantile",
+    "type": "number",
+    "required": false,
+    "doc": "in (0, 1), without a threshold: the corridors are the cells at or above this quantile of the scores (0.9)"
+   },
+   {
+    "name": "support",
+    "type": "number",
+    "required": false,
+    "doc": "in (0, 1]: a UD's correlation runs over the cells inside this volume contour (0.99); 1 takes all with probability above 0"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track of points and lines"
+   },
+   {
+    "name": "spacing",
+    "type": "number",
+    "required": false,
+    "doc": "the longest piece a line is cut into, in the surface's units (half its smaller cell side)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Feed it the surface you want to test and the use that the surface did not see: the UD of animals (move.dbbmm_ud, move.dbgb_ud, move.home_range with kde), their locations, or move.corridor's lines. A surface built from the same locations flatters itself, so validate with other animals, other years or dispersal paths. Say what the surface is: kind current (Circuitscape, Omniscape, a kernel; higher is better), resistance (lower is better; the correlation is still positive when the animals use better cells more) or binary (a least-cost corridor). The corridors are the best 1 - quantile of the cells (the top 10 % by default) or the cells past a threshold in the surface's units: to compare surfaces give each the same quantile (the same share of the area), to compare animals on one surface the same threshold. use_ratio above 1 means the corridors catch more of the use than their area (1 is chance); rho is Spearman's rank correlation over cells, cells next to each other are not independent so it has no p-value. The compared area is the grid of a UD, or the bounding box of the points or lines of each track: a UD or a box much larger than the animals' range lowers area_fraction and raises use_ratio, so read coverage and the cell counts. The UD is read on the surface's grid (nearest cell when the grids differ)."
  },
  {
   "name": "networks.conefor",

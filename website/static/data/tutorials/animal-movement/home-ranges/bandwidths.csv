@@ -1,0 +1,5 @@
+bandwidth,h (m),polygons at 95 %,core 50 % (km²),home range 95 % (km²)
+reference,261,1,2.38,9.99
+reference scaled,258,1,2.36,9.91
+plug-in,35,56,0.48,3.21
+cross-validation,26,70,0.37,2.73
