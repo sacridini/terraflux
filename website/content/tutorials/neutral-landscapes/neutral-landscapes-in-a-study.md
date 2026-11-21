@@ -236,6 +236,58 @@ ylabel: Number of patches
 caption: "The number of patches of every one of the 270 landscapes. At 20% habitat, the ten fragmented replicates range from 1,193 to 1,368 patches, the aggregated ones from 214 to 346: a single landscape can be far from the mean. The replicates of the aggregated level vary most, relative to their mean, because they have fewer, larger patches."
 ```
 
+### The experiment in Python
+
+The same design, with the same seeds, in a loop: [`tf.nlm.fbm`][terraflux.nlm.fbm] draws a surface (`fract_dim` is the
+graph's `dimension`; `resolution=30` gives the cells their size), [`tf.nlm.binarize`][terraflux.nlm.binarize] with a
+list of shares gives a stack of nine maps with a dimension `p`, and
+[`tf.landscape_metrics`][terraflux.landscape_metrics] measures the habitat (class 2) of each:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+shares = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+levels = {"fragmented": 0.5, "intermediate": 1.0, "aggregated": 1.5}
+metrics = ["pland", "np", "ed", "lpi", "ai", "cohesion", "enn_mn", "area_mn"]
+
+rows = []
+for level, dim in levels.items():
+    for seed in range(1, 11):                      # the replicates
+        surface = tf.nlm.fbm(200, 200, resolution=30, fract_dim=dim, seed=seed)
+        maps = tf.nlm.binarize(surface, shares)    # a stack: one map per share, class 2 = habitat
+        for b in shares:
+            t = tf.landscape_metrics(maps.sel(p=b), level="class", metric=metrics)
+            t = t[t["class"] == 2].set_index("metric")["value"]
+            rows.append({"level": level, "seed": seed, "habitat": round(100 * b), **t})
+runs = pd.DataFrame(rows)
+print(len(runs), "landscapes")
+at20 = runs[runs["habitat"] == 20].groupby("level")
+print(at20[["np", "ai", "ed"]].mean().round(1).loc[list(levels)])
+print(at20["np"].agg(["min", "max"]).loc[list(levels)])
+```
+
+```text
+270 landscapes
+                  np    ai     ed
+level                            
+fragmented    1278.5  46.1  143.8
+intermediate   679.9  62.6  100.3
+aggregated    276.8  78.2   59.2
+                 min     max
+level                       
+fragmented    1193.0  1368.0
+intermediate   608.0   774.0
+aggregated     214.0   346.0
+```
+
+`runs` is the table of the charts: a row per landscape and a column per metric (the app writes one table per
+replicate and the batch collects them). The means at 20 % habitat and the range of the number of patches (1,193 to
+1,368 for the fragmented replicates, 214 to 346 for the aggregated ones) are the ones above; the other amounts and
+metrics are `runs.groupby(["habitat", "level"]).mean()`. The 270 landscapes take a few seconds; for thousands, spread
+the replicates over cores or [computers](/parallel/).
+
 ## A null model: is the forest aggregated?
 
 ### The real pattern
@@ -340,6 +392,54 @@ compact.
     moves. Remmel and Fortin (2013) drew many neutral landscapes with a map's
     estimated autocorrelation to tell whether two maps' patterns differ beyond chance.
 
+### The null model in Python
+
+Augusta's map is the part's `augusta.tif` (the file of the link above: save it next to the script). The forest is
+class 42, recoded to 2 and the rest to 1; the neutral landscapes are drawn on the same grid, by its `ncol`, `nrow`
+and `resolution`, and cut at the forest's share (0.3754, from the observed `pland`) with
+[`tf.nlm.binarize`][terraflux.nlm.binarize]:
+
+```python
+cover = tf.load_raster("augusta.tif")
+nrow, ncol = cover.shape
+forest = np.where(cover.values == 42, 2, 1)         # evergreen forest (2) and the rest (1)
+observed = tf.landscape_metrics(forest, level="class", metric=["pland", "np", "ai"], res=30)
+observed = observed[observed["class"] == 2].set_index("metric")["value"]
+share = round(observed["pland"] / 100, 4)
+print(observed.round(1).to_dict(), share)
+
+nulls = {
+    "random": lambda s: tf.nlm.random(ncol, nrow, resolution=30, seed=s),
+    "fractal, rough": lambda s: tf.nlm.fbm(ncol, nrow, resolution=30, fract_dim=1.0, seed=s),
+    "fractal, smooth": lambda s: tf.nlm.fbm(ncol, nrow, resolution=30, fract_dim=1.5, seed=s),
+}
+for name, make in nulls.items():
+    ai, np_ = [], []
+    for seed in range(1, 20):                       # 19 replicates; 99 or 999 for a paper
+        habitat = tf.nlm.binarize(make(seed), share)
+        t = tf.landscape_metrics(habitat, level="class", metric=["np", "ai"])
+        t = t[t["class"] == 2].set_index("metric")["value"]
+        ai.append(t["ai"])
+        np_.append(t["np"])
+    above = (np.array(ai) >= observed["ai"]).sum()
+    print(f"{name:16s} AI {min(ai):5.1f} to {max(ai):5.1f} %   patches {min(np_):3.0f} to {max(np_):3.0f}   replicates at or above the forest: {above} of 19")
+```
+
+```text
+{'ai': 77.4, 'np': 139.0, 'pland': 37.5} 0.3754
+random           AI  37.0 to  38.2 %   patches 455 to 526   replicates at or above the forest: 0 of 19
+fractal, rough   AI  70.5 to  74.7 %   patches 244 to 325   replicates at or above the forest: 0 of 19
+fractal, smooth  AI  82.1 to  86.9 %   patches 101 to 208   replicates at or above the forest: 19 of 19
+```
+
+The ranges are the table's. The test is the rank of the observed value among the replicates: with none of the 19
+random or rough-fractal replicates at or above the forest, its one-sided *p*-value is
+`(1 + above) / (19 + 1) = 0.05`, the smallest 19 replicates allow; against the smooth fractals all 19 are above it, so
+the forest is *less* aggregated than they are. With 99 replicates the smallest *p* is 0.01. The same design works for
+any response, not only a metric: the output of a dispersal model, an occupancy map, a connectivity index. Choose the
+model whose structure is the hypothesis: `random` tests for any structure at all, `fbm` and `gaussian_field` for
+aggregation beyond a given autocorrelation, the cluster and mosaic models for patch shapes and sizes.
+
 ## A neutral copy of a real map
 
 [[nlm.classify]] with a real map on its input `real` cuts a neutral surface into the classes of the real map with
@@ -398,6 +498,27 @@ Diversity is identical (the composition is), and every configuration metric diff
 times fewer patches and much less edge. A copy cut from a smoother field (a larger `range`) would come closer; trying
 ranges until the copy matches one metric is a simple way to fit a neutral model to a real landscape.
 
+### A neutral copy in Python
+
+[`tf.nlm.classify`][terraflux.nlm.classify] with the real map as `real_land` cuts a surface into its classes, in its
+shares; the field is drawn on the real grid, with the same seed and `autocorr_range = 8` (the graph's `range`):
+
+```python
+field = tf.nlm.gaussian_field(ncol, nrow, resolution=30, autocorr_range=8, seed=7)
+copy = tf.nlm.classify(field, real_land=cover)
+for name, m in (("real", cover), ("neutral copy", copy)):
+    t = tf.landscape_metrics(m, level="landscape", metric=["shdi", "np", "ed", "contag"])
+    print(f"{name:13s}", t.set_index("metric")["value"].round(2).to_dict())
+```
+
+```text
+real          {'contag': 43.89, 'ed': 212.1, 'np': 1144.0, 'shdi': 1.9}
+neutral copy  {'contag': 38.98, 'ed': 373.14, 'np': 3512.0, 'shdi': 1.9}
+```
+
+The numbers are the table's (`shdi` is 1.901 for both). The classes of the copy are numbered 1 to 15 in the order of
+the real classes' codes, not by the codes themselves.
+
 ## Settings that change the answer
 
 - **The neutral model**, above: it is the hypothesis. Report which, with its settings, and prefer more than one.
@@ -435,5 +556,3 @@ ranges until the copy matches one metric is a simple way to fit a neutral model 
 - Wang, X., Blanchet, F. G., & Koper, N. (2014). Measuring habitat fragmentation: an evaluation of landscape pattern metrics. *Methods in Ecology and Evolution*, 5(7), 634–646. https://doi.org/10.1111/2041-210X.12198
 - With, K. A. (1997). The application of neutral landscape models in conservation biology. *Conservation Biology*, 11(5), 1069–1080. https://doi.org/10.1046/j.1523-1739.1997.96210.x
 - With, K. A., & Crist, T. O. (1995). Critical thresholds in species' responses to landscape structure. *Ecology*, 76(8), 2446–2459. https://doi.org/10.2307/2265819
-
-In Python: [Neutral landscapes in Python](/tutorials/neutral-landscapes/neutral-landscapes-in-python/).

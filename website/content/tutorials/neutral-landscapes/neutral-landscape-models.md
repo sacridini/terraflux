@@ -166,6 +166,62 @@ And four utilities turn surfaces into maps: [[nlm.binarize]] (habitat and matrix
 (classes of given shares, of a real map's shares, or by natural breaks), [[nlm.merge]] (a surface plus others
 times a scaling: a gradient with noise) and [[nlm.rescale]] (to 0–1).
 
+### Every generator in Python
+
+All fifteen are in `tf.nlm`, with the names of the R package NLMR (the library is its port). A model returns an
+`xarray.DataArray` on a grid with its origin at (0, 0) and cells of size `resolution`; the same `seed` gives the same
+landscape on every run, and the same as NLMR. A few settings carry different names from the app's: the size is
+`ncol, nrow` (columns first), and [`tf.nlm.fbm`][terraflux.nlm.fbm]'s `dimension` is `fract_dim`,
+[`tf.nlm.gaussian_field`][terraflux.nlm.gaussian_field]'s `range` is `autocorr_range`,
+[`tf.nlm.random_cluster`][terraflux.nlm.random_cluster]'s `weights` are `ai`, and `steps` of
+[`tf.nlm.curds`][terraflux.nlm.curds] is `recursion_steps`. This is the gallery above, with the same seeds:
+
+```python
+import numpy as np
+import terraflux as tf
+
+models = {
+    "random": tf.nlm.random(200, 200, seed=1),
+    "percolation": tf.nlm.percolation(200, 200, prob=0.5, seed=1),
+    "planar_gradient": tf.nlm.planar_gradient(200, 200, direction=60),
+    "edge_gradient": tf.nlm.edge_gradient(200, 200, direction=60),
+    "distance_gradient": tf.nlm.distance_gradient(200, 200, origin=(90, 110, 90, 110), nlmr_compat=False),
+    "mpd": tf.nlm.mpd(200, 200, roughness=0.6, seed=2, nlmr_compat=False),
+    "fbm": tf.nlm.fbm(200, 200, fract_dim=1.4, seed=3),
+    "gaussian_field": tf.nlm.gaussian_field(200, 200, autocorr_range=20, seed=4),
+    "random_cluster": tf.nlm.random_cluster(200, 200, p=0.55, ai=[0.3, 0.3, 0.4], seed=5, rescale=False),
+    "neigh": tf.nlm.neigh(200, 200, p_neigh=0.95, p_empty=0.001, categories=4, seed=6, rescale=False),
+    "random_rectangular_cluster": tf.nlm.random_rectangular_cluster(200, 200, minl=5, maxl=30, seed=7),
+    "curds": tf.nlm.curds([0.7, 0.7, 0.7], [5, 5, 8], seed=8),   # 5 x 5 x 8 = 200 cells a side
+    "mosaic_tess": tf.nlm.mosaic_tess(200, 200, germs=50, seed=8),
+    "mosaic_gibbs": tf.nlm.mosaic_gibbs(200, 200, germs=60, R=10, patch_classes=5, seed=9, rescale=False),
+    "mosaic_field": tf.nlm.mosaic_field(200, 200, n=20, seed=9),
+}
+for name, m in models.items():
+    print(f"{name:27s} {str(m.shape):10s} {float(m.min()):5.2f} to {float(m.max()):5.2f}  {len(np.unique(m.values))} values")
+```
+
+```text
+random                      (200, 200)  0.00 to  1.00  40000 values
+percolation                 (200, 200)  0.00 to  1.00  2 values
+planar_gradient             (200, 200)  0.00 to  1.00  40000 values
+edge_gradient               (200, 200)  0.00 to  1.00  39776 values
+distance_gradient           (200, 200)  0.00 to  1.00  3062 values
+mpd                         (200, 200)  0.00 to  1.00  40000 values
+fbm                         (200, 200)  0.00 to  1.00  40000 values
+gaussian_field              (200, 200)  0.00 to  1.00  40000 values
+random_cluster              (200, 200)  1.00 to  3.00  3 values
+neigh                       (200, 200)  0.00 to  3.00  4 values
+random_rectangular_cluster  (200, 200)  0.00 to  1.00  369 values
+curds                       (200, 200)  0.00 to  1.00  2 values
+mosaic_tess                 (200, 200)  0.00 to  1.00  50 values
+mosaic_gibbs                (200, 200)  1.00 to  5.00  5 values
+mosaic_field                (200, 200)  0.00 to  1.00  11647 values
+```
+
+Every model rescales its values to 0–1 by default; for the class models (`random_cluster`, `neigh`,
+`mosaic_gibbs`) `rescale=False` keeps their codes (1, 2, 3 above) instead. Every model takes `n_threads`.
+
 ## Percolation: when habitat connects
 
 ```tfgraph
@@ -229,6 +285,39 @@ caption: "The share of the habitat in its largest cluster, the mean of 10 random
 With & Crist (1995) and With (1997) showed that species respond to such thresholds, at amounts that depend on how
 they move: a species that crosses gaps of one cell sees the 8-neighbour curve, or an even lower one. And real habitat,
 being aggregated, connects at lower amounts than random habitat: the next sections draw such landscapes.
+
+### Percolation in Python
+
+[`tf.nlm.percolation`][terraflux.nlm.percolation] gives 0 and 1 (habitat). The clusters are measured with
+[`tf.landscape_metrics`][terraflux.landscape_metrics]: `directions=4` connects cells by their sides, and the largest
+patch index `lpi` (a share of the whole map) over `pland` is the largest cluster's share of the habitat, the numbers
+of the slider above:
+
+```python
+def class_values(m, cls, names, **options):
+    t = tf.landscape_metrics(m, level="class", metric=names, **options)
+    return t[t["class"] == cls].set_index("metric")["value"]
+
+
+for prob in [0.45, 0.5, 0.55, 0.575, 0.6, 0.625, 0.65, 0.7]:
+    m = tf.nlm.percolation(200, 200, prob=prob, seed=1)
+    v = class_values(m, 1, ["pland", "lpi"], directions=4)
+    print(f"{prob:5.3f}  habitat {v['pland']:5.1f} %  largest cluster {100 * v['lpi'] / v['pland']:5.1f} % of it")
+```
+
+```text
+0.450  habitat  45.1 %  largest cluster   0.7 % of it
+0.500  habitat  50.2 %  largest cluster   2.1 % of it
+0.550  habitat  55.2 %  largest cluster   4.0 % of it
+0.575  habitat  57.6 %  largest cluster  32.0 % of it
+0.600  habitat  60.1 %  largest cluster  45.8 % of it
+0.625  habitat  62.7 %  largest cluster  85.6 % of it
+0.650  habitat  65.1 %  largest cluster  93.5 % of it
+0.700  habitat  70.1 %  largest cluster  98.1 % of it
+```
+
+`prob` is a probability per cell, so the habitat actually drawn differs a little from it (57.6 % for 0.575). With
+`directions=8` the jump moves to about 40 %, as in the chart above.
 
 ## Settings that change the pattern
 
@@ -361,6 +450,125 @@ note = "Classes 1, 2, 3 of 50, 30 and 20% of the cells."
 secondary ones, so 0.8 keeps the gradient visible under the noise. [[nlm.classify]]'s output is `classes`; with
 its input `real` connected to a real map, it takes the shares of that map's classes (part 2 uses it).
 
+### Settings in Python
+
+The settings of the sections above, in the order they came. `p` of the random cluster (two classes, weights
+`ai = [0.4, 0.6]`, seed 3; class 1 is the habitat), with the metrics of the habitat from the helper above:
+
+```python
+for p in (0.05, 0.25, 0.45, 0.55, 0.65):
+    m = tf.nlm.random_cluster(200, 200, p=p, ai=[0.4, 0.6], seed=3, rescale=False)
+    v = class_values(m, 1, ["pland", "np", "ai"])
+    print(f"p {p:4.2f}  habitat {v['pland']:5.1f} %  patches {v['np']:4.0f}  AI {v['ai']:5.1f} %")
+```
+
+```text
+p 0.05  habitat  38.9 %  patches  766  AI  53.7 %
+p 0.25  habitat  38.1 %  patches  462  AI  72.1 %
+p 0.45  habitat  36.8 %  patches  272  AI  81.6 %
+p 0.55  habitat  34.7 %  patches  186  AI  88.4 %
+p 0.65  habitat  96.1 %  patches    1  AI  98.7 %
+```
+
+The fractal's `fract_dim`, with the surface cut to 40 % by [`tf.nlm.binarize`][terraflux.nlm.binarize] (class 2 is the
+habitat), and the Gaussian field's `autocorr_range`, measured as the correlation between cells 5 apart:
+
+```python
+for dim in (0.2, 0.6, 1.0, 1.4, 1.8):
+    surface = tf.nlm.fbm(200, 200, resolution=30, fract_dim=dim, seed=3)
+    habitat = tf.nlm.binarize(surface, 0.4)
+    v = class_values(habitat, 2, ["pland", "np", "ai"])
+    print(f"fract_dim {dim:3.1f}  habitat {v['pland']:4.1f} %  patches {v['np']:4.0f}  AI {v['ai']:5.1f} %")
+
+for r in (3, 10, 30):
+    f = tf.nlm.gaussian_field(200, 200, autocorr_range=r, seed=4).values
+    print(f"autocorr_range {r:2d}  correlation of cells 5 apart {np.corrcoef(f[:, :-5].ravel(), f[:, 5:].ravel())[0, 1]:5.2f}")
+```
+
+```text
+fract_dim 0.2  habitat 40.0 %  patches  812  AI  55.3 %
+fract_dim 0.6  habitat 40.0 %  patches  723  AI  63.9 %
+fract_dim 1.0  habitat 40.0 %  patches  516  AI  74.1 %
+fract_dim 1.4  habitat 40.0 %  patches  343  AI  83.7 %
+fract_dim 1.8  habitat 40.0 %  patches  167  AI  90.8 %
+autocorr_range  3  correlation of cells 5 apart  0.17
+autocorr_range 10  correlation of cells 5 apart  0.58
+autocorr_range 30  correlation of cells 5 apart  0.77
+```
+
+The three utilities, on the gradient with noise: [`tf.nlm.merge`][terraflux.nlm.merge] (`primary + scaling * sum(secondary)`,
+rescaled to 0–1 unless `rescale=False`), [`tf.nlm.classify`][terraflux.nlm.classify] by `weighting` (shares, cumulative
+and relative to their sum; a `None` takes what is left) or by natural breaks with `n`, and `tf.nlm.binarize`, whose
+`breaks` may be a list:
+
+```python
+gradient = tf.nlm.planar_gradient(200, 200, direction=90)
+noise = tf.nlm.fbm(200, 200, fract_dim=1.2, seed=5)
+merged = tf.nlm.merge(gradient, noise, scaling=0.8)
+
+
+def shares(m):
+    values, counts = np.unique(m.values, return_counts=True)
+    return dict(zip(values.astype(int).tolist(), np.round(100 * counts / m.size, 1).tolist()))
+
+
+print("weighting", shares(tf.nlm.classify(merged, weighting=[0.5, 0.3, 0.2])))
+print("n = 4    ", shares(tf.nlm.classify(merged, n=4)))
+print("binarize ", shares(tf.nlm.binarize(merged, 0.3)))
+```
+
+```text
+weighting {1: 50.0, 2: 30.0, 3: 20.0}
+n = 4     {1: 22.8, 2: 27.9, 3: 25.1, 4: 24.2}
+binarize  {1: 70.0, 2: 30.0}
+```
+
+Class 1 is the lowest values: with `binarize` the highest values become the habitat (2). A list of `breaks` gives a
+stack with a dimension `p` (`maps.sel(p=0.4)`, part 2 uses it). The app's input `real` is `real_land=` of
+[`tf.nlm.classify`][terraflux.nlm.classify]: a real map whose class shares the classes copy (also in part 2);
+`level_names` names the classes, and `mask_val` marks a value to leave out.
+
+## Reproducing NLMR
+
+Every model follows its NLMR counterpart value for value, and the seed is NLMR's `user_seed`:
+
+<!-- no-run -->
+```r
+# R
+library(NLMR)
+r <- nlm_mpd(ncol = 129, nrow = 129, roughness = 0.7, user_seed = 42)
+```
+
+```python
+# Python: the same values
+m = tf.nlm.mpd(129, 129, roughness=0.7, seed=42)
+print(m.shape, m.attrs["seed"], round(float(m.mean()), 6))
+```
+
+```text
+(129, 129) 42 0.537649
+```
+
+A few models behave in NLMR differently from what their documentation says. `nlmr_compat=True` (the default) keeps
+these behaviours so that results match, and `nlmr_compat=False` does what the documentation promises (the gallery
+above used it for `mpd` and `distance_gradient`):
+
+| Model | NLMR's behaviour (`nlmr_compat=True`) | `nlmr_compat=False` |
+|---|---|---|
+| `mpd` | square output of `max(nrow, ncol) ± 1` cells | the size asked for |
+| `distance_gradient` | `origin` as rows then columns; great-circle distances in metres for rasters up to 360 × 90 cells | origin as columns then rows; Euclidean distances |
+| `mosaic_field` | `n = 1` sums three mosaics | one mosaic |
+| `mosaic_tess`, `mosaic_gibbs` | values given in GEOS's order of the Voronoi cells (with shapely) | each germ its own value |
+
+`nlm_fbm` and `nlm_gaussianfield` print a message in NLMR 1.4 (RandomFields left CRAN); Terraflux gives the values of
+the replacements NLMR ships internally (`simulate_fbm`, `simulate_gaussian_field`).
+
+The models run in C++ with OpenMP. The random numbers are drawn in NLMR's order, and everything else runs in
+parallel: the fast Fourier transforms of the spectral models, the diamond-square steps, the labelling and gap filling
+of the cluster models, the rasterisation of the mosaics. Typical gains over NLMR are 2 to 8 times for the models NLMR
+computes in C++ or with FFTs, and 100 to 6000 times for those it computes cell by cell in R (`percolation`,
+`random_cluster`, `mosaic_field`); see the [benchmarks](/benchmarks/speed/#neutral-landscape-models).
+
 ## Common pitfalls
 
 - **One map is not an answer.** A neutral landscape is one draw; a conclusion needs replicates (different seeds)
@@ -382,6 +590,7 @@ its input `real` connected to a real map, it takes the shares of that map's clas
 - [Landscape metrics](/tutorials/landscape-metrics/): measuring the patterns drawn here.
 - [Fragmentation](/tutorials/fragmentation/fragmentation-and-habitat-loss/): habitat loss and fragmentation, and
   the thresholds of real landscapes.
+- The Python reference: [`tf.nlm`](/python/api/nlm/), with the models of this part and their NLMR equivalents.
 - The operator reference: [[nlm.random]], [[nlm.percolation]], [[nlm.random_cluster]], [[nlm.fbm]],
   [[nlm.gaussian_field]], [[nlm.mpd]], [[nlm.binarize]], [[nlm.classify]], [[nlm.merge]].
 
@@ -397,5 +606,3 @@ its input `real` connected to a real map, it takes the shares of that map's clas
 - Stauffer, D., & Aharony, A. (1994). *Introduction to percolation theory* (2nd ed.). Taylor & Francis.
 - With, K. A. (1997). The application of neutral landscape models in conservation biology. *Conservation Biology*, 11(5), 1069–1080. https://doi.org/10.1046/j.1523-1739.1997.96210.x
 - With, K. A., & Crist, T. O. (1995). Critical thresholds in species' responses to landscape structure. *Ecology*, 76(8), 2446–2459. https://doi.org/10.2307/2265819
-
-In Python: [Neutral landscapes in Python](/tutorials/neutral-landscapes/neutral-landscapes-in-python/).
