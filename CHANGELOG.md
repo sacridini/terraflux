@@ -7,6 +7,8 @@ version.
 
 ## [Unreleased]
 
+## [1.61.0] - 2026-11-21
+
 ### Added
 - **Space over the Viewer's Layers hides the layers selected, or shows them again** (`crates/app/src/layers_panel.rs`): with the pointer over the list and no text being written, the layers selected (several with ctrl and shift; the map shown's layer when none is) are hidden, and shown again when every one of them was hidden; a box that has the focus does not turn as well. Space over the map still hides the map. It is the shortcut `viewer_hide`, so a key changed in Settings (Keyboard) changes both.
 
