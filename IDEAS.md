@@ -5288,3 +5288,126 @@ energético** (enerscape; Berti et al. 2022, Pontzer 2016). Depois deste bloco, 
    covariáveis no fim e ao longo → iSSF → trajetórias simuladas e resistência → corrente; com uma trajetória simulada e
    um DEM do `nlm.*` para rodar como está, pronto para o "Use my data". Mais o tópico `movement` do guia do MCP
    estendido com o relevo e uma parte nova da série de tutoriais de movimento.
+
+## O Trace comparado: por que esta célula e não aquela (pedido de 2026-11-21)
+
+O Trace (`crates/app/src/trace.rs`, `trace_view.rs`) responde **como** o valor de uma célula foi calculado: a cadeia
+para trás, até 60 cartões (`MOST`), em ordem de busca em profundidade. A pergunta de quem modela, porém, costuma ser
+**contrastiva**: "por que esta célula virou cidade e a do lado não?", "por que esta célula muda entre os cenários?".
+Hoje a pessoa faria dois traces e compararia de cabeça. Este bloco faz o app compará-los: alinha os dois traces nó a
+nó e diz **onde a diferença nasce**. É determinístico, sem IA (como o resto do Trace: o rastreio é do app, a IA só
+explica o que ele deu); o "Ask the assistant why" continua para traduzir isso em palavras do domínio.
+
+Duas coisas achadas no código (2026-11-21) mudam o desenho:
+- **O `control.switch` escolhe o ramo por execução, não por célula**: o `case` é um valor só (texto, número ou
+  booleano; `Engine::switch`, `crates/exec/src/lib.rs` ~2209), ou um por passo quando o switch está num laço. Duas
+  células da mesma execução passam sempre pelo mesmo ramo. Os ramos só divergem **entre execuções** (dois
+  cenários, outro `case`), e é aí que o switch entra na comparação (fase 5).
+- **O trace não entra num `control.switch` hoje**: o `resolve` (trace.rs ~351) atravessa os grupos até o nó que dá
+  a saída, mas para no switch, e o `walk` o trata como um operador qualquer. Falta seguir o ramo que rodou (fase 1).
+
+O que já existe e serve: o `Results` do motor tem as mesmas chaves que o `trace::key` e o `Session::value_of` usam
+(o nó de topo, e `inner.port` num grupo, `branch.node.port` num switch, mais a saída de texto `branch` com o ramo
+que rodou: `crates/exec/src/lib.rs` ~2272-2277); `Model::with_scenario` (`crates/graph/src/lib.rs` ~910) devolve o
+modelo com um cenário aplicado, pronto para o `Engine::run`; dentro de um laço, o `Observer::body` recebe o switch
+como um nó do corpo, com as saídas `branch.inner.port`, e o `Keeper` (trace.rs ~981) já as guarda como
+`sw.branch.inner.port`, o que casa com o `kept_at` em modo laço (só os números: o texto `branch` fica de fora).
+
+**Plano de implementação.** Um commit por fase, nesta ordem; testes, clippy e fmt verdes em cada uma.
+
+1. **O trace segue o ramo que rodou num `control.switch`.**
+   - No `walk`: para um switch, o ramo que rodou vem da saída `branch` da execução (`values(sw, "branch")`, ou
+     `kept_at` dentro de grupos); o `case` lido como o motor o lê (o texto, o número por `number_text`, `case_X`,
+     `otherwise`). Um `How::Branch { case, branch }` novo ("o case era `seco`: rodou o ramo `dry`"), e o trace segue
+     para o nó do corpo do ramo que dá a porta pedida (`body.outputs[port]` do grupo do ramo), no caminho
+     `[.., sw, ramo]`; os valores pelo `key`, que já dá `(sw, "ramo.nó.porta")`. Os ramos que não rodaram não
+     entram.
+   - Num laço: o `Keeper` guarda também o ramo de cada passo (hoje só números entram; um mapa à parte, ramo por
+     passo, ao lado do `Kept`), e o cartão diz "ramo `dry` nos passos 1 a 4, `wet` a partir do 5"; cada nó do ramo
+     traçado com os passos em que o ramo rodou (NaN nos outros, como o `Keeper` já faz com os passos perdidos).
+   - O `trace_view::how_ui` e o `Trace::text`/`sentence` dizem o `How::Branch`; o clique no nome de um nó do ramo
+     mostra o mapa dele no viewer (o `builder::shown_at` já conhece `branch.node.port`).
+   - Testes em trace.rs: um switch num `$case` (o trace entra no ramo certo, nos dois valores do case, e não no
+     outro); um switch dentro de um `control.repeat` com o case vindo do passo (o ramo por passo); um switch num
+     grupo (`g.sw.branch.inner.port`).
+
+2. **A comparação de dois traces, pura e testável (`trace::compare`).**
+   - `compare(a: &Trace, b: &Trace) -> Comparison`: os passos alinhados por `(path, node, port)`; cada par
+     **igual**, **diferente**, **só em A** ou **só em B** (os ramos de um switch que divergiu, na fase 5). A
+     igualdade de `At` é exata, com NaN igual a NaN (o mesmo cálculo dá os mesmos bits); `Layers` camada a camada,
+     `Steps` passo a passo, `Other` pelo texto.
+   - **A raiz da diferença**: um par diferente cujas entradas traçadas são todas iguais, ou que não lê nenhum nó.
+     O porquê dela, pelo `How` do nó:
+     - `Data` (lido ou desenhado): "os dados diferem ali" (as duas células têm valores diferentes no mapa lido);
+     - `Window`: "as mesmas entradas na célula, mas as células em volta diferem", com as duas janelas lado a lado e as
+       células que mudam marcadas;
+     - `Whole` e `Allocation`: "decidido pelo mapa inteiro", com as linhas de cada uma (`clue_why`, `patcher_why`: a
+       aptidão, a posição entre as células, a demanda do passo), o que costuma ser o porquê de verdade numa alocação;
+     - `Patch`: "manchas diferentes" (a classe, o tamanho e o vizinho de cada uma);
+     - `Local` com entradas iguais e valor diferente: "depende de onde a célula está" (um operador de posição ou de
+       sorteio; a frase do operador pelo `first_sentence`);
+     - uma entrada sem valor guardado, ou o trace cortado em `MOST`: "não se sabe daqui" (com o nó onde parou).
+   - As frases saem de moldes, como a `sentence` de hoje: "A (linha 40, coluna 12) = 2 e B (linha 40, coluna 13) = 1.
+     Leem o mesmo `landuse_2000` (1); diferem a partir de `suit` (0.71 contra 0.38)."; e, por cartão, os dois
+     valores, e as duas expressões de um `raster.calc` com os valores no lugar (`substituted` de cada lado).
+   - `Comparison::text()` e `sentence()` para o Copy, o assistente e o MCP.
+   - Testes: duas células do CLUE-S (o template, como `a_cell_is_traced_back_through_the_graph`) com a raiz na
+     aptidão e na alocação; um modelo pequeno feito à mão para cada tipo de raiz (dado, janela, mancha, local, entrada
+     sem valor); duas células iguais ("nada difere"); a mesma célula duas vezes.
+
+3. **O painel: "Compare with another cell".**
+   - No Trace, um botão "Compare with another cell" arma a escolha: o próximo clique numa célula do viewer é B
+     (um campo novo no `MapView`, ao lado do `picked` de map_view.rs ~629, sem mexer no clique comum). No menu do
+     clique direito (map_view.rs ~2676-2702), "Compare with the traced cell" quando já há um trace. O `Ask` ganha a
+     célula B; o `State` guarda os dois traces e os refaz juntos quando o modelo ou a execução mudam (o `refresh`).
+   - A vista: a frase no topo; **"Where the difference begins"**: os cartões das raízes primeiro, A e B lado a lado;
+     depois a cadeia, cada cartão com as duas colunas, os diferentes marcados e os iguais recolhidos ("12 steps the
+     same", com "show all"); trocar A e B; Copy; "Ask the assistant why" manda a comparação com a pergunta.
+   - No viewer, as duas células contornadas (duas cores, A e B, as do tema), e no clique num cartão o mapa do nó
+     com as duas marcadas (o `preview_view.picked` vira um par).
+   - Teste de UI no `crates/app/tests` (o programa `app`, com o `point_settings`): traçar uma célula de um template,
+     comparar com a vizinha, ver a raiz no painel.
+
+4. **Dentro dos laços, para as duas células.**
+   - `keep_loops_at(m, base, &[(x, y)]) -> Vec<Kept>`: o `Keeper` guarda vários lugares na mesma execução (uma só
+     rodada a mais para A e B; o `keep_loops` de hoje vira o caso de um lugar). "Trace inside the loops" na
+     comparação usa os dois.
+   - A comparação de séries: o primeiro passo em que A e B diferem ("a diferença começa no passo 7"); a regra da raiz
+     aplicada ao corpo **naquele passo** (os valores do passo s de cada nó do corpo). Como até o passo s-1 tudo era
+     igual, o que veio do passo anterior (o `@landscape` carregado) é igual no passo s, e a raiz fica dentro do corpo
+     daquele passo. Uma alocação diz a demanda e a posição de cada célula naquele passo.
+   - Testes: duas células do CLUE-S que se separam num passo do meio; duas que nunca se separam.
+
+5. **Entre cenários: a mesma célula em duas execuções, onde o `control.switch` diverge.**
+   - "Compare with a scenario..." no Trace: a lista de `s.source.scenarios` (e "the model as it is"). O lado B roda o
+     modelo com `s.source.with_scenario(nome)` numa thread (como o `keep_loops`: o submodelo expandido, as entradas
+     por `load_inputs`; com o Keeper junto quando o trace entra nos laços), com spinner e cancelar; os valores de B
+     pelo `Results.values` (um `trace::values_of(&Results)` novo no lugar das closures escritas à mão em tools.rs
+     ~603 e nos testes de trace.rs). O lado A é a execução que o app já tem. Uma célula diferente em B também pode
+     (o lado é "uma execução e uma célula"), mas o padrão é a mesma célula.
+   - As raízes novas: **o ramo** (o par do switch com ramos diferentes: "no cenário `seco` o case era `dry` e rodou o
+     ramo `dry`; no `umido`, o ramo `wet`", e os nós de cada ramo como "só em A" / "só em B"); **os ajustes** (um nó
+     com as mesmas entradas e um ajuste diferente: o `Step` guarda os ajustes que leem `$nome`, resolvidos, para a
+     comparação não precisar dos modelos); **uma entrada do modelo** (`$chuva` vale 800 em A e 1200 em B).
+   - Testes: um modelo com um switch num `$case` e dois cenários (a raiz é o ramo); um ajuste mudado por um cenário
+     (a raiz é o ajuste); um cenário que não muda a célula ("nada difere aqui").
+
+6. **O MCP e o assistente.**
+   - `trace_cell` (tools.rs ~2141) ganha `compare_with` (`{row, col}` ou `{x, y}`) e `scenario` (o lado B naquele
+     cenário; `scenarios: [a, b]` para dois cenários quaisquer), com `inside_loops` valendo para os dois lados. No
+     `terraflux mcp` (o `trace_cell_run`, tools.rs ~597, que roda o modelo até o nó): duas células numa execução, e
+     uma execução por cenário. A resposta é a `Comparison::sentence()` mais o `text()`.
+   - O `last_trace` guarda também a última comparação feita no app (o `save_last`); o pedido copiado para um
+     assistente pelo MCP e o prompt `explain_cell` passam a dizer "compare".
+   - O guia do MCP (o tópico `results`) explica quando comparar em vez de traçar uma célula só.
+   - Teste em `crates/cli/src/mcp.rs`, ao lado do `a_cell_is_traced`: duas células do CLUE-S, e um modelo com dois
+     cenários.
+
+7. **Documentação.** A página do Trace no site (a documentação da aplicação) com a comparação, as raízes e um exemplo
+   do CLUE-S (a figura feita pelo binário de release); o CHANGELOG (Unreleased); as marcas de **Feito** aqui.
+
+Fica de fora, para depois: o caminho decisivo de um cartão só (qual condição de um `raster.calc` decidiu e a margem
+até virar: "ficaria `t0` se `suit` estivesse abaixo de 0.45"). Ele melhora as frases da fase 2 (a raiz num
+`raster.calc` passaria a dizer qual condição virou), mas é um bloco à parte: precisa avaliar a expressão pela
+árvore do parser da calculadora, e uma regra de "quem decidiu" por família de operadores (`min`/`max`, `argmax`,
+classificadores).
