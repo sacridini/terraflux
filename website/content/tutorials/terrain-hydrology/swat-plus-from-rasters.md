@@ -171,6 +171,83 @@ digits: 0
 caption: "The HRUs of the same valley (threshold 0.3 km2) by method: one per subbasin (dominant_hru and dominant), every combination above 10% of land use, soil and slope (filter), and the same with the slope in three bands (slope_bands 15 and 35). More HRUs resolve the land better and cost more time."
 ```
 
+### Divide the watershed in Python
+
+The template's data are made in Python with the same generators and seeds: [`tf.nlm.fbm`][terraflux.nlm.fbm] for the
+relief (`dimension` of the node is `fract_dim`), [`tf.nlm.random_cluster`][terraflux.nlm.random_cluster] for the land use,
+on a grid of 30 by 30 cells of 100 m in the made-up transverse Mercator. The soil table and the weather of the next
+step are the part's downloads, `soil_table.csv` and `weather.csv`:
+
+```python
+import numpy as np
+import pandas as pd
+import xarray as xr
+import terraflux as tf
+
+crs = "+proj=tmerc +lat_0=-15 +lon_0=-47 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m"
+relief = tf.nlm.fbm(30, 30, resolution=100, fract_dim=1.4, seed=91).rio.write_crs(crs)
+dem = 700 + 300 * relief                                         # 700 to 1,000 m
+landuse = tf.nlm.random_cluster(30, 30, p=0.5, ai=[0.6, 0.4], seed=92, rescale=False, resolution=100).rio.write_crs(crs)
+soils = xr.where(relief > 0.4, 10, 20)                           # 10 the uplands, 20 the lower valley
+landuse_lookup = pd.DataFrame({"code": [1, 2], "name": ["FRSD", "PAST"]})
+soil_lookup = pd.DataFrame({"code": [10, 20], "name": ["UPLAND_LOAM", "VALLEY_CLAY_LOAM"]})
+soil_table = pd.read_csv("soil_table.csv")                       # a row per layer, SWAT+'s soils.sol columns
+
+w = tf.hydro.swat.watershed(dem, landuse, soils, landuse_lookup=landuse_lookup, soil_lookup=soil_lookup,
+                            soil_table=soil_table, stream_threshold=0.3)       # km2, as the node
+print(w)
+print(w.tables["gis_hrus"][["landuse", "soil", "slope", "arsub"]].round(1).to_string())
+```
+
+```text
+SwatWatershed(9 subbasins, 9 HRUs, 714.0 ha)
+  landuse              soil  slope  arsub
+0    PAST  VALLEY_CLAY_LOAM   19.2  243.0
+1    FRSD  VALLEY_CLAY_LOAM   23.3   35.0
+2    PAST       UPLAND_LOAM   24.4   81.0
+3    FRSD  VALLEY_CLAY_LOAM   22.9   15.0
+4    FRSD  VALLEY_CLAY_LOAM   21.8   49.0
+5    FRSD       UPLAND_LOAM   26.7   39.0
+6    FRSD       UPLAND_LOAM   19.9   77.0
+7    FRSD  VALLEY_CLAY_LOAM   27.4  124.0
+8    PAST  VALLEY_CLAY_LOAM   24.6   51.0
+```
+
+[`tf.hydro.swat.watershed`][terraflux.hydro.swat.watershed] is the node: nine subbasins, nine channels and an HRU each
+(714 ha of the 900), as the part says. The result, a [`SwatWatershed`][terraflux.hydro.swat.SwatWatershed], has the
+tables of QSWAT+ (`w.tables`: `gis_subbasins`, `gis_channels`, `gis_hrus`, `gis_routing`...) and the maps of the division
+on the DEM's grid (`w.subbasins`, `w.channels`, `w.hrus`). The land use and soil maps may be on any grid (the nearest
+cell is taken); a DEM without a coordinate system is refused, and so is a code the lookups do not list. The other
+settings are the node's, and the two tables of the part come from them:
+
+```python
+def division(**settings):
+    return tf.hydro.swat.watershed(dem, landuse, soils, landuse_lookup=landuse_lookup, soil_lookup=soil_lookup,
+                                   soil_table=soil_table, **settings)
+
+for threshold in (0.15, 0.3, 0.6, 1.2):
+    d = division(stream_threshold=threshold)
+    print(threshold, len(d.tables["gis_subbasins"]), len(d.tables["gis_hrus"]))
+for name, settings in (("dominant_hru", {}), ("dominant", {"hru_method": "dominant"}),
+                       ("filter", {"hru_method": "filter", "thresholds": (10, 10, 10)}),
+                       ("filter with slope bands", {"hru_method": "filter", "thresholds": (10, 10, 10), "slope_bands": (15, 35)})):
+    print(name, len(division(stream_threshold=0.3, **settings).tables["gis_hrus"]))
+```
+
+```text
+0.15 28 28
+0.3 9 9
+0.6 3 3
+1.2 2 2
+dominant_hru 9
+dominant 9
+filter 32
+filter with slope bands 73
+```
+
+The first four lines are the threshold (km²), the subbasins and the HRUs of the first table, the last four the HRUs by
+method of the second.
+
 ### Write the project
 
 SWAT+ needs the weather and the soils' *weather generator*, the monthly statistics it uses to make up the days and the
@@ -250,6 +327,51 @@ and to replace them with the ones of SWAT+'s own weather generator database.
     a plant of `plants.plt` nor an urban land use of `urban.urb` ("... does not exist in plants_plt or urban_urb").
     The first line of each file the project writes carries the date it was written, as the Editor's do.
 
+### Write the project in Python
+
+The weather of [`tf.hydro.swat.climate`][terraflux.hydro.swat.climate] is a daily `DataFrame` for each of precipitation,
+maximum and minimum temperature, with the dates as the index and a column per station, and a table of the stations
+(index `name`, with `lat`, `lon` and `elev`). The `year` and `day` columns of the file make the dates:
+
+```python
+weather = pd.read_csv("weather.csv")                             # year, day, pcp, tmax, tmin
+dates = pd.to_datetime(weather["year"].astype(str)) + pd.to_timedelta(weather["day"] - 1, unit="D")
+series = {c: pd.DataFrame({"valley": weather[c].to_numpy()}, index=dates) for c in ("pcp", "tmax", "tmin")}
+stations = pd.DataFrame({"lat": [-14.98], "lon": [-46.98], "elev": [850]}, index=pd.Index(["valley"], name="name"))
+monthly = dict(pcp_hhr=8, slr_ave=[4, 7, 11, 16, 20, 23, 25, 21, 15, 9, 5, 3], dew_ave=4, wnd_ave=2.5)
+wx = tf.hydro.swat.climate(stations, pcp=series["pcp"], tmax=series["tmax"], tmin=series["tmin"], monthly=monthly)
+print(wx, wx.period())
+print(wx.wgn.loc["valley", ["tmp_max_ave", "pcp_ave", "wet_dry", "wet_wet"]].round(2).head(3))
+
+project = tf.hydro.swat.from_tables(w, wx)
+project.watershed = w            # what hru_map and channel_map need
+print(project)
+folder = project.write("TxtInOut")                                # a folder SWAT+ 62 itself can run
+print(len(list(folder.iterdir())))
+```
+
+```text
+SwatClimate(1 stations, pcp, tmax, tmin) (Timestamp('2001-01-01 00:00:00'), Timestamp('2002-12-31 00:00:00'))
+       tmp_max_ave  pcp_ave  wet_dry  wet_wet
+month                                        
+1            30.03    225.9     0.74     0.64
+2            29.60    160.6     0.65     0.67
+3            28.52    107.0     0.57     0.47
+SwatProject(62 files)
+62
+```
+
+`climate` writes the weather files and the statistics of the weather generator (`wx.wgn`, by station and month: the node
+`wgn`; [`tf.hydro.swat.wgn_from_series`][terraflux.hydro.swat.wgn_from_series] computes them alone). What daily
+precipitation and temperature cannot give (the largest half-hour rain `pcp_hhr`, the means of sun, dew point and wind)
+comes in `monthly`, as in the node; radiation, humidity and wind series can be given too (`slr`, `hmd`, `wnd`) and a
+ready `wgn`. [`tf.hydro.swat.from_tables`][terraflux.hydro.swat.from_tables] writes the project, file for file as the
+SWAT+ Editor does (62 files here); `start` and `end` change the period (the days all the series cover), and `codes`
+the Editor's defaults. The project made by `from_tables` has no watershed until you set it, as the line above does, which
+is what lets the maps put results on the cells.
+[`tf.hydro.swat.from_rasters`][terraflux.hydro.swat.from_rasters] does `watershed` and `from_tables` in one call, and
+[`tf.hydro.swat.load_qswat_project`][terraflux.hydro.swat.load_qswat_project] reads a QSWAT+ database.
+
 ### Change a parameter
 
 [[swat.set]] changes a parameter as SWAT+'s *hard calibration* does: it adds a row to the project's
@@ -262,6 +384,45 @@ order, and none changes the project it is given.
 The point of the node is the **setting that reads a model input**: `value = "$cn2_change"`. The percentage is now an
 input of the model, and anything that varies inputs varies it: **Many runs** with a list of values, a sensitivity
 analysis, a calibration against observed flow. The template has two, `cn2_change` and `awc_change`, both 0.
+
+### Change a parameter in Python
+
+The library has no function for the node `swat.set`: a project is a set of text files, and SWAT+'s hard calibration is
+one more, `calibration.cal`, which SWAT+ applies before it starts and which `file.cio` names on its `chg` line. The
+change is a few lines (the application's script does the same):
+
+```python
+def set_parameter(project, parameter, change, value, layers=(0, 0)):
+    """A copy of the project with a row more in calibration.cal; change: pctchg, abschg or absval."""
+    copy = project.copy()
+    head = "cal_parm   chg_typ   chg_val   conds   soil_lyr1   soil_lyr2   yr1   yr2   day1   day2   obj_tot"
+    rows = [r for r in copy.text("calibration.cal").splitlines()[3:] if r.strip()] if "calibration.cal" in copy else []
+    rows.append(f"{parameter}   {change}   {value}   0   {layers[0]}   {layers[1]}   0   0   0   0   0")
+    copy.set_text("calibration.cal", "\n".join(["calibration.cal: by hand", str(len(rows)), head, *rows, ""]))
+    lines = copy.text("file.cio").split("\n")
+    k = next(i for i, line in enumerate(lines) if line.split()[:1] == ["chg"])
+    words = lines[k].split()
+    words[2] = "calibration.cal"                                  # the second file of the chg line
+    lines[k] = " ".join(words)
+    copy.set_text("file.cio", "\n".join(lines))
+    return copy
+
+curve_number = set_parameter(project, "cn2", "pctchg", -10)       # the curve number 10% lower in every HRU
+print(curve_number.text("calibration.cal"))
+```
+
+```text
+calibration.cal: by hand
+1
+cal_parm   chg_typ   chg_val   conds   soil_lyr1   soil_lyr2   yr1   yr2   day1   day2   obj_tot
+cn2   pctchg   -10   0   0   0   0   0   0   0   0
+```
+
+The parameter is one of cal_parms.cal's (`cn2` and `awc` are in the project; the application adds the 69 the port
+calibrates), `change` is a percentage, an amount or a value, `layers` are the first and last soil layer (0 and 0: all)
+and the HRUs are all when the last column is 0 (`obj_tot`; give a count and their numbers after it for some). Each call
+returns a copy and the rows add up in order. Because the percentage is an ordinary argument, anything that varies
+inputs varies it: a loop, a sensitivity analysis, a calibration against observed flow.
 
 ### Run it, and put the results on the map
 
@@ -345,6 +506,109 @@ inputs = { project = "soil_water.project", channel_sd = "daily.channel_sd" }
     terraflux run swat-plus-from-rasters.toml --out output --set cn2_change=-10
     ```
 
+### Run it, and put the results on the map in Python
+
+The model runs the project twice, as the part says: the HRUs' average year and the channels' days. [`tf.hydro.swat.run`][terraflux.hydro.swat.run]
+takes the `tables` and the `nyskip` (the project's own is 1: the first year is the spin-up), and the maps take the result
+they read with `result=` (without it, each runs the project again):
+
+```python
+yearly = tf.hydro.swat.run(project, tables={"hru_wb": "aa", "hru_ls": "aa"})
+daily = tf.hydro.swat.run(project, tables={"channel_sd": "day"})
+sediment = tf.hydro.swat.hru_map(project, "sedyld", result=yearly)      # t/ha a year
+runoff = tf.hydro.swat.hru_map(project, "surq_gen", result=yearly)      # mm a year
+flow = tf.hydro.swat.channel_map(project, result=daily)                 # mean m3/s, on the stream cells
+q = tf.hydro.swat.reach_discharge(project, result=daily)                # a column per channel
+print(sediment.shape, round(float(sediment.mean()), 2), round(float(runoff.mean()), 2), round(float(flow.mean()), 4))
+print(q.shape, q.index[0].date(), q.index[-1].date(), int(q.mean().idxmax()), round(float(q.max().max()), 3))
+```
+
+```text
+(30, 30) 123.25 192.9 0.0146
+(365, 9) 2002-01-01 2002-12-31 4 1.34
+```
+
+[`tf.hydro.swat.hru_map`][terraflux.hydro.swat.hru_map] paints each cell with the value of its HRU (`how="annual"`, the
+column `variable` of `hru_ls`, `hru_wb`...) and gives NaN outside the watershed and on the cells whose combination was
+folded into another HRU; [`tf.hydro.swat.channel_map`][terraflux.hydro.swat.channel_map] does the same for the channels
+(`column`, `how`). [`tf.hydro.swat.reach_discharge`][terraflux.hydro.swat.reach_discharge] is the hydrograph's table: here
+the 365 days of the second year, since the first is skipped (`nyskip=0` prints both). The channel that leaves the valley is
+the one with the largest mean, number 4. `tf.hydro.swat.run(..., c_factor="plant")` and the same setting of the maps choose
+MUSLE's cover factor, as in [Running a SWAT+ project](../swat-plus/#in-python).
+
+The parameters of the part's last table, the mean over the cells of the soil lost and the runoff, the mean discharge of
+the channels and the largest daily discharge of any channel, with the project changed by `set_parameter`:
+
+```python
+for parameter, value in (("cn2", -10), ("cn2", 0), ("cn2", 10), ("awc", -20), ("awc", 0), ("awc", 20)):
+    changed = set_parameter(project, parameter, "pctchg", value)
+    r_year = tf.hydro.swat.run(changed, tables={"hru_wb": "aa", "hru_ls": "aa"})
+    r_day = tf.hydro.swat.run(changed, tables={"channel_sd": "day"})
+    print(f"{parameter} {value:+4d}%:",
+          round(float(tf.hydro.swat.hru_map(changed, "sedyld", result=r_year).mean()), 3),
+          round(float(tf.hydro.swat.hru_map(changed, "surq_gen", result=r_year).mean()), 3),
+          round(float(tf.hydro.swat.channel_map(changed, result=r_day).mean()), 4),
+          round(float(tf.hydro.swat.reach_discharge(changed, result=r_day).max().max()), 3))
+```
+
+```text
+cn2  -10%: 116.921 192.16 0.0145 1.345
+cn2   +0%: 123.254 192.897 0.0146 1.34
+cn2  +10%: 133.345 197.518 0.015 1.328
+awc  -20%: 131.722 188.564 0.0147 1.318
+awc   +0%: 123.254 192.897 0.0146 1.34
+awc  +20%: 115.974 198.394 0.0144 1.347
+```
+
+These are the part's numbers (soil lost, runoff, mean discharge and largest daily discharge).
+
+### The example landscape and a land use scenario in Python
+
+For a bigger valley than the template's, [`tf.hydro.swat.example_landscape`][terraflux.hydro.swat.example_landscape] gathers
+the inputs of a small model from the example data: the Oregon DEM projected to 30 m cells, a land use from the NDVI (forest
+above 0.55, pasture below), two soils by elevation, a station with four years of made-up daily weather and the lookups.
+The land use names are rows of SWAT+'s plant database (`FRSD`, deciduous forest; `PAST`, pasture), and the soil table has
+the columns of `soils.sol` (an ArcSWAT or QSWAT+ *usersoil* table works too). A land use scenario is another land use map
+through the same steps, and `run_many` simulates several projects at once, one per thread:
+
+```python
+ex = tf.hydro.swat.example_landscape()
+dem, landuse, soils = ex["dem"], ex["landuse"], ex["soils"]
+print(dem.shape, dem.rio.crs, dem.rio.resolution(), landuse.to_series().value_counts(normalize=True).round(2).to_dict())
+settings = dict(landuse_lookup=ex["landuse_lookup"], soil_lookup=ex["soil_lookup"], soil_table=ex["soil_table"],
+                stream_threshold=1.0, slope_bands=(15, 35), hru_method="filter", thresholds=(10, 10, 10))
+oregon = tf.hydro.swat.watershed(dem, landuse, soils, **settings)
+climate = tf.hydro.swat.climate(ex["stations"], pcp=ex["pcp"], tmax=ex["tmax"], tmin=ex["tmin"], monthly=ex["monthly"])
+today = tf.hydro.swat.from_tables(oregon, climate)
+print(oregon)
+
+cleared = landuse.where(~((landuse == 1) & (soils == 20)), 2)            # the valley forests become pasture
+scenario = tf.hydro.swat.from_rasters(dem, cleared, soils, climate=climate, **settings)
+now, then = tf.hydro.swat.run_many([today, scenario], tables={"basin_wb": "aa", "basin_ls": "aa"}, c_factor="plant")
+for name, r in (("today", now), ("valleys cleared", then)):
+    wb, sed = r.table("basin_wb", "aa").iloc[0], r.table("basin_ls", "aa").iloc[0]
+    print(name, round(float(wb["surq_gen"]), 1), round(float(wb["wateryld"]), 1), round(float(wb["et"]), 1), round(float(sed["sedyld"]), 3))
+```
+
+```text
+(371, 273) EPSG:32610 (30.0, -30.0) {1.0: 0.96, 2.0: 0.04}
+SwatWatershed(33 subbasins, 128 HRUs, 8075.9 ha)
+today 241.7 263.6 503.6 0.623
+valleys cleared 227.4 249.3 520.3 3.712
+```
+
+The valley soil conducts water three to four times slower than the upland one, layer for layer, which is what makes it
+shed 430 mm a year over the surface where the upland loam percolates nearly everything. Pasture on half of the watershed
+changes the water little, a little less runoff and more evapotranspiration, but the basin's soil loss grows six times, from
+0.62 to 3.71 t/ha a year (with the plants' cover factor): maps like `hru_map(..., "sedyld")` of such scenarios are the
+costs and benefits a restoration plan weighs (see [Restoration priorities](/tutorials/distance-restoration/restoration-plan/#in-python)).
+The river of this project runs from January to June and dries in the summer: its baseflow comes from the shallow aquifers,
+which the editor sets up to release water only while their water table is above 3 m (`flo_min` in `aquifer.aqu`, edited
+as any file with `project.text` and `project.set_text` before running).
+
+A model made with QSWAT+ and the SWAT+ Editor runs as it is: [`tf.hydro.swat.load_txtinout`][terraflux.hydro.swat.load_txtinout]
+reads its TxtInOut folder or a zip, as in [Running a SWAT+ project](../swat-plus/#in-python).
+
 ## Read the results
 
 ```tfgallery
@@ -419,8 +683,8 @@ minimum, the earlier method). The sediment of a project whose plants are bare ch
   and [[swat.load]], which reads a TxtInOut folder or a zip as a value that [[swat.set]] can change.
 - [Streams, watersheds and HAND](../streams-watersheds-and-hand/): the division of a terrain that QSWAT+ builds on.
 - **Many runs** and **Calibration** in the application: vary `cn2_change` and `awc_change` against observed flow.
-- In Python, the same model is written by `terraflux python` as a script of terraflux-py: `tf.hydro.swat.watershed`,
-  `from_tables`, `run`, `hru_map`, `channel_map` and `reach_discharge`.
+- In Python, the same model is written by `terraflux python` as a script of terraflux-py, and the `### In Python` sections
+  above run it step by step.
 - The operators' reference: [[swat.watershed]], [[swat.from_tables]], [[swat.wgn]], [[swat.set]], [[swat.run]],
   [[swat.hru_map]], [[swat.channel_map]], [[swat.reach_discharge]].
 
@@ -430,5 +694,3 @@ minimum, the earlier method). The sediment of a project whose plants are bare ch
 - Bieger, K., Arnold, J. G., Rathjens, H., White, M. J., Bosch, D. D., Allen, P. M., Volk, M., & Srinivasan, R. (2017). Introduction to SWAT+, a completely restructured version of the Soil and Water Assessment Tool. *Journal of the American Water Resources Association*, 53(1), 115–130. https://doi.org/10.1111/1752-1688.12482
 - Dile, Y. T., Daggupati, P., George, C., Srinivasan, R., & Arnold, J. (2016). Introducing a new open source GIS user interface for the SWAT model. *Environmental Modelling & Software*, 85, 129–138. https://doi.org/10.1016/j.envsoft.2016.08.004
 - Moriasi, D. N., Arnold, J. G., Van Liew, M. W., Bingner, R. L., Harmel, R. D., & Veith, T. L. (2007). Model evaluation guidelines for systematic quantification of accuracy in watershed simulations. *Transactions of the ASABE*, 50(3), 885–900. https://doi.org/10.13031/2013.23153
-
-In Python: [Watershed simulation in Python](/tutorials/terrain-hydrology/watershed-model-in-python/).

@@ -89,6 +89,11 @@ redirects:
   /tutorials/circuit-connectivity/circuit-connectivity-in-python/: /tutorials/circuit-connectivity/circuitscape/#in-python
   /tutorials/habitat-networks/habitat-networks-in-python/: /tutorials/habitat-networks/connectivity-as-a-graph/#in-python
   /tutorials/surface-metrics/surface-texture-in-python/: /tutorials/surface-metrics/surface-texture/#in-python
+  /tutorials/distance-restoration/distance-restoration-in-python/: /tutorials/distance-restoration/distance-to-habitat/#in-python
+  /tutorials/distance-restoration/restoration-plans-in-python/: /tutorials/distance-restoration/restoration-plan/#in-python
+  /tutorials/animal-movement/animal-movement-in-python/: /tutorials/animal-movement/ideas/#in-python
+  /tutorials/terrain-hydrology/terrain-hydrology-in-python/: /tutorials/terrain-hydrology/depressions-and-flow/#read-reproject-and-fill-in-python
+  /tutorials/terrain-hydrology/watershed-model-in-python/: /tutorials/terrain-hydrology/swat-plus-from-rasters/#divide-the-watershed-in-python
 
 # The tutorials' categories, in this order: a folder of content/tutorials/ each. `prefixes` are the operators
 # they cover (the subjects of the application's library); `cells` draws the category's small icon (3x3 cells:

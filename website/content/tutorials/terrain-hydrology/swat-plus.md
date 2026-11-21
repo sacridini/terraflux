@@ -260,6 +260,152 @@ scenario, copy the project, edit its files (a land use in `hru-data.hru`, the we
     terraflux run swat.toml --out output
     ```
 
+### In Python
+
+The project is the part's `hubbard_brook.zip`; [`tf.hydro.swat.load_txtinout`][terraflux.hydro.swat.load_txtinout] reads
+a TxtInOut folder or a zip of it (`tf.example_data("swat_hubbard_brook")` is the same file inside the package), and
+[`tf.hydro.swat.run`][terraflux.hydro.swat.run] simulates it with `tables` (a list, or a dict of table to step: `"day"`,
+`"month"`, `"year"` or `"aa"`) and `nyskip`, the settings of the node. The result is a `SwatResult`:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+project = tf.hydro.swat.load_txtinout(tf.example_data("swat_hubbard_brook"))   # the same project as hubbard_brook.zip
+print(project)
+result = tf.hydro.swat.run(project, tables={"basin_wb": ["year", "aa"], "hru_wb": "aa", "hru_ls": "aa"})
+print(result)
+cols = ["precip", "snofall", "snomlt", "et", "surq_gen", "latq", "perc", "wateryld"]
+print(result.table("basin_wb", "year")[cols].astype(float).round(1))
+print(result.table("basin_wb", "aa")[cols].astype(float).round(1))
+```
+
+```text
+SwatProject(79 files)
+SwatResult(1096 days, tables: hru_wb[aa], hru_nb[day/month/year/aa], hru_ls[aa], hru_pw[day/month/year/aa], basin_wb[year/aa], basin_nb[day/month/year/aa], basin_ls[day/month/year/aa], basin_pw[day/month/year/aa], channel_sd[day/month/year/aa], aquifer[day/month/year/aa])
+            precip  snofall  snomlt     et  surq_gen  latq   perc  wateryld
+date                                                                       
+2001-12-31  1004.1    310.9   336.3  128.3     356.0  29.3  536.7     385.2
+2002-12-31  1319.2    317.9   282.4  126.5     532.1  32.6  594.6     564.7
+            precip  snofall  snomlt     et  surq_gen  latq   perc  wateryld
+date                                                                       
+2002-12-31  1156.9    313.1   308.1  126.9     442.2  30.8  563.3     473.0
+```
+
+The project skips its first year (`print.prt`'s `nyskip` is 1), so the two printed years are 2001 and 2002, and `aa` is
+their average: the 1,157 mm of precipitation, 442 mm of surface runoff, 31 of lateral flow, 563 of percolation and 127
+of evapotranspiration of the part. `result.table(name, step)` is a `DataFrame` with SWAT+'s own column names, indexed by
+date (the end of the period) and, for the HRUs, the channels and the aquifers, by the object's number: the date replaces
+the `year` and `day` columns the application's tables have. The tables are the part's: `basin_wb`, `hru_wb`, `basin_nb`,
+`hru_nb`, `basin_ls`, `hru_ls`, `basin_pw`, `hru_pw`, `channel_sd` and `aquifer` (the daily weather of every station is
+`result.weather`); a table not asked for is not printed, and `result.table` on it raises an error. The first
+argument of `run` may be a project or the path of a folder or a zip, and `c_factor` (below) chooses the cover factor.
+
+**Streamflow.** [`tf.hydro.swat.reach_discharge`][terraflux.hydro.swat.reach_discharge] gives the daily discharge leaving
+each channel as a table with a column per channel, from the project's `channel_sd` (it runs it, unless it is given one
+with `result=`). Printing all three years shows the spin-up too:
+
+```python
+daily = tf.hydro.swat.run(project, tables={"basin_wb": "day", "channel_sd": "day"}, nyskip=0)
+q = tf.hydro.swat.reach_discharge(project, result=daily)[1].astype(float)   # channel 1, m3/s
+print(round(q.mean(), 4), round(q.max(), 3), q.idxmax().date(), int((q < 1e-4).sum()), len(q))
+print(q.groupby(q.index.month).mean().round(4).to_dict())
+```
+
+```text
+0.0047 0.09 2002-04-13 230 1096
+{1: 0.0006, 2: 0.0018, 3: 0.0064, 4: 0.0151, 5: 0.0062, 6: 0.0054, 7: 0.0026, 8: 0.0013, 9: 0.0044, 10: 0.0038, 11: 0.0048, 12: 0.0044}
+```
+
+The mean discharge is 0.0047 m³/s, the largest day 0.09 m³/s on 13 April 2002, and 230 of the 1,096 days have a flow
+below 0.1 litre a second (SWAT+ never prints exactly 0). April, the snowmelt, is the wettest month on average, and
+January has the least flow, then August and February. The same table gives the number of days without flow, the size
+and the timing of floods and the duration of low flows.
+
+**Is that plausible?** The check the part asks for is a few lines. With `nyskip=0` the table shows the year of the
+spin-up too:
+
+```python
+spin = tf.hydro.swat.run(project, tables={"basin_wb": "year", "basin_pw": "year", "aquifer": "year"}, nyskip=0)
+wb, pw = spin.table("basin_wb", "year"), spin.table("basin_pw", "year")
+print(pd.concat([wb[["precip", "et", "esoil", "eplant", "surq_gen", "perc", "wateryld"]], pw[["lai", "residue"]]], axis=1)
+      .astype(float).round(1).to_string())
+aquifer = spin.table("aquifer", "year")
+print(aquifer.xs(1, level="aquifer")["flo"].astype(float).round(1).tolist())     # the shallow aquifer
+```
+
+```text
+            precip     et  esoil  eplant  surq_gen   perc  wateryld  lai  residue
+date                                                                             
+2000-12-31  1411.5  507.4   89.0   331.1     442.7  322.8     462.6  1.7   4194.1
+2001-12-31  1004.1  128.3  128.3     0.0     356.0  536.7     385.2  0.0     64.5
+2002-12-31  1319.2  126.5  126.5     0.0     532.1  594.6     564.7  0.0      0.2
+[290.3, 490.0, 548.3]
+```
+
+Plants transpire nothing (`eplant` is 0 from 2001: the forest drops its leaves, `lai` 0, and the litter, `residue`,
+decays to nothing), so evapotranspiration falls from 507 to 128 mm and surface runoff and percolation rise: SWAT+'s own
+result, as the part explains, caused by the project's plant settings. The last line is the baseflow of the shallow
+aquifer by year, 290, 490 and 548 mm: the aquifer is still filling in the spin-up year, which is why `nyskip` matters.
+Look at `lai`, `bioms` and `et` before anything else.
+
+**The HRUs and the cover factor.** `c_factor` is `"swatplus"` (the default, SWAT+ 62's) or `"plant"` (the plants'
+minimum, the earlier method); only the sediment and what travels with it change:
+
+```python
+plant = tf.hydro.swat.run(project, tables={"hru_ls": "aa", "basin_ls": "aa"}, c_factor="plant")
+loss = pd.DataFrame({"swatplus": result.table("hru_ls", "aa")["sedyld"].droplevel("date").astype(float),
+                     "plant": plant.table("hru_ls", "aa")["sedyld"].droplevel("date").astype(float)})
+print(loss.round(2).T.to_string())
+basin = tf.hydro.swat.run(project, tables={"basin_ls": "aa"})
+print(round(float(basin.table("basin_ls", "aa")["sedyld"].iloc[0]), 2), round(float(plant.table("basin_ls", "aa")["sedyld"].iloc[0]), 2))
+```
+
+```text
+hru         1     2     3    4      5      6      7      8       9       10
+swatplus  0.00  0.00  0.00  0.0  16.56  77.38  13.15  42.50  110.16  274.08
+plant     0.01  0.04  0.11  0.3   9.90  46.11   0.01   0.05    0.13    0.32
+178.98 0.23
+```
+
+The ten HRUs by SWAT+ 62's factor and by the plants' minimum (t/ha a year): the mature forest on 47 % slopes (HRU 10)
+loses 274 and 0.32, and the basin 179 against 0.23 t/ha, the numbers of the part. The same project can be run with
+`tf.hydro.swat.run_many([project, other], ...)`, one project per thread.
+
+**An old project.** SWAT+ 62 reads the fifth value of `parameters.bsn` as the peak rate factor (484); a project written
+for an earlier version has 1 there. `tf.hydro.swat.SwatProjectWarning` is raised when `run`
+sees such a value; the package's copy has 484. To see it, put 1 back (a project's files are text, `project.text` and
+`project.set_text`):
+
+```python
+import warnings
+
+old = project.copy()
+lines = old.text("parameters.bsn").split("\n")
+values = lines[2].split()
+values[4] = "1"                                   # the peak rate factor, 484 in the project
+lines[2] = "  ".join(values)
+old.set_text("parameters.bsn", "\n".join(lines))
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    res = tf.hydro.swat.run(old, tables={"basin_ls": "aa"})
+print(caught[0].category.__name__)
+print(round(float(res.table("basin_ls", "aa")["sedyld"].iloc[0]), 2))
+```
+
+```text
+SwatProjectWarning
+5.61
+```
+
+The basin loses 5.6 t/ha instead of 179, without another word: here a factor of 30, and hundreds of times in some of
+SWAT+'s official examples. What the port does not simulate (reservoirs, wetlands and rice paddies, pesticides, salts and
+other constituents, the CENTURY carbon model, water allocation, Green-Ampt infiltration and sub-daily steps) is refused
+with an error when a project uses it, never skipped. [`tf.hydro.swat.SwatProject`][terraflux.hydro.swat.SwatProject]
+changes a project as files: for a parameter as SWAT+'s hard calibration does, see
+[A SWAT+ project from rasters](../swat-plus-from-rasters/#change-a-parameter-in-python).
+
 ## Read the results
 
 **The water balance.** All values are in millimetres of water over the basin (1 mm over 16.3 ha is 163 m³):
@@ -415,5 +561,3 @@ daily one. Print daily only what you need daily (streamflow for a hydrograph), a
 - Moriasi, D. N., Arnold, J. G., Van Liew, M. W., Bingner, R. L., Harmel, R. D., & Veith, T. L. (2007). Model evaluation guidelines for systematic quantification of accuracy in watershed simulations. *Transactions of the ASABE*, 50(3), 885–900. https://doi.org/10.13031/2013.23153
 - Nash, J. E., & Sutcliffe, J. V. (1970). River flow forecasting through conceptual models part I — A discussion of principles. *Journal of Hydrology*, 10(3), 282–290. https://doi.org/10.1016/0022-1694(70)90255-6
 - Williams, J. R. (1975). Sediment-yield prediction with universal equation using runoff energy factor. In *Present and Prospective Technology for Predicting Sediment Yields and Sources* (ARS-S-40, pp. 244–252). USDA Agricultural Research Service.
-
-In Python: [Watershed simulation in Python](/tutorials/terrain-hydrology/watershed-model-in-python/).

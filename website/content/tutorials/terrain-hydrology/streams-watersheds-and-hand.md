@@ -196,6 +196,50 @@ before: { src: /img/tutorials/terrain-hydrology/streams-watersheds-and-hand/stre
 after: { src: /img/tutorials/terrain-hydrology/streams-watersheds-and-hand/streams_traced.png, label: "mfd traced, 500 cells" }
 ```
 
+### Streams in Python
+
+The part starts from the filled DEM of part 1, saved as `filled.tif`. In Python it is the same three steps, so every
+section of this page can run on its own (the Oregon SRTM, projected to UTM 10N in cells of 30 m, as in part 1):
+
+```python
+import numpy as np
+import xarray as xr
+import geopandas as gpd
+import terraflux as tf
+from shapely.geometry import Point
+
+raw = tf.load_raster(tf.surface.example_data("orelevation"))
+x = 500010 + 15 + 30 * np.arange(270)
+y = 4771920 - 15 - 30 * np.arange(369)
+grid = xr.DataArray(np.zeros((369, 270), "float32"), coords={"y": y, "x": x}, dims=("y", "x")).rio.write_crs("EPSG:32610")
+filled = tf.hydro.fill(tf.reproject(raw, like=grid, resampling="bilinear"))     # part 1
+
+acc = tf.hydro.flow_accumulation(filled)                       # D8, in cells
+rivers = tf.hydro.streams(acc, 500)                            # 1 where at least 500 cells (45 ha) drain through
+print(int(np.nansum(rivers.values)))
+```
+
+```text
+2126
+```
+
+[`tf.hydro.streams`][terraflux.hydro.streams] takes the accumulation and the **threshold** in its units: give `units="area"`
+to the accumulation and square metres here. The streams as InVEST traces them come from an `mfd` accumulation, the
+filled DEM and a `trace`:
+
+```python
+mfd = tf.hydro.flow_accumulation(filled, method="mfd")
+traced = tf.hydro.streams(mfd, 500, trace=0.7, dem=filled)     # tributaries kept down to 0.7 of the threshold
+print(int(np.nansum(rivers.values)), int(np.nansum(traced.values)))
+```
+
+```text
+2126 3041
+```
+
+The D8 network has 2,126 stream cells here and the traced `mfd` one 3,041 (the part counts 2,113 and 3,034: the
+application's reprojection of the DEM differs from the library's in a few cells, and the networks follow).
+
 ### Links, their table and an outlet
 
 <div class="steps" markdown>
@@ -282,6 +326,75 @@ map without projection). A point farther than that from every stream is an error
 here was 46 m from the stream and snapped to the cell at row 166, column 154; the link ending there is link
 **44**, the one row of the table with `outlet` = 1.
 
+### Links, their table and an outlet in Python
+
+[`tf.hydro.stream_links`][terraflux.hydro.stream_links] returns the two outputs of the node, the map of the links and
+their table (a `DataFrame` indexed by `link`, with the columns the part lists). The gauge is a point in longitude and
+latitude; a `GeoDataFrame` (or an array of `(x, y)` pairs in the DEM's units) is moved onto the grid:
+
+```python
+gauge = gpd.GeoDataFrame({"name": ["gauge"]}, geometry=[Point(-122.942408, 43.055098)], crs=4326)
+links, table = tf.hydro.stream_links(filled, rivers, outlets=gauge, snap=300)   # snap in map units, 300 m by default
+print(len(table), round(table["length"].sum() / 1000, 1), int(table["order"].max()))
+print(table.head(3).round(1).to_string())
+print(table[table["outlet"]].round(1).to_string())
+```
+
+```text
+103 75.6 3
+      downstream  outlet  start_row  start_col  end_row  end_col  cells  length  z_start   z_end  order
+link
+1              0   False          0        186        0      186      1    30.0   1100.5  1100.5      1
+2              0   False          4         79        0       83      5   199.7    946.0   934.4      1
+3              0   False          9        146        0      152     10   374.6   1179.9  1125.4      1
+      downstream  outlet  start_row  start_col  end_row  end_col  cells  length  z_start  z_end  order
+link
+43            52    True        149        153      166      154     18   602.1    814.3  734.7      2
+```
+
+The links are numbered in the raster order of their first cells; the one with `outlet` true ends at the gauge, snapped
+to the cell at row 166, column 154, as in the part (it is link 43 here and link 44 there, from the difference of the
+networks above). The table of the Strahler orders, with the mean gradient of a link, (`z_start - z_end`) over its
+`length`:
+
+```python
+table["gradient"] = 100 * (table["z_start"] - table["z_end"]) / table["length"]
+by_order = table.groupby("order").agg(links=("cells", "size"), length_km=("length", lambda s: s.sum() / 1000),
+                                      mean_length_m=("length", "mean"), mean_gradient_pct=("gradient", "mean"))
+print(by_order.round(2).to_string())
+print(int((table["downstream"] == 0).sum()))     # networks cut by the map's edge
+```
+
+```text
+       links  length_km  mean_length_m  mean_gradient_pct
+order
+1         60      41.74         695.65              13.78
+2         37      29.06         785.49               7.61
+3          6       4.78         797.19               2.26
+16
+```
+
+The highest order is 3 because the map's edges cut the network into 16 pieces (the rows whose `downstream` is 0). To
+choose the **threshold**, count the links, their length and the drainage density at several (the slider's numbers; the
+map is 89.7 km²):
+
+```python
+area_km2 = acc.size * 900 / 1e6
+for cells in (100, 250, 500, 1000, 2500, 5000):
+    l, t = tf.hydro.stream_links(filled, tf.hydro.streams(acc, cells))
+    km = t["length"].sum() / 1000
+    print(f"{cells:5d} cells ({cells * 0.09:5.1f} ha): {len(t):3d} links, {km:5.1f} km, {km / area_km2:.2f} km/km2, order {t['order'].max()}")
+```
+
+```text
+  100 cells (  9.0 ha): 521 links, 183.1 km, 2.04 km/km2, order 5
+  250 cells ( 22.5 ha): 212 links, 110.3 km, 1.23 km/km2, order 4
+  500 cells ( 45.0 ha): 103 links,  75.6 km, 0.84 km/km2, order 3
+ 1000 cells ( 90.0 ha):  40 links,  50.0 km, 0.56 km/km2, order 3
+ 2500 cells (225.0 ha):  16 links,  31.7 km, 0.35 km/km2, order 2
+ 5000 cells (450.0 ha):   8 links,  20.8 km, 0.23 km/km2, order 2
+```
+
 ### The watershed of the gauge, and the subbasins
 
 [[hydro.watersheds]] labels every cell with the first *seed* its water reaches along the D8 directions. Seeds
@@ -363,6 +476,32 @@ images:
   - { src: /img/tutorials/terrain-hydrology/streams-watersheds-and-hand/subbasins.png, caption: "The subbasins of every link" }
 ```
 
+### The watershed of the gauge, and the subbasins in Python
+
+[`tf.hydro.watersheds`][terraflux.hydro.watersheds] takes the DEM and the seeds, a raster of positive whole numbers.
+The seed of the gauge is its link, as the `seed` node makes it; the subbasins take the whole map of links:
+
+```python
+gauge_link = int(table.index[table["outlet"]][0])             # the link with outlet true
+seed = (links == gauge_link).astype("int32")
+watershed = tf.hydro.watersheds(filled, seed)
+print(gauge_link, int((watershed == 1).sum()), round(int((watershed == 1).sum()) * 900 / 1e6, 2))
+
+subbasins = tf.hydro.watersheds(filled, links.fillna(0).astype("int32"))
+print(len(np.unique(subbasins.values[subbasins.values > 0])), round(float((subbasins.values > 0).mean()) * 100, 1))
+```
+
+```text
+43 6565 5.91
+103 95.0
+```
+
+The gauge drains 6,565 cells, 5.91 km² (6,568 cells in the part), and the 103 links give 103 subbasins covering 95 % of
+the map; the other 5 % is cells whose water leaves it before reaching a stream. With several gauges, give each its own
+label in the seed (`(links == a) * 1 + (links == b) * 2`) and one call labels all their watersheds; nested gauges are
+handled as the part says. Outlets are snapped only by `stream_links` (or [`tf.hydro.snap_outlets`][terraflux.hydro.snap_outlets]
+on its own): seeds are taken as they are.
+
 ### HAND and the distance to the streams
 
 <div class="steps" markdown>
@@ -420,6 +559,58 @@ stream along InVEST's multiple flow directions, the *downslope* part of InVEST's
 metres here), or in the units of the optional `weights`, a map of the length of each step onto a cell. It is 0
 on the streams and has no value where no flow reaches one. Note that its `streams` input must be 1 on the
 streams.
+
+### HAND and the distance to the streams in Python
+
+[`tf.hydro.hand`][terraflux.hydro.hand] takes the filled DEM and the streams (any non-zero cell is drainage), or a
+`threshold=` in cells of D8 accumulation instead of `streams`; [`tf.hydro.distance_to_channel`][terraflux.hydro.distance_to_channel]
+takes the streams as 1:
+
+```python
+height = tf.hydro.hand(filled, rivers)                         # metres, the DEM's units
+distance = tf.hydro.distance_to_channel(filled, rivers) * 30   # cell lengths to metres
+h = height.values
+print(np.nanpercentile(h, [10, 50, 90]).round(1))
+ok = ~np.isnan(h) & ~np.isnan(distance.values)
+print(round(float(np.corrcoef(h[ok], filled.values[ok])[0, 1]), 2), round(float(np.corrcoef(h[ok], distance.values[ok])[0, 1]), 2))
+for below in (2, 5, 10, 20, 50):
+    print(below, round(float((h[~np.isnan(h)] < below).mean() * 100), 1))
+```
+
+```text
+[ 17.4 105.9 234.5]
+0.34 0.8
+2 3.3
+5 4.5
+10 6.8
+20 11.2
+50 24.6
+```
+
+Half the map stands more than 106 m above its stream and 10 % less than 17 m; the correlation of HAND with elevation
+is 0.34 and with the distance 0.80, and the shares below 2, 5, 10, 20 and 50 m (3.3, 4.5, 6.8, 11.2 and 24.6 %) are the
+slider's. The threshold changes HAND more than anything: the median, the 90th percentile and the share below 5 m of the
+second slider, each with its own network:
+
+```python
+for cells in (100, 250, 500, 1000, 2500, 5000):
+    hh = tf.hydro.hand(filled, threshold=cells).values
+    print(f"{cells:5d} cells: median {np.nanmedian(hh):5.1f} m, 90th {np.nanpercentile(hh, 90):5.1f} m, "
+          f"below 5 m {(hh[~np.isnan(hh)] < 5).mean() * 100:.1f} %")
+```
+
+```text
+  100 cells: median  59.5 m, 90th 157.6 m, below 5 m 8.5 %
+  250 cells: median  83.5 m, 90th 202.1 m, below 5 m 6.0 %
+  500 cells: median 105.9 m, 90th 234.5 m, below 5 m 4.5 %
+ 1000 cells: median 136.0 m, 90th 279.3 m, below 5 m 3.5 %
+ 2500 cells: median 178.7 m, 90th 332.3 m, below 5 m 2.6 %
+ 5000 cells: median 204.6 m, 90th 370.2 m, below 5 m 2.1 %
+```
+
+HAND follows the D8 directions (`flats=True` drains the flat areas), so give it the filled DEM; its results are
+WhiteboxTools' `ElevationAboveStream` cell for cell, and the distance and the stream tracing are pygeoprocessing's
+(InVEST 3.20).
 
 ## Read the results
 
@@ -564,5 +755,3 @@ should stay on (with a filled DEM it is what gives the filled areas a direction)
 - Schietti, J., Emilio, T., Rennó, C. D., Drucker, D. P., Costa, F. R. C., Nogueira, A., Baccaro, F. B., Figueiredo, F., Castilho, C. V., Kinupp, V., Guillaumet, J.-L., Garcia, A. R. M., Lima, A. P., & Magnusson, W. E. (2014). Vertical distance from drainage drives floristic composition changes in an Amazonian rainforest. *Plant Ecology & Diversity*, 7(1–2), 241–253. https://doi.org/10.1080/17550874.2013.783642
 - Strahler, A. N. (1957). Quantitative analysis of watershed geomorphology. *Eos, Transactions American Geophysical Union*, 38(6), 913–920. https://doi.org/10.1029/TR038i006p00913
 - Tarboton, D. G., Bras, R. L., & Rodriguez-Iturbe, I. (1991). On the extraction of channel networks from digital elevation data. *Hydrological Processes*, 5(1), 81–100. https://doi.org/10.1002/hyp.3360050107
-
-In Python: [Terrain hydrology in Python](/tutorials/terrain-hydrology/terrain-hydrology-in-python/).

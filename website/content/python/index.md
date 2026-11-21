@@ -51,7 +51,7 @@ Where to go:
   connectivity.
 - **[Circuit connectivity](/tutorials/circuit-connectivity/)**: current flow between
   habitat areas and omnidirectional connectivity across whole landscapes, on rasters and on networks.
-- **[Distance and restoration](/tutorials/distance-restoration/distance-restoration-in-python/)**: distance maps,
+- **[Distance and restoration](/tutorials/distance-restoration/)**: distance maps,
   cost surfaces, least-cost paths and corridors, restoration priorities and travel-time (isochrone) maps.
 - **[Routes on grids](/tutorials/grid-distances/)**: travel-time surfaces, least-cost and
   random-walk distances, randomised shortest paths and the overlap of dispersal routes.
@@ -72,7 +72,7 @@ Where to go:
 - **[Land change simulation](/tutorials/land-change/land-change-simulation-in-python/)**: project land use from
   two maps: demand, transition potential and allocation, validation against the observed change, calibration,
   scenarios with replicates, and roads and stocks that change with the model.
-- **[Watershed simulation](/tutorials/terrain-hydrology/watershed-model-in-python/)**: the SWAT+ model from a DEM,
+- **[Watershed simulation](/tutorials/terrain-hydrology/swat-plus-from-rasters/)**: the SWAT+ model from a DEM,
   land use and soils: daily water balance, streamflow, soil loss on the map and land use scenarios.
 - **[Large data and batch](/tutorials/large-data/)**: folders of rasters in parallel, tiles
   for maps larger than memory, streaming tables with millions of rows.

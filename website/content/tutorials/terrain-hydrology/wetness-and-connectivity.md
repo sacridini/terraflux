@@ -197,6 +197,94 @@ inputs = { dem = "filled.raster", sca = "sca.map" }
 On this map the difference is small (the two TWIs correlate at 0.9999, the recipe's is higher by 0.02 on
 average), but stating it makes your index reproducible.
 
+### Wetness, stream power and sediment transport in Python
+
+The part starts from the filled DEM of part 1. In Python it is its three steps (the Oregon SRTM, projected to UTM 10N in
+cells of 30 m), and the HAND of part 2 for the valley floors:
+
+```python
+import numpy as np
+import xarray as xr
+import terraflux as tf
+
+raw = tf.load_raster(tf.surface.example_data("orelevation"))
+x = 500010 + 15 + 30 * np.arange(270)
+y = 4771920 - 15 - 30 * np.arange(369)
+grid = xr.DataArray(np.zeros((369, 270), "float32"), coords={"y": y, "x": x}, dims=("y", "x")).rio.write_crs("EPSG:32610")
+filled = tf.hydro.fill(tf.reproject(raw, like=grid, resampling="bilinear"))     # part 1
+height = tf.hydro.hand(filled, threshold=500)                                   # part 2
+
+wet = tf.hydro.twi(filled)                          # method="fd8", node `twi`
+spi = tf.hydro.spi(filled)                          # node `spi`
+sti = tf.hydro.sti(filled)                          # sca_exponent=0.4, slope_exponent=1.3: node `sti`
+print(np.nanpercentile(wet.values, [1, 50, 99]).round(2), int(np.isnan(wet.values).sum()))
+print(round(float(np.nanmedian(spi.values))), round(float(np.nanmedian(sti.values)), 1),
+      round(float(np.nanpercentile(sti.values, 90)), 1))
+```
+
+```text
+[ 4.77  6.36 13.23] 155
+69 17.8 39.4
+```
+
+[`tf.hydro.twi`][terraflux.hydro.twi], [`tf.hydro.spi`][terraflux.hydro.spi] and [`tf.hydro.sti`][terraflux.hydro.sti] each
+compute their two parts from the DEM, by the accumulation `method` (`"fd8"` by default, `"quinn"`, `"dinf"`, `"d8"`,
+`"mfd"`) and Horn's slope. TWI goes from 4.8 to 13.2 (1st and 99th percentiles) with a median of 6.4, and the 155 cells
+with no value are the flat floors of the filled depressions: `min_slope=0.001` gives them a high, finite value (no cell is left empty). The median of SPI is 69 and those of STI 17.8 and its 90th percentile 39, the
+part's numbers. Two optional inputs replace the parts, `sca=` (a specific contributing area) and `slope=` (in degrees),
+which is how to follow a recipe: the one of Kopecký et al. (2021) is FD8 with an exponent of 1.0:
+
+```python
+sca = tf.hydro.flow_accumulation(filled, method="fd8", exponent=1.0, units="sca")
+recipe = tf.hydro.twi(filled, sca=sca)
+ok = ~np.isnan(wet.values) & ~np.isnan(recipe.values)
+print(round(float(np.corrcoef(wet.values[ok], recipe.values[ok])[0, 1]), 4), round(float(np.mean(recipe.values[ok] - wet.values[ok])), 3))
+```
+
+```text
+0.9999 0.018
+```
+
+The two TWIs correlate at 0.9999 and the recipe's is higher by 0.02 on average, as the part says. The wetness of the
+valley floors against the rest, by the five methods (the slider's numbers: the mean, the mean on the cells less than 5 m
+above their stream and elsewhere, and the correlation with FD8), and by class of HAND:
+
+```python
+h = height.values
+low = h < 5
+fd8 = tf.hydro.twi(filled).values
+for method in ("d8", "dinf", "fd8", "quinn", "mfd"):
+    w = tf.hydro.twi(filled, method=method).values
+    ok = ~np.isnan(w) & ~np.isnan(fd8)
+    print(f"{method:6s} mean {np.nanmean(w):.2f}  valley floors {np.nanmean(w[low]):.2f}  elsewhere {np.nanmean(w[~low & ~np.isnan(h)]):.2f}  "
+          f"corr with fd8 {np.corrcoef(w[ok], fd8[ok])[0, 1]:.3f}")
+d8 = tf.hydro.twi(filled, method="d8").values
+for lo, hi in ((0, 5), (5, 10), (10, 20), (20, 50), (50, 100), (100, 1e9)):
+    c = (h >= lo) & (h < hi)
+    print(f"HAND {lo:3d}-{min(hi, 999):3.0f} m: FD8 {np.nanmean(fd8[c]):.2f}  D8 {np.nanmean(d8[c]):.2f}")
+ok = ~np.isnan(fd8) & ~np.isnan(h)
+print(round(float(np.corrcoef(fd8[ok], h[ok])[0, 1]), 2))
+```
+
+```text
+d8     mean 6.20  valley floors 10.48  elsewhere 6.02  corr with fd8 0.827
+dinf   mean 6.44  valley floors 10.71  elsewhere 6.25  corr with fd8 0.927
+fd8    mean 6.83  valley floors 11.19  elsewhere 6.65  corr with fd8 1.000
+quinn  mean 6.87  valley floors 11.21  elsewhere 6.69  corr with fd8 0.999
+mfd    mean 6.87  valley floors 11.65  elsewhere 6.67  corr with fd8 0.982
+HAND   0-  5 m: FD8 11.19  D8 10.48
+HAND   5- 10 m: FD8 8.63  D8 6.81
+HAND  10- 20 m: FD8 7.83  D8 6.52
+HAND  20- 50 m: FD8 7.11  D8 6.26
+HAND  50-100 m: FD8 6.79  D8 6.14
+HAND 100-999 m: FD8 6.29  D8 5.82
+-0.43
+```
+
+The mean TWI of the valley floors is 11.2 and the others' 6.7, falling steadily as HAND rises, and the correlation of TWI
+with HAND is -0.43 (the part says -0.42): related, not the same. The D8 TWI correlates with FD8's at only 0.83; the
+resolution of the DEM and the method change the index, so say both when you report it.
+
 ### The index of connectivity
 
 <div class="steps" markdown>
@@ -259,6 +347,46 @@ DEM, routes water by InVEST's multiple flow directions (**method** `mfd`, the de
 slope gradient as InVEST does and bounds it between 0.005 and 1, raises weights below 0.001 to 0.001, and finds
 the streams either from the `streams` input (1 on the streams) or as the cells whose accumulation reaches the
 **threshold**, in cells. The streams have no value: IC is about the way *to* them.
+
+### The index of connectivity in Python
+
+[`tf.hydro.connectivity_index`][terraflux.hydro.connectivity_index] takes the filled DEM, the weight raster on its grid
+and the streams, as a raster (`streams=`, 1 on the streams) or as the `threshold` in cells, traced as InVEST does. The
+weight is the part's: 0.003 under forest (NDVI above 0.55), 0.05 on open land:
+
+```python
+ndvi = tf.reproject(tf.load_raster(tf.surface.example_data("orforest")), like=grid, resampling="bilinear")
+cover = xr.where(ndvi > 0.55, 0.003, 0.05)                       # W, a USLE C per cover (illustrative)
+ic = tf.hydro.connectivity_index(filled, cover, threshold=500)   # method="mfd", the default
+print(np.nanpercentile(ic.values, [1, 99]).round(2), round(float((cover.values == 0.05).mean()) * 100, 1))
+```
+
+```text
+[-7.15 -3.61] 3.8
+```
+
+IC goes from -7.15 to -3.61 (1st and 99th percentiles; the part has -7.1 and -3.6), 3.8 % of the map is open land, and the
+streams have no value (the result is NaN there and wherever the flow reaches no stream). The routing (`method="d8"`)
+and the stream threshold are the settings that matter; the weights decide the contrast between land uses:
+
+```python
+for cells in (100, 500, 2500):
+    print(cells, round(float(np.nanmean(tf.hydro.connectivity_index(filled, cover, threshold=cells).values)), 2))
+ic_d8 = tf.hydro.connectivity_index(filled, cover, threshold=500, method="d8")
+ok = ~np.isnan(ic.values) & ~np.isnan(ic_d8.values)
+print(round(float(np.corrcoef(ic.values[ok], ic_d8.values[ok])[0, 1]), 2))
+```
+
+```text
+100 -5.12
+500 -5.48
+2500 -5.88
+0.86
+```
+
+The mean IC is -5.12 with streams from 9 ha, -5.48 from 45 ha and -5.88 from 225 ha, and IC by D8 correlates with IC by
+`mfd` at 0.86: the pattern changes little, the values shift. The function fills the DEM itself, takes slopes as InVEST
+does (kept between 0.005 and 1) and raises weights below 0.001 to 0.001; the DEM must be projected, in metres.
 
 ### A scenario: the riparian forest cleared
 
@@ -353,6 +481,31 @@ images:
     terraflux check indices.toml
     terraflux run indices.toml --out output
     ```
+
+### The riparian forest cleared in Python
+
+The scenario is the same raster arithmetic: every cell less than 20 m above its stream becomes open land, and the
+index is computed again with the new weight (nodes `cleared` and `ic_cleared`):
+
+```python
+cleared = xr.where(height < 20, 0.05, cover)
+ic_cleared = tf.hydro.connectivity_index(filled, cleared, threshold=500)
+valley = height.values < 20
+print(round(float((cleared.values == 0.05).mean()) * 100, 1))
+for name, cells in (("valley floors", valley), ("slopes above", ~valley)):
+    print(name, round(float(np.nanmean(ic.values[cells])), 2), round(float(np.nanmean(ic_cleared.values[cells])), 2))
+```
+
+```text
+14.3
+valley floors -4.7 -3.18
+slopes above -5.54 -5.21
+```
+
+Open land goes from 3.8 % of the map to 14.3 %, all of it on the valley floors, and the mean IC of the valley floors
+rises from -4.70 to -3.18 (the part has -4.71 and -3.19), about 1.5 units: sediment reaches the streams some 30 times
+more easily. The slopes above, untouched, rise by 0.33 (a factor of 2), because their path to the stream now crosses
+cleared land.
 
 ## Read the results
 

@@ -1531,7 +1531,7 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
         if API.unresolved:
             names = sorted(set(API.unresolved))
             print(f"--check: {len(API.unresolved)} references to Python objects no page documents "
-                  f"({len(names)} objects; shown as plain code): {', '.join(names[:8])}{' ...' if len(names) > 8 else ''}")
+                  f"({len(names)} objects; shown as plain code): {', '.join(names)}")
     for w in WARNINGS:
         print("WARNING", w)
     print(f"built {len(pages)} pages, {len(opgroups)} operator pages into {out} in {time.time() - t0:.1f} s ({len(WARNINGS)} warnings)")

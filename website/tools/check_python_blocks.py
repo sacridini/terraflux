@@ -4,14 +4,17 @@
     python website/tools/check_python_blocks.py python/index.md python/api/patterns.md
     python website/tools/check_python_blocks.py --list              # the pages that would run
     python website/tools/check_python_blocks.py --python PATH --jobs 2 --timeout 900
+    python website/tools/check_python_blocks.py --outputs tutorials/x/y.md   # the ```text blocks must match
 
 The pages: content/python/** and every page of content/tutorials/** with a runnable ```python block (the
 `### In Python` sections of the tutorials' parts, the `*-in-python.md` pages). Every fenced ```python block
 of a page runs in order, the blocks of one page sharing a namespace, in a temporary working directory (what the
 examples write goes there). For a tutorial's part (tutorials/<category>/<part>.md) that directory starts with the
 files the reader has: the part's downloads (static/data/tutorials/<category>/<part>/) and what its graphs wrote, from
-the work folder of its figure script (.cache/work/<category>/<part>/, made by website/figures/<category>/<part>.py). A block preceded by a line `<!-- no-run -->` is skipped; blocks inside tabs (indented)
-run like the others. A page stops at its first failing block (the next ones depend on it). Each page runs in a
+the work folder of its figure script (.cache/work/<category>/<part>/, made by website/figures/<category>/<part>.py),
+and every file under static/data/ that the page links as a download, `(/data/...)`. A block preceded by a line `<!-- no-run -->` is skipped; blocks inside tabs (indented)
+run like the others. With `--outputs`, what a block prints must be the ```text block right after it (trailing spaces aside): a
+difference is shown and counts as a failure, the page going on. A page stops at its first failing block (the next ones depend on it). Each page runs in a
 process of its own with a time limit (`--timeout`, 600 s), so one that hangs does not stop the others.
 
 The interpreter must have the library installed (`pip install terraflux-py`, or an editable install of
@@ -25,6 +28,9 @@ Exit status 1 if a block fails or a page times out. Not part of the CI (it needs
 from __future__ import annotations
 
 import argparse
+import contextlib
+import difflib
+import io
 import concurrent.futures as cf
 import os
 import pathlib
@@ -41,6 +47,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 CONTENT = HERE.parent / "content"
 STATIC = HERE.parent / "static"
 WORK = HERE.parent / ".cache" / "work"
+DOWNLOAD = re.compile(r"\(/data/([^)\s#?]+)\)")
 MAX_THREADS = 4
 FENCE = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})\s*(?P<lang>[\w+-]*)[^\n]*$")
 
@@ -73,6 +80,41 @@ def blocks(text: str):
         i = j + 1
 
 
+def outputs(text: str) -> dict[int, str]:
+    """The ```text block right after a python block (blank lines between), by the python block's line."""
+    lines = text.splitlines()
+    out, pending, i = {}, None, 0
+    while i < len(lines):
+        m = FENCE.match(lines[i])
+        if not m:
+            if lines[i].strip():
+                pending = None
+            i += 1
+            continue
+        indent, fence, lang = m.group("indent"), m.group("fence"), m.group("lang")
+        j = i + 1
+        body = []
+        while j < len(lines) and not (lines[j].strip().startswith(fence) and lines[j].strip().strip(fence[0]) == ""):
+            body.append(lines[j][len(indent):] if lines[j].startswith(indent) else lines[j].lstrip())
+            j += 1
+        if lang in ("python", "py"):
+            pending = i + 2
+        elif lang == "text" and pending is not None:
+            out[pending] = "\n".join(body)
+            pending = None
+        else:
+            pending = None
+        i = j + 1
+    return out
+
+
+def same_output(got: str, want: str) -> bool:
+    def norm(t: str) -> str:
+        return "\n".join(line.rstrip() for line in t.strip("\n").splitlines()).strip("\n")
+
+    return norm(got) == norm(want)
+
+
 def pages(args: list[str]) -> list[pathlib.Path]:
     if args:
         out = []
@@ -102,6 +144,11 @@ def seed_files(page: pathlib.Path, tmp: pathlib.Path) -> None:
             for f in folder.iterdir():
                 if f.is_file():
                     shutil.copy2(f, tmp / f.name)
+    # and every download the page links, wherever it lives under static/data/ (the reader downloaded it too)
+    for link in set(DOWNLOAD.findall(page.read_text(encoding="utf-8"))):
+        f = STATIC / "data" / link
+        if f.is_file() and not (tmp / f.name).exists():
+            shutil.copy2(f, tmp / f.name)
 
 
 def child(page: pathlib.Path) -> int:
@@ -111,7 +158,9 @@ def child(page: pathlib.Path) -> int:
     rel = page.relative_to(CONTENT).as_posix() if CONTENT in page.parents else page.name
     namespace: dict = {"__name__": "__docs__"}
     cwd = os.getcwd()
-    code_blocks = list(blocks(page.read_text(encoding="utf-8")))
+    text = page.read_text(encoding="utf-8")
+    code_blocks = list(blocks(text))
+    want = outputs(text) if os.environ.get("TERRAFLUX_CHECK_OUTPUTS") == "1" else {}
     status = 0
     # ignore_cleanup_errors: lazy (dask) arrays can keep files open on Windows
     with tempfile.TemporaryDirectory(prefix="terraflux_site_", ignore_cleanup_errors=True) as tmp:
@@ -120,7 +169,19 @@ def child(page: pathlib.Path) -> int:
         try:
             for n, (line, code) in enumerate(code_blocks, 1):
                 try:
-                    exec(compile(code, f"{rel}:{line}", "exec"), namespace)
+                    if line in want:
+                        buf = io.StringIO()
+                        with contextlib.redirect_stdout(buf):
+                            exec(compile(code, f"{rel}:{line}", "exec"), namespace)
+                        if not same_output(buf.getvalue(), want[line]):
+                            diff = difflib.unified_diff(want[line].strip("\n").splitlines(),
+                                                        buf.getvalue().strip("\n").splitlines(),
+                                                        "the page", "the run", lineterm="", n=1)
+                            print(f"OUTPUT {rel}, block {n} (line {line}) prints something else:\n"
+                                  + "\n".join(list(diff)[:24]))
+                            status = 1
+                    else:
+                        exec(compile(code, f"{rel}:{line}", "exec"), namespace)
                 except BaseException:  # noqa: BLE001 - reported per block
                     print(f"FAIL {rel}, block {n} of {len(code_blocks)} (line {line})\n" + traceback.format_exc(limit=5))
                     status = 1
@@ -155,6 +216,8 @@ def main() -> None:
     ap.add_argument("--python", default=os.environ.get("TERRAFLUX_CHECK_PYTHON", sys.executable))
     ap.add_argument("--jobs", type=int, default=int(os.environ.get("TERRAFLUX_CHECK_JOBS", "2")))
     ap.add_argument("--timeout", type=int, default=600, help="seconds a page may run (default 600)")
+    ap.add_argument("--outputs", action="store_true",
+                    help="also compare what each block prints with the ```text block right after it")
     ap.add_argument("--child", type=pathlib.Path, help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.child:
@@ -164,6 +227,8 @@ def main() -> None:
         for p in todo:
             print(f"{sum(1 for _ in blocks(p.read_text(encoding='utf-8'))):4d}  {p.relative_to(CONTENT).as_posix()}")
         return
+    if a.outputs:
+        os.environ["TERRAFLUX_CHECK_OUTPUTS"] = "1"
     sys.path.insert(0, str(HERE))
     from one_at_a_time import held  # heavy runs take turns (website/.cache/run.lock)
 

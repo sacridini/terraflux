@@ -224,6 +224,60 @@ images:
   - { src: /img/tutorials/terrain-hydrology/depressions-and-flow/breach-change.png, caption: "hydro.breach: 683 cells changed, 1,827 m in all" }
 ```
 
+### Read, reproject and fill in Python
+
+The DEM is the library's example data, read with [`tf.load_raster`][terraflux.load_raster] and reprojected by
+[`tf.reproject`][terraflux.reproject] onto the grid of node 2: UTM zone 10 north, cells of 30 m, 369 rows by 270 columns
+over the extent `[500010, 4760850, 508110, 4771920]`. A raster of that grid given as `like=` is the way to fix the
+extent too (`res=30` alone would let GDAL choose it). The `tf.hydro` functions also take a DEM in longitude and latitude
+as it is, with the sizes of the cells taken in metres at the centre latitude, so the reprojection is optional for this
+part; it matters for the outlets, the connectivity index and every distance of the next two:
+
+```python
+import numpy as np
+import xarray as xr
+import terraflux as tf
+
+raw = tf.load_raster(tf.surface.example_data("orelevation"))     # SRTM, 1 arc-second, in degrees
+x = 500010 + 15 + 30 * np.arange(270)                            # the centres of the cells
+y = 4771920 - 15 - 30 * np.arange(369)
+grid = xr.DataArray(np.zeros((369, 270), "float32"), coords={"y": y, "x": x}, dims=("y", "x")).rio.write_crs("EPSG:32610")
+dem = tf.reproject(raw, like=grid, resampling="bilinear")        # bilinear: elevation is continuous
+print(dem.shape, round(float(dem.min())), round(float(dem.max())), dem.rio.resolution())
+
+filled = tf.hydro.fill(dem)                                      # Priority-Flood, node 3
+raised = (filled - dem).values
+print(int((raised > 1e-6).sum()), round(float(raised.max()), 1), round(float(raised.sum())))
+```
+
+```text
+(369, 270) 440 1388 (30.0, -30.0)
+1456 21.5 6187
+```
+
+The three numbers are the cells raised, the largest rise and the total change in metres: the 1,456 cells and 21.5 m
+of the text. [`tf.hydro.fill`][terraflux.hydro.fill] has the one setting of the operator, `drain_flats` (the
+Priority-Flood+ε of Barnes et al.: the filled DEM itself slopes towards each outlet). Breaching is
+[`tf.hydro.breach`][terraflux.hydro.breach], with the settings of the note above (`max_length`, `max_cost`,
+`min_dist`, `flat_increment`, `fill_rest`):
+
+```python
+breached = tf.hydro.breach(dem, max_length=100)                  # 100 is the default
+change = (breached - dem).values
+print(int((np.abs(change) > 0.01).sum()), int((change < -0.01).sum()), int((change > 0.01).sum()),
+      round(float(np.abs(change).sum())))
+```
+
+```text
+684 446 238 1826
+```
+
+Cells changed, lowered, raised and the total change in metres: 1,826 m against 6,187 m by filling (the note's 683 cells, 443 lowered and 240 raised, and 1,827 m and 6,183 m, are the application's run).
+A depression no channel within the limits solves is filled (`fill_rest=True`), so the result always drains. A few
+counts of this page differ slightly from the part's (the outlet's 37,971 cells below against 37,974, for one): the
+part's maps were drawn by the application from its own reprojection of the same file, which differs from the
+library's in a few cells.
+
 ### Flow directions and accumulation
 
 <div class="steps" markdown>
@@ -314,6 +368,56 @@ Two more settings:
   1,139,220 m²/m.
 - **weights**: a map of what each cell contributes instead of 1 (an input port; missing cells count as 0).
   With weights the accumulation is the sum of the weights upslope, as the next step shows.
+
+### Flow directions and accumulation in Python
+
+[`tf.hydro.flow_direction`][terraflux.hydro.flow_direction] takes the DEM and gives the directions of node 4 (ESRI's
+codes for `"d8"`; `"dinf"` an angle in degrees; `"mfd"` InVEST's packed shares), and
+[`tf.hydro.flow_accumulation`][terraflux.hydro.flow_accumulation] the accumulation of node 5, computing its own
+directions:
+
+```python
+d8 = tf.hydro.flow_direction(filled)
+print(int((d8 == 0).sum()), int((d8 == 4).sum()))            # leave the map; drain south
+print(int((tf.hydro.flow_direction(filled, flats=False) == 0).sum()))   # without draining the flats
+
+acc = tf.hydro.flow_accumulation(filled)                     # method="d8", units="cells"
+for units in ("cells", "area", "sca"):
+    a = tf.hydro.flow_accumulation(filled, units=units)
+    print(units, float(a.max()))
+```
+
+```text
+47 15082
+1503
+cells 37971.0
+area 34173900.0
+sca 1139130.0
+```
+
+With D8, 47 cells have code 0, all on the edge; without `flats` 1,503 cells have no direction (the part counts 1,457):
+the flats of the filled DEM, which `flats=True` drains. The outlet of the largest catchment collects 37,971 cells, 34.17 km² and
+1,139,130 m²/m (`units="sca"`, the specific contributing area the wetness indices use). The five methods, with their
+`exponent` for `"fd8"` (1.1) and `"quinn"` (1) if you want to change it, give the numbers of the slider below:
+
+```python
+for method in ("d8", "dinf", "fd8", "quinn", "mfd"):
+    a = tf.hydro.flow_accumulation(filled, method=method)
+    print(f"{method:6s} largest catchment {float(a.max()) * 900 / 1e6:6.2f} km2, median {float(np.nanmedian(a.values)):.1f} cells")
+```
+
+```text
+d8     largest catchment  34.17 km2, median 3.0 cells
+dinf   largest catchment  34.18 km2, median 4.2 cells
+fd8    largest catchment  34.26 km2, median 6.2 cells
+quinn  largest catchment  34.25 km2, median 6.5 cells
+mfd    largest catchment  34.26 km2, median 6.3 cells
+```
+
+The `d8`, `dinf` and `fd8` accumulations are WhiteboxTools' cell for cell and `mfd` is pygeoprocessing's (InVEST 3.20),
+the programs the part compares with; the filling and the breaching are WhiteboxTools' with the map's edge as an
+outlet: WhiteboxTools raises the depressions that touch the edge and leaves channels to the edge uncut, which
+Terraflux does not (see the [benchmarks](/benchmarks/accuracy/#results-by-tool)).
 
 ### What lies upstream: a weighted accumulation
 
@@ -413,6 +517,29 @@ farms, an estimate of nitrogen applied per cell. The result is always "how much 
     terraflux check flow.toml
     terraflux run flow.toml --out output
     ```
+
+### A weighted accumulation in Python
+
+`weights=` takes a raster on the DEM's grid. The NDVI is made open (1) or forest (0) as node `open` does, and the share
+of open land upstream comes from two accumulations:
+
+```python
+ndvi = tf.reproject(tf.load_raster(tf.surface.example_data("orforest")), like=grid, resampling="bilinear")
+open_land = (ndvi <= 0.55).astype("float32")                 # 1 open, 0 forest (node `open`)
+open_acc = tf.hydro.flow_accumulation(filled, weights=open_land)
+share = (100 * open_acc / acc).where(acc >= 500)             # % of the catchment that is open, on the streams
+v = share.values[~np.isnan(share.values)]
+print(round(float(open_land.mean()) * 100, 1), np.percentile(v, [50, 90]).round(1), round(float(v.max()), 1))
+```
+
+```text
+3.8 [3.1 7.9] 38.9
+```
+
+Open land is 3.8 % of the map; half the stream cells have less than 3.1 % of it upstream, nine in ten less than 7.9 %
+(the part has 7.8) and the most open reach 39 %. The weights can be any raster that adds up; cells without a value
+count as 0. For the same question by stream links or by points, [`tf.hydro.upstream`][terraflux.hydro.upstream]
+summarises any raster over each catchment.
 
 ## Read the results
 
@@ -562,5 +689,3 @@ to the steepest neighbour and, as they grow, approach D8.
 - Quinn, P., Beven, K., Chevallier, P., & Planchon, O. (1991). The prediction of hillslope flow paths for distributed hydrological modelling using digital terrain models. *Hydrological Processes*, 5(1), 59–79. https://doi.org/10.1002/hyp.3360050106
 - Sørensen, R., Zinko, U., & Seibert, J. (2006). On the calculation of the topographic wetness index: Evaluation of different methods based on field observations. *Hydrology and Earth System Sciences*, 10(1), 101–112. https://doi.org/10.5194/hess-10-101-2006
 - Tarboton, D. G. (1997). A new method for the determination of flow directions and upslope areas in grid digital elevation models. *Water Resources Research*, 33(2), 309–319. https://doi.org/10.1029/96WR03137
-
-In Python: [Terrain hydrology in Python](/tutorials/terrain-hydrology/terrain-hydrology-in-python/).

@@ -15,14 +15,14 @@ section to part are by title and description only. Counts: animal-movement 7/0/1
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `cleaning-and-measures.md` | — | full | `animal-movement-in-python.md` | |
-| `cleaning-and-thinning.md` | — | full | `animal-movement-in-python.md` | |
-| `corridors-and-validation.md` | `data.download` (downstream: `circuit.omniscape`, `raster.reclassify`, `raster.reproject`) | none | `animal-movement-in-python.md` | |
-| `home-ranges.md` | — | full | `animal-movement-in-python.md` | |
-| `ideas.md` | — | full | `animal-movement-in-python.md` | |
-| `projections-and-interpolation.md` | — | full | `animal-movement-in-python.md` | |
-| `step-selection.md` | — | full | `animal-movement-in-python.md` | |
-| `steps-and-summaries.md` | — | full | `animal-movement-in-python.md` | |
+| `cleaning-and-measures.md` | — | full | merged, redirected | done |
+| `cleaning-and-thinning.md` | — | full | merged, redirected | done |
+| `corridors-and-validation.md` | `data.download` (downstream: `circuit.omniscape`, `raster.reclassify`, `raster.reproject`) | none | merged, redirected | done |
+| `home-ranges.md` | — | full | merged, redirected | done |
+| `ideas.md` | — | full | merged, redirected | done |
+| `projections-and-interpolation.md` | — | full | merged, redirected | done |
+| `step-selection.md` | — | full | merged, redirected | done |
+| `steps-and-summaries.md` | — | full | merged, redirected | done |
 
 `animal-movement-in-python.md`:
 - ## Reading the tracks → cleaning-and-measures ?
@@ -115,12 +115,13 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `costs-and-corridors.md` | — | full | `distance-restoration-in-python.md`, `restoration-plans-in-python.md` | |
-| `distance-to-habitat.md` | `distance.proximity` | partial | `distance-restoration-in-python.md`, `restoration-plans-in-python.md` | |
-| `ecological-intactness.md` | — | full | `distance-restoration-in-python.md`, `restoration-plans-in-python.md` | |
-| `original-vegetation-and-habitat.md` | `sdm.area_of_habitat` | partial | `distance-restoration-in-python.md`, `restoration-plans-in-python.md` | |
-| `restoration-plan.md` | — | no graph (+1 fragment) | `distance-restoration-in-python.md`, `restoration-plans-in-python.md` | |
-| `several-benefits.md` | — | no graph (+3 fragment) | `distance-restoration-in-python.md`, `restoration-plans-in-python.md` | |
+| `costs-and-corridors.md` | — | full | merged, redirected | done |
+| `distance-to-habitat.md` | `distance.proximity` | partial | merged, redirected | done |
+| `ecological-intactness.md` | — | full | merged, redirected | done |
+| `original-vegetation-and-habitat.md` | — (the script generator only: `tf.sdm.area_of_habitat`) | full | merged, redirected | done |
+| `restoration-plan.md` | — | no graph (+1 fragment) | merged, redirected | done |
+| `several-benefits.md` | — | no graph (+3 fragment) | merged, redirected | done |
+| `conserving-and-converting.md` (new, Python only) | — | full | — | done |
 
 `distance-restoration-in-python.md`:
 - ## Distance to the habitat edge → distance-to-habitat
@@ -152,14 +153,14 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `carbon.md` | — | full | — | |
-| `habitat-quality.md` | — | full | — | |
-| `ideas.md` | — | full | — | |
-| `nutrients.md` | — | full | — | |
-| `pollination.md` | — | full | — | |
-| `seasonal-water-yield.md` | — | full | — | |
-| `sediment.md` | — | full | — | |
-| `water-yield.md` | — | full | — | |
+| `carbon.md` | — | full | — | done |
+| `habitat-quality.md` | — | full | — | done |
+| `ideas.md` | — | full | — | done |
+| `nutrients.md` | — | full | — | done |
+| `pollination.md` | — | full | — | done |
+| `seasonal-water-yield.md` | — | full | — | done |
+| `sediment.md` | — | full | — | done |
+| `water-yield.md` | — | full | — | done |
 
 No `*-in-python.md` page in this category.
 
@@ -187,13 +188,13 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `coordinate-systems.md` | — | full | — | |
-| `first-model.md` | — | full | — | |
-| `first-raster.md` | — | full | — | |
-| `one-grid.md` | `raster.mosaic` | partial | — | |
-| `reclassify-calculate-save.md` | `raster.fill` | partial | — | |
-| `tour.md` | — | full | — | |
-| `vector-data.md` | — | full | — | |
+| `coordinate-systems.md` | — | full | — | done |
+| `first-model.md` | — | full | — | done |
+| `first-raster.md` | — | full | — | done |
+| `one-grid.md` | `raster.mosaic` | partial | — | done |
+| `reclassify-calculate-save.md` | `raster.fill` | partial | — | done |
+| `tour.md` | — | full | — | done |
+| `vector-data.md` | — | full | — | done |
 
 No `*-in-python.md` page in this category.
 
@@ -460,11 +461,11 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `depressions-and-flow.md` | `raster.reproject` (downstream: `hydro.fill`, `hydro.flow_accumulation`, `hydro.flow_direction`, `raster.calc`, `raster.write`) | partial | `terrain-hydrology-in-python.md`, `watershed-model-in-python.md` | |
-| `streams-watersheds-and-hand.md` | — | full | `terrain-hydrology-in-python.md`, `watershed-model-in-python.md` | |
-| `swat-plus.md` | — | full | `terrain-hydrology-in-python.md`, `watershed-model-in-python.md` | |
-| `swat-plus-from-rasters.md` | — | full | `terrain-hydrology-in-python.md`, `watershed-model-in-python.md` | |
-| `wetness-and-connectivity.md` | `raster.reproject` (downstream: `hydro.connectivity_index`, `raster.calc`) | partial | `terrain-hydrology-in-python.md`, `watershed-model-in-python.md` | |
+| `depressions-and-flow.md` | — (the script generator only: `tf.reproject`) | full | merged, redirected | done |
+| `streams-watersheds-and-hand.md` | — | full | merged, redirected | done |
+| `swat-plus.md` | — | full | merged, redirected | done |
+| `swat-plus-from-rasters.md` | — | full | merged, redirected | done |
+| `wetness-and-connectivity.md` | — (the script generator only: `tf.reproject`) | full | merged, redirected | done |
 
 `terrain-hydrology-in-python.md`:
 - ## A DEM and its depressions → depressions-and-flow
@@ -491,7 +492,7 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `monte-carlo.md` | — | full | — | |
+| `monte-carlo.md` | — | full | — | done |
 
 No `*-in-python.md` page in this category.
 
@@ -642,3 +643,8 @@ No `*-in-python.md` page in this category.
 - `linkage.pathways`, `linkage.pinchpoints`, `linkage.barriers` (habitat-networks/linkage-mapper): no function in terraflux-py (`cost.barriers` and `cost.path_inc` do something else); the part has no In Python section.
 - `habitat-networks/importance-of-each-patch`, table "Which forests matter most": it lists 10 patches but skips patches 10 (1,381 ha, dPC 5.9) and 45 (1,638 ha, dPC 5.3), above patches 100, 58 and 81 that it lists; check the figure script's selection.
 - `raster.terrain` with `measure = hillshade` (surface-metrics/terrain, geomorphons, hilltops): no function; the parts use it only to draw the relief, their In Python sections plot the elevation without it.
+- `distance.proximity` (distance-restoration/distance-to-habitat): no function; gdal_proximity's two passes approximate the Euclidean distance, the exact `tf.euclidean_distance` gives slightly other numbers; the part's In Python uses it and says so.
+- `raster.mosaic` (getting-started/one-grid): no function joins tiles into one raster (`load_raster` only collects them).
+- `raster.fill` (getting-started/reclassify-calculate-save): no counterpart of gdal_fillnodata.
+- `move.fit_issf` / conditional logistic regression (animal-movement/step-selection): `tf.move` prepares the data (`random_steps`, `extract_covariates`) but has no clogit; the part's In Python fits it with a short numpy Newton-Raphson (statsmodels' ConditionalLogit is the alternative).
+- `swat.set` (terrain-hydrology/swat-plus, swat-plus-from-rasters): no library function; calibration.cal is edited as text (shown in swat-plus-from-rasters, Change a parameter in Python).
