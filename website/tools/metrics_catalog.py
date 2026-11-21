@@ -307,7 +307,7 @@ def run(code: str, ns: dict):
 # ------------------------------------------------------------------------------------------------ main
 
 
-def build():
+def build(only=None):
     import terraflux as tf
 
     ops = {o["name"]: o for o in json.loads((WEB / "data" / "ops.json").read_text(encoding="utf-8"))}
@@ -318,7 +318,7 @@ def build():
     seen_ids: dict[str, str] = {}
     coverage = {}
 
-    files = sorted(SRC.glob("*.yaml"))
+    files = sorted(f for f in SRC.glob("*.yaml") if not only or f.stem in only)
     if not files:
         raise CatalogError(f"no family in {SRC}")
     for p in files:
@@ -440,9 +440,12 @@ def main():
     ap.add_argument("--strict", action="store_true", help="fail when the library has metrics no entry covers")
     ap.add_argument("--check", action="store_true", help="write nothing; exit 1 when data/metrics.json would change")
     ap.add_argument("--list", action="store_true", help="print every uncovered metric, not the first ones")
+    ap.add_argument("--only", nargs="+", metavar="FAMILY",
+                    help="check only these families (data/metrics/<family>.yaml) and write nothing: for work on one family "
+                         "while others are being edited")
     a = ap.parse_args()
     try:
-        data, coverage = build()
+        data, coverage = build(set(a.only) if a.only else None)
     except CatalogError as e:
         print(e, file=sys.stderr)
         print("metrics catalog: FAILED", file=sys.stderr)
@@ -460,7 +463,9 @@ def main():
         print(f"  library {fam}: it has {have}, the catalog covers {got}, {len(rest)} not yet"
               + (f": {', '.join(shown)}{' ...' if len(shown) < len(rest) else ''}" if rest else ""))
     text = json.dumps(data, ensure_ascii=False, indent=1) + "\n"
-    if a.check:
+    if a.only:
+        print("--only: nothing written")
+    elif a.check:
         old = OUT.read_text(encoding="utf-8") if OUT.is_file() else ""
         if old != text:
             print("data/metrics.json is out of date: run the generator", file=sys.stderr)
