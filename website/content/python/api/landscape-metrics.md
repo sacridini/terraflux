@@ -6,7 +6,7 @@ order: 50
 
 Patch, class and landscape metrics of categorical maps, their sampling in
 plots, windows and zones, time series, spatial signatures, plots and
-utilities. Tutorial: [landscape metrics](/tutorials/landscape-metrics/landscape-metrics-in-python/).
+utilities. Tutorial: [landscape metrics](/tutorials/landscape-metrics/).
 
 ## Metrics of a map
 

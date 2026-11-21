@@ -167,6 +167,89 @@ or onto no data: such plots are measured on less landscape than the others.
     did not test a wide enough range of radii, the best one often being the largest tested: measure up to radii
     larger than you expect.
 
+### Plots around sites in Python
+
+[`tf.scale_sample`][terraflux.scale_sample] measures the plots of several sizes around points and
+[`tf.sample_metrics`][terraflux.sample_metrics] those of one: both are [[metrics.sample]]. The land cover is the library's
+CORINE (`tf.example_data("clc")`, the `clc.tif` of the graph) in the seven classes of part 4, and
+[`tf.load_vector`][terraflux.load_vector] reads the six sites of this part's downloads as a GeoDataFrame:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+corine = tf.load_raster(tf.example_data("clc"))
+cover = tf.reclassify(corine, {(1, 12): 1, 12: 2, (13, 23): 3, (23, 26): 4, (26, 35): 5, (35, 40): 6, (40, 45): 7})
+sites = tf.load_vector("sites.geojson")                  # six points, EPSG:3035, attribute "site"
+
+radii = [250, 500, 1000, 2000]                           # radii of the circles, in map units (m)
+by_class = tf.scale_sample(cover, sites, size=radii, shape="circle", level="class", metric="pland")
+forest = by_class[by_class["class"] == 4].pivot(index="size", columns="plot_id", values="value")
+print(forest.fillna(0).round(0).to_string())
+```
+
+```text
+plot_id     1     2     3    4     5      6
+size                                       
+250.0    90.0  99.0   0.0  0.0   0.0  100.0
+500.0    81.0  83.0  16.0  0.0   0.0  100.0
+1000.0   60.0  65.0  19.0  0.0   2.0   96.0
+2000.0   49.0  35.0  46.0  3.0  10.0   67.0
+```
+
+The first chart: a column per site (`plot_id`, numbered 1 to 6 in the order of the points) and a row per radius. A class
+absent from a circle has no row in the long table, and the `fillna(0)` is its zero. The diversity of the circles and the
+share of each plot that the map covers:
+
+```python
+by_site = tf.scale_sample(cover, sites, size=radii, shape="circle", level="landscape", metric=["shdi", "pr", "ed"])
+print(by_site[by_site["metric"] == "shdi"].pivot(index="size", columns="plot_id", values="value").round(2).to_string())
+print(by_site.groupby("size")["percentage_inside"].mean().round(0).to_dict())
+```
+
+```text
+plot_id     1     2     3     4     5     6
+size                                       
+250.0    0.33  0.04  0.00  0.00  0.00  0.00
+500.0    0.49  0.57  0.47  0.00  0.00  0.00
+1000.0   0.80  0.85  0.98  0.28  0.53  0.16
+2000.0   0.85  0.92  1.17  0.85  1.00  0.70
+{250.0: 107.0, 500.0: 105.0, 1000.0: 102.0, 2000.0: 101.0}
+```
+
+The second chart, and the `percentage_inside` of the text (107% for the circles of 250 m, 101% for those of 2 km). The
+long table has `level`, `class`, `id`, `metric`, `value`, `plot_id` and `percentage_inside`, and `size` for `scale_sample`.
+For one size, `sample_metrics` also takes `plot_id` (the attribute that names the sites, as the node's `id_column`) and
+`level="patch"` for the patches of each plot:
+
+```python
+one = tf.sample_metrics(cover, sites, size=1000, shape="circle", plot_id=sites["site"], level="landscape", metric=["shdi", "ed"])
+print(one.head(4)[["metric", "value", "plot_id"]].round(2).to_string(index=False))
+under = tf.extract_metrics(cover, sites, metric=["area", "shape"])      # the patch under each point
+print(under[under["metric"] == "area"][["class", "id", "value"]].round(0).to_string(index=False))
+```
+
+```text
+metric  value  plot_id
+    ed  19.12        1
+  shdi   0.80        1
+    ed  22.23        2
+  shdi   0.85        2
+ class  id   value
+     4 500  9145.0
+     4 497   958.0
+     3 316   169.0
+     2 250  6255.0
+     2 229 26219.0
+     4 558  7064.0
+```
+
+[`tf.extract_metrics`][terraflux.extract_metrics] gives the patch metrics of the patches *under* the points (here the
+areas, in hectares: the patch of site 1 is a forest of 9,145 ha, class 4), not those of a plot around them. `size` is the
+radius of a circle or half the side of a square (`shape="square"`, the default); `y` can also be an `(n, 2)` array of
+coordinates, or polygons (shapely geometries or a GeoDataFrame), used as they are.
+
 ## A landscape through time
 
 ### The six dates
@@ -244,6 +327,50 @@ size go up and down as the ragged front cuts off small pieces and then clears th
 fragmentation in 2005 and recovery in 2015. That is the danger of following one configuration metric through time:
 report the amount (`pland`) and the largest patch beside it, and look at the maps.
 
+### A landscape through time in Python
+
+The six dates are the six bands of `forest_dates.tif`, which the part's downloads have.
+[`tf.SpatioTemporalAnalysis`][terraflux.SpatioTemporalAnalysis] takes one raster per date, with the `dates` that name
+them; its `class_metrics` (and `landscape_metrics`, `patch_metrics`) give a table by date:
+
+```python
+dates = tf.load_raster("forest_dates.tif")                 # 200 x 200 cells of 30 m, six bands: forest 1, farmland 2
+layers = [dates.isel(band=i) for i in range(dates.sizes["band"])]
+series = tf.SpatioTemporalAnalysis(layers, dates=[2000, 2005, 2010, 2015, 2020, 2025])
+forest = series.class_metrics(["pland", "np", "lpi", "area_mn", "ed", "ai", "enn_mn"]).loc[1]   # class 1: the forest
+print(forest.round(1).to_string())
+```
+
+```text
+        ai  area_mn    ed  enn_mn   lpi     np  pland
+date                                                 
+2000  92.5     18.4  69.8    75.3  67.6  137.0   70.0
+2005  91.6     10.6  70.3    76.7  55.5  210.0   61.8
+2010  92.5     11.7  57.0    88.8  53.0  172.0   56.0
+2015  93.8     16.7  43.4    82.6  49.0  109.0   50.5
+2020  92.8     16.6  43.6    84.2  42.3   95.0   43.8
+2025  92.2      9.5  36.8    82.4  32.6  129.0   34.2
+```
+
+The table of the part, a row per date (the columns come in alphabetical order). The index is `(class, date)`: every class at
+every date, and a class absent at a date has 0 in its area, edge and count metrics (`fillna=True`).
+`series.plot_metric("pland", classes="all")` draws the trends. Give it `zones=` (polygons), `points=` and `size=`, or `grid=`
+(the side of squares) to follow the zones of the map instead of the whole. For a quick comparison of whole maps, a list of
+rasters gives a `layer` column in the one-call form:
+
+```python
+both = tf.landscape_metrics([layers[0], layers[-1]], level="landscape", metric=["np", "shdi"])
+print(both[["layer", "metric", "value"]].round(2).to_string(index=False))
+```
+
+```text
+ layer metric  value
+     1     np 399.00
+     1   shdi   0.61
+     2     np 262.00
+     2   shdi   0.64
+```
+
 ## Which metrics say the same thing?
 
 ### Build the model
@@ -313,6 +440,45 @@ by the question.
     because of 10 single-class zones. Drop those zones from the table, or drop contagion, before correlating; and
     remember that single-class landscapes are real landscapes: dropping them changes the population you describe.
 
+### Redundancy among metrics in Python
+
+The 400 squares of 2.5 km are [`tf.grid_zones`][terraflux.grid_zones] (polygons that tile the raster, row by row) and
+[`tf.zonal_metrics`][terraflux.zonal_metrics] measures each as a plot, giving a GeoDataFrame with a column per metric (and
+per class and metric, for the class level), ready to map or to save with `tf.write_table(per_zone, "zones.gpkg")`. A name
+that is a family of metrics, `area`, gives all of it (`area_mn`, `area_sd`, `area_cv`), and the columns of the graph are
+picked by name:
+
+```python
+zones = tf.grid_zones(cover, 2500)                       # squares of 2.5 km
+names = ["np", "pd", "te", "ed", "lsi", "lpi", "area_mn", "ai", "contag", "division", "mesh", "shdi", "sidi", "pr"]
+asked = [n if n != "area_mn" else "area" for n in names]
+per_zone = tf.zonal_metrics(cover, zones, level="landscape", metric=asked)
+print(len(zones), per_zone.shape, int(per_zone["contag"].isna().sum()), "zones without contagion")
+
+metrics = per_zone[[n for n in names if n != "contag"]]          # contagion is undefined in the single-class zones
+corr = metrics.corr(method="spearman")
+pairs = corr.where(np.triu(np.ones(corr.shape, dtype=bool), 1)).stack()
+print(len(pairs), "pairs;", int((pairs.abs() > 0.7).sum()), "stronger than 0.7;", int((pairs.abs() > 0.9).sum()), "stronger than 0.9")
+print(corr.loc[["np", "ai", "shdi", "pr"], ["ed", "lpi", "shdi"]].round(2).to_string())
+```
+
+```text
+400 (400, 18) 10 zones without contagion
+78 pairs; 57 stronger than 0.7; 19 stronger than 0.9
+        ed   lpi  shdi
+np    0.82 -0.64  0.73
+ai   -0.99  0.78 -0.78
+shdi  0.85 -0.90  1.00
+pr    0.61 -0.50  0.69
+```
+
+The numbers of the text: the pairs of the 13 metrics that have values, and some of the correlations it names. `.corr` is
+pandas', which drops the missing values pair by pair; the graph's matrix keeps contagion with NA, as R does.
+`tf.calculate_correlation(table, method=...)` is landscapemetrics' own function, on the long tables of the library
+(`landscape_metrics`, `Landscape.metrics`, `sample_metrics`): the patch level is correlated over patch ids, the class level
+over classes, the landscape level over the layers of a list of rasters, and a metric with a missing value gets NA
+correlations, as in R. `tf.show_correlation(table)` draws the matrix.
+
 ## Settings that change the answer
 
 - **The radius** of the plots, above; and their **shape**: a square of half side \(r\) covers 27% more than a circle
@@ -348,5 +514,3 @@ by the question.
 - Jackson, H. B., & Fahrig, L. (2015). Are ecologists conducting research at the optimal scale? *Global Ecology and Biogeography*, 24(1), 52–63. https://doi.org/10.1111/geb.12233
 - Pasher, J., Mitchell, S. W., King, D. J., Fahrig, L., Smith, A. C., & Lindsay, K. E. (2013). Optimizing landscape selection for estimating relative effects of landscape variables on ecological responses. *Landscape Ecology*, 28(3), 371–383. https://doi.org/10.1007/s10980-013-9852-6
 - Riitters, K. H., O'Neill, R. V., Hunsaker, C. T., Wickham, J. D., Yankee, D. H., Timmins, S. P., et al. (1995). A factor analysis of landscape pattern and structure metrics. *Landscape Ecology*, 10(1), 23–39. https://doi.org/10.1007/BF00158551
-
-In Python: [Landscape metrics in Python](/tutorials/landscape-metrics/landscape-metrics-in-python/).

@@ -213,6 +213,72 @@ The curve is not linear: a landscape can lose much of its evenness before the in
 is 90% one class still scores SHDI 0.45. Compare diversity between landscapes with the same number of classes, or use
 the evenness indices.
 
+### Four landscapes in Python
+
+The four maps are the library's neutral landscape models with the graph's settings and seed (the same seed gives the same
+map): [`tf.nlm.random_cluster`][terraflux.nlm.random_cluster], whose `ai` are the `weights` of the node (and
+`rescale=False` keeps the classes as the integers 1 to 4), and [`tf.nlm.classify`][terraflux.nlm.classify] for a
+random field or a smooth one cut into four classes of 25%. The landscape-level metrics of each are one row of
+`Landscape.landscape_metrics`:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+w4 = [0.25] * 4
+size = dict(resolution=30, seed=5)
+dominant = tf.nlm.random_cluster(150, 150, p=0.5, ai=[0.82, 0.06, 0.06, 0.06], rescale=False, **size)
+clusters = tf.nlm.random_cluster(150, 150, p=0.5, ai=w4, rescale=False, **size)
+salt = tf.nlm.classify(tf.nlm.random(150, 150, **size), weighting=w4)
+smooth = tf.nlm.classify(tf.nlm.gaussian_field(150, 150, autocorr_range=25, **size), weighting=w4)
+
+metrics = ["pr", "shdi", "shei", "sidi", "ed", "lpi", "contag", "iji", "ai", "ent", "condent", "mutinf"]
+four = {"dominant": dominant, "salt": salt, "clusters": clusters, "smooth": smooth}
+table = pd.DataFrame({k: tf.Landscape(m).landscape_metrics(metrics).iloc[0] for k, m in four.items()})
+print(table.round(2).to_string())
+```
+
+```text
+         dominant    salt  clusters  smooth
+pr           4.00    4.00      4.00    4.00
+shdi         0.51    1.39      1.38    1.39
+shei         0.37    1.00      1.00    1.00
+sidi         0.23    0.75      0.75    0.75
+ed          42.58  496.92    124.61  188.22
+lpi         87.26    0.31      5.36   13.84
+contag      72.51    0.01     25.19   23.72
+iji         73.36   99.99     99.81   65.86
+ai          93.85   25.13     81.74   72.06
+ent          0.74    2.00      2.00    2.00
+condent      0.36    2.00      1.00    1.05
+mutinf       0.37    0.00      1.00    0.95
+```
+
+The table above is the part's, column by column. As it shows, the diversity rows (`pr` to `sidi`, `ent`) are those
+of the composition and do not separate the last three, and the configuration rows do. The curve of diversity as one class
+takes over repeats the cluster model with a growing weight:
+
+```python
+rows = []
+for share in (0.25, 0.55, 0.85):
+    rest = (1 - share) / 3
+    land = tf.Landscape(tf.nlm.random_cluster(150, 150, p=0.5, ai=[share, rest, rest, rest], rescale=False, **size))
+    pland = land.class_metrics(["pland"]).set_index("class")["pland"]
+    rows.append({"dominant class (%)": round(pland[1], 1), **land.landscape_metrics(["shdi", "shei", "sidi", "siei"]).iloc[0].round(2).to_dict()})
+print(pd.DataFrame(rows).to_string(index=False))
+```
+
+```text
+ dominant class (%)  shdi  shei  sidi  siei
+               22.5  1.38  1.00  0.75  1.00
+               55.9  1.16  0.84  0.62  0.83
+               89.4  0.45  0.33  0.20  0.26
+```
+
+Three points of the chart's curve (the chart has eight). The share of the dominant class (the `weights` of the node)
+is only the share of the clusters; the map's `pland` is the number to report.
+
 ## A real map with two legends
 
 The same land cover can be described with many legends. The NLCD of Augusta has 15 classes; its first level groups
@@ -283,6 +349,62 @@ for the question (what does the species distinguish?) and keep it the same for e
     For landscape-level metrics, report the legend (the classes and how they were grouped) together with grain and
     extent. Diversity is best reported with richness and an evenness index; configuration with one edge or
     aggregation metric (`ed` or `contag`) and, if the classes' juxtaposition matters, `iji`.
+
+### Two legends in Python
+
+`augusta.tif` is in this part's downloads. [`tf.reclassify`][terraflux.reclassify] groups the classes with a table `{old:
+new}`; a key may be a range, `(low, high)` meaning `low <= value < high`, so the NLCD's four developed classes 21 to 24 are
+`(21, 25)`:
+
+```python
+cover = tf.load_raster("augusta.tif")
+level1 = tf.reclassify(cover, {11: 1, (21, 25): 2, 31: 3, (41, 44): 4, 52: 5, 71: 6, (81, 83): 7, (90, 96): 8})
+print(np.unique(level1.values).tolist())
+
+M = ["np", "ed", "lpi", "pr", "shdi", "shei", "contag", "iji", "ai", "mesh"]
+both = pd.DataFrame({"15 classes": tf.Landscape(cover).landscape_metrics(M).iloc[0],
+                     "8 classes": tf.Landscape(level1).landscape_metrics(M).iloc[0]})
+print(both.round(1).to_string())
+```
+
+```text
+[1, 2, 3, 4, 5, 6, 7, 8]
+        15 classes  8 classes
+np          1144.0      459.0
+ed           212.1      114.4
+lpi            7.4       15.7
+pr            15.0        8.0
+shdi           1.9        1.2
+shei           0.7        0.6
+contag        43.9       56.9
+iji           67.6       67.4
+ai            68.8       83.3
+mesh          34.3      118.8
+```
+
+The table of the part, to the decimal: the number of patches falls by 60%, the edge density by half. The options of the
+complexity metrics, `neighbourhood` (4 or 8), `ordered` and `base`, and `classes_max` for the relative richness, are
+options of the `Landscape` too:
+
+```python
+default = tf.Landscape(cover).landscape_metrics(["ent", "condent", "mutinf", "relmutinf"])
+natural = tf.Landscape(cover, neighbourhood=8, base="log").landscape_metrics(["ent", "condent", "mutinf"])
+print(default.round(3).to_string(index=False))              # bits, pairs of cells by a side
+print(natural.round(3).to_string(index=False))              # nats, pairs by a side or a corner
+print(tf.Landscape(cover, classes_max=20).landscape_metrics(["pr", "rpr"]).round(1).to_string(index=False))
+```
+
+```text
+  ent  condent  mutinf  relmutinf
+2.744    1.641   1.103      0.402
+  ent  condent  mutinf
+1.902    1.224   0.678
+  pr  rpr
+15.0 75.0
+```
+
+The entropies of the defaults are in bits (`base="log2"`); `relmutinf` is the mutual information over the marginal
+entropy. `rpr` is the richness over the 20 classes that could be: 15 of 20 is 75%.
 
 ## Settings that change the answer
 

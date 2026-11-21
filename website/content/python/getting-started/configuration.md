@@ -105,7 +105,7 @@ data need: NaN as the NoData of floats (or `nodata=-9999`), `uint8` for
 extension (`.tif`, `.asc`, `.img`...; `driver="COG"` for a Cloud-Optimised
 GeoTIFF). Dask arrays are written block by block, and missing folders are
 created. Tables are pandas DataFrames; large metric tables can be streamed to
-Parquet or CSV (see the [landscape metrics tutorial](/tutorials/landscape-metrics/landscape-metrics-in-python/)).
+Parquet or CSV (see the [landscape metrics tutorial](/tutorials/landscape-metrics/large-maps/#in-python)).
 
 ## Environment variables
 

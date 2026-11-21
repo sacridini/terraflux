@@ -235,6 +235,77 @@ ylabel: "Aggregation index, AI (%)"
 caption: "The aggregation of the 14 classes against their share of the map. Common classes tend to be more aggregated: a class that covers more of the map has more chances to form large patches. That is why aggregation should be compared at a similar amount, or against a neutral model with the same amount."
 ```
 
+### Patches and classes in Python
+
+The same two nodes in the library: [`tf.Landscape`][terraflux.Landscape] on `augusta.tif` (the file of part 1, in this
+part's downloads too) and the metrics of the lists above, so that the numbers are the tables'. The patch table has a row per
+patch, with its `class` and `id`:
+
+```python
+import numpy as np
+import terraflux as tf
+
+cover = tf.load_raster("augusta.tif")
+lc = tf.Landscape(cover)
+pm = lc.patch_metrics(["area", "perim", "shape", "frac", "core", "cai", "enn", "gyrate"])
+evergreen = pm[pm["class"] == 42]                       # NLCD 42, evergreen forest
+print(evergreen.nlargest(6, "area").round(2).to_string(index=False))
+print("median ENN of the evergreen patches:", evergreen["enn"].median(), "m")
+```
+
+```text
+ class  id   area   perim  shape  frac  core   cai  enn  gyrate
+    42 658 116.01 30060.0   6.98  1.28 59.22 51.05 60.0  595.56
+    42 677 104.31 20940.0   5.13  1.24 63.54 60.91 60.0  543.83
+    42 600  43.56 10500.0   3.98  1.21 22.50 51.65 60.0  452.88
+    42 708  27.54  9000.0   4.29  1.23 10.80 39.22 60.0  313.95
+    42 612  24.03  7140.0   3.64  1.21 11.43 47.57 60.0  262.53
+    42 630  23.22  4260.0   2.21  1.13 14.94 64.34 60.0  217.51
+median ENN of the evergreen patches: 60.0 m
+```
+
+The six rows of the table above, with the patch numbers, and the radius of gyration (`gyrate`, m) that the graph shows
+as a map. The class table is one call, with the area-weighted means, which come from FRAGSTATS: ask for them by name
+with `extras=True`:
+
+```python
+metrics = ["ca", "pland", "np", "lpi", "area_mn", "area_am", "shape_mn", "shape_am", "ed", "ai", "cohesion", "enn_mn", "cai_mn"]
+cm = lc.class_metrics(metrics, extras=True)
+cols = ["class", "pland", "np", "area_mn", "area_am", "ed", "ai", "cohesion", "enn_mn"]
+print(cm.sort_values("pland", ascending=False).head(6)[cols].round(1).to_string(index=False))
+```
+
+```text
+ class  pland    np  area_mn  area_am    ed   ai  cohesion  enn_mn
+    42   37.5 139.0      4.7     48.0 113.5 77.4      94.6    75.9
+    41   19.1 123.0      2.7     26.7  73.8 71.3      92.0    94.4
+    43   10.2 173.0      1.0      4.0  70.3 49.0      80.0    99.4
+    81    9.5  76.0      2.2     10.3  35.8 73.0      87.3   101.6
+    90    8.3  10.0     14.3    114.8  14.5 88.9      97.3   324.4
+    21    4.1 241.0      0.3      1.1  38.0 31.1      64.5    87.6
+```
+
+The classes of the table above, in the order of their share (41 deciduous forest, 43 mixed forest, 81 pasture, 90 woody
+wetlands, 21 developed open space).
+
+The maps of the `show` parameter are `to_raster`: every patch (or class) painted with its value, a georeferenced
+raster that [`tf.plot`][terraflux.plot] draws and `tf.write_raster` writes. With matplotlib, `show_lsm`, `show_patches`
+and `show_cores` draw the patches, a metric or the core and edge cells directly:
+
+```python
+shape_map = lc.to_raster("shape")                       # every patch painted with its shape index
+print(shape_map.shape, round(float(shape_map.max()), 2))
+tf.plot(shape_map)
+fig = lc.show_lsm("shape")                              # the same, as a matplotlib figure
+```
+
+```text
+(120, 160) 6.98
+```
+
+The largest shape index is that of patch 658, 6.98, as in the table. `tf.show_correlation(table)` draws the correlation
+matrix of a set of metrics (part 5).
+
 ## Settings that change the answer
 
 ### The depth of the edge
@@ -299,6 +370,74 @@ with fewer patches, the nearest one is further away. A higher mean isolation doe
 species; read isolation together with patch size and number. Neel et al. (2004) mapped such behaviours over full
 gradients of amount and aggregation, and their figures are worth a look before choosing a metric.
 
+### Edge depth, aggregation and the other FRAGSTATS metrics in Python
+
+`edge_depth` is an option of the `Landscape`: one landscape per depth gives the slider's numbers (the core of each forest
+as a share of the landscape, `cpland`, and the evergreen forest's separate cores, `ndca`):
+
+```python
+for d in range(1, 7):
+    c = tf.Landscape(cover, edge_depth=d).class_metrics(["cpland", "ndca"]).set_index("class")
+    print(d * 30, "m:", c.loc[42, "cpland"].round(1), c.loc[41, "cpland"].round(1), c.loc[43, "cpland"].round(1),
+          "% of the landscape (evergreen, deciduous, mixed),", int(c.loc[42, "ndca"]), "evergreen cores")
+```
+
+```text
+30 m: 16.9 6.4 0.9 % of the landscape (evergreen, deciduous, mixed), 140 evergreen cores
+60 m: 7.5 1.8 0.1 % of the landscape (evergreen, deciduous, mixed), 71 evergreen cores
+90 m: 3.1 0.5 0.0 % of the landscape (evergreen, deciduous, mixed), 36 evergreen cores
+120 m: 1.2 0.1 0.0 % of the landscape (evergreen, deciduous, mixed), 17 evergreen cores
+150 m: 0.5 0.0 0.0 % of the landscape (evergreen, deciduous, mixed), 5 evergreen cores
+180 m: 0.2 0.0 0.0 % of the landscape (evergreen, deciduous, mixed), 3 evergreen cores
+```
+
+The aggregation experiment is rebuilt with the library's neutral landscape models: four fractal surfaces of the same
+seed and growing `fract_dim`, each cut at 35% (the graph's `dimension` is `fract_dim`):
+
+```python
+for fd in (0.4, 0.9, 1.4, 1.9):
+    habitat = tf.nlm.binarize(tf.nlm.fbm(160, 160, resolution=30, fract_dim=fd, seed=21), 0.35)
+    c = tf.Landscape(habitat).class_metrics(["pland", "np", "lpi", "ai", "pladj", "cohesion", "enn_mn"])
+    r = c[c["class"] == 2].iloc[0]                       # class 2 is the habitat
+    print(fd, f"{r['pland']:.0f}% habitat, {int(r['np'])} patches, largest {r['lpi']:.1f}%, AI {r['ai']:.0f}, "
+              f"PLADJ {r['pladj']:.0f}, cohesion {r['cohesion']:.0f}, mean ENN {r['enn_mn']:.0f} m")
+```
+
+```text
+0.4 35% habitat, 604 patches, largest 12.2%, AI 57, PLADJ 56, cohesion 96, mean ENN 67 m
+0.9 35% habitat, 396 patches, largest 17.1%, AI 70, PLADJ 69, cohesion 97, mean ENN 74 m
+1.4 35% habitat, 204 patches, largest 21.9%, AI 82, PLADJ 81, cohesion 98, mean ENN 79 m
+1.9 35% habitat, 72 patches, largest 25.7%, AI 90, PLADJ 89, cohesion 99, mean ENN 88 m
+```
+
+The maps of the gallery, their patches (604, 396, 204 and 72) and the chart's lines: AI and PLADJ rise together, cohesion
+stays near its ceiling and the mean distance to the nearest patch rises.
+
+Some FRAGSTATS metrics need more than the map. `prox` (proximity) and `simi` (similarity) use the patches within
+`search_radius`; `connect` counts the pairs of patches within `connect_threshold`; `econ`, `cwed` and `teci` weigh the
+edges by the contrast between their classes, a table of pairs (pairs not in it give NaN). They are options of the
+`Landscape`, and the metrics come with `extras=True`. A contrast table has to hold every pair of classes that touch, or the
+metric of a class that touches another is NaN, so we take CORINE in three classes, 1 developed, 2 agriculture and 3 natural
+(water, 40 to 44, is left out as no data):
+
+```python
+landcover = tf.load_raster(tf.example_data("clc"))      # CORINE around Hannover, 25 m
+three = tf.reclassify(landcover, {(1, 12): 1, (12, 23): 2, (23, 40): 3}, others=0)
+contrast = {(1, 2): 0.6, (1, 3): 0.9, (2, 3): 0.4}      # edge contrast between pairs of classes
+lcx = tf.Landscape(three, nodata=0, search_radius=500, connect_threshold=200, contrast=contrast)
+print(lcx.class_metrics(["prox_mn", "connect", "cwed"], extras=True).round(2).to_string(index=False))
+```
+
+```text
+ class  prox_mn  connect  cwed
+     1   379.50     0.09  4.72
+     2 64607.16     2.73  6.93
+     3   524.24     0.32  3.70
+```
+
+`cwed` is the contrast-weighted edge density of each class, in m/ha. These four metrics need the whole map at once: they
+cannot be computed by blocks of rows ([part 7](/tutorials/landscape-metrics/large-maps/)).
+
 ## Common pitfalls
 
 - **Comparing shapes of patches of different sizes.** Shape grows with area on a grid (the chart above).
@@ -328,5 +467,3 @@ gradients of amount and aggregation, and their figures are worth a look before c
 - McGarigal, K., & Marks, B. J. (1995). *FRAGSTATS: spatial pattern analysis program for quantifying landscape structure* (General Technical Report PNW-GTR-351). USDA Forest Service, Pacific Northwest Research Station. https://doi.org/10.2737/PNW-GTR-351
 - Neel, M. C., McGarigal, K., & Cushman, S. A. (2004). Behavior of class-level landscape metrics across gradients of class aggregation and area. *Landscape Ecology*, 19(4), 435–455. https://doi.org/10.1023/B:LAND.0000030521.19856.cb
 - Schumaker, N. H. (1996). Using landscape indices to predict habitat connectivity. *Ecology*, 77(4), 1210–1225. https://doi.org/10.2307/2265590
-
-In Python: [Landscape metrics in Python](/tutorials/landscape-metrics/landscape-metrics-in-python/).

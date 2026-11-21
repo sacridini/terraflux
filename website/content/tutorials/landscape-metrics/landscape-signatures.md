@@ -230,6 +230,121 @@ A good \(k\) is one after which the large groups stay stable: here 4. Beyond, th
 at arbitrary places. Choose \(k\) also by use: four kinds are easy to sample and report; seven may be needed to
 separate the variants of the mosaic if they matter to the species.
 
+### In Python
+
+[`tf.SpatialSignatureAnalysis`][terraflux.SpatialSignatureAnalysis] is the chain of the graph, after pylandstats' class of
+the same name: it tiles the map, measures every square and keeps the table (its `table`), and `pca`, `nmf`, `cluster` and
+`clustergram` take it from there, with the same z-scores and the same k-means starts, so the groups are the graph's. The map
+is CORINE in the seven classes (the library's `clc` example), as in the other parts:
+
+```python
+import numpy as np
+import terraflux as tf
+
+corine = tf.load_raster(tf.example_data("clc"))
+cover = tf.reclassify(corine, {(1, 12): 1, (12, 13): 2, (13, 23): 3, (23, 26): 4, (26, 35): 5, (35, 40): 6, (40, 45): 7})
+sig = tf.SpatialSignatureAnalysis(cover, grid=2500, landscape_metrics=["shdi", "ed", "lpi", "contag", "ai"],
+                                  class_metrics=["pland"], classes=[1, 2, 3, 4])
+print(sig.table.shape, sig.table.columns.tolist())
+print(sig.table.iloc[0].round(2).to_dict())
+print(int(sig.table.isna().any(axis=1).sum()), "squares with a missing metric")
+```
+
+```text
+(400, 9) ['ai', 'contag', 'ed', 'lpi', 'shdi', 'pland_1', 'pland_2', 'pland_3', 'pland_4']
+{'ai': 97.01, 'contag': 56.87, 'ed': 30.0, 'lpi': 63.05, 'shdi': 1.01, 'pland_1': 8.21, 'pland_2': 65.78, 'pland_3': 14.26, 'pland_4': 11.75}
+10 squares with a missing metric
+```
+
+`grid` is the side of the squares in map units (`zones=` takes polygons, `points=` and `size=` buffers around points, and a
+list of rasters one signature per raster); the class metrics become a column per class, `pland_1` to `pland_4`, from
+`classes=`. The table has the 400 squares, numbered `zone` row by row from the top left, and the first is the square of the
+text; 10 squares of a single class have no contagion. The analyses leave them out, with a warning. The components, the
+factors and the groups:
+
+```python
+pca = sig.pca(3)                                         # z-scores, then principal components
+print((pca.explained_variance_ratio * 100).round(0), "% of the variance")
+print(pca.loadings.round(2).to_string())
+nmf = sig.nmf(3)                                         # three factors of the metrics scaled to 0-1
+print(nmf.components.round(2).to_string())
+print("error", round(nmf.reconstruction_error, 2))
+```
+
+```text
+[52. 17. 14.] % of the variance
+          PC1   PC2   PC3
+ai      -0.41  0.15  0.09
+contag  -0.41 -0.02  0.02
+ed       0.43 -0.13 -0.08
+lpi     -0.43 -0.04 -0.01
+shdi     0.43  0.01  0.00
+pland_1  0.00  0.00  0.86
+pland_2 -0.14 -0.67 -0.35
+pland_3  0.29 -0.04  0.06
+pland_4 -0.00  0.72 -0.35
+         NMF1  NMF2  NMF3
+ai       1.45  0.18  0.73
+contag   1.15  0.00  0.49
+ed       0.25  1.03  0.01
+lpi      1.60  0.00  0.66
+shdi     0.23  1.01  0.10
+pland_1  0.18  0.16  0.12
+pland_2  1.65  0.37  0.00
+pland_3  0.00  0.46  0.00
+pland_4  0.00  0.16  0.61
+error 7.08
+```
+
+The `loadings` of the PCA and the `components` of the NMF are the part's two tables; `scores` places every square on the axes
+or factors (`pca.scores`, `nmf.scores`) and `reconstruction_error` is the `error` output. The groups, k-means of the z-scores
+(`seed=0` and `n_init=10` by default, which is what to report):
+
+```python
+groups = sig.cluster(4)                                  # a Series: the group of every square, 0 to 3
+print(np.bincount(groups), "squares per group")
+means = sig.table.loc[groups.index].groupby(groups).mean()
+means.insert(0, "squares", groups.value_counts().sort_index())
+print(means[["squares", "shdi", "ed", "lpi", "pland_1", "pland_2", "pland_3", "pland_4"]].round(2).to_string())
+for k in (2, 3, 5, 6, 7):
+    print("k =", k, np.bincount(sig.cluster(k)))
+```
+
+```text
+[194 139  37  20] squares per group
+         squares  shdi     ed    lpi  pland_1  pland_2  pland_3  pland_4
+cluster                                                                 
+0            194  1.04  26.40  48.04    13.23    41.71    18.83    22.11
+1            139  0.56  14.45  79.00     7.52    80.70     4.15     7.21
+2             37  0.44   8.84  82.60     2.53    12.31     0.38    75.55
+3             20  0.52  11.28  79.64    81.30     8.29     5.74     3.01
+k = 2 [207 183]
+k = 3 [201 138  51]
+k = 5 [141  90 109  32  18]
+k = 6 [114  80 108  51  19  18]
+k = 7 [101  67  34  95  59  21  13]
+```
+
+The table of the groups with \(k = 4\), and the squares per group of the slider. `method="ward"` (or `average`, `complete`,
+`single`...) groups hierarchically, and `n_components=` clusters the first components instead of the metrics. The
+clustergram:
+
+```python
+ward = sig.cluster(4, method="ward")
+print(np.bincount(ward), "squares per group by Ward's linkage")
+cgram = sig.clustergram(range(1, 9))                     # the groups for k = 1 to 8
+print(cgram.labels.shape, "squares x values of k")
+fig = sig.plot_clustergram(cgram)                        # the figure of the part
+```
+
+```text
+[128  90 125  47] squares per group by Ward's linkage
+(390, 8) squares x values of k
+```
+
+`cgram.labels` has the group of every square for every k, `cgram.means` the mean of each group on the first principal
+axis (what the dots of the figure are), and `plot_clustergram` draws them.
+
 ## Settings that change the answer
 
 - **The square's size** (`grid`): a scale, as the window's in part 4. Small squares are often one class; large ones

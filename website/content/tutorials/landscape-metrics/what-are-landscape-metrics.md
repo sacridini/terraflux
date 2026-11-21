@@ -271,6 +271,163 @@ images:
     for core areas, and the software and its version ("Terraflux, computing landscapemetrics' definitions").
     Without them, a number cannot be compared with anyone else's.
 
+### In Python
+
+The library, [terraflux-py](/python/), has the same metrics, 133 of landscapemetrics (and more with `extras=True`), with
+the same definitions. [`tf.Landscape`][terraflux.Landscape] reads the map once, finds its patches, and then answers any
+number of requests at the three levels. The map is the file of this part, `augusta.tif`, so the numbers are the model's:
+
+```python
+import numpy as np
+import terraflux as tf
+
+cover = tf.load_raster("augusta.tif")           # the NLCD of Augusta, 160 x 120 cells of 30 m
+lc = tf.Landscape(cover)                        # the patches are found once; directions=8 by default
+print(lc.landscape_metrics(["ta", "np", "pr", "shdi"]).round(2).to_string(index=False))
+classes = lc.class_metrics(["ca", "pland", "np"])
+print(classes.sort_values("pland", ascending=False).head(5).round(1).to_string(index=False))
+```
+
+```text
+    ta     np   pr  shdi
+1728.0 1144.0 15.0   1.9
+ class    ca  pland    np
+    42 648.7   37.5 139.0
+    41 329.3   19.1 123.0
+    43 177.0   10.2 173.0
+    81 164.3    9.5  76.0
+    90 143.0    8.3  10.0
+```
+
+These are the tables of nodes 4, 3 and 2: the landscape's one row, and the five largest classes with their area in
+hectares, share and patches. The tables are *wide* (a column per metric); `class` is the land-cover code of the NLCD
+(42 evergreen forest, 41 deciduous, 43 mixed forest, 81 pasture, 90 woody wetlands). The patch level is
+`lc.patch_metrics([...])`, a row per patch (`class`, `id` and the metrics); the patches of the graph's `patches` output
+are its `id`s, and `lc.to_raster("area")` paints each with its value (`show = "area"`):
+
+```python
+area = lc.patch_metrics(["area"])["area"]
+print(len(area), area.max().round(1), (area < 0.1).sum(), area.median().round(2),
+      (area.nlargest(10).sum() / area.sum()).round(2), area.mean().round(2))
+```
+
+```text
+1144 127.9 352 0.27 0.35 1.51
+```
+
+The patches, the largest (127.9 ha), the single cells, the median, the share of the ten largest (35% of the map) and
+the mean (1.5 ha) of the paragraph above. Areas are in hectares and lengths in map units, from the cell size of the map.
+
+**The neighbour rule.** `directions` is an option of the `Landscape` (and of every function that makes one). The toy
+map of the figure is a numpy array; its cells have size 1, so `res=10` gives them the figure's 10 m:
+
+```python
+toy = np.array([[1, 1, 1, 2, 2, 2, 3, 3], [1, 1, 2, 2, 2, 3, 3, 3], [1, 1, 1, 2, 1, 3, 3, 1],
+                [3, 1, 1, 1, 2, 1, 3, 1], [3, 3, 1, 2, 2, 2, 1, 1], [3, 3, 2, 2, 3, 2, 1, 1],
+                [2, 2, 2, 3, 3, 1, 1, 1], [2, 2, 1, 3, 3, 1, 1, 1]], dtype="uint8")
+for d in (8, 4):
+    t = tf.Landscape(toy, res=10, directions=d)
+    print(d, "neighbours:", int(t.landscape_metrics(["np"])["np"].iloc[0]), "patches;",
+          "forest, farming, water:", t.class_metrics(["np"])["np"].astype(int).tolist())
+```
+
+```text
+8 neighbours: 6 patches; forest, farming, water: [2, 1, 3]
+4 neighbours: 10 patches; forest, farming, water: [5, 2, 3]
+```
+
+**Composition and configuration.** The two 150 × 150 landscapes with 40% forest are made with the library's own
+neutral landscape models, [`tf.nlm.fbm`][terraflux.nlm.fbm] and [`tf.nlm.random`][terraflux.nlm.random], cut at 0.4 by
+[`tf.nlm.binarize`][terraflux.nlm.binarize]; the seed gives the same maps as the graph's nodes:
+
+```python
+clumped = tf.nlm.binarize(tf.nlm.fbm(150, 150, resolution=30, fract_dim=1.7, seed=3), 0.4)
+shuffled = tf.nlm.binarize(tf.nlm.random(150, 150, resolution=30, seed=3), 0.4)
+for name, m in (("clumped", clumped), ("random", shuffled)):
+    c = tf.Landscape(m).class_metrics(["pland", "np", "ed", "area_mn", "ai"])
+    print(name, c[c["class"] == 2].round(1).to_dict("records")[0])
+```
+
+```text
+clumped {'class': 2, 'pland': 40.0, 'np': 93.0, 'ed': 63.9, 'area_mn': 8.7, 'ai': 88.4}
+random {'class': 2, 'pland': 40.0, 'np': 410.0, 'ed': 319.5, 'area_mn': 2.0, 'ai': 39.9}
+```
+
+The same amount (`pland` 40%), 93 and 410 patches, as the slider's caption says.
+
+**Grain.** [`tf.reproject`][terraflux.reproject] with `res=` resamples a raster in its own coordinate system, and
+`resampling="mode"` gives each coarse cell the most common class of the cells it covers:
+
+```python
+for res in (30, 60, 90, 150, 240):
+    m = cover if res == 30 else tf.reproject(cover, res=res, resampling="mode")
+    t = tf.Landscape(m).landscape_metrics(["np", "ed", "pr", "shdi"]).iloc[0]
+    print(res, "m:", int(t["np"]), "patches,", round(t["ed"], 1), "m/ha,", int(t["pr"]), "classes, SHDI", round(t["shdi"], 2))
+```
+
+```text
+30 m: 1144 patches, 212.1 m/ha, 15 classes, SHDI 1.9
+60 m: 607 patches, 142.5 m/ha, 14 classes, SHDI 1.87
+90 m: 342 patches, 102.1 m/ha, 13 classes, SHDI 1.81
+150 m: 135 patches, 63.6 m/ha, 11 classes, SHDI 1.71
+240 m: 50 patches, 38.1 m/ha, 10 classes, SHDI 1.51
+```
+
+The slider's numbers, but for the 90 m map: 342 patches here against 336 in the slider. Most likely the two resamplings
+break the ties between equally common classes differently; every other number agrees.
+
+**Finding metrics.** [`tf.list_metrics`][terraflux.list_metrics] is the catalogue, with each metric's name, type and
+level. The same filters (`level`, `metric`, `name`, `type`; a leading minus excludes) select the metrics everywhere
+they are asked for:
+
+```python
+catalogue = tf.list_metrics()
+print(len(catalogue), catalogue["type"].unique().tolist())
+print(tf.list_metrics(level="landscape", type="diversity metric")[["metric", "name"]].head(4).to_string(index=False))
+print(lc.metrics(level="class", metric=["area", "shape"]).shape,                 # area_mn, area_sd, shape_mn...
+      lc.metrics(level="landscape", type="-complexity metric").shape)            # everything but complexity
+```
+
+```text
+133 ['area and edge metric', 'core area metric', 'shape metric', 'aggregation metric', 'complexity metric', 'diversity metric']
+metric                               name
+ msidi modified simpson's diversity index
+ msiei  modified simpson's evenness index
+    pr                     patch richness
+   prd             patch richness density
+(90, 5) (61, 5)
+```
+
+A metric name given in `metric` selects its family (`area` gives `area_mn`, `area_sd`, `area_cv`), the way `metrics =
+[]` and `type` do in the nodes. Upper-case abbreviations and full names work in the wide tables
+(`lc.landscape_metrics(["SHDI", "shannon_diversity_index", "contagion"])`). `lc.metrics(...)` is the *long* form, a row
+per value (`level`, `class`, `id`, `metric`, `value`), which is convenient for many metrics and levels at once;
+`tf.landscape_metrics(cover, level="landscape", metric="shdi")` is the one-call form, without keeping a `Landscape`.
+`extras=True` adds FRAGSTATS' metrics that landscapemetrics lacks (`area_am`, `area_md`, `area_ra`...), as in the
+nodes. Statistics over patches exist for every patch metric: the mean `_mn`, the standard deviation `_sd` and the
+coefficient of variation `_cv`.
+
+**The settings** listed under "Settings that change the answer" are keyword arguments of `Landscape` (and of the one-call functions):
+
+```python
+for opts in ({}, {"directions": 4}, {"count_boundary": True}, {"convention": "fragstats"}):
+    t = tf.Landscape(cover, **opts).landscape_metrics(["np", "ed", "lpi"]).iloc[0]
+    print(opts or "defaults", "->", int(t["np"]), "patches,", round(t["ed"], 1), "m/ha,", round(t["lpi"], 1), "%")
+```
+
+```text
+defaults -> 1144 patches, 212.1 m/ha, 7.4 %
+{'directions': 4} -> 1952 patches, 212.1 m/ha, 7.4 %
+{'count_boundary': True} -> 1144 patches, 221.8 m/ha, 7.4 %
+{'convention': 'fragstats'} -> 1144 patches, 212.1 m/ha, 7.4 %
+```
+
+`directions` changes the patches (1,952 with 4 neighbours); `count_boundary` adds the map's border to the edge;
+`consider_boundary`, `edge_depth`, `classes_max` (the potential number of classes, for the relative richness `rpr`),
+`neighbourhood`, `ordered` and `base` (the complexity metrics), and `nodata` and `res` (the value of no data and the cell
+size, which a numpy array does not have) complete the list. `convention="fragstats"` changes nothing in these three
+metrics of Augusta, which the two programs agree on.
+
 ## Settings that change the answer
 
 The same settings exist on every metrics operator, because they change the patches or the edges that all the metrics

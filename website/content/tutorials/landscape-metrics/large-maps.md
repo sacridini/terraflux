@@ -200,6 +200,118 @@ cell:
 The figures are orders of magnitude, not promises: the patch metrics of a map with millions of patches need more.
 When in doubt, run by blocks: the values are the same, and the cost in time is small.
 
+## In Python
+
+In the library, a raster on disk is read by blocks when [`tf.Landscape`][terraflux.Landscape] is given its path and
+`block_rows` (a number of rows, rounded up to a multiple of 64, or `"auto"`); the metrics, the options and the results are
+those of the in-memory `Landscape`, and so are the values. CORINE is the library's example, written to a file to be read
+by blocks:
+
+```python
+import time
+import numpy as np
+import pandas as pd
+import rasterio
+from rasterio.transform import from_origin
+import terraflux as tf
+
+clc = tf.load_raster(tf.example_data("clc"))
+tf.write_raster(clc, "clc.tif")                          # a file on disk, as a map of a country would be
+MET = ["ta", "np", "lpi", "ed", "area_mn", "shape_mn", "ai", "cohesion", "core_mn", "enn_mn", "contag", "shdi"]
+res = {}
+for name, kw in (("whole", {}), ("512 rows", {"block_rows": 512}), ("128 rows", {"block_rows": 128})):
+    t = time.time()
+    res[name] = tf.Landscape("clc.tif", **kw).landscape_metrics(MET)
+    print(f"{name:9s} {time.time() - t:.2f} s")
+for name in ("512 rows", "128 rows"):
+    diff = np.nanmax(np.abs(res["whole"].to_numpy() - res[name].to_numpy()))
+    print(name, "largest difference from the whole map:", diff)
+print(res["whole"].round(2).T.to_string(header=False))
+```
+
+```text
+whole     0.08 s
+512 rows  0.17 s
+128 rows  0.16 s
+512 rows largest difference from the whole map: 0.0
+128 rows largest difference from the whole map: 0.0
+ta        250000.00
+np           967.00
+lpi           31.32
+ed            23.22
+area_mn      258.53
+shape_mn       2.07
+ai            97.21
+cohesion      99.71
+core_mn      236.59
+enn_mn          NaN
+contag        69.46
+shdi           1.81
+```
+
+The twelve metrics of the first graph, whole and by blocks of 512 and 128 rows: the same values to the last digit
+(the difference is 0), for a little more time; the times are those of this computer, and the library reads the file
+directly, without the application's start. `enn_mn` is NaN: some patches have no other patch of their class, and the mean of
+the distances is then missing, as in landscapemetrics (`np.nanmax` leaves it out of the comparison). Four metrics need the
+whole map and cannot be computed by blocks, `prox`, `simi`, `econ` and `connect` (and `dcore` with
+`convention="fragstats"`); asking for one raises an error that says so.
+
+The class and patch levels work out of core too, with the tables and without a map in memory: `to_raster` gives a lazy
+(dask) raster that is computed only when it is used or written, and `write_metrics` streams a table of millions of
+patches to a file (`.parquet`, `.csv`...). The map nine times larger of the text is the CORINE map tiled 3 × 3:
+
+```python
+xmin, xmax, ymin, ymax = tf.Landscape(clc).extent
+with rasterio.open("clc_3x3.tif", "w", driver="GTiff", height=6000, width=6000, count=1, dtype="uint8",
+                   crs="EPSG:3035", transform=from_origin(xmin, ymax, 25, 25), tiled=True, compress="deflate") as ds:
+    ds.write(np.tile(clc.values.astype("uint8"), (3, 3)), 1)      # 36 million cells
+big = tf.Landscape("clc_3x3.tif", block_rows=512)
+print(big.landscape_metrics(["np", "ed", "ai", "shdi"]).round(2).to_string(index=False))
+print(big.class_metrics(["ca", "np", "ed"]).head(3).round(1).to_string(index=False))
+areas = big.to_raster("area")                            # lazy: nothing is read yet
+print(type(areas.data).__name__)
+big.write_metrics("patches.parquet", level="patch", metric=["area", "shape"])
+print(pd.read_parquet("patches.parquet").shape, "rows and columns of the patch table")
+```
+
+```text
+    np   ed    ai  shdi
+8499.0 23.4 97.11  1.81
+ class       ca     np  ed
+     1   1570.5   18.0 0.0
+     2 243523.1 1779.0 7.4
+     3  31750.9  315.0 0.9
+Array
+(16998, 5) rows and columns of the patch table
+```
+
+The 36 million cells give the 8,499 patches, 23.4 m/ha of edge, aggregation of 97.1% and Shannon diversity of 1.81 of the
+text. A raster on disk with more than 250 million cells is read by blocks even without `block_rows`.
+
+**Many maps.** A list of paths gives one set of metrics per file, with a `layer` column, as the node does for a folder
+(`tiles/*.tif`); `block_rows` applies to each. Here, the two halves of CORINE:
+
+```python
+tf.write_raster(clc[:1000], "tile_a.tif")
+tf.write_raster(clc[1000:], "tile_b.tif")
+tiles = tf.landscape_metrics(["tile_a.tif", "tile_b.tif"], level="landscape", metric=["np", "ed", "ai", "shdi"], block_rows=512)
+print(tiles.pivot(index="layer", columns="metric", values="value").round(2).to_string())
+```
+
+```text
+metric     ai     ed     np  shdi
+layer                            
+1       96.89  26.02  581.0  1.84
+2       97.57  20.42  438.0  1.59
+```
+
+One row per file and a column per metric. For batches over folders of hundreds of files with several workers, and across
+computers, see [batch processing](/tutorials/large-data/batch-processing/) and the [parallel computing](/parallel/) guide.
+
+**What the library does not do by blocks.** The moving window by strips (`window_metrics` computes in memory, in parallel
+over the cells; cut a very large map in tiles with half a window of overlap), and `sample_metrics`, `zonal_metrics`,
+`SpatioTemporalAnalysis` and `SpatialSignatureAnalysis` take no `block_rows`: they read their zones from a map in memory.
+
 ## Settings that change the answer
 
 None, by design: the values by blocks are the values of the whole map. What changes is time and memory:

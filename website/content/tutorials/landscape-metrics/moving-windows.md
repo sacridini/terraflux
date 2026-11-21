@@ -237,6 +237,72 @@ what most published moving-window studies used. Either way, say which.
     border of the map was treated. Near the border a window is cut and holds fewer cells: there the values rest on
     less of the landscape. Either clip the result by half a window, or compute it on a map larger than the study area.
 
+### In Python
+
+[`tf.window_metrics`][terraflux.window_metrics] is [[metrics.window]]. The library has the CORINE map as its example data,
+the same `clc.tif`; [`tf.reclassify`][terraflux.reclassify] groups the 44 classes into the graph's seven (a range is
+`low <= value < high`) and [`tf.reproject`][terraflux.reproject] with `res=100, resampling="mode"` is the resampling
+of node 3:
+
+```python
+import numpy as np
+import terraflux as tf
+
+corine = tf.load_raster(tf.example_data("clc"))         # CORINE around Hannover, 25 m
+broad = tf.reclassify(corine, {(1, 12): 1, 12: 2, (13, 23): 3, (23, 26): 4, (26, 35): 5, (35, 40): 6, (40, 45): 7})
+cover = tf.reproject(broad, res=100, resampling="mode")  # 100 m: the most common class of each 4 x 4 cells
+print(cover.shape, np.unique(cover.values).tolist())
+
+maps = tf.window_metrics(cover, window=21, metric=["shdi", "ed", "pr"])    # 21 cells, 2.1 km
+shdi = maps["shdi"]
+print(sorted(maps), round(float(shdi.mean()), 2), "mean SHDI")
+tf.plot(shdi)
+```
+
+```text
+(500, 500) [1, 2, 3, 4, 5, 6, 7]
+['ed', 'pr', 'shdi'] 0.7 mean SHDI
+```
+
+`maps` is a dictionary, a georeferenced raster per metric, the layers of the graph's `maps` output; the mean of 0.70 is the
+slider's at 21 cells. `window` is the odd side in cells. Only landscape-level metrics are possible, and the metric
+options (`directions`, `count_boundary`...) are keyword arguments. The window of the slider, a size at a time:
+
+```python
+for side in (3, 9, 21, 41):
+    m = tf.window_metrics(cover, window=side, metric=["shdi", "pr", "ed"])
+    one = float((m["pr"] == 1).sum() / m["pr"].count())
+    print(f"{side:2d} cells: SHDI {float(m['shdi'].mean()):.2f}, classes {float(m['pr'].mean()):.1f}, "
+          f"{100 * one:.1f}% of the cells see one class, ED {float(m['ed'].mean()):.1f} m/ha")
+```
+
+```text
+ 3 cells: SHDI 0.18, classes 1.3, 68.0% of the cells see one class, ED 11.9 m/ha
+ 9 cells: SHDI 0.44, classes 2.1, 26.0% of the cells see one class, ED 15.9 m/ha
+21 cells: SHDI 0.70, classes 3.1, 5.2% of the cells see one class, ED 17.1 m/ha
+41 cells: SHDI 0.90, classes 3.9, 0.5% of the cells see one class, ED 17.5 m/ha
+```
+
+The slider's numbers (its percentages are rounded). For a window that is not a square, `window` takes an array of ones and
+zeros: a disc of 21 cells across is `shape = "circle"`:
+
+```python
+disc = np.hypot(*np.mgrid[-10:11, -10:11]) <= 10         # cells within 10 of the centre
+circle = tf.window_metrics(cover, window=disc, metric="shdi")["shdi"]
+both = np.ma.masked_invalid(np.stack([circle.values.ravel(), shdi.values.ravel()]))
+print(round(float(circle.mean()), 2), "mean SHDI;", round(float(np.ma.corrcoef(both)[0, 1]), 2), "correlation with the square")
+tf.write_raster(shdi, "shdi_window21.tif")
+```
+
+```text
+0.65 mean SHDI; 0.98 correlation with the square
+```
+
+The circle's 0.65 against 0.70 and the correlation of 0.98 of the caption. `tf.write_raster` writes a map as a GeoTIFF.
+The windows are computed in parallel over the cells, in memory: the library does not read a map by strips, as the node
+does for a raster larger than memory ([part 7](/tutorials/landscape-metrics/large-maps/)); for a very large map, cut it in
+tiles with half a window of overlap and join the results.
+
 ## Common pitfalls
 
 - **Comparing maps of different windows**, above.
@@ -265,5 +331,3 @@ what most published moving-window studies used. Either way, say which.
 - Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648–1657. https://doi.org/10.1111/ecog.04617
 - Jackson, H. B., & Fahrig, L. (2015). Are ecologists conducting research at the optimal scale? *Global Ecology and Biogeography*, 24(1), 52–63. https://doi.org/10.1111/geb.12233
 - Riitters, K., Wickham, J., O'Neill, R., Jones, B., & Smith, E. (2000). Global-scale patterns of forest fragmentation. *Conservation Ecology*, 4(2), 3. https://doi.org/10.5751/ES-00209-040203
-
-In Python: [Landscape metrics in Python](/tutorials/landscape-metrics/landscape-metrics-in-python/).
