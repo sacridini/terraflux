@@ -91,7 +91,7 @@ and Files drawers; here the Viewer's tab was dragged below the Model, to see bot
    *Delete node*. The same content is in the **Node** pane (**View > Node**), which does not open by itself unless
    you turn on **open the Node pane by itself** in the settings; with no node selected, it holds the model's own
    record (its name, description, request, summary and author).
-4. **The drawers** at the window's left edge: **Operators** and **Files**, and **Prepare**, which appears with
+4. **The drawers** at the window's left edge: **Files**, and **Prepare**, which appears with
    the first data. Move the pointer to a tab and its drawer slides out; a click on the tab opens it as a pane.
    Prepare holds the data of the node selected compared with the model's *reference grid*, and the steps that put
    it on that grid in a click (see [One grid for all your maps](../one-grid/)).
@@ -325,8 +325,8 @@ as a script of the library.
 
 Terraflux has about 300 operators. There are three ways to add one to a model.
 
-**The drawer.** Move the pointer to the left edge of the window: the **Operators** drawer slides out (the
-**Files** drawer has its own tab below it). At its top are your favourites, then the operators by subject, with a
+**The pane.** The **Operators** pane (from the panes' menu; or as a drawer at the window's left edge, beside
+**Files**, if **the operators in a drawer at the left edge** is on in the settings). At its top are your favourites, then the operators by subject, with a
 search box; files are opened with ++ctrl+o++ (**File > Open a raster or vectors...**) or dragged from the
 **Files** drawer. Click an operator and a new
 node appears, **already connected** to the node selected, so a chain is built click after click.

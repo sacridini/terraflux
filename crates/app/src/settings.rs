@@ -70,6 +70,9 @@ pub struct Settings {
     /// The Node pane's tab opened by itself beside the model with its first node (off unless turned on: a node's
     /// settings open in a panel beside its box on the canvas; the tab stays in the panes' menu).
     pub node_pane_opens: bool,
+    /// The operators' drawer at the window's left edge, beside the files' (off unless turned on: the operators are
+    /// behind "/", the commands and the Operators menu, their pane in the panes' menu).
+    pub operators_drawer: bool,
     /// The start page on the Model pane's canvas while the model is empty (on unless turned off).
     pub start_page: bool,
     /// The models opened or saved last, the last first.
@@ -437,6 +440,7 @@ impl Default for Settings {
             wires_around: true,
             node_settings: true,
             node_pane_opens: false,
+            operators_drawer: false,
             start_page: true,
             recent_models: Vec::new(),
             keep_awake: true,
@@ -621,6 +625,11 @@ pub fn node_settings() -> bool {
 /// Whether the Node pane's tab opens by itself with a model's first node (read without copying the settings).
 pub fn node_pane_opens() -> bool {
     global().lock().unwrap().node_pane_opens
+}
+
+/// Whether the operators have a drawer at the window's left edge (read without copying the settings).
+pub fn operators_drawer() -> bool {
+    global().lock().unwrap().operators_drawer
 }
 
 /// The collections an operator is in.

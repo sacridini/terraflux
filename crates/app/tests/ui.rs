@@ -2725,8 +2725,8 @@ fn the_preparation_waits_in_its_drawer() {
     assert!(!h.state().is_open(Pane::Prepare), "not open by itself");
     let top = h.state().dock.as_ref().and_then(|d| d.find_tab(&Pane::Model).map(|p| d[p.surface][p.node].rect()));
     let top = top.flatten().expect("the model's rect").top();
-    // the tab: the third of the strip, under the operators' and the files'
-    let at = egui::pos2(8.0, top + 250.0);
+    // the tab: the second of the strip, under the files' (the operators have none unless the settings ask)
+    let at = egui::pos2(8.0, top + 125.0);
     h.event(egui::Event::PointerMoved(at));
     h.run_steps(3);
     assert_eq!(h.state().drawer, Some(Pane::Prepare), "its drawer under the pointer");
@@ -2748,12 +2748,14 @@ fn the_preparation_waits_in_its_drawer() {
 }
 
 /// The panes' places: the model in most of the window, the node's pane at its left (the preparation in a tab beside
-/// it), nothing at the right; the operators and the files in drawers the pointer opens at the window's left edge
-/// (and closes leaving it), the operators in the toolbar too, their panes, shown, at the left edge; the assistant
+/// it), nothing at the right; the files in a drawer the pointer opens at the window's left edge (and closes leaving
+/// it), the operators' drawer only when the settings ask for it, the operators in the toolbar too, their panes, shown, at the left edge; the assistant
 /// at the right; backspace deletes the node selected; a tab dragged
 /// out of the dock (egui_dock's floating window) becomes a window of its own.
 #[test]
 fn the_operators_drawer_and_windows_of_their_own() {
+    // (alone: the operators' drawer turned on for a while changes the strip of the others)
+    held(true);
     let mut h = harness(new_app(None));
     h.run_steps(2);
     let ctx = h.ctx.clone();
@@ -2776,7 +2778,7 @@ fn the_operators_drawer_and_windows_of_their_own() {
     assert!(width - model.right() < 12.0, "nothing at the right: {}", width - model.right());
     // the files' drawer: the pointer over its tab of the strip
     h.state_mut().files.go(data(""));
-    let files_tab = egui::pos2(8.0, rect(&h, Pane::Model).top() + 180.0);
+    let files_tab = egui::pos2(8.0, rect(&h, Pane::Model).top() + 40.0);
     h.event(egui::Event::PointerMoved(files_tab));
     h.run_steps(3);
     assert_eq!(h.state().drawer, Some(Pane::Files), "the files' drawer");
@@ -2846,7 +2848,21 @@ fn the_operators_drawer_and_windows_of_their_own() {
     assert!(!h.state().is_open(Pane::Operators));
     assert!(h.query_by_label("Operators").is_some(), "the toolbar's menu");
     assert!(h.query_by_label("FAVOURITES").is_none());
-    // the pointer at the left edge: the drawer
+    // the pointer at the left edge: no drawer of the operators unless the settings ask for it
+    h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
+    h.run_steps(3);
+    assert!(h.state().drawer.is_none(), "no operators' drawer by default");
+    h.event(egui::Event::PointerMoved(egui::pos2(700.0, 300.0)));
+    // (turned on to the end of the test, off again even when it fails)
+    struct Off;
+    impl Drop for Off {
+        fn drop(&mut self) {
+            terraflux_app::settings::update(|st| st.operators_drawer = false);
+        }
+    }
+    let _off = Off;
+    terraflux_app::settings::update(|st| st.operators_drawer = true);
+    h.run_steps(3);
     h.event(egui::Event::PointerMoved(egui::pos2(1.0, 300.0)));
     h.run_steps(3);
     assert_eq!(h.state().drawer, Some(Pane::Operators));
@@ -3021,6 +3037,22 @@ fn maps_stack_and_cells_show_their_series() {
     h.get_by_label("drivers").click();
     drawn(&mut h);
     assert_eq!(h.state().session.as_ref().unwrap().preview, Some(pair("drivers", "raster")));
+    // space over the Layers: the layer selected (the drivers) hidden, and shown again; the map not hidden
+    let drivers = |h: &Harness<TerrafluxApp>| {
+        let s = h.state().session.as_ref().unwrap();
+        s.preview_layers.iter().find(|l| l.node == "drivers").expect("the layer drivers").visible
+    };
+    // (the pointer over its box: the box does not turn as well)
+    h.get_by_label("show drivers").hover();
+    h.run_steps(2);
+    assert!(drivers(&h));
+    h.key_press(egui::Key::Space);
+    h.run_steps(2);
+    assert!(!drivers(&h), "space over the Layers: the layer selected hidden");
+    assert!(!h.state().session.as_ref().unwrap().preview_view.hide_data, "the map left as it was");
+    h.key_press(egui::Key::Space);
+    h.run_steps(2);
+    assert!(drivers(&h), "and shown again");
     use egui_kittest::kittest::NodeT;
     // the drivers (selected by the click) down, under the roads, by the bar's down
     h.get_by_label("Down").click();

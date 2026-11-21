@@ -82,7 +82,7 @@ The pointer over a map in the Viewer.
 | Keys | Does |
 |---|---|
 | ++b++ | The satellite under the map |
-| ++space++ | Hide the map, or show it again |
+| ++space++ | Hide the map, or show it again (over the Layers: the layers selected) |
 | ++m++ | Measure: click points for lengths, area and perimeter (++esc++ ends) |
 | ++ctrl+g++ | Go to a coordinate (degrees or the map's units) and mark it (++esc++ lets the mark go) |
 | ++alt+left++ | The view before (the mouse's back button too) |

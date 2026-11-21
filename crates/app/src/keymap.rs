@@ -358,7 +358,12 @@ pub static ACTIONS: &[Action] = &[
     part("canvas_place_go", Scope::Canvas, "Go to the place in that slot (the Viewer has its own)", &DIGITS),
     // The maps (the pointer over one).
     at("viewer_satellite", Scope::Viewer, "The satellite under the map", &[key(Key::B)]),
-    at("viewer_hide", Scope::Viewer, "Hide the map, or show it again", &[key(Key::Space)]),
+    at(
+        "viewer_hide",
+        Scope::Viewer,
+        "Hide the map, or show it again (over the Layers: the layers selected)",
+        &[key(Key::Space)],
+    ),
     at(
         "viewer_measure",
         Scope::Viewer,

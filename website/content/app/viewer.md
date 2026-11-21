@@ -51,7 +51,7 @@ At the right of the header, a line says how the node did: *running*, *run*, *not
 | Click | Picks a cell (outlined). The corner reads out the coordinates, the **row** and **column**, and the value under the pointer. |
 | Right click on a cell | **Trace this cell**, **Ask the assistant why**, **Explain with an MCP assistant**. |
 | ++b++ | Satellite imagery under the map, or none. |
-| ++space++ | Hides the map, or shows it again. |
+| ++space++ | Hides the map, or shows it again. Over the **Layers**: hides the layers selected, or shows them again. |
 | ++m++ | Measure. |
 | ++ctrl+g++ | Go to a coordinate. |
 
@@ -76,6 +76,8 @@ with its legend and settings.
   from disk...** (a node of the model reads it) and **A URL...**. Files dropped on the list are added too.
 - **Remove the layer**, **Up** and **Down** move the layers selected (or drag a row).
 - Each layer is **shown or hidden**, made more or less **opaque**, and, for vector features, **styled**.
+  ++space++ with the pointer over the list hides the layers selected (shows them again when all of them were
+  hidden).
 - **Groups.** A group, as in a GIS, shows, hides and fades its layers together. **Group** and **Take out of its
   group** are in a layer's menu; a group has **Rename...** and **Ungroup**.
 

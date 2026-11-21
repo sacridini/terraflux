@@ -7,6 +7,12 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **Space over the Viewer's Layers hides the layers selected, or shows them again** (`crates/app/src/layers_panel.rs`): with the pointer over the list and no text being written, the layers selected (several with ctrl and shift; the map shown's layer when none is) are hidden, and shown again when every one of them was hidden; a box that has the focus does not turn as well. Space over the map still hides the map. It is the shortcut `viewer_hide`, so a key changed in Settings (Keyboard) changes both.
+
+### Changed
+- **Terraflux opens with only the Files drawer at the window's left edge** (`crates/app/src/app.rs`, `crates/app/src/settings.rs`): the Operators drawer is off unless **the operators in a drawer at the left edge** is turned on in the settings (`operators_drawer`); the operators stay in the Operators menu, behind "/" and the commands (ctrl+K), and their pane in the panes' menu. The Prepare drawer still comes with the first data. The site's pages on the window, the canvas, the Viewer, the shortcuts, the tour and the first raster say so.
+
 ## [1.60.0] - 2026-11-21
 
 ### Added

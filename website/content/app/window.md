@@ -15,7 +15,8 @@ From top to bottom the window has:
 - the **toolbar**: the menus, **Run** and **Stop**, the model's name and how its run goes, and the tools at the right;
 - a **strip of tabs**, only when two or more models are open ([Several models at once](#several-models-at-once));
 - the **panes**, in the middle: tabs you can drag, split and move to another screen;
-- the **drawers** at the window's left edge: **Operators**, **Files** and, once the model has data, **Prepare**;
+- the **drawers** at the window's left edge: **Files** and, once the model has data, **Prepare** (an
+  **Operators** drawer too, if **the operators in a drawer at the left edge** is on in the settings);
 - the **status bar** at the bottom: a reminder of the mouse and keys of the pane under the pointer, and the model's
   health when it has checks ([Checks shown on nodes](/app/canvas/#checks-shown-on-nodes)).
 
@@ -29,8 +30,8 @@ to show. Close the pane's tab in front with ++ctrl+w++, or remove its tick in **
 |---|---|---|
 | **Model** | The canvas where the nodes and their wires are drawn, with its bar ([Building on the canvas](/app/canvas/)). | At the start. |
 | **Document** | The same model read as the methods section of a paper: stages, steps, settings in words, the maps and tables of the last run. | By itself with the first node. |
-| **Operators** | The library of operators, by subject, with a search box and your favourites at the top. | In a drawer at the left edge; a click on its tab opens it as a pane. |
-| **Files** | The computer's folders, to open a file or drag it onto the canvas or the Viewer. | In a drawer, like **Operators**. |
+| **Operators** | The library of operators, by subject, with a search box and your favourites at the top. | From the **Operators** menu, ++slash++ and the commands (++ctrl+k++); as a pane from the panes' menu; in a drawer at the left edge if **the operators in a drawer at the left edge** is on in the settings. |
+| **Files** | The computer's folders, to open a file or drag it onto the canvas or the Viewer. | In a drawer at the left edge; a click on its tab opens it as a pane. |
 | **Node** | The node selected: its name, what its operator does (with a **Documentation** link to the operator's page on this website), its **Inputs**, its **Settings** and its record (**Note**, **Why**, references). With no node selected, the model's own record. | Only if **open the Node pane by itself** is on in the settings. Otherwise a node's settings open in a panel beside its box. |
 | **Prepare** | The data of the node selected compared with the model's reference grid, and the steps that put it on that grid ([One grid for all your maps](/tutorials/getting-started/one-grid/)). | In a drawer, once the model has data. |
 | **Viewer** | What the node selected gives: a map, a table, a number ([The viewer](/app/viewer/)). | By itself with the first data. |

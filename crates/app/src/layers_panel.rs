@@ -252,6 +252,16 @@ pub(super) fn layers_section(
     }
     let selected: Option<usize> = chosen.first().copied();
     let mut asked = Asked::default();
+    // space with the pointer over the Layers (no text being written): the layers selected hidden, or shown again
+    // when every one of them was hidden (taken before the rows, so a box that has the focus does not turn too)
+    if !chosen.is_empty()
+        && !ui.ctx().text_edit_focused()
+        && ui.rect_contains_pointer(ui.max_rect())
+        && ui.input_mut(|i| crate::keymap::pressed(i, "viewer_hide"))
+    {
+        let on = !chosen.iter().all(|i| sh.layers[*i].visible);
+        asked.visible = Some((chosen.clone(), on));
+    }
     // the run's other maps and features, to add
     let more: Vec<(String, String)> = others
         .iter()

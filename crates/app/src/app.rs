@@ -127,8 +127,8 @@ impl Pane {
 /// model's left as an inspector and the model's document in a tab behind the model's with the first node (a node
 /// added, a model or a template opened), the preparation of the data in a tab behind it with the first data, the viewer in a tab behind the model's with
 /// the first data (a raster or vectors read, a template); the calculator under the model when a script is opened
-/// in it. A node's output shows in the viewer (no tab of its own). The operators and the files are in drawers at the window's left edge
-/// (the operators also in the Operators menu, behind "/" and in the commands, ctrl+K); their panes, shown, take
+/// in it. A node's output shows in the viewer (no tab of its own). The files are in a drawer at the window's left edge, the operators
+/// too when the settings ask for it (the operators also in the Operators menu, behind "/" and in the commands, ctrl+K); their panes, shown, take
 /// the left edge.
 pub fn default_layout() -> DockState<Pane> {
     DockState::new(vec![Pane::Model])
@@ -4379,6 +4379,11 @@ impl TerrafluxApp {
                          panel beside its box, from its gear or a click on a setting the box does not edit; the \
                          tab stays in the panes' menu)",
                     );
+                    ui.add(theme::toggle(&mut st.operators_drawer, "the operators in a drawer at the left edge"))
+                        .on_hover_text(
+                            "a tab OPERATORS beside FILES at the window's left edge, the pointer over it brings \
+                             them out (off: the operators are behind \"/\", the commands and the Operators menu)",
+                        );
                 });
                 settings_group(ui, "When Terraflux starts", |ui| {
                     ui.add(theme::toggle(&mut st.reopen_last, "reopen the models open last")).on_hover_text(
@@ -4663,13 +4668,16 @@ impl TerrafluxApp {
         }
     }
 
-    /// The panes with a drawer now: the operators' and the files' while closed, the preparation's while closed and
-    /// the model has data.
+    /// The panes with a drawer now: the files' while closed, the operators' while closed and the settings ask for
+    /// it, the preparation's while closed and the model has data.
     fn closed_drawers(&self) -> Vec<Pane> {
         let prepare = self.prepare_due || self.has_data();
+        let operators = crate::settings::operators_drawer();
         [Pane::Operators, Pane::Files, Pane::Prepare]
             .into_iter()
-            .filter(|p| !self.is_open(*p) && (*p != Pane::Prepare || prepare))
+            .filter(|p| {
+                !self.is_open(*p) && (*p != Pane::Prepare || prepare) && (*p != Pane::Operators || operators)
+            })
             .collect()
     }
 

@@ -36,7 +36,7 @@ for freezing.
 
 Three ways, all of which connect the new node to the node selected:
 
-- click an operator in the **Operators** drawer, or in the **Operators** menu;
+- click an operator in the **Operators** menu (or in the **Operators** pane or drawer, when open);
 - press ++slash++ anywhere on the canvas, type part of an operator's name or of what it does, and press ++enter++;
 - open a file with **File > Open a raster or vectors...** (++ctrl+o++), or drag it from the **Files** drawer onto
   the canvas: a node that reads it appears there.
@@ -222,7 +222,7 @@ the **Align** submenu of the selection's menu:
 
 ### The library
 
-The **Operators** drawer (move the pointer to the window's left edge), the **Operators** menu and the ++slash++
+The **Operators** menu, the **Operators** pane (or its drawer at the window's left edge, if the settings ask for it) and the ++slash++
 search hold the same library of about 300 operators, ordered by subject. The [tour](/tutorials/getting-started/tour/#the-operators-library)
 lists the subjects and their prefixes, and the [operator reference](/operators/) every setting of every operator.
 
