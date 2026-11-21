@@ -64,6 +64,15 @@ maps that fit in memory it is as fast. The tiled engine runs **Dinamica EGO's cl
 3 × 3 window; no dynamic drivers in the loop yet. The models of `terraflux new dinamica` qualify. Other analyses
 of large maps (landscape metrics by blocks of rows, MSPA by tiles) are in [the guide](/parallel/maps-larger-than-memory/).
 
+The Python library has no tiled engine: `tf.simulate` runs the exact engine in memory (`Model.run`), so a map that
+does not fit is run from the command line. What it offers for large models is
+[`S.scenarios`][terraflux.simulate.scenarios]: `keep=[2030, 2050]` keeps only some years of each run, and
+`on=tf.helpers()` spreads many runs over computers
+([Calibration and many runs](/tutorials/land-change/calibration-and-many-runs/#replicates-in-python)). Landscape
+metrics and batches of large maps in Python are in
+[Larger than memory](/tutorials/large-data/larger-than-memory/) and
+[Batch processing](/tutorials/large-data/batch-processing/).
+
 ## What you need
 
 - A model as above, with its maps as **files** (GeoTIFF, read by windows).

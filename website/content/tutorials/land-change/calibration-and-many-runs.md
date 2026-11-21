@@ -116,6 +116,81 @@ worker ran each task, in how many seconds, and any error. The full help of the c
 submit
 ```
 
+### Replicates in Python
+
+[`S.scenarios`][terraflux.simulate.scenarios] runs a model many times, in parallel, replicate `r` with the seed
+`seed + r` (here 1 to 50, as `--replicates 50`). The model is Dinamica EGO's of Sibuyan, as in
+[Dinamica EGO on Sibuyan](/tutorials/land-change/dinamica-on-sibuyan/) and
+[Validating a simulation](/tutorials/land-change/validating-a-simulation/#in-python); `build` makes it with the
+two settings the calibration below will vary:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+from scipy import ndimage
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))
+drivers = tf.load_raster(S.example_data("sibuyan_drivers"))
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)      # 255: outside the island
+
+ranges = {"dist_sea": 250, "dist_roads": 250, "dist_urban": 250, "dist_streams": 250, "elevation": 50,
+          "slope": 2, "aspect": 30, "pop_density": 50,
+          **{c: "categorical" for c in ["diorite", "ultramafic", "sediments", "no_erosion", "moderate_erosion"]}}
+
+def build(isometry=1.5, expansion="observed"):
+    """Dinamica's model: the Expander's share measured on the maps, or a number for all transitions."""
+    return S.presets.dinamica(t0, t1, drivers, steps=14, woe={"ranges": ranges}, patches=expansion,
+                              isometry=isometry)
+
+model = build()
+ens = S.scenarios(model, t0, drivers, replicates=50, seed=1, steps=14, years=1997)
+print(ens)
+
+share = ens.change_probability().isel(year=-1, scenario=0).values      # share of runs where the cell changed
+share = share[~np.isnan(share)]
+print(f"{share.size} cells: changed in every run {(share == 1).sum()}, in some {((share > 0) & (share < 1)).sum()}, "
+      f"in none {(share == 0).sum()}")
+forest = ens.cover().query("year == 2011")[1]                          # cells of class 1 in each run
+print("forest left in 2011:", forest.min(), "to", forest.max(), "cells")
+```
+
+```text
+Ensemble(1 scenario(s) x 50 replicate(s), years 1997-2011)
+7226 cells: changed in every run 69, in some 1618, in none 5539
+forest left in 2011: 4161 to 4161 cells
+```
+
+`change_probability()` is the map of the share of the runs in which each cell changed (`probability(cls)`, that of
+becoming a class), and `ens.maps(replicate=r)` the maps of one run. The numbers are those of the part: 69 cells
+change in every run, 1,618 in some, 5,539 in none, and the forest left is the same in all (the rates fix the
+amounts). Any number computed on the maps is a distribution over the runs:
+
+```python
+runs = []
+for r in range(50):
+    end = ens.maps(replicate=r).isel(year=-1)
+    runs.append({"figure of merit": S.agreement(t1, end, t0)["figure_of_merit"],
+                 "similarity 5 x 5": S.similarity_of_differences(t0, t1, end, windows=[5])["minimum"].iloc[0]})
+print(pd.DataFrame(runs).describe().loc[["mean", "std", "min", "max"]].round(3))
+```
+
+```text
+      figure of merit  similarity 5 x 5
+mean            0.461             0.759
+std             0.023             0.021
+min             0.414             0.715
+max             0.512             0.801
+```
+
+Fifty seeds give figures of merit from 0.41 to 0.51, as in the part. `ens.metrics(["np", "ed"])` measures every run
+and year with `tf.landscape_metrics` (or any function of a map, given as `{name: function}`), `ens.to_dataset()`
+holds every map, `keep=[2005, 2011]` keeps only some years when the maps are large, and `tf.plot(ens)` maps the
+probability of change in each scenario. `on=tf.helpers()` runs the replicates on the computers of a group
+([Many runs on your computer](/parallel/many-runs/) and the [parallel guide](/parallel/)); the model then travels as
+its Terraflux graph, so it must be made of pieces that `Model.save` writes.
+
 ### Scenarios
 
 A scenarios file is TOML: a `[[scenario]]` per scenario, its `name` (the name of its folder) and `set`, the
@@ -145,6 +220,41 @@ terraflux submit sibuyan.toml --scenarios scenarios.toml --out scenarios
 
 writes `scenarios/as_observed/`, `scenarios/compact/` and `scenarios/scattered/`. Files a scenario names (a drivers
 file of 2030) travel with the batch.
+
+### Scenarios in Python
+
+A scenario is a model (or a dict of the pieces to replace, `{"demand": ...}`, or a function of the model); the
+scenarios share the seeds, so they differ by what they change and by the replicates' chance. The three of the part,
+by the `isometry` and the Expander's share of every transition:
+
+```python
+scenarios = {"as observed": build(), "compact": build(2.5, 0.95), "scattered": build(1.0, 0.1)}
+many = S.scenarios(model, t0, drivers, scenarios=scenarios, replicates=10, seed=1, steps=14, years=1997)
+print(many)
+
+rows = {}
+for name in scenarios:
+    fom = [S.agreement(t1, many.maps(name, r).isel(year=-1), t0)["figure_of_merit"] for r in range(10)]
+    changed = (many.maps(name, 0).isel(year=-1) != t0).fillna(False).values          # the first run
+    rows[name] = {"clumps of change": ndimage.label(changed, structure=np.ones((3, 3)))[1],
+                  "figure of merit, mean": np.mean(fom), "sd": np.std(fom, ddof=1)}
+print(pd.DataFrame(rows).T.round(3).to_string(float_format=lambda x: f"{x:g}"))
+```
+
+```text
+Ensemble(3 scenario(s) x 10 replicate(s), years 1997-2011)
+             clumps of change  figure of merit, mean    sd
+as observed                32                  0.456 0.026
+compact                    27                  0.436 0.016
+scattered                  36                  0.453 0.012
+```
+
+The compact scenario makes the fewest separate clumps and the scattered one the most, as in the part (which counts
+its clumps by its own rule: 33, 37 and 43). A scenario that changes an input is a dict of pieces:
+`{"demand": S.Markov.from_maps(t0, t1, steps=7)}` is the observed change in half the time. A scenario of a model
+that is not a preset names the pieces of the model (`"allocation.isometry"`, `"rules.elasticity[1]"`). The figures
+of merit of the three scenarios differ by less than the spread of the replicates of the first block: a figure of
+merit does not separate them, the shape of the change does.
 
 ### Calibration
 
@@ -183,6 +293,54 @@ calibrate
     `--param patches.expansion=0:1` tries only 0 and 1 (the five values 0, 0.25... are rounded, and the repeats
     dropped). Write `patches.expansion=0.0:1.0` for a share. Whole-number ranges are meant for settings such as a
     number of steps or a window. Check the values tried in the first lines of `calibration.csv`.
+
+### Calibration in Python
+
+[`S.calibrate`][terraflux.simulate.calibrate] is `terraflux calibrate`: a function that builds the model from the
+settings (or a model and the paths of its settings), the start and the observed maps, the settings with the values
+to try, and the `targets` with their weights. `similarity_5` is the fuzzy similarity of the changes in a window of
+5 (`figure_of_merit`, `kappa`, `quantity`, `allocation` and `lsm`, the landscape metrics, are the others). The 25
+candidates of the part (5 values of each setting), each with the seeds 1, 2 and 3 (`replicates=3, seed=1`, the same
+seeds for every candidate):
+
+```python
+cal = S.calibrate(build, t0, t1, drivers,
+                  params={"isometry": [0.5, 1.0, 1.5, 2.0, 2.5], "expansion": [0.1, 0.3, 0.5, 0.7, 0.9]},
+                  targets={"similarity_5": 1}, method="grid", replicates=3, seed=1)
+print(cal)
+score = 1 - cal.history.pivot(index="expansion", columns="isometry", values="loss")   # the fuzzy similarity
+print(score.round(3))
+print(cal.history.sort_values("loss").head(3).assign(similarity=lambda h: 1 - h["loss"])
+      [["isometry", "expansion", "similarity"]].round(3))
+```
+
+```text
+Calibration(isometry=2, expansion=0.7; loss 0.1884 after 25 evaluations)
+isometry     0.5    1.0    1.5    2.0    2.5
+expansion                                   
+0.1        0.768  0.770  0.768  0.763  0.765
+0.3        0.793  0.795  0.791  0.791  0.781
+0.5        0.806  0.806  0.800  0.799  0.807
+0.7        0.796  0.797  0.800  0.812  0.798
+0.9        0.779  0.765  0.756  0.752  0.751
+            isometry  expansion  similarity
+evaluation                                 
+18               2.0        0.7       0.812
+22               2.5        0.5       0.807
+2                0.5        0.5       0.806
+```
+
+The best candidate, an isometry of 2.0 with an Expander's share of 0.7, scores 0.812; the next two score 0.807 and
+0.806. The grid is the part's: shares of 0.5 to 0.7 score 0.80 to 0.81 whatever the isometry, and along a row the
+scores move by 0.01 to 0.03, no more than the spread of the replicates, so the isometry is not identified.
+`cal.best` holds the winner, `cal.model` the model with it, `cal.history` every evaluation (the settings, the loss and
+the part of each target) and `cal.validate()` the comparisons of `S.validate` for the best simulation.
+
+A setting given as `(low, high)` is searched in a range, and two integers make a range of integers: the pitfall of
+the warning above, written `(0.0, 1.0)` for a share. `method="nelder-mead"` (the default) and
+`"differential-evolution"` search continuous ranges within `max_evals` evaluations, `"random"` draws them by Latin
+hypercube (better with more than two or three settings), and `"grid"` takes lists of values or `grid_points` per
+range. With `on=tf.helpers()` the candidates of a grid or random search are evaluated on a group's computers.
 
 ### In the application: Many runs
 

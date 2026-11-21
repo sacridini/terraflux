@@ -549,6 +549,128 @@ those of Brandão & Souza, 2006); a constructor that builds several times faster
 simulated forest too fast. Report the landscape metrics that matter to your question (the interior, the
 patches, the edge) for runs with and without growing roads.
 
+### In Python
+
+[`S.RoadBuilder`][terraflux.simulate.RoadBuilder] is [[dinamica.roads]], and
+[`S.destinations`][terraflux.simulate.destinations], [`S.friction_cost`][terraflux.simulate.friction_cost] and
+[`S.pathways`][terraflux.simulate.pathways] are the three functors ([[dinamica.destinations]],
+[[dinamica.cost_map]], [[dinamica.pathways]]). The data of step 1 is made with [`tf.nlm`](/python/api/nlm/) with the
+same seeds (`autocorr_range` is the node's `range`):
+
+```python
+import numpy as np
+import pandas as pd
+import xarray as xr
+import terraflux as tf
+from scipy import ndimage
+
+S = tf.simulate
+n = 250
+highway = tf.nlm.distance_gradient(n, n, origin=[40, 40, 1, 250], resolution=100, rescale=False,
+                                   nlmr_compat=False)               # metres to the highway, column 40
+noise = tf.nlm.gaussian_field(n, n, resolution=100, autocorr_range=15, seed=21)
+relief = tf.nlm.gaussian_field(n, n, resolution=100, autocorr_range=40, seed=22)
+value = tf.nlm.gaussian_field(n, n, resolution=100, autocorr_range=30, seed=23)
+
+roads0 = (highway == 0).astype(float)                               # the network: 1 on the highway
+land0 = xr.where(highway < 500 + 2500 * noise, 2.0, 1.0)            # 1 forest, 2 cleared
+friction = 1 + 30 * relief**3                                       # building is harder on rough ground
+print(f"cleared {float((land0 == 2).mean()) * 100:.1f}%, friction {float(friction.min()):.0f} to "
+      f"{float(friction.max()):.0f}, {int(roads0.sum())} cells of highway")
+```
+
+```text
+cleared 14.7%, friction 1 to 31, 250 cells of highway
+```
+
+One step by hand, as in step 2: the attraction (the forest's value) kept 1.5 to 4 km from the roads, a destination
+per quadrant, the cost of reaching each cell from the network over the friction, and the paths down that cost.
+The builder does the four in one call with the same seeds (the seed for the destinations, the seed plus one for the
+lottery of ties):
+
+```python
+attraction = xr.where(land0 == 1, value, 0.0)
+near = S.distance_to(1)(roads0)                                     # metres to the roads
+band = attraction.where((near >= 1500) & (near <= 4000))
+ends = S.destinations(band, quadrants=(2, 2), min_distance=2000, seed=1)
+cost = S.friction_cost(roads0, friction)
+paths = S.pathways(roads0, ends, cost, lottery=True, seed=2)
+
+rb = S.RoadBuilder(friction, lambda m: xr.where(m == 1, value, 0.0), quadrants=(2, 2),
+                   distance=(1500, 4000), spacing=2000)
+step = rb.step(roads0, landscape=land0, seed=1)
+road = lambda net: net.notnull() & (net != 0)
+print(int(ends.notnull().sum()), "destinations;", int((road(paths) & ~road(roads0)).sum()), "new road cells;",
+      "same as the builder:", bool((road(paths) == road(step)).all()))
+```
+
+```text
+2 destinations; 80 new road cells; same as the builder: True
+```
+
+`attraction` can also be a function of the simulated map, as here (`m` is the map of the year), and `mask`, another
+function or map, says where roads may end. `rb.run(roads0, 5, landscape=land0, seed=1)` repeats the step and returns
+the network after each. To grow the roads with the clearing, `rb.dynamic(roads0, seed=1)` is a dynamic variable (as
+in [Dynamic drivers](/tutorials/land-change/dynamic-drivers/#in-python)): each time the map has changed it builds a
+step of roads on it, and gives the distance to the network. The potential is a small class with a `probability`
+method that reads that distance and gives the probability of each transition (the node `probability` and the stack
+of `transitions`); the rates are the 1.5 % a year of `rates`, and the patches those of `patches`, in hectares
+(cells of 100 m are hectares):
+
+```python
+class Clearing:
+    """Clearing is likely near the roads: exp(-d / 1000) in the forest."""
+    def probability(self, landscape, drivers=None):
+        d = drivers["roads"].as_float()
+        p = np.where(landscape.values == 1, np.exp(-d / 1000), 0.0)
+        return xr.DataArray(p[None], dims=("band", "y", "x"), coords={"band": ["probability_1_to_2"]})
+
+patches = S.ExpanderPatcher(steps=20, expansion=0.7, expander=(12, 100, 1.5), patcher=(8, 50, 1.5),
+                            size_unit="hectares")
+roads = rb.dynamic(roads0, seed=1)
+growing = S.Model(Clearing(), {(1, 2): 0.015}, patches, dynamic={"roads": roads}).run(land0, seed=1)
+# the same model with the roads frozen: the distance to the highway, computed once
+near0 = S.distance_to(1)(roads0)
+frozen = S.Model(Clearing(), {(1, 2): 0.015}, patches, dynamic={"roads": lambda m: near0}).run(land0, seed=1)
+
+def interior(land, net):                  # forest more than 1 km from any clearing or road, % of the map
+    open_ = (land.values != 1) | road(net).values
+    return float(((land.values == 1) & (ndimage.distance_transform_edt(~open_) * 100 > 1000)).mean() * 100)
+
+def forest_patches(land):
+    t = tf.landscape_metrics(land.fillna(0).astype("int32"), level="class", metric=["np"])
+    return int(t.query("`class` == 1")["value"].item())
+
+rows = {}
+for name, sim, net in [("roads frozen", frozen, roads0), ("growing roads", growing, roads.networks[-1])]:
+    end = sim.maps[-1]
+    rows[name] = {"cleared, % of the map": float((end == 2).mean() * 100),
+                  "new clearing > 5 km from the highway, ha": int(((highway > 5000) & (end == 2) & (land0 == 1)).sum()),
+                  "forest interior, % of the map": interior(end, net),
+                  "patches of forest": forest_patches(end),
+                  "new roads, km": float((road(net) & ~road(roads0)).sum() * 0.1)}
+print(pd.DataFrame(rows).round(1).to_string(float_format=lambda x: f"{x:g}"))
+```
+
+```text
+                                          roads frozen  growing roads
+cleared, % of the map                             36.9           36.9
+new clearing > 5 km from the highway, ha          1303           7118
+forest interior, % of the map                     53.8           18.5
+patches of forest                                  159            200
+new roads, km                                        0          172.1
+```
+
+The frozen run is the part's (36.9 % cleared, 1,303 ha far from the highway, 53.8 % of interior, 159 patches). The
+growing run is not exactly the one of the table: the amount cleared is the same (the rates fix it), but the
+dynamic variable gives the first year the network as it is and builds from the second, so 19 steps of roads are
+built in 20 years, and the draws of the roads are not the application's. The pattern is the same: the clearing
+reaches far into the forest along the side roads, and the interior falls to a fifth of the map. `roads.networks`
+keeps the network of every step, and `growing.steps` the allocation's table of every year. For a scenario with roads
+that may not enter an area, give `mask` a map that is 0 there and `None` (NaN) in the friction; `distance`,
+`quadrants`, `spacing`, `per_quadrant`, `lottery`, `diagonal` and `relative` are the settings of the part's last
+section.
+
 ## Settings that change the answer
 
 The frames below are the land after 20 years with one setting of [[dinamica.roads]] changed (the same seed, the

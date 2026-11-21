@@ -672,6 +672,121 @@ drivers were recomputed at each step and how, give the period of calibration and
 report the figure of merit at several resolutions for the model with and without the dynamic driver, with a
 null model of no change for reference.
 
+### In Python
+
+The same model with [`tf.simulate`](/python/api/simulate/): [`S.distance_to`][terraflux.simulate.distance_to] is
+[[dynamic.distance_to]], [`S.LogisticRegression`][terraflux.simulate.LogisticRegression] is [[glm.fit]] and
+[`S.Model`][terraflux.simulate.Model] with [`S.CLUE`][terraflux.simulate.CLUE] and
+[`S.Rules`][terraflux.simulate.Rules] is the loop with [[lulcc.step]]. The distance is counted in cells and
+multiplied by 99.92 because Pie's cells are not square (with `unit="map"` the call would refuse them, as the
+node does), and it is put into the drivers under the name the formulas know, as nodes 1 to 3 do:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("pie_landuse"))          # 1985, 1991 and 1999
+drivers = tf.load_raster(S.example_data("pie_drivers"))
+start, mid, end = (lu.sel(band=b).where(lu.sel(band=b) != 255) for b in ["1985", "1991", "1999"])
+
+built = S.distance_to(2, unit="cells")      # distance to the Built class, in cells
+metres = lambda m: built(m) * 99.92         # the side of a cell, in metres
+d0 = metres(start)
+drivers.loc[{"band": "dist_built_1985"}] = d0   # replaces lulcc's layer of that name
+
+# the regressions learn from where land use appeared in 1985-1991 (not from where it is)
+expansion = mid.where(start != 2)
+forms = {1: ["elevation", "slope"], 2: ["elevation", "slope", "dist_built_1985"], 3: ["elevation", "slope"]}
+reg = S.LogisticRegression(forms).fit(expansion, drivers)
+print(reg.coefficients.round(4))
+```
+
+```text
+       (Intercept)  elevation   slope  dist_built_1985
+class                                                 
+1          -1.2844     0.0485  0.0297              NaN
+2          -2.0431     0.0057 -0.0369          -0.0055
+3           1.2687    -0.0563 -0.0222              NaN
+```
+
+These are the coefficients of the part: Built has -0.0055 per metre of distance to built land. The static and the
+dynamic model differ by one argument, `dynamic`, a `{name: function of the map}` whose result replaces the driver
+of that name and makes the potential be predicted again at every step. The demand is the observed areas
+interpolated (`from_maps` with the steps at which the maps were made), and the allocation has the settings of
+node `allocate`:
+
+```python
+demand = S.AreaDemand.from_maps(lu, times=[0, 6, 14])      # 14 steps, 1985 to 1999
+clue = S.CLUE(jitter=0.0002, scale=1e-6, max_iter=1000, max_diff=50, mean_diff=50)
+rules = S.Rules(elasticity=[0.2, 0.2, 0.2])
+models = {"static": S.Model(reg, demand, clue, rules),
+          "dynamic": S.Model(reg, demand, clue, rules, dynamic={"dist_built_1985": metres})}
+runs = {name: m.run(start, drivers, seed=1) for name, m in models.items()}   # seed 1, as the part
+print(runs["dynamic"].steps.iloc[[0, 6, 13]])
+```
+
+```text
+      iterations  converged  max_diff  mean_diff  cells_1  cells_2  cells_3
+step                                                                       
+1             63       True      46.0  30.666667    48679    37618    27266
+7            142       True      45.0  30.000000    46818    40699    26046
+14           196       True      50.0  33.333333    45337    43445    24781
+```
+
+`steps` has a row per step (the passes the allocation took, whether it converged and the largest difference from
+the demand) and the cells of each class. The maps are `runs[name].maps`, step 0 (1985) to 14 (1999). Where the
+new built land went, by its distance to the built land of 1985:
+
+```python
+dist = d0.values                                   # distance to the built land of 1985, metres
+new0 = (start == 2).values
+rows = {"observed": (end == 2).values & ~new0}      # the cells built since 1985
+rows.update({name: (sim.maps[-1] == 2).values & ~new0 for name, sim in runs.items()})
+table = pd.DataFrame({k: {"within 100 m, %": (dist[v] <= 100).mean() * 100,
+                          "beyond 500 m, %": (dist[v] > 500).mean() * 100,
+                          "cells beyond 500 m": (dist[v] > 500).sum()} for k, v in rows.items()})
+print(table.round(1).to_string(float_format=lambda x: f"{x:g}"))
+```
+
+```text
+                    observed  static  dynamic
+within 100 m, %         49.5    57.6     47.3
+beyond 500 m, %          1.4       2      5.3
+cells beyond 500 m        89     133      355
+```
+
+The shares are those of the part's chart (57.6 and 47.3 % within 100 m, 2.0 and 5.3 % beyond 500 m, 1.4 % observed)
+and the cells beyond 500 m the end of its slider (133 and 355; 89 observed). The agreement with 1999 at several resolutions is
+[`S.validate`][terraflux.simulate.validate] (its `three_map` is [[validate.three_map]]); `figure_of_merit()` gives
+`overall` by block side and `category` the same for the change from each class (column 2 is Built):
+
+```python
+fom = {}
+for name, sim in runs.items():
+    f = S.validate(start, end, sim.maps[-1], factors=[1, 2, 4, 8, 16], windows=[1]).three_map.figure_of_merit()
+    fom[f"{name}, all classes"] = f["overall"]
+    fom[f"{name}, Built"] = f["category"][2]
+print(pd.DataFrame(fom).T.round(3))
+```
+
+```text
+factor                   1      2      4      8      16
+static, all classes   0.056  0.073  0.107  0.155  0.196
+static, Built         0.023  0.032  0.052  0.067  0.043
+dynamic, all classes  0.053  0.070  0.101  0.147  0.188
+dynamic, Built        0.023  0.032  0.052  0.066  0.043
+```
+
+Both runs are equally poor at the cell and the dynamic one slightly worse at every resolution, as in the table
+above. Other options: [`S.share_of`][terraflux.simulate.share_of] is [[dynamic.share_of]] (the share of some classes
+in a window), [`S.gravity_of`][terraflux.simulate.gravity_of]`(2, exponent=2)` the pull of a class summed over the
+map with a distance decay (the gravity model of spatial interaction, as in
+[Gravity potentials](/tutorials/land-change/gravity-potentials/)), `S.distance_to(2, cost=...)` takes a cost
+distance, and any function of the map is a dynamic driver. The same `dynamic` argument makes the potential of any
+allocation (`S.Ordered`, `S.ExpanderPatcher`...) follow the map.
+
 ## Settings that change the answer
 
 - **The window of `dynamic.share_of`.** A 3 x 3 window measures the immediate neighbours (a house next door);

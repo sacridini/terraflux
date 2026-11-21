@@ -349,6 +349,165 @@ allocation disagreement; the figure of merit at several resolutions (or the fuzz
 as a curve; the same numbers for persistence; and the map of hits, misses and false alarms. Say which seed or how
 many replicates (the mean and range over replicates are better than one run).
 
+### In Python
+
+[`S.validate`][terraflux.simulate.validate] gathers the four comparisons of the model above (and
+[[validate.kappa]] and [[validate.error_budget]]) in one call, on the start, the observed end and the simulated end.
+The simulated map is made here too: Dinamica EGO's model of the
+[Dinamica series](/tutorials/land-change/dinamica-on-sibuyan/) with the same ranges, the 14 yearly steps of
+1997 to 2011 and seed 1 (the library's allocation is the application's, so the cells are the same):
+
+```python
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))
+drivers = tf.load_raster(S.example_data("sibuyan_drivers"))
+t0, t1 = lu[0].where(lu[0] != 255), lu[1].where(lu[1] != 255)      # 255: outside the island
+
+ranges = {"dist_sea": 250, "dist_roads": 250, "dist_urban": 250, "dist_streams": 250, "elevation": 50,
+          "slope": 2, "aspect": 30, "pop_density": 50,
+          **{c: "categorical" for c in ["diorite", "ultramafic", "sediments", "no_erosion", "moderate_erosion"]}}
+model = S.presets.dinamica(t0, t1, drivers, steps=14, woe={"ranges": ranges})
+simulated = model.run(t0, drivers, seed=1).maps[-1]               # the last step, 2011
+
+v = S.validate(t0, t1, simulated, factors=[1, 2, 4, 8, 16], windows=[1, 3, 5, 7, 9, 11])
+print(v)
+print(S.agreement(t1, simulated, t0))
+print(v.similarity.round(3))
+```
+
+```text
+Validation(figure of merit 0.4657, kappa 0.8790, similarity 0.7593 at 11 cells)
+{'overall': 0.9267921394962635, 'figure_of_merit': 0.46565656565656566, 'hits': 461, 'misses': 219, 'false_alarms': 247, 'wrong_hits': 63, 'quantity': {1: 1, 2: -1, 3: 3, 4: -1, 5: -2}}
+   window  simulated  observed  minimum  simulated_cells  observed_cells
+0       1      0.598     0.620    0.598              771             743
+1       3      0.744     0.706    0.706              771             743
+2       5      0.789     0.742    0.742              771             743
+3       7      0.799     0.754    0.754              771             743
+4       9      0.802     0.758    0.758              771             743
+5      11      0.802     0.759    0.759              771             743
+```
+
+`S.agreement` is [[validate.agreement]]: `overall`, the `figure_of_merit` and its four counts (and the `quantity`
+difference of each class, simulated less observed cells). `v.similarity` is [[validate.similarity]], a row per
+window with the similarity of the simulated change to the observed (`simulated`), the other way (`observed`) and
+Dinamica's result, the `minimum`; `decay="constant"` counts every cell of the window as 1. The three-map comparison
+and the other tables are attributes of `v`:
+
+```python
+fom = v.three_map.figure_of_merit()
+print(fom["overall"].round(3))                  # the figure of merit by block side (1 = 250 m, 16 = 4 km)
+budget = v.three_map.agreement_budget()
+print(budget[budget.level == "overall"][["factor", "hits", "misses", "wrong_hits", "false_alarms"]].round(4))
+print(round(v.futures["total_quantity"], 4), round(v.futures["total_allocation"], 3), round(v.kappa["kappa"], 3))
+```
+
+```text
+factor
+1     0.466
+2     0.484
+4     0.524
+8     0.563
+16    0.580
+Name: figure_of_merit, dtype: float64
+     factor    hits  misses  wrong_hits  false_alarms
+0         1  0.0638  0.0303      0.0087        0.0342
+31        2  0.0652  0.0279      0.0099        0.0316
+62        4  0.0682  0.0234      0.0124        0.0262
+93        8  0.0711  0.0197      0.0128        0.0228
+124      16  0.0664  0.0164      0.0140        0.0176
+0.0006 0.073 0.879
+```
+
+`figure_of_merit()` has `overall`, `category` (the change from each class) and `transition`; the `budget` gives
+shares of the map, overall, per class and per transition, per block size. `v.futures` is
+[[validate.futures]] (`total_quantity`, `total_allocation`, `kappasimulation`...), `v.kappa` MOLUSCE's
+kappa, `v.error_budget` Pontius's budget at coarser resolutions, and `v.summary()` the headline numbers in one
+Series. Against the yardsticks of the part, the same model with elevation and slope only, and persistence (the map
+of 1997 as the simulation):
+
+```python
+two = drivers.sel(band=["elevation", "slope"])
+sim2 = S.presets.dinamica(t0, t1, two, steps=14, woe={"ranges": {"elevation": 50, "slope": 2}}).run(
+    t0, two, seed=1).maps[-1]
+
+def score(sim):
+    a, s = S.agreement(t1, sim, t0), S.validate(t0, t1, sim).summary()
+    return {"cells of the same class": a["overall"], "figure of merit": a["figure_of_merit"],
+            "hits": a["hits"], "misses": a["misses"], "wrong hits": a["wrong_hits"],
+            "false alarms": a["false_alarms"], "quantity disagreement": s["quantity_disagreement"],
+            "allocation disagreement": s["allocation_disagreement"], "kappa": s["kappa"],
+            "kappa simulation": s["kappa_simulation"], "similarity 5 x 5": s["similarity_5"]}
+
+table = pd.DataFrame({"13 drivers": score(simulated), "2 drivers": score(sim2), "persistence": score(t0)})
+print(table.round(3).to_string(float_format=lambda x: f"{x:g}"))
+```
+
+```text
+                         13 drivers  2 drivers  persistence
+cells of the same class       0.927      0.859        0.897
+figure of merit               0.466      0.172            0
+hits                            461        211            0
+misses                          219        462          743
+wrong hits                       63         70            0
+false alarms                    247        487            0
+quantity disagreement         0.001      0.001        0.078
+allocation disagreement       0.073       0.14        0.025
+kappa                         0.879      0.767         0.82
+kappa simulation              0.609      0.243            0
+similarity 5 x 5              0.742      0.436            0
+```
+
+These are the part's table, row by row (only the allocation disagreement of two drivers differs, in the last digit:
+0.140 here, 0.141 there). The curves of the part are `v.similarity["minimum"]` by window and `fom["overall"]` by block
+side. A model simulated by another program is validated the same way: read its map with
+[`tf.load_raster`][terraflux.load_raster] and pass it as `simulated`.
+
+The honest test is the same call on a period the model did not see. Plum Island has three dates: fit on 1985-1991,
+simulate eight steps from the observed map of 1991 and compare with 1999. The steps of the Markov chain are 6 (the
+length of the fitted period), so the allocation is told to take 8:
+
+```python
+pie = tf.load_raster(S.example_data("pie_landuse"))
+pie_drivers = tf.load_raster(S.example_data("pie_drivers"))
+m85, m91, m99 = (pie.sel(band=b).where(pie.sel(band=b) != 255) for b in ["1985", "1991", "1999"])
+
+pie_model = S.presets.dinamica(m85, m91, pie_drivers, steps=6,
+                               woe={"ranges": {"elevation": 5, "slope": 1, "dist_built_1985": 100}})
+calibration = S.validate(m85, m91, pie_model.run(m85, pie_drivers, seed=1).maps[-1])   # 1985 to 1991
+pie_model.allocation.steps = 8                                                          # 1991 to 1999
+sim99 = pie_model.run(m91, pie_drivers, seed=1).maps[-1]
+validation = S.validate(m91, m99, sim99)                                                # start: 1991
+
+curve = pd.DataFrame({"calibration period (1985-1991)": calibration.three_map.figure_of_merit()["overall"],
+                      "validation period (1991-1999)": validation.three_map.figure_of_merit()["overall"]})
+print(curve.round(3))
+a = S.agreement(m99, sim99, m91)
+print(f"agree with 1999: {a['overall'] * 100:.1f}%, persistence {S.agreement(m99, m91, m91)['overall'] * 100:.1f}%")
+print(validation.summary()[["quantity_disagreement", "allocation_disagreement"]].round(3))
+```
+
+```text
+        calibration period (1985-1991)  validation period (1991-1999)
+factor                                                               
+1                                0.032                          0.032
+2                                0.042                          0.043
+4                                0.072                          0.074
+8                                0.145                          0.148
+16                               0.275                          0.264
+agree with 1999: 92.0%, persistence 95.8%
+quantity_disagreement      0.009
+allocation_disagreement    0.072
+Name: value, dtype: float64
+```
+
+The curve is the part's chart: the figure of merit on the validation period (0.032 at 100 m) equals the one on
+the calibration period, and reaches 0.26 at blocks of 1.6 km. Persistence agrees with more of the map (95.8 %
+against 92.0 %), and the quantity disagreement is no longer zero (0.009). Note the `start`: hits and misses are
+defined from the map the simulation started from (1991 here, not 1985).
+
 ## Settings that change the answer
 
 - **The window and the decay of the similarity.** With `decay = "constant"`, every cell of the window counts 1,
