@@ -24,7 +24,7 @@ pub fn register(r: &mut Registry) {
 const LABELS: [&str; 2] = ["corridor", "not corridor"];
 
 /// R's `quantile(x, p, type = 7)` of values without missing ones (NaN for none).
-fn quantile7(x: &[f64], p: f64) -> f64 {
+pub(super) fn quantile7(x: &[f64], p: f64) -> f64 {
     let mut x = x.to_vec();
     x.sort_by(|a, b| a.total_cmp(b));
     let n = x.len();
@@ -42,7 +42,7 @@ fn quantile7(x: &[f64], p: f64) -> f64 {
 }
 
 /// Python's `format(x, ".{sig}g")`.
-fn gfmt(x: f64, sig: usize) -> String {
+pub(super) fn gfmt(x: f64, sig: usize) -> String {
     if x.is_nan() {
         return "nan".into();
     }
@@ -345,7 +345,7 @@ impl Operator for Corridor {
 type Uds = (Arc<Grid>, Vec<(String, Arc<Vec<f64>>)>);
 
 /// The UDs of a port: (name, values) of each layer on one grid. A map is one UD, a stack one a layer.
-fn uds_of(node: &str, port: &str, value: &Value, first: usize) -> Result<Uds> {
+pub(super) fn uds_of(node: &str, port: &str, value: &Value, first: usize) -> Result<Uds> {
     let value = crate::files::as_port(value.clone(), Type::Any)?;
     match &value {
         Value::Map(m) => Ok((m.grid.clone(), vec![(format!("ud_{}", first + 1), m.data.clone())])),

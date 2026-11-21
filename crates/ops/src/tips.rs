@@ -1006,6 +1006,22 @@ pub const TIPS: &[(&str, &str)] = &[
          degrees, which mixes north-south and east-west, and a warning says so.",
     ),
     (
+        "move.validate",
+        "Feed it the surface you want to test and the use that the surface did not see: the UD of animals \
+         (move.dbbmm_ud, move.dbgb_ud, move.home_range with kde), their locations, or move.corridor's lines. A \
+         surface built from the same locations flatters itself, so validate with other animals, other years or \
+         dispersal paths. Say what the surface is: kind current (Circuitscape, Omniscape, a kernel; higher is \
+         better), resistance (lower is better; the correlation is still positive when the animals use better cells \
+         more) or binary (a least-cost corridor). The corridors are the best 1 - quantile of the cells (the top 10 % \
+         by default) or the cells past a threshold in the surface's units: to compare surfaces give each the same \
+         quantile (the same share of the area), to compare animals on one surface the same threshold. \
+         use_ratio above 1 means the corridors catch more of the use than their area (1 is chance); rho is \
+         Spearman's rank correlation over cells, cells next to each other are not independent so it has no p-value. \
+         The compared area is the grid of a UD, or the bounding box of the points or lines of each track: a UD or a \
+         box much larger than the animals' range lowers area_fraction and raises use_ratio, so read coverage and the \
+         cell counts. The UD is read on the surface's grid (nearest cell when the grids differ).",
+    ),
+    (
         "move.dbbmm_variance",
         "Choose the window by the animal's behaviour, not by the table: window_size locations should span a few \
          changes of behaviour (several hours to days for most GPS tracks) and margin, odd and at most (window_size - \

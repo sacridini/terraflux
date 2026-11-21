@@ -247,6 +247,16 @@ pub(super) const MAPPED: &[Py] = &[
         [],
         "table"
     ),
+    mv!(
+        "move.validate",
+        "tf.move.validate",
+        [
+            "use" => "", "surface" => "", "kind" => "kind", "threshold" => "threshold", "quantile" => "quantile",
+            "support" => "support", "track" => "track", "spacing" => "spacing"
+        ],
+        [],
+        "table"
+    ),
     // the home range by method (its code: `special`, which calls hr_mcp, hr_kde or hr_locoh and the bandwidths)
     mv!(
         "move.home_range",
@@ -695,6 +705,20 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                  _pd.DataFrame({{\"a\": [\"ud_1\"], \"b\": [\"ud_2\"], \"distance\": [{var}]}}))"
             );
             (code, out(&[("distance", var.to_string()), ("table", table)]), Need::Flow)
+        }
+        "move.validate" => {
+            let py = entry(op)?;
+            opt(n, "use", sc)?.ok_or("its use is not connected")?;
+            opt(n, "surface", sc)?.ok_or("its surface is not connected")?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            let outs = out(&[
+                ("table", format!("{var}.table")),
+                ("note", format!("{var}.note")),
+                ("threshold", format!("{var}.threshold")),
+                ("corridor", format!("{var}.corridor")),
+            ]);
+            (code, outs, Need::Flow)
         }
         "move.home_range" => {
             entry(op)?;
@@ -1246,6 +1270,48 @@ params = { gc = true, reg = 0.02, max_iter = 1500 }
         );
         assert!(t.contains("apart = tf.move.ud_distance(uds, method=\"exact\", mask_quantile=0.9)\n"), "{t}");
         assert!(t.contains("gap = tf.move.ud_distance(uds, ud_b=uds, reg=0.02, max_iter=1500, gc=True)\n"), "{t}");
+        parses(t);
+    }
+
+    /// The validation of a surface with the use of the animals: the library's call, its parts as the outputs.
+    #[test]
+    fn validation_as_the_library() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "uds"
+op = "raster.read"
+params = { path = "uds.tif" }
+
+[[nodes]]
+id = "current"
+op = "raster.read"
+params = { path = "current.tif" }
+
+[[nodes]]
+id = "check"
+op = "move.validate"
+inputs = { use = "uds.raster", surface = "current.raster" }
+params = { kind = "resistance", quantile = 0.8, support = 1 }
+
+[[nodes]]
+id = "note"
+op = "table.write"
+inputs = { table = "check.table" }
+params = { path = "check.csv" }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(
+            t.contains("check = tf.move.validate(uds, current, kind=\"resistance\", quantile=0.8, support=1)\n"),
+            "{t}"
+        );
+        assert!(t.contains("check.table"), "{t}");
         parses(t);
     }
 

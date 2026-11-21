@@ -868,6 +868,11 @@ const PHRASES: &[(&str, &str)] = &[
         "move.ud_distance",
         "The earth mover's distance between the utilisation distributions of <ud>[ and <ud_b>] (method {method}).",
     ),
+    (
+        "move.validate",
+        "How well the connectivity surface <surface> ({kind}) captures the use of the animals <use>: the rank \
+         correlation, the share of the use inside the corridors and the use against the area.",
+    ),
     ("networks.conefor", "The habitat network of the MSPA map <map> as Conefor's inputs."),
     (
         "networks.gtn_importance",

@@ -673,6 +673,151 @@ def ud_reference(out: dict, meta: dict, fishers_ok) -> None:
         meta["ud"]["suggest"][key] = hours
 
 
+VAL_NX, VAL_NY, VAL_RES, VAL_XMIN, VAL_YMAX = 40, 30, 10.0, 1000.0, 5300.0
+VAL_CRS = "EPSG:32723"
+# the validation of a connectivity surface (move.validate): case -> (use, surface, arguments of validate). The use is a
+# UD stack ("ud"), one band of it ("ud1"), the UD on another grid ("ud_b"), points ("pts", "pts_one", "pts_ll"), or
+# lines ("lines"); the surface "current", "resistance" or "binary".
+VAL_CASES = {
+    "ud_current": ("ud", "current", {"quantile": 0.8}),
+    "ud_default": ("ud", "current", {}),
+    "ud_support1": ("ud", "current", {"support": 1, "quantile": 0.7}),
+    "ud_support5": ("ud", "current", {"support": 0.5, "quantile": 0.95}),
+    "ud_threshold": ("ud", "current", {"threshold": 0.3}),
+    "ud_resistance": ("ud", "resistance", {"quantile": 0.8}),
+    "ud_resistance_t": ("ud", "resistance", {"threshold": -0.2}),
+    "ud_binary": ("ud", "binary", {"kind": "binary"}),
+    "ud_one": ("ud1", "current", {"quantile": 0.8}),
+    "ud_other_grid": ("ud_b", "current", {"quantile": 0.8}),
+    "ud_nan": ("ud_nan", "current", {"quantile": 0.8}),
+    "pts": ("pts", "current", {"quantile": 0.8}),
+    "pts_default": ("pts", "current", {}),
+    "pts_threshold": ("pts", "current", {"threshold": 0.3}),
+    "pts_resistance": ("pts", "resistance", {"quantile": 0.8}),
+    "pts_binary": ("pts", "binary", {"kind": "binary"}),
+    "pts_one": ("pts_one", "current", {"quantile": 0.8}),
+    "pts_ll": ("pts_ll", "current", {"quantile": 0.8}),
+    "lines": ("lines", "current", {"quantile": 0.8}),
+    "lines_spacing": ("lines", "current", {"quantile": 0.8, "spacing": 7.3}),
+    "lines_resistance": ("lines", "resistance", {"quantile": 0.7}),
+    "lines_binary": ("lines", "binary", {"kind": "binary"}),
+}
+
+
+def validate_reference(out: dict, meta: dict) -> None:
+    """The library's `validate` on a synthetic surface, UDs, points and lines (no R: the library is the reference). New
+    keys only: `in/validate/<name>` the inputs (rasters row by row from the north, NaN for none; coordinates), and
+    `validate/<case>/{table,threshold,corridor}` (`table`: a row per track and pooled, the eight numbers after the
+    track); the structure, the notes and the arguments are in the json (`validate`)."""
+    rng = np.random.default_rng(20261121)
+    x = VAL_XMIN + (np.arange(VAL_NX) + 0.5) * VAL_RES
+    y = VAL_YMAX - (np.arange(VAL_NY) + 0.5) * VAL_RES
+    gx, gy = np.meshgrid(x, y)
+
+    def ra(a, xs=x, ys=y, crs=VAL_CRS):
+        return xr.DataArray(a, coords={"y": ys, "x": xs}, dims=("y", "x")).rio.write_crs(crs)
+
+    cur = np.exp(-((gx - 1200) ** 2) / (2 * 90.0 ** 2)) + 0.5 * np.exp(-((gy - 5100) ** 2) / (2 * 50.0 ** 2))
+    cur = cur + 0.05 * rng.normal(size=cur.shape)
+    cur[::7, ::5] = np.round(cur[::7, ::5], 1)           # ties
+    cur[4:7, 10:14] = np.nan
+    res = 10.0 - 8.0 * (cur - np.nanmin(cur)) / (np.nanmax(cur) - np.nanmin(cur))
+    binary = np.where(np.isnan(cur), np.nan, (cur > np.nanquantile(cur, 0.85)).astype(float))
+    surfaces = {"current": cur, "resistance": res, "binary": binary}
+    for k, v in surfaces.items():
+        out[f"in/validate/surface_{k}"] = v.ravel()
+    names = ["a", "b", "c"]
+    bands = []
+    for cx, cy, sd in ((1150, 5050, 70.0), (1300, 4900, 90.0), (1220, 5150, 45.0)):
+        u = np.exp(-((gx - cx) ** 2 + (gy - cy) ** 2) / (2 * sd ** 2))
+        u[u < 1e-6] = 0.0
+        bands.append(u / u.sum())
+    ud = np.stack(bands)
+    out["in/validate/ud"] = ud.ravel()
+    ud_nan = ud.copy()
+    ud_nan[0, :, 30:] = np.nan
+    ud_nan[1, 20:, :] = np.nan
+    out["in/validate/ud_nan"] = ud_nan.ravel()
+    # a UD on a coarser grid, shifted: its centres fall inside the surface (mostly)
+    nxb, nyb, rb = 26, 20, 15.0
+    xb0, yb0 = 1013.0, 5290.0
+    xb = xb0 + (np.arange(nxb) + 0.5) * rb
+    yb = yb0 - (np.arange(nyb) + 0.5) * rb
+    gxb, gyb = np.meshgrid(xb, yb)
+    ub = np.exp(-((gxb - 1180) ** 2 + (gyb - 5000) ** 2) / (2 * 80.0 ** 2))
+    ub = ub / ub.sum()
+    out["in/validate/ud_b"] = ub.ravel()
+
+    def stack(a, nm):
+        return xr.DataArray(a, coords={"band": nm, "y": y, "x": x}, dims=("band", "y", "x")).rio.write_crs(VAL_CRS)
+
+    # points: three tracks, a few outside the grid and on NaN cells
+    n_pts = [60, 45, 30]
+    px, py, pt = [], [], []
+    for i, n in enumerate(n_pts):
+        c = [(1150, 5050), (1300, 4900), (1220, 5150)][i]
+        px.append(rng.normal(c[0], 60, n))
+        py.append(rng.normal(c[1], 70, n))
+        pt += [names[i]] * n
+    px, py = np.concatenate(px), np.concatenate(py)
+    px[3], py[3] = 5000.0, 5000.0                       # off the grid
+    px[70], py[70] = 1135.3, 5265.7                     # on the NaN block
+    out["in/validate/pts_x"], out["in/validate/pts_y"] = px, py
+    from pyproj import Transformer
+    lon, lat = Transformer.from_crs(VAL_CRS, "EPSG:4326", always_xy=True).transform(px, py)
+    out["in/validate/pts_lon"], out["in/validate/pts_lat"] = np.asarray(lon), np.asarray(lat)
+    # lines: tracks of two- and three-vertex polylines
+    verts, counts, lt = [], [], []
+    for i in range(18):
+        k = 2 + (i % 2)
+        x0, y0 = rng.uniform(1050, 1350), rng.uniform(4850, 5200)
+        pts = [(x0, y0)]
+        for _ in range(k - 1):
+            pts.append((pts[-1][0] + rng.uniform(-70, 70), pts[-1][1] + rng.uniform(-70, 70)))
+        verts += pts
+        counts.append(k)
+        lt.append(names[i % 3])
+    vx, vy = np.array([p[0] for p in verts]), np.array([p[1] for p in verts])
+    out["in/validate/line_x"], out["in/validate/line_y"] = vx, vy
+    meta["validate"] = {"grid": {"nx": VAL_NX, "ny": VAL_NY, "xmin": VAL_XMIN, "ymax": VAL_YMAX, "res": VAL_RES,
+                                 "crs": VAL_CRS},
+                        "grid_b": {"nx": nxb, "ny": nyb, "xmin": xb0, "ymax": yb0, "res": rb},
+                        "bands": names, "pts_tracks": pt, "line_counts": counts, "line_tracks": lt, "cases": {}}
+    from shapely import LineString
+
+    def use_of(kind):
+        if kind == "ud":
+            return stack(ud, names)
+        if kind == "ud1":
+            return ra(ud[0])
+        if kind == "ud_nan":
+            return stack(ud_nan, names)
+        if kind == "ud_b":
+            return ra(ub, xb, yb)
+        if kind in ("pts", "pts_one"):
+            g = gpd.GeoDataFrame({"track": pt}, geometry=[Point(a, b) for a, b in zip(px, py)], crs=VAL_CRS)
+            return g if kind == "pts" else g[["geometry"]]
+        if kind == "pts_ll":
+            return gpd.GeoDataFrame({"track": pt}, geometry=[Point(a, b) for a, b in zip(lon, lat)], crs="EPSG:4326")
+        lines, at = [], 0
+        for c in counts:
+            lines.append(LineString(verts[at:at + c]))
+            at += c
+        return gpd.GeoDataFrame({"track": lt}, geometry=lines, crs=VAL_CRS)
+
+    for case, (kind, surf, args) in VAL_CASES.items():
+        args = dict(args)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            v = M.validate(use_of(kind), ra(surfaces[surf]), **{"kind": surf, **args})
+        t = v.table
+        out[f"validate/{case}/table"] = t.drop(columns="track").to_numpy(np.float64)
+        out[f"validate/{case}/threshold"] = np.array([v.threshold], np.float64)
+        out[f"validate/{case}/corridor"] = v.corridor.to_numpy().ravel()
+        meta["validate"]["cases"][case] = {"use": kind, "surface": surf, "args": args, "tracks": t["track"].tolist(),
+                                           "note": v.note}
+
+
 def main() -> None:
     sets = track_sets()
     fishers_src = LS / "tests" / "data" / "move" / "fishers.csv.gz"
@@ -849,6 +994,7 @@ def main() -> None:
     corridor_reference(out, meta, tr, fishers_src)
     hr_reference(out, meta)
     ud_reference(out, meta, fishers_ok)
+    validate_reference(out, meta)
 
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")

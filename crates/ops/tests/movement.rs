@@ -2835,3 +2835,369 @@ fn a_distribution_from_the_columns_of_longitude_latitude_tracks_stays_in_their_p
     let Value::Text(crs) = &centroid["crs"] else { panic!() };
     assert!(terraflux_gdal::same_crs(&wkt, crs).unwrap(), "{wkt} vs {crs}");
 }
+
+// ------------------------------------------------------------------------------------------ validate
+
+fn val_meta() -> &'static serde_json::Value {
+    &reference().1["validate"]
+}
+
+fn val_grid(key: &str) -> Arc<Grid> {
+    let m = &val_meta()[key];
+    let f = |k: &str| m[k].as_f64().unwrap();
+    let (nx, ny) = (m["nx"].as_u64().unwrap() as usize, m["ny"].as_u64().unwrap() as usize);
+    let mut g = Grid::new(nx, ny);
+    g.transform = [f("xmin"), f("res"), 0.0, f("ymax"), 0.0, -f("res")];
+    g.geo.wkt = Some(val_meta()["grid"]["crs"].as_str().unwrap().to_string());
+    Arc::new(g)
+}
+
+fn val_data(name: &str) -> Vec<f64> {
+    want(&format!("in/validate/{name}")).to_vec()
+}
+
+fn val_surface(kind: &str) -> Value {
+    Value::Map(Map::new(val_grid("grid"), val_data(&format!("surface_{kind}"))))
+}
+
+fn val_stack(name: &str) -> Value {
+    let g = val_grid("grid");
+    let bands = val_texts("bands");
+    let d = val_data(name);
+    Value::Stack(Stack {
+        grid: g.clone(),
+        keys: bands.iter().map(|b| terraflux_ops::Key::Name(b.clone())).collect(),
+        layers: d.chunks(g.cells()).map(|c| Arc::new(c.to_vec())).collect(),
+    })
+}
+
+fn val_texts(key: &str) -> Vec<String> {
+    val_meta()[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect()
+}
+
+fn val_use(kind: &str) -> Value {
+    let points = |x: &str, y: &str, crs: &str, track: bool| {
+        let (x, y) = (val_data(x), val_data(y));
+        let attributes =
+            if track { vec![("track".to_string(), Column::Texts(val_texts("pts_tracks")))] } else { vec![] };
+        Value::Vector(Arc::new(Vector {
+            geometries: x.iter().zip(&y).map(|(&a, &b)| Geometry::Point([a, b])).collect(),
+            attributes,
+            crs: Some(crs.to_string()),
+        }))
+    };
+    match kind {
+        "ud" => val_stack("ud"),
+        "ud_nan" => val_stack("ud_nan"),
+        "ud1" => {
+            let Value::Stack(s) = val_stack("ud") else { panic!() };
+            Value::Map(Map { grid: s.grid.clone(), data: s.layers[0].clone() })
+        }
+        "ud_b" => Value::Map(Map::new(val_grid("grid_b"), val_data("ud_b"))),
+        "pts" => points("pts_x", "pts_y", "EPSG:32723", true),
+        "pts_one" => points("pts_x", "pts_y", "EPSG:32723", false),
+        "pts_ll" => points("pts_lon", "pts_lat", "EPSG:4326", true),
+        "lines" => {
+            let (x, y) = (val_data("line_x"), val_data("line_y"));
+            let mut at = 0;
+            let mut geometries = Vec::new();
+            for c in val_meta()["line_counts"].as_array().unwrap() {
+                let c = c.as_u64().unwrap() as usize;
+                geometries.push(Geometry::LineString((at..at + c).map(|i| [x[i], y[i]]).collect()));
+                at += c;
+            }
+            Value::Vector(Arc::new(Vector {
+                geometries,
+                attributes: vec![("track".to_string(), Column::Texts(val_texts("line_tracks")))],
+                crs: Some("EPSG:32723".to_string()),
+            }))
+        }
+        k => panic!("{k}"),
+    }
+}
+
+#[test]
+fn validations_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let cases = val_meta()["cases"].as_object().unwrap();
+    assert!(cases.len() >= 20);
+    for (key, c) in cases {
+        let mut args = c["args"].clone();
+        if c["surface"] != "current" {
+            args["kind"] = c["surface"].clone();
+        }
+        let o = go(
+            "move.validate",
+            vec![
+                ("use", val_use(c["use"].as_str().unwrap())),
+                ("surface", val_surface(c["surface"].as_str().unwrap())),
+            ],
+            args,
+        );
+        let t = table(&o, "table");
+        let columns = [
+            "track",
+            "n_cells",
+            "rho",
+            "use_fraction",
+            "area_fraction",
+            "use_ratio",
+            "surface_used",
+            "surface_available",
+            "coverage",
+        ];
+        assert_eq!(t.columns, columns, "{key}");
+        let tracks: Vec<&str> = c["tracks"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        let got: Vec<&str> = t.rows.iter().map(|r| t.label("track", r[0]).unwrap()).collect();
+        assert_eq!(got, tracks, "{key}");
+        let numbers: Vec<f64> = t.rows.iter().flat_map(|r| r[1..].iter().copied()).collect();
+        same(&format!("{key} table"), &numbers, want(&format!("validate/{key}/table")));
+        same(&format!("{key} threshold"), &[number_of(&o, "threshold")], want(&format!("validate/{key}/threshold")));
+        let Value::Map(m) = &o["corridor"] else { panic!() };
+        same(&format!("{key} corridor"), &m.data, want(&format!("validate/{key}/corridor")));
+        let Value::Text(note) = &o["note"] else { panic!() };
+        assert_eq!(note, c["note"].as_str().unwrap(), "{key}");
+    }
+}
+
+#[test]
+fn validate_errors_and_warnings() {
+    if !gdal() {
+        return;
+    }
+    let ud = val_use("ud");
+    let cur = || val_surface("current");
+    let err = |u: Value, s: Value, p: serde_json::Value| {
+        run("move.validate", vec![("use", u), ("surface", s)], p).map(|_| ()).unwrap_err().to_string()
+    };
+    assert!(err(ud.clone(), cur(), serde_json::json!({"kind": "x"})).contains("kind"));
+    assert!(err(ud.clone(), cur(), serde_json::json!({"quantile": 1})).contains("quantile"));
+    assert!(err(ud.clone(), cur(), serde_json::json!({"support": 0})).contains("support"));
+    assert!(err(ud.clone(), cur(), serde_json::json!({"spacing": -1})).contains("spacing"));
+    assert!(
+        err(ud.clone(), val_surface("binary"), serde_json::json!({"kind": "binary", "threshold": 0.5}))
+            .contains("binary")
+    );
+    assert!(err(Value::Number(1.0), cur(), serde_json::json!({})).contains("UD"));
+    assert!(err(ud.clone(), Value::Number(1.0), serde_json::json!({})).contains("raster"));
+    // a polygon is neither points nor lines; points and lines together are refused
+    let poly = Value::Vector(Arc::new(Vector {
+        geometries: vec![Geometry::Polygon(vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]])],
+        attributes: vec![],
+        crs: Some("EPSG:32723".into()),
+    }));
+    assert!(err(poly, cur(), serde_json::json!({})).contains("points"));
+    let Value::Vector(p) = val_use("pts") else { panic!() };
+    let Value::Vector(l) = val_use("lines") else { panic!() };
+    let mixed = Vector {
+        geometries: vec![p.geometries[0].clone(), l.geometries[0].clone()],
+        attributes: vec![],
+        crs: p.crs.clone(),
+    };
+    assert!(err(Value::Vector(Arc::new(mixed)), cur(), serde_json::json!({})).contains("not both"));
+    assert!(err(val_use("pts"), cur(), serde_json::json!({"track": "nope"})).contains("track column"));
+    // a UD with no mass on the surface
+    let Value::Map(m) = val_surface("current") else { panic!() };
+    let mut g = (*m.grid).clone();
+    g.transform[0] += 100000.0;
+    let far = Value::Map(Map::new(Arc::new(g), (*m.data).clone()));
+    assert!(err(val_use("ud1"), far, serde_json::json!({})).contains("no mass"));
+    // a surface without a value
+    let empty = Value::Map(Map::new(m.grid.clone(), vec![f64::NAN; m.data.len()]));
+    assert!(err(val_use("ud1"), empty, serde_json::json!({})).contains("no cell has a value"));
+    // none of the use on cells with data: a warning
+    let far_pts = Value::Vector(Arc::new(Vector {
+        geometries: vec![Geometry::Point([9.0e6, 9.0e6]); 3],
+        attributes: vec![],
+        crs: Some("EPSG:32723".into()),
+    }));
+    let mut ctx = Ctx::default();
+    let a = Args {
+        node: "n",
+        inputs: [("use".to_string(), far_pts), ("surface".to_string(), cur())].into_iter().collect(),
+        params: &Default::default(),
+    };
+    let o = registry().get("move.validate").unwrap().run(&mut ctx, &a).unwrap();
+    assert!(ctx.warnings.iter().any(|w| w.contains("none of the use")), "{:?}", ctx.warnings);
+    let Value::Text(note) = &o["note"] else { panic!() };
+    assert!(note.contains("no use fell on cells with data"), "{note}");
+}
+
+// ------------------------------------------------------------------------------------------ downstream of the movement
+
+/// A map of three classes over the box of some tracks, with a margin of the box's size around it (the kernels' tails
+/// need room), 40 cells across the box, in their coordinate system.
+fn landscape_of(tracks: &Value) -> Value {
+    let Value::Vector(v) = tracks else { panic!() };
+    let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for g in &v.geometries {
+        if let Geometry::Point(p) = g {
+            x0 = x0.min(p[0]);
+            x1 = x1.max(p[0]);
+            y0 = y0.min(p[1]);
+            y1 = y1.max(p[1]);
+        }
+    }
+    let span = (x1 - x0).max(y1 - y0);
+    let (res, margin) = (span / 40.0, span);
+    let (xmin, ymax) = (x0 - margin, y1 + margin);
+    let (nx, ny) = (((x1 + margin - xmin) / res).ceil() as usize, ((ymax - (y0 - margin)) / res).ceil() as usize);
+    let mut g = Grid::new(nx, ny);
+    g.transform = [xmin, res, 0.0, ymax, 0.0, -res];
+    g.geo.wkt = v.crs.clone();
+    let data = (0..nx * ny).map(|k| 1.0 + (((k % nx) / 7 + (k / nx) / 5) % 3) as f64).collect();
+    Value::Map(Map::new(Arc::new(g), data))
+}
+
+fn rows_of(o: &Outputs, port: &str) -> usize {
+    table(o, port).rows.len()
+}
+
+/// The polygons of the home ranges and of the UD's contours enter the landscape metrics as zones and the zonal
+/// statistics, and rasterize into the prioritisation's features, as they come out.
+#[test]
+fn home_range_polygons_go_on_to_the_metrics_and_the_prioritisation() {
+    if !gdal() {
+        return;
+    }
+    let tracks = set("utm");
+    let map = landscape_of(&tracks);
+    let Value::Map(m) = &map else { panic!() };
+    for (method, extra) in [
+        ("mcp", serde_json::json!({})),
+        ("kde", serde_json::json!({})),
+        ("locoh", serde_json::json!({"type": "k", "n": 6})),
+    ] {
+        let mut p = serde_json::json!({"method": method, "levels": [0.5, 0.95]});
+        for (k, v) in extra.as_object().unwrap() {
+            p[k] = v.clone();
+        }
+        let hr = go("move.home_range", vec![("tracks", tracks.clone()), ("like", map.clone())], p);
+        let polygons = hr["polygons"].clone();
+        let n = vector(&hr, "polygons").len();
+        assert!(n >= 2, "{method}: {n} polygons");
+        // landscape metrics by zone (landscapemetrics' sample_lsm over the polygons)
+        let zones = go(
+            "metrics.sample",
+            vec![("map", map.clone()), ("plots", polygons.clone())],
+            serde_json::json!({"level": "landscape", "metrics": ["shdi", "ta"]}),
+        );
+        assert_eq!(rows_of(&zones, "table"), n, "{method}");
+        let t = table(&zones, "table");
+        assert!(t.column("shdi").unwrap().iter().all(|v| v.is_finite() && *v >= 0.0), "{method}: {t:?}");
+        let by_class = go(
+            "metrics.sample",
+            vec![("map", map.clone()), ("plots", polygons.clone())],
+            serde_json::json!({"level": "class", "metrics": ["pland"]}),
+        );
+        assert!(rows_of(&by_class, "table") >= n, "{method}");
+        // the zonal statistics of the same polygons
+        let zonal = go("vector.zonal", vec![("vector", polygons.clone()), ("map", map.clone())], serde_json::json!({}));
+        assert_eq!(rows_of(&zonal, "table"), n, "{method}");
+        // burnt into the map's grid, each isopleth counting where they overlap
+        let burnt = go(
+            "vector.rasterize",
+            vec![("vector", polygons.clone()), ("like", map.clone())],
+            serde_json::json!({"field": "level", "merge": "add"}),
+        );
+        let Value::Map(b) = &burnt["map"] else { panic!("{method}: {:?}", burnt["map"].ty()) };
+        assert!(b.data.iter().any(|v| *v > 0.0), "{method}: nothing burnt");
+        // ... and a prioritisation: the burnt home ranges are the feature, every cell costs the same
+        let cost = Value::Map(Map::new(m.grid.clone(), vec![1.0; m.data.len()]));
+        let feature = Value::Stack(Stack {
+            grid: m.grid.clone(),
+            keys: vec![terraflux_ops::Key::Name("home_range".into())],
+            layers: vec![b.data.clone()],
+        });
+        let o = go(
+            "prioritize.optimize",
+            vec![("features", feature), ("cost", cost)],
+            serde_json::json!({"relative_targets": 0.3}),
+        );
+        let Value::Map(s) = &o["solution"] else { panic!("{method}: {:?}", o.keys().collect::<Vec<_>>()) };
+        let chosen = s.data.iter().filter(|v| **v == 1.0).count();
+        assert!(chosen > 0 && chosen < s.data.len(), "{method}: {chosen} of {}", s.data.len());
+    }
+}
+
+/// The UD's own bands are features as they come out of the kernel estimate, and the contours of move.ud_volume
+/// (polygons, a band and a level each) are zones as they are.
+#[test]
+fn uds_and_their_contours_go_on_to_the_metrics_and_the_prioritisation() {
+    if !gdal() {
+        return;
+    }
+    let tracks = set("utm");
+    let map = landscape_of(&tracks);
+    let Value::Map(m) = &map else { panic!() };
+    let hr = go(
+        "move.home_range",
+        vec![("tracks", tracks), ("like", map.clone())],
+        serde_json::json!({"method": "kde", "levels": [0.9]}),
+    );
+    let ud = hr["ud"].clone();
+    let Value::Stack(bands) = &ud else { panic!("{:?}", ud.ty()) };
+    assert!(bands.layers.len() >= 2);
+    // the contours as zones
+    let vol = go("move.ud_volume", vec![("ud", ud.clone())], serde_json::json!({"levels": [0.5, 0.95]}));
+    let n = vector(&vol, "polygons").len();
+    assert_eq!(n, bands.layers.len() * 2);
+    let zones = go(
+        "metrics.sample",
+        vec![("map", map.clone()), ("plots", vol["polygons"].clone())],
+        serde_json::json!({"level": "landscape", "metrics": ["shdi"]}),
+    );
+    assert_eq!(rows_of(&zones, "table"), n);
+    // the bands as the features of a prioritisation, on the grid of the map
+    let cost = Value::Map(Map::new(m.grid.clone(), vec![1.0; m.data.len()]));
+    let o =
+        go("prioritize.optimize", vec![("features", ud), ("cost", cost)], serde_json::json!({"relative_targets": 0.3}));
+    let Value::Map(s) = &o["solution"] else { panic!("{:?}", o.keys().collect::<Vec<_>>()) };
+    assert!(s.data.contains(&1.0));
+}
+
+/// The corridor segments are lines: they are no zones as they come out (an error says so), buffered they are, and
+/// burnt into the map's grid they are a feature.
+#[test]
+fn corridor_lines_go_on_once_buffered_or_burnt() {
+    if !gdal() {
+        return;
+    }
+    let tracks = set("utm");
+    let map = landscape_of(&tracks);
+    let Value::Map(m) = &map else { panic!() };
+    let o = go(
+        "move.corridor",
+        vec![("tracks", tracks)],
+        serde_json::json!({"speed_threshold": 0.0, "circvar_threshold": 1.0}),
+    );
+    let lines = o["lines"].clone();
+    let n = vector(&o, "lines").len();
+    assert!(n > 0);
+    let plots = |v: Value| {
+        run("metrics.sample", vec![("map", map.clone()), ("plots", v)], serde_json::json!({"metrics": ["shdi"]}))
+    };
+    let e = plots(lines.clone()).map(|_| ()).unwrap_err().to_string();
+    assert!(e.contains("points or polygons"), "{e}");
+    let buffered = go("vector.buffer", vec![("vector", lines.clone())], serde_json::json!({"distance": 30}));
+    let t = table(&plots(buffered["vector"].clone()).unwrap(), "table");
+    assert_eq!(t.rows.len(), n);
+    let burnt =
+        go("vector.rasterize", vec![("vector", lines), ("like", map.clone())], serde_json::json!({"merge": "add"}));
+    let Value::Map(b) = &burnt["map"] else { panic!() };
+    let feature = Value::Stack(Stack {
+        grid: m.grid.clone(),
+        keys: vec![terraflux_ops::Key::Name("corridor".into())],
+        layers: vec![b.data.clone()],
+    });
+    let cost = Value::Map(Map::new(m.grid.clone(), vec![1.0; m.data.len()]));
+    let o = go(
+        "prioritize.optimize",
+        vec![("features", feature), ("cost", cost)],
+        serde_json::json!({"relative_targets": 0.5}),
+    );
+    let Value::Map(s) = &o["solution"] else { panic!() };
+    assert!(s.data.contains(&1.0));
+}

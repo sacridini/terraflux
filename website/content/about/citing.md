@@ -56,6 +56,7 @@ against. In a methods section, a sentence such as *"MSPA (Soille & Vogt, 2009) w
 | Allometric maximum speed of animals | `move.max_speed`, `move.flag_speed` | Hirt et al. (2017) |
 | Cleaning and thinning animal tracks (move2utils) | `move.flag_speed`, `move.filter_gps_quality`, `move.thin_time`, `move.thin_distance` | Kranstauber et al. (2026) |
 | Corridor segments of animal tracks (LaPoint et al.'s criterion, as move2utils computes it) | `move.corridor` | LaPoint et al. (2013); Kranstauber et al. (2026) |
+| Validation of a connectivity surface with the use of the animals (rank correlation, use inside the corridors, use against area) | `move.validate` | Zeller et al. (2018) |
 | Distance between utilisation distributions (earth mover's distance, Sinkhorn or exact) | `move.ud_distance` | Rubner et al. (2000); Cuturi (2013); Kranstauber et al. (2026) |
 | Utilisation distribution of the dynamic Brownian bridge movement model (as move2utils computes it) | `move.dbbmm_variance`, `move.dbbmm_ud` | Kranstauber et al. (2012); Horne et al. (2007); Kranstauber et al. (2026) |
 | Utilisation distribution of the dynamic bivariate Gaussian bridge (as move2utils computes it) | `move.dbgb_variance`, `move.dbgb_ud` | Kranstauber et al. (2014); Kranstauber et al. (2012); Kranstauber et al. (2026) |
@@ -154,4 +155,5 @@ the same bits.
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
 - Wand, M. P., & Jones, M. C. (1995). *Kernel smoothing*. Chapman & Hall/CRC. https://doi.org/10.1201/b14876
 - Worton, B. J. (1989). Kernel methods for estimating the utilization distribution in home-range studies. *Ecology*, 70(1), 164–168. https://doi.org/10.2307/1938423
+- Zeller, K. A., Jennings, M. K., Vickers, T. W., Ernest, H. B., Cushman, S. A., & Boyce, W. M. (2018). Are all data types and connectivity models created equal? Validating common connectivity approaches with dispersal data. *Diversity and Distributions*, 24(7), 868–879. https://doi.org/10.1111/ddi.12742
 - Zizka, A., Silvestro, D., Andermann, T., Azevedo, J., Duarte Ritter, C., Edler, D., et al. (2019). CoordinateCleaner: Standardized cleaning of occurrence records from biological collection databases. *Methods in Ecology and Evolution*, 10(5), 744–751. https://doi.org/10.1111/2041-210X.13152

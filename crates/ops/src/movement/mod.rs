@@ -23,6 +23,7 @@ mod ssf;
 pub mod time;
 mod tracks;
 mod ud;
+mod validate;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -45,6 +46,7 @@ pub fn register(r: &mut Registry) {
     corridor::register(r);
     homerange::register(r);
     ud::register(r);
+    validate::register(r);
 }
 
 const TIME_NAMES: [&str; 5] = ["timestamp", "time", "datetime", "date_time", "t"];

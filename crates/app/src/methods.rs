@@ -1201,6 +1201,19 @@ pub const REFERENCES: &[Reference] = &[
         "10.2307/1938423"
     ),
     paper!(
+        "zeller2018",
+        ["Zeller, K. A.", "Jennings, M. K.", "Vickers, T. W.", "Ernest, H. B.", "Cushman, S. A.", "Boyce, W. M."],
+        false,
+        2018,
+        "Are all data types and connectivity models created equal? Validating common connectivity approaches with \
+         dispersal data",
+        "Diversity and Distributions",
+        "24",
+        "7",
+        "868–879",
+        "10.1111/ddi.12742"
+    ),
+    paper!(
         "zizka2019",
         ["Zizka, A.", "Silvestro, D.", "Andermann, T.", "Azevedo, J.", "Duarte Ritter, C.", "Edler, D."],
         true,
@@ -1620,6 +1633,14 @@ pub const METHODS: &[Method] = &[
         refs: &["rubner2000", "cuturi2013"],
         software: "move2utils",
         software_refs: &["kranstauber2026"],
+    },
+    Method {
+        ops: &["move.validate"],
+        name: "the validation of a connectivity surface with the use of the animals (rank correlation, share of the \
+               use inside the corridors, use against area)",
+        refs: &["zeller2018"],
+        software: "",
+        software_refs: &[],
     },
     Method {
         ops: &["move.dbbmm_variance", "move.dbbmm_ud"],

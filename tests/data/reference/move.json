@@ -10058,5 +10058,504 @@
    "ud_m1_ll/centroid": "+proj=aeqd +lat_0=42.742235 +lon_0=-73.884978 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs +type=crs",
    "ud_m1_ll/center": "+proj=aeqd +lat_0=42.738840 +lon_0=-73.887163 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs +type=crs"
   }
+ },
+ "validate": {
+  "grid": {
+   "nx": 40,
+   "ny": 30,
+   "xmin": 1000.0,
+   "ymax": 5300.0,
+   "res": 10.0,
+   "crs": "EPSG:32723"
+  },
+  "grid_b": {
+   "nx": 26,
+   "ny": 20,
+   "xmin": 1013.0,
+   "ymax": 5290.0,
+   "res": 15.0
+  },
+  "bands": [
+   "a",
+   "b",
+   "c"
+  ],
+  "pts_tracks": [
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "a",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "b",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c",
+   "c"
+  ],
+  "line_counts": [
+   2,
+   3,
+   2,
+   3,
+   2,
+   3,
+   2,
+   3,
+   2,
+   3,
+   2,
+   3,
+   2,
+   3,
+   2,
+   3,
+   2,
+   3
+  ],
+  "line_tracks": [
+   "a",
+   "b",
+   "c",
+   "a",
+   "b",
+   "c",
+   "a",
+   "b",
+   "c",
+   "a",
+   "b",
+   "c",
+   "a",
+   "b",
+   "c",
+   "a",
+   "b",
+   "c"
+  ],
+  "cases": {
+   "ud_current": {
+    "use": "ud",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 46.7% of the use lies in the corridors, 20% of the area: 2.33 times its share, so the animals favour the corridors. Spearman's rho is 0.629: a strong rank relation (the use is higher where the surface is better)."
+   },
+   "ud_default": {
+    "use": "ud",
+    "surface": "current",
+    "args": {},
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 25.8% of the use lies in the corridors, 10% of the area: 2.57 times its share, so the animals favour the corridors. Spearman's rho is 0.629: a strong rank relation (the use is higher where the surface is better)."
+   },
+   "ud_support1": {
+    "use": "ud",
+    "surface": "current",
+    "args": {
+     "support": 1,
+     "quantile": 0.7
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 60.3% of the use lies in the corridors, 30.1% of the area: 2.01 times its share, so the animals favour the corridors. Spearman's rho is 0.739: a strong rank relation (the use is higher where the surface is better)."
+   },
+   "ud_support5": {
+    "use": "ud",
+    "surface": "current",
+    "args": {
+     "support": 0.5,
+     "quantile": 0.95
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 13.6% of the use lies in the corridors, 5.05% of the area: 2.7 times its share, so the animals favour the corridors. Spearman's rho is -0.0744: no rank relation between the use and the surface."
+   },
+   "ud_threshold": {
+    "use": "ud",
+    "surface": "current",
+    "args": {
+     "threshold": 0.3
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 98.2% of the use lies in the corridors, 87.2% of the area: 1.13 times its share, about what chance gives. Spearman's rho is 0.629: a strong rank relation (the use is higher where the surface is better)."
+   },
+   "ud_resistance": {
+    "use": "ud",
+    "surface": "resistance",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 46.7% of the use lies in the corridors, 20% of the area: 2.33 times its share, so the animals favour the corridors. Spearman's rho is 0.629: a strong rank relation (the use is higher where the surface is better)."
+   },
+   "ud_resistance_t": {
+    "use": "ud",
+    "surface": "resistance",
+    "args": {
+     "threshold": -0.2
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: the corridors cover none of the compared area, so the use ratio is undefined. Spearman's rho is 0.629: a strong rank relation (the use is higher where the surface is better)."
+   },
+   "ud_binary": {
+    "use": "ud",
+    "surface": "binary",
+    "args": {
+     "kind": "binary"
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 37.2% of the use lies in the corridors, 15.1% of the area: 2.47 times its share, so the animals favour the corridors. Spearman's rho is 0.543: a strong rank relation (the use is higher where the surface is better)."
+   },
+   "ud_one": {
+    "use": "ud1",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "ud_1"
+    ],
+    "note": "ud_1: 49.2% of the use lies in the corridors, 20% of the area: 2.46 times its share, so the animals favour the corridors. Spearman's rho is 0.486: a moderate rank relation (the use is higher where the surface is better)."
+   },
+   "ud_other_grid": {
+    "use": "ud_b",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "ud_1"
+    ],
+    "note": "ud_1: 53.2% of the use lies in the corridors, 21.8% of the area: 2.44 times its share, so the animals favour the corridors. Spearman's rho is 0.544: a strong rank relation (the use is higher where the surface is better). Only 86.4% of the use falls on cells with data."
+   },
+   "ud_nan": {
+    "use": "ud_nan",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 53% of the use lies in the corridors, 20% of the area: 2.64 times its share, so the animals favour the corridors. Spearman's rho is 0.67: a strong rank relation (the use is higher where the surface is better)."
+   },
+   "pts": {
+    "use": "pts",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 57% of the use lies in the corridors, 30.9% of the area: 1.85 times its share, so the animals favour the corridors. Spearman's rho is 0.192: a weak rank relation (the use is higher where the surface is better). Only 58.5% of the use falls on cells with data."
+   },
+   "pts_default": {
+    "use": "pts",
+    "surface": "current",
+    "args": {},
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 29.1% of the use lies in the corridors, 15.4% of the area: 1.89 times its share, so the animals favour the corridors. Spearman's rho is 0.192: a weak rank relation (the use is higher where the surface is better). Only 58.5% of the use falls on cells with data."
+   },
+   "pts_threshold": {
+    "use": "pts",
+    "surface": "current",
+    "args": {
+     "threshold": 0.3
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 100% of the use lies in the corridors, 98.2% of the area: 1.02 times its share, about what chance gives. Spearman's rho is 0.192: a weak rank relation (the use is higher where the surface is better). Only 58.5% of the use falls on cells with data."
+   },
+   "pts_resistance": {
+    "use": "pts",
+    "surface": "resistance",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 57% of the use lies in the corridors, 30.9% of the area: 1.85 times its share, so the animals favour the corridors. Spearman's rho is 0.192: a weak rank relation (the use is higher where the surface is better). Only 58.5% of the use falls on cells with data."
+   },
+   "pts_binary": {
+    "use": "pts",
+    "surface": "binary",
+    "args": {
+     "kind": "binary"
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 43% of the use lies in the corridors, 23.2% of the area: 1.85 times its share, so the animals favour the corridors. Spearman's rho is 0.142: a weak rank relation (the use is higher where the surface is better). Only 58.5% of the use falls on cells with data."
+   },
+   "pts_one": {
+    "use": "pts_one",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "use"
+    ],
+    "note": "use: 57% of the use lies in the corridors, 30.9% of the area: 1.85 times its share, so the animals favour the corridors. Spearman's rho is 0.192: a weak rank relation (the use is higher where the surface is better). Only 58.5% of the use falls on cells with data."
+   },
+   "pts_ll": {
+    "use": "pts_ll",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 57% of the use lies in the corridors, 30.9% of the area: 1.85 times its share, so the animals favour the corridors. Spearman's rho is 0.192: a weak rank relation (the use is higher where the surface is better). Only 58.5% of the use falls on cells with data."
+   },
+   "lines": {
+    "use": "lines",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 41% of the use lies in the corridors, 37.7% of the area: 1.09 times its share, about what chance gives. Spearman's rho is 0.0683: no rank relation between the use and the surface. Only 56.6% of the use falls on cells with data."
+   },
+   "lines_spacing": {
+    "use": "lines",
+    "surface": "current",
+    "args": {
+     "quantile": 0.8,
+     "spacing": 7.3
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 39.5% of the use lies in the corridors, 37.7% of the area: 1.05 times its share, about what chance gives. Spearman's rho is 0.0688: no rank relation between the use and the surface. Only 56.7% of the use falls on cells with data."
+   },
+   "lines_resistance": {
+    "use": "lines",
+    "surface": "resistance",
+    "args": {
+     "quantile": 0.7
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 55.7% of the use lies in the corridors, 49.7% of the area: 1.12 times its share, about what chance gives. Spearman's rho is 0.0683: no rank relation between the use and the surface. Only 56.6% of the use falls on cells with data."
+   },
+   "lines_binary": {
+    "use": "lines",
+    "surface": "binary",
+    "args": {
+     "kind": "binary"
+    },
+    "tracks": [
+     "a",
+     "b",
+     "c",
+     "pooled"
+    ],
+    "note": "pooled: 27.9% of the use lies in the corridors, 28.9% of the area: 0.968 times its share, about what chance gives. Spearman's rho is -0.0194: no rank relation between the use and the surface. Only 56.6% of the use falls on cells with data."
+   }
+  }
  }
 }
