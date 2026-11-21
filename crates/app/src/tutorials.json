@@ -201,13 +201,6 @@
       "/data/tutorials/habitat-patterns/networks-and-change/top-links.csv",
       "/data/tutorials/habitat-patterns/networks-and-change/top-nodes.csv"
      ]
-    },
-    {
-     "slug": "patterns-in-python",
-     "title": "Habitat patterns in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -244,13 +237,6 @@
       "/data/tutorials/fragmentation/change-and-reports/fad-change-report.txt",
       "/data/tutorials/fragmentation/change-and-reports/fad-change.csv"
      ]
-    },
-    {
-     "slug": "fragmentation-in-python",
-     "title": "Fragmentation in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -277,6 +263,7 @@
       "/data/tutorials/landscape-metrics/patch-and-class-metrics/aggregation.csv",
       "/data/tutorials/landscape-metrics/patch-and-class-metrics/ai_pland.csv",
       "/data/tutorials/landscape-metrics/patch-and-class-metrics/area_shape.csv",
+      "/data/tutorials/landscape-metrics/patch-and-class-metrics/augusta.tif",
       "/data/tutorials/landscape-metrics/patch-and-class-metrics/augusta_classes.csv",
       "/data/tutorials/landscape-metrics/patch-and-class-metrics/core_depth.csv",
       "/data/tutorials/landscape-metrics/patch-and-class-metrics/evergreen_patches.csv"
@@ -288,6 +275,7 @@
      "template": "Landscape metrics",
      "models": [],
      "files": [
+      "/data/tutorials/landscape-metrics/landscape-level-and-diversity/augusta.tif",
       "/data/tutorials/landscape-metrics/landscape-level-and-diversity/augusta_landscape.csv",
       "/data/tutorials/landscape-metrics/landscape-level-and-diversity/dominance.csv",
       "/data/tutorials/landscape-metrics/landscape-level-and-diversity/four_landscapes.csv"
@@ -334,13 +322,6 @@
      "files": [
       "/data/tutorials/landscape-metrics/large-maps/times.csv"
      ]
-    },
-    {
-     "slug": "landscape-metrics-in-python",
-     "title": "Landscape metrics in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -416,13 +397,6 @@
      "template": "Linkage Mapper: corridors, pinch points and barriers",
      "models": [],
      "files": []
-    },
-    {
-     "slug": "habitat-networks-in-python",
-     "title": "Habitat networks in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -447,6 +421,7 @@
      "template": "Circuit connectivity",
      "models": [],
      "files": [
+      "/data/tutorials/circuit-connectivity/resistance-surfaces/clc_100m.tif",
       "/data/tutorials/circuit-connectivity/resistance-surfaces/keeley.csv"
      ]
     },
@@ -456,6 +431,7 @@
      "template": "Circuit connectivity",
      "models": [],
      "files": [
+      "/data/tutorials/circuit-connectivity/circuitscape/clc_100m.tif",
       "/data/tutorials/circuit-connectivity/circuitscape/resistance-vs-distance.csv"
      ]
     },
@@ -465,15 +441,9 @@
      "template": "Circuit connectivity",
      "models": [],
      "files": [
+      "/data/tutorials/circuit-connectivity/omniscape/clc_100m.tif",
       "/data/tutorials/circuit-connectivity/omniscape/shares.csv"
      ]
-    },
-    {
-     "slug": "circuit-connectivity-in-python",
-     "title": "Circuit connectivity in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -528,13 +498,6 @@
       "/data/tutorials/surface-metrics/hilltops/resolution.csv",
       "/data/tutorials/surface-metrics/hilltops/synthetic-hills.csv"
      ]
-    },
-    {
-     "slug": "surface-texture-in-python",
-     "title": "Surface texture in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -593,22 +556,10 @@
      "files": [
       "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/methods.csv",
       "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/parameters.csv",
-      "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/threshold.csv"
+      "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/soil_table.csv",
+      "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/threshold.csv",
+      "/data/tutorials/terrain-hydrology/swat-plus-from-rasters/weather.csv"
      ]
-    },
-    {
-     "slug": "terrain-hydrology-in-python",
-     "title": "Terrain hydrology in Python",
-     "template": null,
-     "models": [],
-     "files": []
-    },
-    {
-     "slug": "watershed-model-in-python",
-     "title": "Watershed simulation in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -622,6 +573,7 @@
      "template": "Least costs and random walks",
      "models": [],
      "files": [
+      "/data/tutorials/grid-distances/cost-distance/clc_100m.tif",
       "/data/tutorials/grid-distances/cost-distance/forests.geojson",
       "/data/tutorials/grid-distances/cost-distance/least-costs.csv"
      ]
@@ -632,16 +584,11 @@
      "template": "Least costs and random walks",
      "models": [],
      "files": [
+      "/data/tutorials/grid-distances/random-walks/clc_100m.tif",
+      "/data/tutorials/grid-distances/random-walks/forests.geojson",
       "/data/tutorials/grid-distances/random-walks/pairs.csv",
       "/data/tutorials/grid-distances/random-walks/rsp-distance.csv"
      ]
-    },
-    {
-     "slug": "grid-routes-in-python",
-     "title": "Routes on grids in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -717,15 +664,8 @@
      ]
     },
     {
-     "slug": "distance-restoration-in-python",
-     "title": "Distance & restoration in Python",
-     "template": null,
-     "models": [],
-     "files": []
-    },
-    {
-     "slug": "restoration-plans-in-python",
-     "title": "Restoration priorities in Python",
+     "slug": "conserving-and-converting",
+     "title": "Conserving and converting",
      "template": null,
      "models": [],
      "files": []
@@ -780,13 +720,6 @@
      "files": [
       "/data/tutorials/change-detection/forest-gain-and-loss/fad_change.csv"
      ]
-    },
-    {
-     "slug": "change-detection-in-python",
-     "title": "Change detection in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -1152,6 +1085,7 @@
      "template": "More neutral landscapes",
      "models": [],
      "files": [
+      "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/augusta.tif",
       "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_ai.csv",
       "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_area_mn.csv",
       "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/factorial_cohesion.csv",
@@ -1163,13 +1097,6 @@
       "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/null_test.csv",
       "/data/tutorials/neutral-landscapes/neutral-landscapes-in-a-study/replicates_np.csv"
      ]
-    },
-    {
-     "slug": "neutral-landscapes-in-python",
-     "title": "Neutral landscapes in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -1202,13 +1129,6 @@
     {
      "slug": "regions",
      "title": "Regions from species composition",
-     "template": null,
-     "models": [],
-     "files": []
-    },
-    {
-     "slug": "biodiversity-in-python",
-     "title": "Biodiversity analysis in Python",
      "template": null,
      "models": [],
      "files": []
@@ -1304,21 +1224,7 @@
      ]
     },
     {
-     "slug": "prioritization-in-python",
-     "title": "Conservation priorities in Python",
-     "template": null,
-     "models": [],
-     "files": []
-    },
-    {
-     "slug": "conservation-plans-in-python",
-     "title": "Optimized conservation plans in Python",
-     "template": null,
-     "models": [],
-     "files": []
-    },
-    {
-     "slug": "from-prioritizr-in-python",
+     "slug": "from-prioritizr",
      "title": "From prioritizr and prioriactions to Python",
      "template": null,
      "models": [],
@@ -1405,13 +1311,6 @@
      "files": [
       "/data/tutorials/species-distributions/prepare-in-one-node/recipes.csv"
      ]
-    },
-    {
-     "slug": "species-distributions-in-python",
-     "title": "Species distributions in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -1522,13 +1421,6 @@
       "/data/tutorials/animal-movement/cleaning-and-thinning/thin-distance.csv",
       "/data/tutorials/animal-movement/cleaning-and-thinning/thin-time.csv"
      ]
-    },
-    {
-     "slug": "animal-movement-in-python",
-     "title": "Animal movement in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -2008,13 +1900,6 @@
       "/data/tutorials/land-change/coupled-agents/parcel1.csv",
       "/data/tutorials/land-change/coupled-agents/supply.csv"
      ]
-    },
-    {
-     "slug": "land-change-simulation-in-python",
-     "title": "Land change simulation in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   },
@@ -2058,13 +1943,6 @@
      "files": [
       "/data/tutorials/large-data/batch-processing/tiles.csv"
      ]
-    },
-    {
-     "slug": "large-data-in-python",
-     "title": "Large data & batch in Python",
-     "template": null,
-     "models": [],
-     "files": []
     }
    ]
   }
