@@ -351,7 +351,7 @@ tell different stories:
   moved to another class, every one of them to a more fragmented class (`increased_percent` = 100): with no forest
   gained, no cell could become denser.
 - **Plum Island** lost proportionally less forest, but its forest left lost 3.3 to 3.5 points of density at every
-  window: the clearings are everywhere, inside the forest, so they are seen from every forest cell. Here 6 to 14% of
+  window: the clearings are everywhere, inside the forest, so they are seen from every forest cell. Here 2 to 14% of
   the cells that changed class became *less* fragmented (`decreased_percent`), next to the 1,270 cells regained.
 
 ### FOS, cell by cell
@@ -423,6 +423,212 @@ spurious change and the elasticity (morphological change), and ΔFAD_AV and ΔAV
 your question (FAD's change). Give the maps' source and resolution, the classes counted as forest, and the windows
 in metres. Show the morphological change map with the simple one.
 
+### In Python
+
+The four analyses of the part are functions of the library: [`tf.simple_change`][terraflux.simple_change] is
+[[change.simple]], [`tf.morphological_change`][terraflux.morphological_change] is [[change.morphological]],
+[`tf.fad_multiscale_change`][terraflux.fad_multiscale_change] is [[change.fad]] and
+[`tf.fos_change`][terraflux.fos_change] is [[change.fos]]. They take habitat maps coded as the library's own rule, **0
+missing, 1 background, 2 forest**, which is what the operators' `foreground` setting makes of a land use map; here the
+rule is a small function, with Sibuyan's forest as class 1 (`classes=(1, 2)` would count coconut as forest too). The
+part's file ships with the package:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))           # the part's file: bands 1997 and 2011, 255 is the sea
+
+def forest(m, classes=(1,)):
+    """The library's habitat code: 0 missing, 1 background, 2 forest (here forest is class 1 of the land use)."""
+    out = m.copy()
+    out.values[:] = np.where(m.values == 255, 0, np.where(np.isin(m.values, classes), 2, 1))
+    return out
+
+before, after = forest(lu[0]), forest(lu[1])
+simple = tf.simple_change(before, after)
+print(simple.stable_fg, simple.loss, simple.gain, simple.stable_bg, simple.missing)
+print(simple.summary())
+```
+
+```text
+4160 563 0 2503 6598
+Simple Change Analysis Summary (A -> B)
+=======================================
+Foreground Area at T1 [pixels]: 4,723
+Foreground Area at T2 [pixels]: 4,160
+Net Change [pixels]           : -563
+
+Change Breakdown:
+-----------------
+Stable Background (11)        : 2,503
+Foreground Gain   (12)        : 0
+Foreground Loss   (21)        : 563
+Stable Foreground (22)        : 4,160
+Missing / Nodata  (255)       : 6,598
+Total Valid Pixels            : 7,226
+```
+
+The same numbers as the part's `stats`: 4,160 cells of stable forest, **563 of loss**, no gain, 2,503 of stable
+background and 6,598 missing. The result's `change_map` is the map in GuidosToolbox's codes (11 stable background,
+12 gain, 21 loss, 22 stable forest, 255 missing), on the grid of the input; `tf.plot(simple)` draws it with its numbers.
+
+```python
+mcd = tf.morphological_change(before, after)
+print(mcd.mcd_loss, mcd.mcd_gain, mcd.spurious, mcd.stable_fg, round(mcd.elasticity, 2))
+print((mcd.change_map.values == 176).sum(), "cells of code 176")
+tf.save(mcd, "forest_change")                                     # the map (GeoTIFF with its colours), tables and numbers
+```
+
+```text
+208 0 375 4141 1.05
+375 cells of code 176
+```
+
+Morphological change gives the part's table: 208 cells of structural loss, none of gain, 375 spurious, 4,141 stable
+forest and an **elasticity** of 1.05. The spurious cells carry code 176 in `mcd.change_map`, which `tf.save` writes as a GeoTIFF with its colours, beside the tables; `mcd.summary()` is the
+report, with a check of the boundary at the second date. It has no settings: the 5 × 5
+cores and the 3 × 3 closing are GuidosToolbox's. The two functions are `tf.simple_change` and
+`tf.morphological_change` of two dates on the same grid; maps of different sizes are refused.
+
+The part's misregistration is the forest of 2011 moved one cell to the east and compared with itself:
+
+```python
+shifted = after.copy()
+v = after.values
+s = np.zeros_like(v)
+s[:, 1:] = v[:, :-1]                                              # the classes move one cell east
+s[v == 0] = 0                                                     # the island's outline stays
+s[(s == 0) & (v != 0)] = 1
+shifted.values[:] = s
+sh_simple, sh_mcd = tf.simple_change(after, shifted), tf.morphological_change(after, shifted)
+print(sh_simple.loss, sh_simple.gain, sh_mcd.spurious, sh_mcd.mcd_loss + sh_mcd.mcd_gain)
+```
+
+```text
+177 177 354 0
+```
+
+Simple change finds 177 cells of loss and 177 of gain where nothing changed; morphological change calls all 354 spurious
+and none structural.
+
+Plum Island is the other file of the part, with forest as class 1 again and the dates 1985 and 1999 (its first and third
+bands):
+
+```python
+pie = tf.load_raster(S.example_data("pie_landuse"))               # 1985, 1991, 1999
+pa, pb = forest(pie[0]), forest(pie[2])
+ps, pm = tf.simple_change(pa, pb), tf.morphological_change(pa, pb)
+print(ps.loss, ps.gain, ps.loss - ps.gain, pm.mcd_loss, pm.mcd_gain, pm.spurious, round(pm.elasticity, 2))
+```
+
+```text
+4906 1270 3636 0 0 6176 2.76
+```
+
+Loss, gain and net loss of simple change, then the structural loss and gain, the spurious change and the elasticity
+(2.76) of the part. FAD's change is `tf.fad_multiscale_change` with the windows of the part (`window_sizes=`; the
+default is 7, 13, 27, 81 and 243), on the two maps or on two [`tf.fad_multiscale`][terraflux.fad_multiscale] results:
+
+```python
+fad = tf.fad_multiscale_change(before, after, window_sizes=(7, 13, 27))
+print(fad.averages.round(2).to_string())
+for w, sc in fad.scales.items():
+    print(w, sc.changed, sc.frag_increase_pct, sc.frag_decrease_pct)
+pfad = tf.fad_multiscale_change(pa, pb, window_sizes=(7, 13, 27))
+print(pfad.averages.round(2)[["delta_fad_av", "delta_avcon"]].to_string())
+for w, sc in pfad.scales.items():
+    print(w, sc.changed, round(sc.frag_decrease_pct, 1))
+```
+
+```text
+        fad_av_a  fad_av_b  delta_fad_av  avcon_a  avcon_b  delta_avcon
+scale                                                                  
+7          93.03     92.10         -0.93    60.81    53.02        -7.79
+13         89.37     87.63         -1.75    58.42    50.45        -7.97
+27         83.50     80.08         -3.41    54.57    46.10        -8.47
+mscale     88.65     86.62         -2.04    57.95    49.87        -8.08
+7 657 100.0 0.0
+13 959 100.0 0.0
+27 1083 100.0 0.0
+mscale 1033 100.00000000000001 0.0
+        delta_fad_av  delta_avcon
+scale                            
+7          -3.30        -3.32
+13         -3.36        -3.17
+27         -3.45        -3.07
+mscale        -3.37        -3.19
+7 8728 14.4
+13 7599 8.7
+27 7332 2.3
+mscale 7030 6.3
+```
+
+`averages` is the part's `stats` table (`mscale` is its `average` row): ΔFAD_AV and ΔAVCON of Sibuyan and of Plum Island
+are the numbers of its chart. `scales[w]` has each window's `changed` cells (those in another class), `frag_increase_pct`
+and `frag_decrease_pct`, its 6 × 6 `matrix` and `percent`. Sibuyan's 657, 959 and 1,083 cells are the part's "in another
+class", every one of them more fragmented (the 100.00000000000001 is floating point); Plum Island has 2 to 14% of its
+changed cells less fragmented.
+
+The cell-by-cell change takes two FOS maps made with the same settings, as the part's graph:
+
+```python
+for w in (5, 13, 27):
+    fa, fb = tf.fos(before, window_size=w), tf.fos(after, window_size=w)
+    ch = tf.fos_change(fa.map, fb.map)
+    c = ch.change_map.values
+    on = (c >= 0) & (c <= 200)
+    print(w, ch.forcom, ch.fg_loss, ch.fg_gain, ch.diff_class, int(((c >= 102) & (c <= 200)).sum()),
+          round(float((c[on] - 100).mean()), 1), round(ch.frag_increase_pct, 1))
+print(ch.summary())
+```
+
+```text
+5 4160 563 0 487 615 2.7 100.0
+13 4160 563 0 959 1467 4.4 100.0
+27 4160 563 0 1083 2537 5.5 100.0
+Fragmentation (FOS) Change Summary
+==================================
+Common Foreground [pixels]    : 4,160
+Foreground Gain (250)         : 0
+Foreground Loss (251)         : 563
+Stable Background (252)       : 2,503
+
+Fragmentation Shifts on Common Foreground:
+------------------------------------------
+Unchanged Density Class       : 3,077
+Shifted Density Class         : 1,083
+Fragmentation Decrease        : 0.00% (above diagonal)
+Fragmentation Increase        : 100.00% (below diagonal)
+
+FOS 6x6 Transition Matrix (Rows: T1, Columns: T2):
+--------------------------------------------------
+                       Rare (0-9%)  Patchy (10-39%)  Transitional (40-59%)  Dominant (60-89%)  Interior (90-99%)  Intact (100%)
+Rare (0-9%)                      0                0                      0                  0                  0              0
+Patchy (10-39%)                  0               30                      0                  0                  0              0
+Transitional (40-59%)            0               66                    206                  0                  0              0
+Dominant (60-89%)                0                2                    207               1612                  0              0
+Interior (90-99%)                0                0                      0                570                897              0
+Intact (100%)                    0                0                      0                  0                238            332
+```
+
+Per window: the common forest, the forest lost and gained, the cells in another class, the cells that lost connectivity
+(codes 102 to 200), the mean drop in points and the share more fragmented: the part's slider (615, 1,467 and 2,537 cells
+that lost connectivity, mean drops of 2.7, 4.4 and 5.5 points; `tf.fos` with its default method, `FAD`).
+The change map holds 100 + the connectivity before − after on the forest of both dates, as the part says, 250 forest
+gained, 251 forest lost and 252 stable background. `ch.matrix_6x6` has the cells of each FOS class at the first date (rows)
+in each class at the second, as the summary shows, and `ch.change_map` the map to plot or save with `tf.save`.
+
+The part's template (a forest drawn by chance, cleared at its edges where a pressure is high) is a model of the
+application, not a data set; the numbers above come from the part's maps. Where the change of the landscape mosaic
+and the reports of GuidosToolbox are in Python is [fragmentation, part 3](/tutorials/fragmentation/change-and-reports/#in-python);
+for the metrics of many dates at once, `SpatioTemporalAnalysis` is in
+[the landscape metrics tutorial](/tutorials/landscape-metrics/landscape-metrics-in-python/#several-maps-and-time-series),
+and the connectivity over time (`tf.conn.eca_change`) in
+[habitat networks](/tutorials/habitat-networks/habitat-networks-in-python/).
+
 ## Settings that change the answer
 
 - **The classes counted as forest** (`foreground`). Plantations, mangroves, woodland: each choice changes every
@@ -474,5 +680,3 @@ Morphological change has no setting: its 5 × 5 cores and 3 × 3 closing are Gui
 - Seebach, L., Strobl, P., Vogt, P., Mehl, W., & San-Miguel-Ayanz, J. (2013). Enhancing post-classification change detection through morphological post-processing – a sensitivity analysis. *International Journal of Remote Sensing*, 34(20), 7145–7162. https://doi.org/10.1080/01431161.2013.815382
 - Townshend, J. R. G., Justice, C. O., Gurney, C., & McManus, J. (1992). The impact of misregistration on change detection. *IEEE Transactions on Geoscience and Remote Sensing*, 30(5), 1054–1060. https://doi.org/10.1109/36.175340
 - Vogt, P., & Riitters, K. (2017). GuidosToolbox: universal digital image object analysis. *European Journal of Remote Sensing*, 50(1), 352–361. https://doi.org/10.1080/22797254.2017.1330650
-
-In Python: [Change detection in Python](/tutorials/change-detection/change-detection-in-python/).

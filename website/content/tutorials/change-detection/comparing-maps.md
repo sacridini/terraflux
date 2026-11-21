@@ -255,6 +255,92 @@ layers = [{ from = "outcome.map" }]
     terraflux run compare_2011.toml --out output
     ```
 
+### Disagreement, kappa and the errors in Python
+
+The comparisons are in `tf.simulate`: [`tf.simulate.futures_validation`][terraflux.simulate.futures_validation] is
+[[validate.futures]], [`tf.simulate.compare_maps`][terraflux.simulate.compare_maps] is [[validate.kappa]], and
+[`tf.simulate.difference_components`][terraflux.simulate.difference_components] is [[change.components]]. The part's
+`simulated_2011.tif` is not needed: the library makes the same map, with the recipe of `terraflux new ordered`
+(logistic regressions of every class on the 13 drivers, the observed 2011 areas as the demand in one step of 14 years,
+the ordered allocation, seed 1), and both files ship with the package:
+
+```python
+import numpy as np
+import pandas as pd
+from scipy import ndimage
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))           # bands 1997 and 2011
+drivers = tf.load_raster(S.example_data("sibuyan_drivers"))      # the 13 drivers of the same grid
+t0, observed = lu[0], lu[1]                                       # the 1997 map (null model) and the reference
+
+# the part's simulated map: logistic regressions of every class on the 13 drivers, the observed 2011
+# areas as the demand (one linear step of 14 years), the ordered allocation, seed 1
+potential = S.LogisticRegression({c: list(drivers.band.values) for c in range(1, 6)}).fit(t0, drivers)
+demand = S.AreaDemand.from_maps(lu, times=[0, 14])
+simulated = S.Model(potential, demand, S.Ordered(order=[2, 3, 4, 5, 1])).run(t0, drivers, seed=1).maps[-1]
+
+fut = S.futures_validation(observed, simulated, t0)              # quantity and allocation disagreement
+null = S.futures_validation(observed, t0)                        # the 1997 map as the prediction
+for name, r in (("simulated", fut), ("null model", null)):
+    print(f"{name:10s} quantity {r['total_quantity']:.1%}  allocation {r['total_allocation']:.1%}  "
+          f"kappa {r['kappa']:.3f}  kappa simulation {r.get('kappasimulation')}")
+print(np.round(fut["allocation"], 3), "allocation of each class, simulated")
+
+for name, m in (("simulated", simulated), ("null model", t0)):
+    k = S.compare_maps(observed, m)
+    print(f"{name:10s} correctness {k['correctness']:.1f}%  kappa {k['kappa']:.3f}  location {k['kappa_location']:.3f}  "
+          f"histogram {k['kappa_histogram']:.3f}")
+```
+
+```text
+simulated  quantity 0.0%  allocation 12.1%  kappa 0.800  kappa simulation 0.3921627995745051
+null model quantity 7.8%  allocation 2.5%  kappa 0.820  kappa simulation None
+[0.071 0.037 0.072 0.029 0.033] allocation of each class, simulated
+simulated  correctness 87.9%  kappa 0.800  location 0.800  histogram 1.000
+null model correctness 89.7%  kappa 0.820  location 0.950  histogram 0.864
+```
+
+These are the numbers of the part's table, and the classes' allocation is its per-class chart (the part's bars are
+percentages of the island, so 7.1% of forest and 7.2% of grassland). `futures_validation` returns a dict: the shares
+`total_quantity` and `total_allocation`, the per-class arrays `quantity` and `allocation` (in the order of `classes`),
+`kappa` and, when the original map is the third argument, `kappasimulation`; its hits, misses and figure-of-merit entries
+are for maps of 0 and 1 only and stay `None` here. `compare_maps` gives `correctness` in percent, the other kappas,
+Cramer's V (`cramer`) and the joint information uncertainty (`jiu`). `S.futures_validation_grid` is the same per tile or
+region ([[validate.futures_grid]]).
+
+The exchange and shift of the error are the components of the cross-tabulation of the simulated map (rows) against the
+reference (columns), with `analysis="error"`:
+
+```python
+errors = S.crosstab(simulated, observed)                          # rows: simulated, columns: the reference
+print(S.difference_components(errors, analysis="error").round(0).astype({"Category": str}).to_string(index=False))
+print(S.overall_difference(errors))
+
+a = S.agreement(observed, simulated, t0)                          # hits, misses, false alarms, wrong hits
+print({k: v for k, v in a.items() if k != "quantity"})
+```
+
+```text
+Category  Omission  Agreement  Comission  Quantity  Exchange  Shift
+       1     258.0     3902.0      258.0       0.0     332.0  184.0
+       2     133.0     1271.0      133.0       0.0      98.0  168.0
+       3     259.0      831.0      259.0       0.0     374.0  144.0
+       4     105.0      183.0      105.0       0.0     126.0   84.0
+       5     119.0      165.0      119.0       0.0     154.0   84.0
+ Overall     874.0     6352.0      874.0       0.0     542.0  332.0
+{'quantity': 0.0, 'exchange': 542.0, 'shift': 332.0, 'allocation': 874.0, 'overall': 874.0}
+{'overall': 0.8790478826460005, 'figure_of_merit': 0.2517123287671233, 'hits': 294, 'misses': 333, 'false_alarms': 425, 'wrong_hits': 116}
+```
+
+The overall row is the part's split in cells: 542 of exchange (7.5% of the 7,226 cells) and 332 of shift (4.6%), all of the
+874 cells of allocation and none of quantity. [`tf.simulate.agreement`][terraflux.simulate.agreement] counts the hits, wrong
+hits, misses and false alarms of the part's map of outcomes (294, 116, 333 and 425) and the figure of merit, 25.2%; the
+map itself is those four tests on the three maps in numpy, as the part's [[raster.calc]]. The full budget of agreement per
+class and resolution is `S.three_map_comparison` ([[validate.three_map]]) and `S.error_budget`
+([[validate.error_budget]]).
+
 ## Read the results
 
 ### The simulated map against the null model
@@ -423,6 +509,55 @@ For the null model, the same table ([[change.resolutions]] with the 1997 map as 
 at 4 km, mostly in quantity, which coarsening cannot remove; the numbers are in this tutorial's data,
 `resolutions.csv`.
 
+### At coarser resolutions in Python
+
+[`tf.simulate.difference_resolutions`][terraflux.simulate.difference_resolutions] is [[change.resolutions]],
+[`tf.simulate.memberships`][terraflux.simulate.memberships] is [[change.memberships]] and
+[`tf.simulate.composite_matrix`][terraflux.simulate.composite_matrix] is [[change.composite]]. They continue the
+block above (`simulated`, `observed` and `t0` are the same):
+
+```python
+res = S.difference_resolutions(simulated, observed)               # blocks of 1, 2, 4, 8... cells per side
+print(res.head(5).round(2).to_string(index=False))
+print(S.difference_resolutions(t0, observed).head(5).round(2).to_string(index=False))   # the null model
+shares = S.memberships(observed, factor=4)                        # {class: share of the class in each 4 x 4 block}
+print(shares[1].shape, np.nanmean(shares[1]).round(3))
+comp = S.composite_matrix(simulated, observed, factor=4)
+print(comp.round(3).to_string(), "agreement", round(float(np.trace(comp.values)), 3))
+```
+
+```text
+ Multiples  Resolution  Quantity  Exchange  Shift  Overall
+         1       250.0      0.00      7.50   4.59    12.10
+         2       500.0      0.65      6.95   3.31    10.91
+         4      1000.0      0.54      6.30   3.24    10.08
+         8      2000.0      0.88      5.41   2.44     8.73
+        16      4000.0      2.96      3.16   0.38     6.50
+ Multiples  Resolution  Quantity  Exchange  Shift  Overall
+         1       250.0      7.79      0.69   1.80    10.28
+         2       500.0      7.73      0.72   1.58    10.03
+         4      1000.0      7.32      0.61   1.37     9.30
+         8      2000.0      6.69      0.58   0.58     7.85
+        16      4000.0      4.30      0.46   0.21     4.96
+(27, 32) 0.631
+ref       1      2      3      4      5
+comp                                   
+1     0.595  0.008  0.023  0.003  0.001
+2     0.000  0.149  0.013  0.000  0.000
+3     0.033  0.002  0.128  0.000  0.000
+4     0.000  0.002  0.000  0.022  0.004
+5     0.004  0.002  0.001  0.003  0.006 agreement 0.899
+```
+
+The first table is the part's slider (quantity, exchange and shift in % of the cells compared, from 250 m to 4 km:
+12.1% falls to 6.5%) and the second the null model's (10.3% to 5.0%, mostly quantity). `Multiples` is the block's side in
+cells, grown by `factor=` (default 2) at every row; `percent=False` gives proportions and `population=` scales the first
+matrix as `sample_to_population` does. The table goes on to blocks as large as the map, but at 8 km and beyond only the
+few blocks with no missing cell are left, and the numbers there mean little (the part explains why quantity rises). The
+memberships are a dict of arrays, one per class, `nan` for the blocks that touch the sea or the edge; the composite
+matrix is in proportions of the cells in the complete blocks, rows the comparison map and columns the reference, and its
+trace is the slider's agreement of 89.9% at blocks of 4.
+
 ### Continuous maps: the mean absolute deviation
 
 Not every map has classes. To compare two continuous maps, [[change.mad]] computes the **mean absolute
@@ -495,6 +630,45 @@ At 250 m the two maps differ by 0.068 of forest share on average: 0.0003 of quan
 equal, as the areas were), 0.004 of strata (the model has slightly too much forest around some classes of 1997 and
 too little around others) and 0.064 of element. The element component is the allocation of the continuous map;
 it shrinks as the blocks grow (0.034 at 16 km) and disappears when the whole island is one block.
+
+### Continuous maps in Python
+
+[`tf.simulate.mad`][terraflux.simulate.mad] is [[change.mad]]. The part's two continuous maps are the forest's share in
+the 5 × 5 cells around every cell (`nbmean(m == 1, 2)`), which is a moving average over the cells with a value; scipy
+makes it in a few lines, and the 1997 classes are the strata:
+
+```python
+def share(m, r=2):
+    """The forest's share in the (2r + 1) x (2r + 1) window of every cell, over the cells with a value."""
+    size = 2 * r + 1
+    valid = (m.values != 255) & ~np.isnan(m.values)
+    forest = ndimage.uniform_filter((m.values == 1).astype(float), size, mode="constant")
+    seen = ndimage.uniform_filter(valid.astype(float), size, mode="constant")
+    out = m.astype(float).copy()
+    out.values[:] = np.where(seen > 0, forest / np.maximum(seen, 1e-9), np.nan)
+    return out
+
+strata = t0.where(t0 != 255, 0)                                   # the 1997 classes; 0 is outside every stratum
+dev = S.mad(share(simulated), share(observed), strata=strata)
+print(dev.round(4).to_string(index=False))
+```
+
+```text
+ Multiples  Resolution  Quantity  Strata  Element   Total
+         1       250.0    0.0003  0.0039   0.0635  0.0678
+         2       500.0    0.0003  0.0039   0.0632  0.0675
+         4      1000.0    0.0003  0.0039   0.0622  0.0665
+         8      2000.0    0.0003  0.0039   0.0594  0.0636
+        16      4000.0    0.0003  0.0039   0.0556  0.0599
+        32      8000.0    0.0003  0.0039   0.0462  0.0504
+        64     16000.0    0.0003  0.0039   0.0342  0.0384
+       128     32000.0    0.0003  0.0039   0.0000  0.0042
+```
+
+The part's numbers, which it rounds to 0.068 in all (0.0003 of quantity, 0.004 of strata and 0.064 of element at 250 m,
+and 0.034 of element at 16 km). The columns are the components of the mean absolute deviation, `Total` their sum;
+without `strata=` the strata component is zero, and `multiple=False` gives only the original resolution. Only the
+element component shrinks as the blocks grow, and it disappears when the whole island is one block (the last row).
 
 ### Areas of change from a sample
 
@@ -584,6 +758,57 @@ table; the standard errors are the short calculation of the formula above, in a 
     user's, producer's and overall accuracy, and the estimated areas with their confidence intervals (Olofsson et
     al., 2014). Report kappa only if a journal insists, and then with the disagreement components beside it.
 
+### Areas of change from a sample in Python
+
+[`tf.simulate.sample_to_population`][terraflux.simulate.sample_to_population] is [[change.sample_to_population]]; the
+strata's sizes are [[change.simple]] of the forest on the two dates (`tf.simple_change`, which wants forest coded 2, the
+rest 1 and the missing 0), and the standard errors are the formula of the part in numpy:
+
+```python
+def fg(m):
+    out = m.copy()
+    out.values[:] = np.where(m.values == 255, 0, np.where(m.values == 1, 2, 1))
+    return out
+
+sc = tf.simple_change(fg(t0), fg(observed))
+mapped = {1: sc.stable_fg, 2: sc.loss, 3: sc.stable_bg + sc.gain}   # stable forest, loss, stable non-forest
+print(mapped)
+sample = pd.DataFrame([[96, 3, 1], [9, 86, 5], [1, 4, 95]], index=pd.Index([1, 2, 3], name="map"), columns=[1, 2, 3])
+scaled = S.sample_to_population(sample, mapped)                   # the made-up sample of the part
+print(scaled.round(1).to_string())
+print((scaled.sum() * 0.0625).round(1).to_string())               # estimated areas, km2
+
+n = sample.to_numpy(float)
+A = np.array([mapped[1], mapped[2], mapped[3]]) * 0.0625          # mapped areas, km2
+W = A / A.sum()
+ni = n.sum(axis=1)
+p = W[:, None] * n / ni[:, None]
+area = p.sum(axis=0) * A.sum()
+se = np.sqrt((W[:, None] ** 2 * (n / ni[:, None]) * (1 - n / ni[:, None]) / (ni[:, None] - 1)).sum(axis=0)) * A.sum()
+print(area.round(1), (1.96 * se).round(1))
+print((np.diag(n) / ni).round(3), (np.diag(p) / p.sum(axis=0)).round(3), np.trace(p).round(3))
+```
+
+```text
+{1: 4160, 2: 563, 3: 2503}
+          1      2       3
+map                       
+1    3993.6  124.8    41.6
+2      50.7  484.2    28.2
+3      25.0  100.1  2377.8
+1    254.3
+2     44.3
+3    153.0
+[254.3  44.3 153. ] [10.7 10.9  8.6]
+[0.96 0.86 0.95] [0.981 0.683 0.972] 0.949
+```
+
+The scaled table and the estimated areas are the part's: forest loss is **44.3 ± 10.9 km²** (95%) against the 35.2 km²
+counted on the map. Last line, the user's accuracies (96%, 86% and 95%), the producer's (98%, 68% and 97%) and the overall
+accuracy (94.9%). The part's table has 2377.9 for the last cell, which is 2377.8 here (the exact value is 2377.85). The
+population can be a dict, a `Series` or a two-column table, and its categories decide the rows, not their order. As in
+the operator, the function only scales the rows: the sample, its size and its allocation among the strata are yours.
+
 ## Settings that change the answer
 
 - **Which map is the reference.** In [[change.components]] and [[change.resolutions]], `ref`/`to` gives the
@@ -634,5 +859,3 @@ table; the standard errors are the short calculation of the formula above, in a 
 - Pontius, R. G., Jr., & Santacruz, A. (2014). Quantity, exchange, and shift components of difference in a square contingency table. *International Journal of Remote Sensing*, 35(21), 7543–7554. https://doi.org/10.1080/2150704X.2014.969814
 - Pontius, R. G., Jr., Thontteh, O., & Chen, H. (2008). Components of information for multiple resolution comparison between maps that share a real variable. *Environmental and Ecological Statistics*, 15(2), 111–142. https://doi.org/10.1007/s10651-007-0043-y
 - van Vliet, J., Bregt, A. K., & Hagen-Zanker, A. (2011). Revisiting Kappa to account for change in the accuracy assessment of land-use change models. *Ecological Modelling*, 222(8), 1367–1375. https://doi.org/10.1016/j.ecolmodel.2011.01.017
-
-In Python: [Change detection in Python](/tutorials/change-detection/change-detection-in-python/).

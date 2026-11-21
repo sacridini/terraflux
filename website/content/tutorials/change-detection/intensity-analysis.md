@@ -345,6 +345,147 @@ against a uniform 1.31%; coconut (0.64%) and other land (0.03%) were avoided.
     in the first period and forest in the second." Cite Aldwaik and Pontius (2012) for the method and OpenLand
     (Exavier & Zeilhofer, 2020) for the software it reproduces.
 
+### In Python
+
+The intensity analysis is a method of the object [`tf.simulate.changes`][terraflux.simulate.changes] gives for a series of
+maps (the same one as in [part 1](/tutorials/change-detection/transitions/#in-python)): `ch.intensity(gain, loss)` is
+[[change.intensity]], with OpenLand's tables and column names. Plum Island ships with the package, with its three dates
+named by their years:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+pie = tf.load_raster(S.example_data("pie_landuse"))              # 1985, 1991, 1999: 1 forest, 2 built, 3 other
+ch = S.changes(pie)                                              # the dates are the band names
+ia = ch.intensity(gain=2, loss=1)                                # built land's gains, forest's losses
+print(ia.interval.round(3).to_string(index=False))
+print(ia.category_gain.round(3).to_string(index=False))
+print(ia.category_loss.round(3).to_string(index=False))
+```
+
+```text
+   Period  PercentChange    St     U
+1985-1991          3.589 0.598 0.556
+1991-1999          4.188 0.523 0.556
+   Period  To  Interval  GG_km2   Gtj    St
+1985-1991   1         6   3.586 0.127 0.598
+1985-1991   2         6  32.610 1.349 0.598
+1985-1991   3         6   4.514 0.288 0.598
+1991-1999   1         8   9.508 0.262 0.523
+1991-1999   2         8  32.430 0.934 0.523
+1991-1999   3         8   5.563 0.282 0.523
+   Period  From  Interval  GL_km2   Lti    St
+1985-1991   1         6  23.381 0.796 0.598
+1985-1991   2         6   0.370 0.017 0.598
+1985-1991   3         6  16.959 1.032 0.598
+1991-1999   1         8  26.028 0.693 0.523
+1991-1999   2         8   1.418 0.044 0.523
+1991-1999   3         8  20.055 0.959 0.523
+```
+
+These are the numbers of the part's charts: `interval` has the period's change (`PercentChange`), its annual rate `St`
+and the uniform rate `U`; the category tables have the gross gain or loss (`GG_km2`, `GL_km2`) and its intensity
+(`Gtj`, `Lti`) beside `St`. A class with no gain (or loss) in a period has no row, which reads as an intensity of 0.
+The transition level takes the class whose gains (`gain`) and whose losses (`loss`) are examined:
+
+```python
+print(ia.transition_gain.round(3).to_string(index=False))
+print(ia.transition_loss.round(3).to_string(index=False))
+print(ia.category_gain_stationarity.to_string(index=False))
+print(ia.category_loss_stationarity.to_string(index=False))
+print(ia.transition_gain_stationarity.to_string(index=False))
+print(ia.transition_loss_stationarity.to_string(index=False))
+```
+
+```text
+   Period  From  To  Interval  T_i2n_km2  Rtin   Wtn
+1985-1991     1   2         6     19.236 0.655 0.712
+1985-1991     3   2         6     13.373 0.814 0.712
+1991-1999     1   2         8     21.803 0.580 0.554
+1991-1999     3   2         8     10.627 0.508 0.554
+   Period  To  From  Interval  T_m2j_km2  Qtmj   Vtm
+1985-1991   2     1         6     19.236 0.796 0.586
+1985-1991   3     1         6      4.145 0.264 0.586
+1991-1999   2     1         8     21.803 0.628 0.478
+1991-1999   3     1         8      4.225 0.214 0.478
+ To  Gain  N Stationarity Test
+  2     2  2  Active Gain    Y
+  1     2  2 Dormant Gain    Y
+  3     2  2 Dormant Gain    Y
+ From  Loss  N Stationarity Test
+    1     2  2  Active Loss    Y
+    3     2  2  Active Loss    Y
+    2     2  2 Dormant Loss    Y
+ From  Loss  N  Stationarity Test
+    1     1  2 targeted by 2    N
+    3     1  2 targeted by 2    N
+    1     1  2  avoided by 2    N
+    3     1  2  avoided by 2    N
+ To  Gain  N Stationarity Test
+  2     2  2   targeted 1    Y
+  3     2  2   avoided 1    Y
+```
+
+In the transition tables `Rtin` and `Qtmj` are the observed intensities and `Wtn` and `Vtm` the uniform ones they are
+compared with, as in the part's charts. In the stationarity tables a row says how many periods (`Gain` or `Loss`, out of
+`N`) the class was active or dormant, targeted or avoided, and `Test` is `Y` when that held in every period: the
+category level is stationary here (`Y`) and the transition level of the gains is not (`N`: forest and other land are each
+targeted in one period and avoided in the other). `area=False` gives the areas in cells (`T_i2n_pixel`), and the
+rates do not change with it; `times=[1985, 1991, 1999]` in `tf.simulate.changes` sets the dates when the layers' names
+are not years, and `cell_area=` the area of a cell in m².
+
+Sibuyan has only two dates, so one interval:
+
+```python
+sib = S.changes(tf.load_raster(S.example_data("sibuyan_landuse")))
+t = sib.intensity(gain=2, loss=1)
+print(t.interval.round(3).to_string(index=False))
+print(t.category_gain.round(3).to_string(index=False))
+print(t.category_loss.round(3).to_string(index=False))
+print(t.transition_loss.round(3).to_string(index=False))
+for g in (2, 3, 4):                                              # the gains of coconut, grassland and rice
+    print(sib.intensity(gain=g, loss=1).transition_gain.round(3).to_string(index=False))
+```
+
+```text
+   Period  PercentChange    St     U
+1997-2011         10.282 0.734 0.734
+   Period  To  Interval  GG_km2   Gtj    St
+1997-2011   2        14  16.500 1.343 0.734
+1997-2011   3        14  21.562 2.261 0.734
+1997-2011   4        14   8.250 3.274 0.734
+1997-2011   5        14   0.125 0.050 0.734
+   Period  From  Interval   GL_km2   Lti    St
+1997-2011     1        14  35.188 0.851 0.734
+1997-2011     2        14   1.125 0.111 0.734
+1997-2011     3        14   5.875 0.800 0.734
+1997-2011     4        14   4.250 2.168 0.734
+   Period  To  From  Interval  T_m2j_km2  Qtmj   Vtm
+1997-2011   2        14      7.875 0.641 1.312
+1997-2011   3        14     20.000 2.097 1.312
+1997-2011   4        14      7.250 2.877 1.312
+1997-2011   5        14      0.062 0.025 1.312
+   Period  From  To  Interval  T_i2n_km2  Rtin   Wtn
+1997-2011     1   2        14      7.875 0.191 0.311
+1997-2011     3   2        14      4.812 0.656 0.311
+1997-2011     4   2        14      3.812 1.945 0.311
+   Period  From  To  Interval  T_i2n_km2  Rtin   Wtn
+1997-2011     1   3        14     20.000 0.484 0.386
+1997-2011     2   3        14      1.125 0.111 0.386
+1997-2011     4   3        14      0.438 0.223 0.386
+   Period  From  To  Interval  T_i2n_km2  Rtin   Wtn
+1997-2011     1   4        14      7.25 0.175 0.135
+1997-2011     3   4        14      1.00 0.136 0.135
+```
+
+They are the numbers of the part's Sibuyan charts and slider (the rates in % of the class a year): rice gains at 3.27 and
+loses at 2.17, against the period's 0.73, and the losses of forest (`loss=1`) went to rice at 2.88 and grassland at 2.10,
+against a uniform 1.31. With a single interval the `St` and `U` columns are equal. The object has the dates' transitions behind the rates too: `ch.table` is [[change.transitions]] (see
+[part 1](/tutorials/change-detection/transitions/#in-python)).
+
 ## Settings that change the answer
 
 - **`gain` and `loss`.** They do not change the interval and category levels; they choose which class the

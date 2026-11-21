@@ -456,6 +456,149 @@ five; the others have too few cells to fit anything to.
     (0.7% exchange, 1.8% shift). Forest lost 35.2 km² (11.9%) and gained none; 57% of its losses became
     grassland." Pontius et al. (2004) and Pontius & Santacruz (2014) are the references for the measures.
 
+### In Python
+
+The library has all of this in `tf.simulate`, its land change module: [`tf.simulate.changes`][terraflux.simulate.changes]
+reads the stack and gives [[change.crosstab]], [[change.transitions]] and [[change.components]] as its `matrix()`,
+`table` and `components()`. The part's file ships with the package, so nothing has to be downloaded:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+S = tf.simulate
+lu = tf.load_raster(S.example_data("sibuyan_landuse"))          # bands 1997 and 2011; 255 is the sea
+names = {1: "Forest", 2: "Coconut", 3: "Grassland", 4: "Rice", 5: "Other"}
+
+ch = S.changes(lu, labels=names)                                 # dates from the band names, cells of 250 m
+print(ch.matrix())
+print(ch.areas)
+```
+
+```text
+to         Forest  Coconut  Grassland  Rice  Other
+from                                              
+Forest       4160      126        320   116      1
+Coconut         0     1140         18     0      0
+Grassland       0       77        745    16      1
+Rice            0       61          7   156      0
+Other           0        0          0     0    282
+      Forest  Coconut  Grassland  Rice  Other
+time                                         
+1997    4723     1158        839   224    282
+2011    4160     1404       1090   288    284
+```
+
+The matrix is the part's table (rows `from`, columns `to`, the sea left out) and `ch.areas` is [[change.transitions]]'s
+`areas` (the cells of every class at every date). That operator's other tables are properties of the same object:
+`ch.table` (a row per period and pair of classes, with `km2` and `cells`, persistence included), `ch.one_step` (first
+date to last) and `ch.total_area`. The dates come from the band names; pass `times=` for other dates, and `cell_area=`
+in m² when the grid has no units (`km2` is the cells times it over 10⁶).
+
+```python
+m = ch.matrix()
+n, stay = int(m.values.sum()), int(np.trace(m.values))
+print(f"{n} cells, {stay} persisted ({stay / n:.1%}), {n - stay} changed ({(n - stay) * 0.0625:.1f} km2)")
+print(ch.table.head(6))
+```
+
+```text
+7226 cells, 6483 persisted (89.7%), 743 changed (46.4 km2)
+      Period  From  To       km2  cells  Interval  yearFrom  yearTo
+0  1997-2011     1   1  260.0000   4160        14      1997    2011
+1  1997-2011     1   2    7.8750    126        14      1997    2011
+2  1997-2011     1   3   20.0000    320        14      1997    2011
+3  1997-2011     1   4    7.2500    116        14      1997    2011
+4  1997-2011     1   5    0.0625      1        14      1997    2011
+5  1997-2011     2   2   71.2500   1140        14      1997    2011
+```
+
+The components are `ch.components()`, which is [`tf.simulate.difference_components`][terraflux.simulate.difference_components]
+of the matrix with `analysis="change"` (the part's default; `"error"` names the columns omission, agreement and
+commission, to compare a map with a reference). It is in cells, with the overall row last; the part's table is the same
+in km², with the swap as exchange plus shift:
+
+```python
+comp = ch.components().set_index("Category")
+print(comp.round(0).astype(int))
+km2 = comp.drop("Overall") * ch.cell_area / 1e6
+gl = pd.DataFrame({"gain": km2.Gain, "loss": km2.Loss, "net": km2.Gain - km2.Loss,
+                   "swap": km2.Exchange + km2.Shift, "total": km2.Gain + km2.Loss})
+print(gl.round(2))
+print(S.overall_difference(m))
+```
+
+```text
+           Gain  Persistence  Loss  Quantity  Exchange  Shift
+Category                                                     
+Forest        0         4160   563       563         0      0
+Coconut     264         1140    18       246        36      0
+Grassland   345          745    94       251        50    138
+Rice        132          156    68        64        14    122
+Other         2          282     0         2         0      0
+Overall     743         6483   743       563        50    130
+            gain   loss    net   swap  total
+Category                                    
+Forest      0.00  35.19 -35.19   0.00  35.19
+Coconut     16.50   1.12  15.38   2.25  17.62
+Grassland   21.56   5.88  15.69  11.75  27.44
+Rice        8.25   4.25   4.00   8.50  12.50
+Other       0.12   0.00   0.12   0.00   0.12
+{'quantity': 563.0, 'exchange': 50.0, 'shift': 130.0, 'allocation': 180.0, 'overall': 743.0}
+```
+
+These are the part's numbers; Python rounds the exact halves (1.125, 17.625 and 0.125 km²) to even, where the part
+rounds them up (1.13, 17.63, 0.13). In the overall row, quantity, exchange and shift are halved, as every difference counts in two classes.
+[`tf.simulate.overall_difference`][terraflux.simulate.overall_difference] gives the same split of any matrix as a dict.
+With more than two maps, `ch.matrix(t0, t1)` and `ch.components(t0, t1)` take any pair of dates, and `ch.change_count()`
+is [[change.count]] (how many times each cell changed).
+
+The library has no function that suggests the transitions to model ([[change.suggest]]), but its table takes a few
+lines of pandas on `ch.table`: each transition's share of all the change and of its class's area, and the part's
+5% rule (`least`):
+
+```python
+changed = ch.table.query("From != To").copy()
+changed["of_change"] = changed.cells / changed.cells.sum() * 100
+changed["of_class"] = changed.cells / changed.From.map(ch.areas.iloc[0].set_axis(range(1, 6))) * 100
+changed["suggested"] = (changed.of_change >= 5).astype(int)          # least = 5
+print(changed.sort_values("cells", ascending=False)[["From", "To", "cells", "km2", "of_change", "of_class", "suggested"]]
+      .round(1).to_string(index=False))
+```
+
+```text
+ From  To  cells  km2  of_change  of_class  suggested
+    1   3    320 20.0       43.1       6.8          1
+    1   2    126  7.9       17.0       2.7          1
+    1   4    116  7.2       15.6       2.5          1
+    3   2     77  4.8       10.4       9.2          1
+    4   2     61  3.8        8.2      27.2          1
+    2   3     18  1.1        2.4       1.6          0
+    3   4     16  1.0        2.2       1.9          0
+    4   3      7  0.4        0.9       3.1          0
+    1   5      1  0.1        0.1       0.0          0
+    3   5      1  0.1        0.1       0.1          0
+```
+
+Last, the map of where each transition happened is the part's expression `0 if a == b else a * 10 + b` in numpy:
+
+```python
+a, b = lu.values[0].astype(int), lu.values[1].astype(int)
+sea = (a == 255) | (b == 255)
+from_to = np.where(a == b, 0, a * 10 + b)
+codes, cells = np.unique(from_to[~sea], return_counts=True)
+print(dict(zip(codes.tolist(), cells.tolist())))
+```
+
+```text
+{0: 6483, 12: 126, 13: 320, 14: 116, 15: 1, 23: 18, 32: 77, 34: 16, 35: 1, 42: 61, 43: 7}
+```
+
+`from_to` is the array of the `from_to` node (13 is forest to grassland, 42 rice to coconut). The slider's coarser cells
+([[raster.resample]] by the most common class) have no counterpart here: `tf.reproject` needs a georeferenced raster,
+and Sibuyan's file has no coordinate system.
+
 ## Settings that change the answer
 
 The operators of this tutorial have few settings, and none of them changes the counts: `times` and `cell_area`
@@ -556,5 +699,3 @@ not a neutral operation. If maps must be compared at a coarser resolution, the m
 - Pontius, R. G., Jr., & Santacruz, A. (2014). Quantity, exchange, and shift components of difference in a square contingency table. *International Journal of Remote Sensing*, 35(21), 7543–7554. https://doi.org/10.1080/2150704X.2014.969814
 - Pontius, R. G., Jr., Shusas, E., & McEachern, M. (2004). Detecting important categorical land changes while accounting for persistence. *Agriculture, Ecosystems & Environment*, 101(2–3), 251–268. https://doi.org/10.1016/j.agee.2003.09.008
 - Verburg, P. H., Soepboer, W., Veldkamp, A., Limpiada, R., Espaldon, V., & Mastura, S. S. A. (2002). Modeling the spatial dynamics of regional land use: the CLUE-S model. *Environmental Management*, 30(3), 391–405. https://doi.org/10.1007/s00267-002-2630-x
-
-In Python: [Change detection in Python](/tutorials/change-detection/change-detection-in-python/).
