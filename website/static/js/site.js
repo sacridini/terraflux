@@ -12,9 +12,25 @@
   if (tt) tt.addEventListener("click", function () {
     var t = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", t);
-    try { localStorage.setItem("tf-theme", t); } catch (e) {}
+    try {
+      /* choosing the system's own theme is going back to following it */
+      var sys = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      if (t === sys) localStorage.removeItem("tf-theme"); else localStorage.setItem("tf-theme", t);
+    } catch (e) {}
     $$(".tf-chart").forEach(function (c) { if (c._draw) c._draw(); });
   });
+  /* without a choice of the reader's (the button, ?theme=), the theme follows the system's, also when it changes */
+  try {
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    var follow = function () {
+      var chosen = null;
+      try { chosen = localStorage.getItem("tf-theme"); } catch (e) {}
+      if (chosen === "dark" || chosen === "light" || /[?&]theme=(light|dark)/.test(location.search)) return;
+      document.documentElement.setAttribute("data-theme", mq.matches ? "dark" : "light");
+      $$(".tf-chart").forEach(function (c) { if (c._draw) c._draw(); });
+    };
+    if (mq.addEventListener) mq.addEventListener("change", follow); else if (mq.addListener) mq.addListener(follow);
+  } catch (e) {}
   var mt = $(".menu-toggle"), nav = $(".mainnav");
   if (mt && nav) mt.addEventListener("click", function () {
     var open = nav.classList.toggle("is-open");
