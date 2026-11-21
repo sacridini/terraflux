@@ -276,6 +276,143 @@ probabilities.
     feeds a plan, report the stepping stones separately: their low area makes them easy to overlook. Saura and
     Rubio (2010) and Saura et al. (2011, forest connectors from MSPA) are good models.
 
+### In Python
+
+The three operators are methods of the graph: [`node_importance`][terraflux.conn.graph.HabitatGraph.node_importance]
+([[conn.node_importance]]), [`link_importance`][terraflux.conn.graph.HabitatGraph.link_importance]
+([[conn.link_importance]]) and [`centrality`][terraflux.conn.graph.HabitatGraph.centrality] ([[conn.centrality]]).
+The graph is part 1's, made from the library's 25 m example resampled to the part's 100 m cells:
+
+```python
+import pandas as pd
+import terraflux as tf
+
+land = tf.reproject(tf.load_raster(tf.example_data("clc")), res=100, resampling="mode")
+net = tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25], area_unit="ha", distance="edge",
+                                  landscape_area=250_000)
+
+# 2 km with a probability of one half; one row per patch
+importance = net.node_importance("PC", distance=2000, probability=0.5)
+areas = tf.conn.node_table(land, habitat=[23, 24, 25], area_unit="ha").set_index("id")["attribute"]
+top = importance.set_index("id").sort_values("dPC", ascending=False).head(10)
+top.insert(0, "area_ha", areas.loc[top.index].astype(int))
+top.insert(1, "area_rank", [int((areas > areas[i]).sum()) + 1 for i in top.index])
+print(top[["area_ha", "area_rank", "dPC", "dPCintra", "dPCflux", "dPCconnector"]].round(1).to_string())
+print("sum of dPC over the patches:", round(importance["dPC"].sum()))
+```
+
+```text
+     area_ha  area_rank   dPC  dPCintra  dPCflux  dPCconnector
+id                                                            
+55      9151          1  28.7      16.2     12.2           0.4
+110     7071          2  22.6       9.7     11.9           1.0
+8       4599          3  16.0       4.1     11.0           1.0
+47      2442          6  15.8       1.2      9.0           5.6
+96      2860          5  13.6       1.6      9.4           2.5
+30      2884          4  13.5       1.6      9.3           2.6
+65       406         21   6.6       0.0      1.7           4.9
+10      1381          9   5.9       0.4      4.4           1.1
+45      1638          8   5.3       0.5      4.8           0.0
+100      322         26   4.5       0.0      1.3           3.1
+sum of dPC over the patches: 216
+```
+
+The first seven rows are the table of the part (the columns are in percent of PC); the part lists the stepping
+stones 100, 58 and 81 after them, and here 10 and 45, two large forests with almost no connector role, come in before
+them. Its `metrics` argument takes one index or a list
+(`["IIC", "PC"]`), and `["BC", "BCIIC", "BCPC"]` add Conefor's betweenness importances; with a list of distances
+there is a row per patch and distance.
+
+```python
+# the importance painted on the map (node 'connector' of the graph), and saved
+connector = net.to_raster(importance, "dPCconnector")
+tf.write_raster(connector, "connector.tif")
+
+# stepping stones: little area, much dPCconnector
+stones = importance.set_index("id").query("dPCconnector >= 2.5").sort_values("dPCconnector", ascending=False)
+print(stones.assign(area_ha=areas.loc[stones.index].astype(int))[["area_ha", "dPC", "dPCconnector"]].round(1))
+```
+
+```text
+     area_ha   dPC  dPCconnector
+id                              
+47      2442  15.8           5.6
+65       406   6.6           4.9
+81        46   3.3           3.1
+100      322   4.5           3.1
+77        47   3.0           2.8
+58       357   4.2           2.6
+30      2884  13.5           2.6
+96      2860  13.6           2.5
+```
+
+[`HabitatGraph.to_raster`][terraflux.conn.graph.HabitatGraph.to_raster] paints any column of a node table on its
+patches (and [`to_geodataframe`][terraflux.conn.graph.HabitatGraph.to_geodataframe] on the polygons of a graph made
+with `from_vector`). The links and the centralities:
+
+```python
+links = net.link_importance("PC", distance=2000, probability=0.5)
+print(len(links), "links;", int((links["dPC_removal"] > 0).sum()), "would cost any PC if cut")
+print(links.sort_values("dPC_removal", ascending=False).head(5).round(1).to_string(index=False))
+
+centrality = net.centrality(2000)            # on the links shorter than 2 km
+print(centrality.sort_values("BWC", ascending=False).head(5).to_string(index=False))
+rank = pd.concat([centrality.set_index("id")["BWC"], importance.set_index("id")["dPCconnector"]], axis=1)
+print("rank correlation BWC and dPCconnector:", round(rank.corr(method="spearman").iloc[0, 1], 2))
+```
+
+```text
+2457 links; 286 would cost any PC if cut
+ from  to  distance  dPC_removal
+   30  47      2000          5.6
+   96 100      2000          3.4
+   47  58      2000          2.9
+   65  77      2000          2.8
+   58  65      2000          2.8
+ id  distance  degree    eigen    close         BWC  cluster
+ 47    2000.0     7.0 0.009171 0.001821 2819.442949        1
+ 30    2000.0     8.0 0.012050 0.001621 1638.440476        1
+ 65    2000.0     5.0 0.011038 0.001812 1407.520543        1
+110    2000.0    16.0 1.000000 0.001289 1389.000000        1
+ 96    2000.0     7.0 0.039411 0.001653 1385.357509        1
+rank correlation BWC and dPCconnector: 0.72
+```
+
+`dPC_removal` is the share of PC lost if the link were cut. `centrality` gives `degree`, `eigen`, `close`, `BWC`
+(betweenness) and `cluster` (the community), as [[conn.centrality]] does; `binary=False` weights the links by their
+probability (give `probability` too). The same numbers as the part: 286 of the 2,457 links matter, the first is
+30-47 with 5.6%, and betweenness agrees with dPCconnector at 0.72 on the hubs.
+
+Two more questions of this part have a call. What would happen if a distance changed (a new road, a restored
+gap)? [`link_change`][terraflux.conn.graph.HabitatGraph.link_change] takes `(from, to, new distance)` and gives
+the change of the index in percent (negative for a gain). And which of the patches that could be added would
+help most? A graph made with `restoration=` (1 for an existing patch, 0 for a candidate) adds a column
+`dPCres`:
+
+```python
+print(net.link_change([(30, 47, 3000)], "PC", distance=2000, probability=0.5).round(2).to_string(index=False))
+
+import numpy as np
+gaps = np.array([[0, 800, 1500, 5000], [800, 0, 600, 4000], [1500, 600, 0, 3000], [5000, 4000, 3000, 0]])
+toy = tf.HabitatGraph([100, 50, 20, 80], gaps, landscape_area=10_000, restoration=[1, 1, 1, 0])  # patch 4: candidate
+print(toy.node_importance("PC", distance=1000, probability=0.5)[["id", "dPC", "dPCres"]].round(1).to_string(index=False))
+```
+
+```text
+ from  to  distance  dPC_change
+   30  47      2000        4.52
+ id  dPC  dPCres
+  1 60.7     0.0
+  2 34.9     0.0
+  3 13.4     0.0
+  4 27.7    27.7
+```
+
+Widening the gap between 30 and 47 from 1.1 km to 3 km costs 4.5% of PC. `dPCres` of a candidate is the gain in
+percent of the graph with it (0 for the existing patches). Neighbourhoods rather than the whole map (the importance
+of each patch among its neighbours) are [`tf.conn.focal_nodes`][terraflux.conn.focal_nodes], which takes polygons
+(see [part 6](../protconn/)).
+
 ## Settings that change the answer
 
 - **The dispersal distance.** At 250 m almost all importance is intra (part 2: the fractions), and the ranking
@@ -316,5 +453,3 @@ probabilities.
 - Saura, S., & Rubio, L. (2010). A common currency for the different ways in which patches and links can contribute to habitat availability and connectivity in the landscape. *Ecography*, 33(3), 523–537. https://doi.org/10.1111/j.1600-0587.2009.05760.x
 - Saura, S., Vogt, P., Velázquez, J., Hernando, A., & Tejera, R. (2011). Key structural forest connectors can be identified by combining landscape spatial pattern and network analyses. *Forest Ecology and Management*, 262(2), 150–160. https://doi.org/10.1016/j.foreco.2011.03.017
 - Urban, D., & Keitt, T. (2001). Landscape connectivity: a graph-theoretic perspective. *Ecology*, 82(5), 1205–1218. https://doi.org/10.1890/0012-9658(2001)082[1205:LCAGTP]2.0.CO;2
-
-In Python: [Habitat networks in Python](/tutorials/habitat-networks/habitat-networks-in-python/).

@@ -44,12 +44,12 @@ Where to go:
   bridges, loops and islets; classify objects by size; describe the shape and texture of every patch.
 - **[Fragmentation](/tutorials/fragmentation/)**: habitat density at many observation
   scales, fragmentation classes, landscape mosaics, contagion and spatial entropy, as maps and statistics.
-- **[Landscape metrics](/tutorials/landscape-metrics/landscape-metrics-in-python/)**: 130+ patch, class and
+- **[Landscape metrics](/tutorials/landscape-metrics/)**: 130+ patch, class and
   landscape metrics, sample plots, moving windows, time series, spatial signatures and rasters larger than memory.
-- **[Habitat networks](/tutorials/habitat-networks/habitat-networks-in-python/)**: patches and distances as a
+- **[Habitat networks](/tutorials/habitat-networks/)**: patches and distances as a
   graph: equivalent connected area, probability of connectivity, node and link importance, protected-area
   connectivity.
-- **[Circuit connectivity](/tutorials/circuit-connectivity/circuit-connectivity-in-python/)**: current flow between
+- **[Circuit connectivity](/tutorials/circuit-connectivity/)**: current flow between
   habitat areas and omnidirectional connectivity across whole landscapes, on rasters and on networks.
 - **[Distance and restoration](/tutorials/distance-restoration/distance-restoration-in-python/)**: distance maps,
   cost surfaces, least-cost paths and corridors, restoration priorities and travel-time (isochrone) maps.

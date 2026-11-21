@@ -95,10 +95,10 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `circuit-theory.md` | — | full | `circuit-connectivity-in-python.md` | |
-| `circuitscape.md` | — | full | `circuit-connectivity-in-python.md` | |
-| `omniscape.md` | — | full | `circuit-connectivity-in-python.md` | |
-| `resistance-surfaces.md` | — | full | `circuit-connectivity-in-python.md` | |
+| `circuit-theory.md` | — | full | merged, redirected | done |
+| `circuitscape.md` | — | full | merged, redirected | done |
+| `omniscape.md` | — | full | merged, redirected | done |
+| `resistance-surfaces.md` | — | full | merged, redirected | done |
 
 `circuit-connectivity-in-python.md`:
 - ## A resistance map → resistance-surfaces
@@ -217,13 +217,13 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `connectivity-as-a-graph.md` | — | full | `habitat-networks-in-python.md` | |
-| `connectivity-indices.md` | — | full | `habitat-networks-in-python.md` | |
-| `importance-of-each-patch.md` | — | full | `habitat-networks-in-python.md` | |
-| `least-cost-links.md` | — | full | `habitat-networks-in-python.md` | |
-| `linkage-mapper.md` | `linkage.barriers`, `linkage.pathways`, `linkage.pinchpoints` | partial | `habitat-networks-in-python.md` | |
-| `mspa-network.md` | — | full | `habitat-networks-in-python.md` | |
-| `protconn.md` | — | full | `habitat-networks-in-python.md` | |
+| `connectivity-as-a-graph.md` | — | full | merged, redirected | done |
+| `connectivity-indices.md` | — | full | merged, redirected | done |
+| `importance-of-each-patch.md` | — | full | merged, redirected | done |
+| `least-cost-links.md` | — | full | merged, redirected | done |
+| `linkage-mapper.md` | `linkage.barriers`, `linkage.pathways`, `linkage.pinchpoints` | none | — | gap |
+| `mspa-network.md` | — | full | merged, redirected | done |
+| `protconn.md` | — | full | merged, redirected | done |
 
 `habitat-networks-in-python.md`:
 - ## How habitat networks work → connectivity-as-a-graph ?
@@ -308,13 +308,13 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `landscape-level-and-diversity.md` | — | full | `landscape-metrics-in-python.md` | |
-| `landscape-signatures.md` | — | full | `landscape-metrics-in-python.md` | |
-| `large-maps.md` | — | full | `landscape-metrics-in-python.md` | |
-| `moving-windows.md` | — | full | `landscape-metrics-in-python.md` | |
-| `patch-and-class-metrics.md` | — | full | `landscape-metrics-in-python.md` | |
-| `sampling-and-change.md` | `metrics.correlation`, `metrics.sample` | partial | `landscape-metrics-in-python.md` | |
-| `what-are-landscape-metrics.md` | — | full | `landscape-metrics-in-python.md` | |
+| `landscape-level-and-diversity.md` | — | full | merged, redirected | done |
+| `landscape-signatures.md` | — | full | merged, redirected | done |
+| `large-maps.md` | — | full | merged, redirected | done |
+| `moving-windows.md` | — | full | merged, redirected | done |
+| `patch-and-class-metrics.md` | — | full | merged, redirected | done |
+| `sampling-and-change.md` | — | full | merged, redirected | done |
+| `what-are-landscape-metrics.md` | — | full | merged, redirected | done |
 
 `landscape-metrics-in-python.md`:
 - ## The three levels → what-are-landscape-metrics
@@ -634,3 +634,10 @@ No `*-in-python.md` page in this category.
 - `raster.resample` by mode (change-detection/transitions, the slider of coarser cells): `tf.reproject` needs a georeferenced raster and Sibuyan's has no CRS; no Python counterpart given.
 - `metrics.window` out of core (large-data/larger-than-memory): no moving window by strips with a halo; `tf.window_metrics` works in memory only.
 - `terraflux run --tiled` (large-data/larger-than-memory): no tiled land-change engine in the library.
+- `metrics.window` by strips (landscape-metrics/large-maps, moving-windows): `tf.window_metrics` has no `block_rows`; the app reads rasters larger than memory by strips.
+- `metrics.sample`, `metrics.series`, `metrics.signatures` by blocks (landscape-metrics/large-maps): `sample_metrics`, `zonal_metrics`, `SpatioTemporalAnalysis`, `SpatialSignatureAnalysis` have no `block_rows` (only `Landscape` and the one-call functions on a raster on disk).
+
+## Figures to make again
+- `circuit-connectivity/resistance-surfaces` suitability.png: its legend says "Forest within 500 m"; `nbmean(f, 5)` is an 11 x 11 window (1.1 km). Fix `unit=` in figures/circuit-connectivity/resistance-surfaces.py and make it again.
+- `linkage.pathways`, `linkage.pinchpoints`, `linkage.barriers` (habitat-networks/linkage-mapper): no function in terraflux-py (`cost.barriers` and `cost.path_inc` do something else); the part has no In Python section.
+- `habitat-networks/importance-of-each-patch`, table "Which forests matter most": it lists 10 patches but skips patches 10 (1,381 ha, dPC 5.9) and 45 (1,638 ha, dPC 5.3), above patches 100, 58 and 81 that it lists; check the figure script's selection.

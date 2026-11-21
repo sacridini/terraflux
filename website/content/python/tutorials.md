@@ -26,9 +26,9 @@ and follow along.
 
 - **[Habitat patterns](/tutorials/habitat-patterns/)**: Cores, edges, bridges and islets; objects by size; parcels and the shape of habitat boundaries; the network of cores and bridges and change between dates. The Python is in each part.
 - **[Fragmentation](/tutorials/fragmentation/)**: Habitat density at one or many scales, fragmentation classes, landscape mosaics, contagion and entropy, and their change between dates. The Python is in each part.
-- **[Landscape metrics](/tutorials/landscape-metrics/landscape-metrics-in-python/)**: Patch, class and landscape metrics, sample plots, moving windows, time series and spatial signatures.
-- **[Habitat networks](/tutorials/habitat-networks/habitat-networks-in-python/)**: Patches and distances as a graph: connectivity indices, the importance of every patch and link, protected-area connectivity.
-- **[Circuit connectivity](/tutorials/circuit-connectivity/circuit-connectivity-in-python/)**: Current flow between habitat areas and omnidirectional connectivity maps, on rasters and on networks.
+- **[Landscape metrics](/tutorials/landscape-metrics/)**: Patch, class and landscape metrics, sample plots, moving windows, time series, spatial signatures and rasters larger than memory. The Python is in each part.
+- **[Habitat networks](/tutorials/habitat-networks/)**: Patches and distances as a graph: connectivity indices, the importance of every patch and link, least-cost links, the network of a forest's structure, protected-area connectivity. The Python is in each part.
+- **[Circuit connectivity](/tutorials/circuit-connectivity/)**: Current flow between habitat areas and omnidirectional connectivity maps, on rasters and on networks, from the resistance surface to Circuitscape and Omniscape. The Python is in each part.
 - **[Distance & restoration](/tutorials/distance-restoration/distance-restoration-in-python/)**: Distance and cost maps, least-cost paths and corridors, restoration status and travel-time maps.
 - **[Change detection](/tutorials/change-detection/)**: What changed between two dates: transition matrices, gains and losses, intensity analysis, comparison of maps and habitat change. The Python is in each part.
 - **[Large data & batch](/tutorials/large-data/)**: Folders of rasters run in parallel, maps larger than memory, MSPA by tiles, and time stacks with dask. The Python is in each part.

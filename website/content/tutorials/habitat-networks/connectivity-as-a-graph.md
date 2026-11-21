@@ -357,6 +357,96 @@ How to read these numbers:
     distance measure (edge-to-edge here), the distances and why you chose them, and the numbers of patches,
     components and links at each.
 
+### In Python
+
+The library has the same graph as [`tf.HabitatGraph`][terraflux.HabitatGraph], and
+[`HabitatGraph.from_raster`][terraflux.conn.graph.HabitatGraph.from_raster] does what
+[[conn.graph_from_raster]] does: it finds the patches, measures their areas and the gaps between them. The map is the
+part's `clc_100m.tif` (the library ships the 25 m CORINE excerpt as `tf.example_data("clc")`;
+`tf.reproject(land25, res=100, resampling="mode")` makes the same 100 m cells):
+
+```python
+import numpy as np
+import terraflux as tf
+
+land = tf.load_raster("clc_100m.tif")        # CLC classes, 100 m cells, EPSG:3035
+net = tf.HabitatGraph.from_raster(
+    land,
+    habitat=[23, 24, 25],                    # forests; every other class is the matrix
+    area_unit="ha",
+    distance="edge",                         # edge to edge, in metres
+    landscape_area=250_000,                  # 500 x 500 cells of 1 ha, for the indices of part 2
+)
+print(net)
+
+nodes = tf.conn.node_table(land, habitat=[23, 24, 25], area_unit="ha")   # the node table: id, attribute
+print(f"{len(nodes)} patches, {nodes.attribute.sum():,.0f} ha, median {nodes.attribute.median():.0f} ha")
+print("largest:", nodes.attribute.nlargest(5).astype(int).tolist())
+```
+
+```text
+<HabitatGraph: 154 nodes, 11781 pairs (distance), convention='makurhini'>
+154 patches, 51,569 ha, median 57 ha
+largest: [9151, 7071, 4599, 2884, 2860]
+```
+
+These are the numbers of the part: 154 patches, 51,569 ha. The arguments that matter:
+
+| Argument | Options |
+|---|---|
+| `habitat` | the classes that form patches (without it, every non-NoData value is a patch id, so a map of patch numbers needs none) |
+| `distance` | `"edge"`, `"centroid"` (the default), `"least-cost"` (needs `resistance=`) or `"commute-time"`: [part 4](../least-cost-links/) |
+| `max_distance` | pairs further apart are left out: faster, but set it above the largest distance you will study |
+| `area_unit` | `"m2"` (the default), `"ha"` or `"km2"` for the attributes |
+| `landscape_area` | the total area in the same unit; without it IIC and PC are NaN (their numerators are still reported) |
+| `directions` | 8 (the default) or 4 neighbours when cells make a patch |
+
+[`HabitatGraph.overall`][terraflux.conn.graph.HabitatGraph.overall] is [[conn.overall]]: one row per distance, and
+[`HabitatGraph.components`][terraflux.conn.graph.HabitatGraph.components] is [[conn.components]], a `pandas.Series`
+of the component of each patch, which [`HabitatGraph.to_raster`][terraflux.conn.graph.HabitatGraph.to_raster]
+paints on the map like [[conn.to_map]]:
+
+```python
+overall = net.overall(["A", "NC", "NL", "H"], distance=[250, 500, 1000, 2000, 5000, 10000])
+print(overall.round(1).to_string(index=False))
+
+components = net.components(distance=2000)           # one species, 2 km
+sizes = components.value_counts()
+print(len(sizes), "components; the largest holds", sizes.iloc[0], "patches;", int((sizes == 1).sum()), "patches alone")
+component_map = net.to_raster(components, "component")   # the map of node 'component_map' of the graph above
+tf.write_raster(component_map, "components_2km.tif")
+```
+
+```text
+ distance       A  NC   NL      H
+      250 51569.0 108   47   69.2
+      500 51569.0  83   80  127.3
+     1000 51569.0  56  120  247.4
+     2000 51569.0  11  234 1379.0
+     5000 51569.0   2  677 3490.1
+    10000 51569.0   1 1690 5324.7
+11 components; the largest holds 114 patches; 3 patches alone
+```
+
+The rows are the part's `overall` table (`NC` 108, 83, 56, 11, 2 and 1), and the 11 components at 2 km its map. A
+graph reads and writes Conefor's two files, to check it against other software or hand it on:
+
+```python
+net.to_conefor("nodes.txt", "distances.txt")
+again = tf.HabitatGraph.from_conefor("nodes.txt", "distances.txt", landscape_area=250_000)
+print(again)
+```
+
+```text
+<HabitatGraph: 154 nodes, 11781 pairs (distance), convention='makurhini'>
+```
+
+A graph can also be made from polygons ([`HabitatGraph.from_vector`][terraflux.conn.graph.HabitatGraph.from_vector],
+used in [part 6](../protconn/)) and from the settlement probabilities of a random walk
+([`HabitatGraph.from_samc`][terraflux.conn.graph.HabitatGraph.from_samc], [part 4](../least-cost-links/)). To see the
+two halves of a graph (the pairs of [[conn.distances]]), use
+[`tf.conn.distance_table`][terraflux.conn.distance_table] with the same `habitat` and `distance`.
+
 ## Settings that change the answer
 
 - **The dispersal distance.** It changes everything, as the slider shows. When the distance of your species is

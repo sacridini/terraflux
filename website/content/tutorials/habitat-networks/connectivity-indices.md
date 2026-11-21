@@ -304,6 +304,110 @@ part tells.
     (Godínez-Gómez et al., 2026) and Conefor (Saura & Torné, 2009) compute the same numbers, so readers can
     reproduce them with either.
 
+### In Python
+
+[`tf.HabitatGraph`][terraflux.HabitatGraph] takes the tables of the toy landscape as arrays (areas and a matrix of
+gaps) in place of [[table.of]] and [[conn.graph]], and
+[`HabitatGraph.overall`][terraflux.conn.graph.HabitatGraph.overall] is [[conn.overall]]:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+areas = [100, 50, 20, 80]                    # ha
+gaps = np.array([                            # m, between the edges of every two patches
+    [0,    800,  1500, 5000],
+    [800,  0,    600,  4000],
+    [1500, 600,  0,    3000],
+    [5000, 4000, 3000, 0],
+])
+toy = tf.HabitatGraph(areas, gaps, landscape_area=10_000)    # a landscape of 10,000 ha
+toy_overall = toy.overall(distance=1000, probability=0.5)    # half of the dispersers cross 1 km
+cols = ["A", "NC", "NL", "IIC", "EC(IIC)", "PC", "EC(PC)", "PCintra(%)", "PCdirect(%)", "PCstep(%)"]
+print(toy_overall[cols].iloc[0].round(6).to_string())
+```
+
+```text
+A              250.000000
+NC               2.000000
+NL               2.000000
+IIC              0.000266
+EC(IIC)        163.197227
+PC               0.000297
+EC(PC)         172.326227
+PCintra(%)      64.991199
+PCdirect(%)     33.260722
+PCstep(%)        1.748079
+```
+
+The row is the part's: `EC(IIC)` 163.2, `EC(PC)` 172.3 and PC's three fractions 65.0, 33.3 and 1.7%. Without
+`metrics` the call computes every index; `metrics=["NC", "PC"]` limits it, and `distance` takes a list for one row
+per distance. `convention="conefor"` (also an option of `from_raster`) follows Conefor Sensinode where it differs
+from Makurhini, which is the default. Without `landscape_area`, IIC and PC are NaN (their numerators are still
+reported).
+
+The forests are the graph of part 1, read at the dispersal distances of the dashboard (the same land cover, in the
+part's own folder or made from the library's `clc` example):
+
+```python
+land = tf.reproject(tf.load_raster(tf.example_data("clc")), res=100, resampling="mode")   # 25 m -> 100 m
+net = tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25], area_unit="ha", distance="edge",
+                                  landscape_area=250_000)
+
+distances = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000]
+overall = net.overall(distance=distances, probability=0.5)
+cols = ["distance", "NC", "NL", "EC(IIC)", "EC(PC)", "PCintra(%)", "PCdirect(%)", "PCstep(%)"]
+print(overall[cols].round(1).to_string(index=False))
+forest = float(overall["A"].iloc[0])
+print(f"EC(PC) at 5 km: {100 * overall.set_index('distance').loc[5000, 'EC(PC)'] / forest:.0f}% of the forest")
+```
+
+```text
+ distance  NC   NL  EC(IIC)  EC(PC)  PCintra(%)  PCdirect(%)  PCstep(%)
+      100 154    0  13836.1 14188.8        95.1          4.5        0.4
+      250 108   47  14200.5 14750.9        88.0          9.1        2.9
+      500  83   80  14503.6 15676.5        77.9         14.4        7.7
+      750  67  103  14982.3 16746.1        68.3         19.2       12.6
+     1000  56  120  15304.7 17910.7        59.7         22.9       17.4
+     1500  30  175  17796.6 20360.4        46.2         28.3       25.5
+     2000  11  234  19709.8 22740.6        37.0         31.2       31.7
+     3000   5  364  22834.1 26901.1        26.5         34.6       39.0
+     5000   2  677  28534.5 32807.1        17.8         39.6       42.6
+     7500   1 1163  30230.8 37280.9        13.8         45.8       40.5
+    10000   1 1690  31587.8 40070.9        11.9         51.1       37.0
+    15000   1 2877  33179.1 43322.1        10.2         59.2       30.6
+    20000   1 4382  34829.3 45146.9         9.4         64.9       25.7
+EC(PC) at 5 km: 64% of the forest
+```
+
+These are the numbers of the slider (components, links, `EC(PC)`) and the data of the fractions chart
+(`PCintra(%)`, `PCdirect(%)` and `PCstep(%)`, which add up to 100). `EC(IIC)` and `EC(PC)` are in the unit of
+`area_unit`, so divide by the habitat area (`A`) for the dashboard's percentages.
+
+The equivalent connected area of two dates, or of a scenario against today, is one call too
+([`tf.conn.eca_change`][terraflux.conn.eca_change]). As an example, the second graph adds CORINE's class 29
+(transitional woodland-shrub) to the habitat:
+
+```python
+scrub = tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25, 29], area_unit="ha", distance="edge",
+                                    landscape_area=250_000)
+change = tf.conn.eca_change([net, scrub], "PC", distance=1000, probability=0.5, landscape_area=250_000,
+                            names=["forest", "forest and class 29"])
+print(change[["time", "area", "ECA", "ECA_area", "dA", "dECA", "change"]].round(2).to_string(index=False))
+```
+
+```text
+               time    area      ECA  ECA_area     dA   dECA                       change
+             forest 51569.0 17910.73     34.73 -79.37 -92.84          + Connectivity loss
+forest and class 29 51807.0 18080.67     34.90   0.46   0.95 Habitat or connectivity gain
+```
+
+`dA` and `dECA` are the changes in percent from the previous time (the first one is compared with the landscape
+area `LA`, which is why the first row shows a loss), `ECA_area` is the ECA as a share of the habitat, and `change`
+reads the pair as Makurhini does (a loss or gain of connectivity, of habitat, or of both).
+[`tf.conn.eca_change_grid`][terraflux.conn.eca_change_grid] does it in every cell of a grid.
+
 ## Settings that change the answer
 
 - **The dispersal distance** changes ECA by a factor of three over the range above. If your species' distance
@@ -353,5 +457,3 @@ part tells.
 - Saura, S., & Torné, J. (2009). Conefor Sensinode 2.2: a software package for quantifying the importance of habitat patches for landscape connectivity. *Environmental Modelling & Software*, 24(1), 135–139. https://doi.org/10.1016/j.envsoft.2008.05.005
 - Saura, S., Estreguil, C., Mouton, C., & Rodríguez-Freire, M. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990–2000). *Ecological Indicators*, 11(2), 407–416. https://doi.org/10.1016/j.ecolind.2010.06.011
 - Saura, S., Bastin, L., Battistella, L., Mandrici, A., & Dubois, G. (2017). Protected areas in the world's ecoregions: how well connected are they? *Ecological Indicators*, 76, 144–158. https://doi.org/10.1016/j.ecolind.2016.12.047
-
-In Python: [Habitat networks in Python](/tutorials/habitat-networks/habitat-networks-in-python/).

@@ -254,6 +254,128 @@ So:
     distance was converted to cost units, and, ideally, the results with straight distances beside them so that
     readers see what the resistance changed.
 
+### In Python
+
+[`tf.reclassify`][terraflux.reclassify] makes the resistance from a table (a dict of class to value; `others=20`
+is the rule `* -> 20`), and the same
+[`HabitatGraph.from_raster`][terraflux.conn.graph.HabitatGraph.from_raster] takes it as `resistance=` with
+`distance="least-cost"`:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+land = tf.reproject(tf.load_raster(tf.example_data("clc")), res=100, resampling="mode")   # the part's 100 m map
+
+rules = {23: 1, 24: 1, 25: 1,                 # forests
+         29: 2,                               # transitional woodland-shrub
+         21: 5, 26: 5, 27: 5, 32: 5, 35: 5, 36: 5,   # semi-natural land
+         18: 10, 20: 10,                      # pastures, complex cultivation
+         12: 20,                              # arable land
+         10: 30, 11: 30,                      # green urban areas, sport and leisure
+         7: 50, 8: 50, 9: 50,                 # mines, dumps, construction sites
+         1: 100, 2: 100, 3: 100, 4: 100, 5: 100, 6: 100, 40: 100, 41: 100}   # towns, roads, water
+resistance = tf.reclassify(land, rules, others=20)       # every other class: 20
+
+kw = dict(habitat=[23, 24, 25], area_unit="ha", landscape_area=250_000)
+straight = tf.HabitatGraph.from_raster(land, distance="edge", **kw)
+least_cost = tf.HabitatGraph.from_raster(land, distance="least-cost", resistance=resistance, **kw)
+print(least_cost)
+```
+
+```text
+<HabitatGraph: 154 nodes, 11781 pairs (distance), convention='makurhini'>
+```
+
+The graph is the part's: 154 patches and 11,781 pairs, now with the cost of the cheapest route between the
+centres. `cost_directions` (8 or 4), `cost_function` (`"makurhini"` or `"mean"`) and `unreachable`
+(`"euclidean"` or `"drop"`) are the settings of the list above. Matching the two species, the straight graph read at
+500 m, 1, 2 and 5 km against the least-cost one at 10,000, 20,000, 40,000 and 100,000:
+
+```python
+over_s = straight.overall(distance=[500, 1000, 2000, 5000], probability=0.5)
+over_c = least_cost.overall(distance=[10_000, 20_000, 40_000, 100_000], probability=0.5)
+cols = ["NC", "EC(PC)", "PCstep(%)"]
+table = pd.concat([over_s[cols].round(1).add_suffix(" straight"), over_c[cols].round(1).add_suffix(" least-cost")], axis=1)
+table.index = ["500 m", "1 km", "2 km", "5 km"]
+print(table.to_string())
+
+# the cost of a pair against its straight gap
+gap = tf.conn.distance_table(land, habitat=[23, 24, 25], distance="edge").set_index(["from", "to"])["distance"]
+cost = tf.conn.distance_table(land, habitat=[23, 24, 25], distance="least-cost",
+                              resistance=resistance).set_index(["from", "to"])["distance"]
+ratio = (cost / gap)[gap > 300]
+print("cost / gap: median", round(ratio.median(), 1), ", 10-90%", ratio.quantile([0.1, 0.9]).round(1).tolist())
+```
+
+```text
+       NC straight  EC(PC) straight  PCstep(%) straight  NC least-cost  EC(PC) least-cost  PCstep(%) least-cost
+500 m           83          15676.5                 7.7             84            15190.1                   0.5
+1 km            56          17910.7                17.4             46            17680.7                   0.7
+2 km            11          22740.6                31.7             13            22991.0                   0.6
+5 km             2          32807.1                42.6              3            33400.9                   0.0
+cost / gap: median 6.6 , 10-90% [4.0, 12.4]
+```
+
+The ratio is the modelling choice of "Matching the two distances": the numbers are the table of the part. The
+importance of each patch, with straight gaps at 1 km and least-cost links at 20,000, and the trap of
+"Which is right?" in numbers:
+
+```python
+imp_s = straight.node_importance("PC", distance=1000, probability=0.5).set_index("id")
+imp_c = least_cost.node_importance("PC", distance=20_000, probability=0.5).set_index("id")
+print("rank correlation of dPC:", round(imp_s["dPC"].corr(imp_c["dPC"], method="spearman"), 2))
+print("most important with straight gaps:", imp_s["dPC"].nlargest(10).index.tolist())
+print("most important with least cost:   ", imp_c["dPC"].nlargest(10).index.tolist())
+
+stones = [9, 77, 81, 94, 132]                # stepping stones of the north (part 3)
+print(pd.DataFrame({"connector straight": imp_s.loc[stones, "dPCconnector"],
+                    "connector least-cost": imp_c.loc[stones, "dPCconnector"]}).round(2).to_string())
+```
+
+```text
+rank correlation of dPC: 0.95
+most important with straight gaps: [55, 110, 8, 47, 30, 96, 10, 45, 33, 65]
+most important with least cost:    [55, 110, 8, 30, 47, 96, 45, 10, 142, 33]
+     connector straight  connector least-cost
+id                                           
+9                  1.38                   0.0
+77                 1.50                   0.0
+81                 1.63                   0.0
+94                 1.00                   0.0
+132                1.00                   0.0
+```
+
+The rank correlation is the part's 0.95, and the stepping stones keep little or none of their connector role with
+least-cost distances (the removal of a patch does not recompute the costs). The other two distances of the list
+are `distance="commute-time"` (the resistance distance of a random walk, from the same `resistance`) and, for
+polygons, [`HabitatGraph.from_samc`][terraflux.conn.graph.HabitatGraph.from_samc], whose links are the probability
+that a random walker leaving one patch settles in another
+([`tf.conn.settlement_probabilities`][terraflux.conn.settlement_probabilities] gives the matrix):
+
+```python
+commute = tf.HabitatGraph.from_raster(land, distance="commute-time", resistance=resistance, **kw)
+print(commute)
+gap = tf.conn.distance_table(land, habitat=[23, 24, 25], distance="commute-time", resistance=resistance)["distance"]
+print("commute-time between patches: median", round(gap.median() / 1e6, 1), "million")
+print(commute.overall(["NC", "PC"], distance=[2_000_000, 5_000_000, 10_000_000], probability=0.5)[["distance", "NC", "EC(PC)"]].round(1).to_string(index=False))
+```
+
+```text
+<HabitatGraph: 154 nodes, 11781 pairs (distance), convention='makurhini'>
+commute-time between patches: median 4.4 million
+ distance  NC  EC(PC)
+  2000000  31 31416.8
+  5000000   5 41230.7
+ 10000000   1 45872.8
+```
+
+A commute time is in other units than a cost: here its median between two patches is 4.4 million, against 156,000
+for the least cost, so its dispersal distance has to be read off its own table (and it is no longer comparable with
+the straight gaps of the rest of the part). At 10,000 or 20,000, the distances of the least-cost graph, it has no link at all (as the pitfall of units below
+says).
+
 ## Settings that change the answer
 
 - **The resistance values.** Least-cost results are more sensitive to the *ratios* between resistances than to

@@ -308,6 +308,151 @@ protected-area planning: the next hectare protected is worth most where it joins
     and their methods are implemented by Makurhini (Godínez-Gómez et al., 2026), whose numbers Terraflux
     reproduces.
 
+### In Python
+
+[`tf.conn.protconn`][terraflux.conn.protconn] is [[conn.protconn]]: it takes the two layers as GeoDataFrames in a
+metric CRS, here the part's `reserves.gpkg` and `region.geojson`, and with `delta=True` also returns the
+contribution of each reserve:
+
+```python
+import geopandas as gpd
+import numpy as np
+import rasterio.features
+import shapely
+import terraflux as tf
+
+reserves = gpd.read_file("reserves.gpkg")          # 18 forests of 500 ha or more, EPSG:3035
+region = gpd.read_file("region.geojson")           # the 50 x 50 km square
+print(len(reserves), "reserves,", round(reserves.area.sum() / 1e4), "ha")
+
+table, delta = tf.conn.protconn(reserves, region, distance=[1000, 2000, 5000, 10000, 20000],
+                                probability=0.5, area_unit="ha", delta=True)
+cols = ["distance", "Prot", "ProtConn", "ProtUnconn", "RelConn", "ECA"]
+print(table[cols].round(1).to_string(index=False))
+```
+
+```text
+18 reserves, 39964 ha
+ distance  Prot  ProtConn  ProtUnconn  RelConn     ECA
+     1000  16.0       6.2         9.8     38.8 15524.7
+     2000  16.0       7.1         8.9     44.6 17836.0
+     5000  16.0       9.3         6.7     58.4 23328.7
+    10000  16.0      11.5         4.5     71.8 28712.2
+    20000  16.0      13.3         2.7     83.3 33283.3
+```
+
+The rows are the part's table (the part rounds RelConn at 10 km, 71.85, to 71.9). `probability` is the dispersal probability at `distance` (0.5), and `area_unit` the unit
+of `ECA`. The fractions of the second chart, in percent of ProtConn, and the reserves' contributions:
+
+```python
+print(table[["distance", "ProtConn_Prot", "ProtConn_Unprot", "ProtConn_Trans"]].round(1).to_string(index=False))
+
+at5 = delta[delta["distance"] == 5000].sort_values("dProtConn", ascending=False)   # a row per reserve and distance
+print(at5[["attribute", "dProt", "dProtConn"]].head(3).round(1).to_string(index=False))
+```
+
+```text
+ distance  ProtConn_Prot  ProtConn_Unprot  ProtConn_Trans
+     1000           87.2             12.8             0.0
+     2000           75.9             24.1             0.0
+     5000           58.0             42.0             0.0
+    10000           47.2             52.8             0.0
+    20000           40.7             59.3             0.0
+ attribute  dProt  dProtConn
+    9151.0   22.9       22.9
+    4599.0   11.5       13.3
+    7071.0   17.7       10.9
+```
+
+`delta` is a GeoDataFrame of the reserves clipped to the region (`attribute` is the area in `area_unit`, `dProt`,
+`dProtConn` and `varProtConn` the shares lost without the reserve), so `delta.to_file("delta.gpkg")` opens it in a
+GIS. The largest reserve (9,151 ha) carries 22.9% of ProtConn at 5 km, then 13.3% and 10.9%, as in the part. The other
+options of the call are the part's list: `transboundary` (and `transboundary_type`), `bound=True`, and
+`distance_type="least-cost"` with `resistance=`. With a transboundary zone of 10 km, a reserve outside the region
+can be a stepping stone; here the layer has none outside, so the Trans fraction stays at 0.
+
+The raster version, [`tf.conn.protconn_raster`][terraflux.conn.protconn_raster], reads a raster of reserve numbers
+(a patch map of the forests of 500 ha or more, from the graph of part 1) and measures between centroids:
+
+```python
+land = tf.reproject(tf.load_raster(tf.example_data("clc")), res=100, resampling="mode")
+net = tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25], area_unit="ha", distance="edge",
+                                  landscape_area=250_000)
+nodes = tf.conn.node_table(land, habitat=[23, 24, 25], area_unit="ha")
+ids = net.to_raster(nodes[nodes["attribute"] >= 500], "id")      # the reserves' numbers, NaN elsewhere
+by_cells = tf.conn.protconn_raster(ids, region, distance=5000, area_unit="ha")
+print("raster ProtConn at 5 km:", round(float(by_cells["ProtConn"].iloc[0]), 1), "%")
+```
+
+```text
+raster ProtConn at 5 km: 6.5 %
+```
+
+6.5%, against 9.3% of the vector version, as the part warns: use the vector version for what you report. The plan
+of stepping stones is the same call on a second set of polygons: the 17 forests of 40 to 500 ha with a
+`dPCconnector` of 0.5% or more at 2 km (part 3) protected too:
+
+```python
+connector = net.node_importance("PC", distance=2000, probability=0.5).set_index("id")["dPCconnector"]
+area = nodes.set_index("id")["attribute"]
+chosen = area[(area >= 500) | ((area >= 40) & (connector.reindex(area.index) >= 0.5))].index
+
+
+def polygons(patch_ids):
+    """The polygons of some forest patches (a raster of their numbers, vectorised)."""
+    raster = net.to_raster(nodes[nodes["id"].isin(patch_ids)], "id")
+    grid = np.nan_to_num(raster.values).astype("int32")
+    shapes = rasterio.features.shapes(grid, mask=grid > 0, transform=land.rio.transform(), connectivity=8)
+    return gpd.GeoDataFrame(geometry=[shapely.geometry.shape(s) for s, _ in shapes], crs=land.rio.crs)
+
+
+more = polygons(chosen)
+plan = tf.conn.protconn(more, region, distance=[1000, 5000, 10000], area_unit="ha")
+both = table.set_index("distance").loc[[1000, 5000, 10000], ["Prot", "ProtConn", "RelConn"]].join(
+    plan.set_index("distance")[["Prot", "ProtConn", "RelConn"]], rsuffix=" with stones")
+print(len(chosen), "protected areas")
+print(both.round(1).to_string())
+```
+
+```text
+35 protected areas
+          Prot  ProtConn  RelConn  Prot with stones  ProtConn with stones  RelConn with stones
+distance                                                                                      
+1000      16.0       6.2     38.8              17.2                   6.6                 38.4
+5000      16.0       9.3     58.4              17.2                  11.2                 64.8
+10000     16.0      11.5     71.8              17.2                  13.5                 78.1
+```
+
+The 35 areas (18 reserves and 17 stepping stones) raise Prot from 16.0% to 17.2%, and ProtConn at 5 km from 9.3% to
+11.2%, as in the plan of the part. The tables of reserves can also be a graph: the 18 reserves as nodes,
+[`HabitatGraph.from_vector`][terraflux.conn.graph.HabitatGraph.from_vector]`(reserves, area_unit="ha",
+distance="edge")`, give the importance of part 3 for protected areas, and
+[`tf.conn.focal_nodes`][terraflux.conn.focal_nodes] rates every reserve within the neighbourhood of its `search_buffer`.
+
+Several regions and a grid of cells are the other calls of the library:
+[`tf.conn.protconn_regions`][terraflux.conn.protconn_regions] gives a row per region and distance (one region per row of
+a GeoDataFrame), and [`tf.conn.make_grid`][terraflux.conn.make_grid] with
+[`tf.conn.connectivity_grid`][terraflux.conn.connectivity_grid] a hexagonal (or square) grid with ProtConn in every cell:
+
+```python
+x0, y0, x1, y1 = region.total_bounds
+xm = (x0 + x1) / 2                                   # the region cut in a west and an east half
+halves = gpd.GeoDataFrame({"name": ["west", "east"]}, crs=region.crs,
+                          geometry=[shapely.box(x0, y0, xm, y1), shapely.box(xm, y0, x1, y1)])
+by_region = tf.conn.protconn_regions(reserves, halves, distance=5000, area_unit="ha")
+print(by_region[["Prot", "ProtConn", "RelConn"]].round(1).to_string())
+
+cells = tf.conn.connectivity_grid(reserves, region, distance=5000, cell_area=100e6, area_unit="ha")  # 100 km2 hexagons
+print(len(cells), "cells,", int(cells["ProtConn"].notna().sum()), "with protected area")
+```
+
+```text
+   Prot  ProtConn  RelConn
+0  19.3      13.1     67.8
+1  12.7       8.9     69.9
+41 cells, 27 with protected area
+```
+
 ## Settings that change the answer
 
 - **The median dispersal distance** changes ProtConn more than anything else (6.2% to 13.3% here). Give it at
@@ -344,5 +489,3 @@ protected-area planning: the next hectare protected is worth most where it joins
 - Saura, S., Bastin, L., Battistella, L., Mandrici, A., & Dubois, G. (2017). Protected areas in the world's ecoregions: how well connected are they? *Ecological Indicators*, 76, 144–158. https://doi.org/10.1016/j.ecolind.2016.12.047
 - Saura, S., Bertzky, B., Bastin, L., Battistella, L., Mandrici, A., & Dubois, G. (2018). Protected area connectivity: shortfalls in global targets and country-level priorities. *Biological Conservation*, 219, 53–67. https://doi.org/10.1016/j.biocon.2017.12.020
 - Saura, S., Bertzky, B., Bastin, L., Battistella, L., Mandrici, A., & Dubois, G. (2019). Global trends in protected area connectivity from 2010 to 2018. *Biological Conservation*, 238, 108183. https://doi.org/10.1016/j.biocon.2019.07.028
-
-In Python: [Habitat networks in Python](/tutorials/habitat-networks/habitat-networks-in-python/).

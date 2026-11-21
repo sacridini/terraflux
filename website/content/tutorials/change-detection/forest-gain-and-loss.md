@@ -625,9 +625,9 @@ The part's template (a forest drawn by chance, cleared at its edges where a pres
 application, not a data set; the numbers above come from the part's maps. Where the change of the landscape mosaic
 and the reports of GuidosToolbox are in Python is [fragmentation, part 3](/tutorials/fragmentation/change-and-reports/#in-python);
 for the metrics of many dates at once, `SpatioTemporalAnalysis` is in
-[the landscape metrics tutorial](/tutorials/landscape-metrics/landscape-metrics-in-python/#several-maps-and-time-series),
+[the landscape metrics tutorial](/tutorials/landscape-metrics/sampling-and-change/#a-landscape-through-time-in-python),
 and the connectivity over time (`tf.conn.eca_change`) in
-[habitat networks](/tutorials/habitat-networks/habitat-networks-in-python/).
+[habitat networks](/tutorials/habitat-networks/connectivity-indices/#in-python).
 
 ## Settings that change the answer
 

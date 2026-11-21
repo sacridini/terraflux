@@ -8,7 +8,7 @@ Graphs of habitat patches linked by distance or by dispersal probability,
 their connectivity indices (IIC, PC, ECA...), the importance of every patch
 and link, protected-area connectivity (ProtConn), grids and time series, and
 the network of MSPA cores and bridges. Tutorial:
-[habitat networks](/tutorials/habitat-networks/habitat-networks-in-python/).
+[habitat networks](/tutorials/habitat-networks/).
 
 The graph class is `tf.HabitatGraph`; the other functions are in the
 `tf.conn` module (`import terraflux as tf`, then `tf.conn.protconn(...)`).

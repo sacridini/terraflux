@@ -85,6 +85,9 @@ redirects:
   /tutorials/grid-distances/grid-routes-in-python/: /tutorials/grid-distances/cost-distance/#in-python
   /tutorials/large-data/large-data-in-python/: /tutorials/large-data/batch-processing/#in-python
   /tutorials/biodiversity/biodiversity-in-python/: /tutorials/biodiversity/richness-and-endemism/#in-python
+  /tutorials/landscape-metrics/landscape-metrics-in-python/: /tutorials/landscape-metrics/what-are-landscape-metrics/#in-python
+  /tutorials/circuit-connectivity/circuit-connectivity-in-python/: /tutorials/circuit-connectivity/circuitscape/#in-python
+  /tutorials/habitat-networks/habitat-networks-in-python/: /tutorials/habitat-networks/connectivity-as-a-graph/#in-python
 
 # The tutorials' categories, in this order: a folder of content/tutorials/ each. `prefixes` are the operators
 # they cover (the subjects of the application's library); `cells` draws the category's small icon (3x3 cells:

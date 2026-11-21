@@ -210,6 +210,114 @@ core 217, a single cell of core with two bridges, ranks second: structure, not s
     (2011) and Vogt et al. (2009) are the models; Vogt and Riitters (2017) describe GuidosToolbox, whose numbers
     Terraflux reproduces.
 
+### In Python
+
+The three operators are [`tf.mspa`][terraflux.mspa], [`tf.gtn_components`][terraflux.gtn_components] and
+[`tf.gtn_importance`][terraflux.gtn_importance]. [`tf.reclassify`][terraflux.reclassify] with `foreground` turns the
+land cover into the habitat map MSPA reads (0 missing, 1 background, 2 forest), here from the library's 25 m
+example resampled to the part's 100 m cells:
+
+```python
+import terraflux as tf
+
+land = tf.reproject(tf.load_raster(tf.example_data("clc")), res=100, resampling="mode")
+forest = tf.reclassify(land, foreground=[23, 24, 25])
+morph = tf.mspa(forest, edge_width=1)                    # one cell of 100 m; connectivity=8 by default
+print(tf.mspa_stats(morph).round(2).to_string())
+```
+
+```text
+                pixels  pct_data  pct_foreground
+class                                           
+Core             35286     14.11           68.42
+Islet              153      0.06            0.30
+Perforation          0      0.00            0.00
+Edge             11884      4.75           23.04
+Loop               209      0.08            0.41
+Bridge             727      0.29            1.41
+Branch            3310      1.32            6.42
+Background      197833     79.13             NaN
+Core-Opening         0      0.00             NaN
+Border-Opening     598      0.24             NaN
+Missing              0       NaN             NaN
+```
+
+These are the shares the part gives: cores 14.1% of the map, edges 4.8%, branches 1.3%, bridges 0.3% and loops 0.1%.
+The network is made from the MSPA map alone:
+
+```python
+network = tf.gtn_components(morph)               # the pixel size (100 m) is read from the map
+print(network.summary())
+print(network.stats.sort_values("core_pixels", ascending=False).head(5).to_string(index=False))
+```
+
+```text
+Network components: 138
+Connected networks: 59
+Isolated core components: 79
+Total core nodes: 251
+Total bridge links: 112
+ECA: 11277.36 ha (11277.4 pixels)
+ECA_max: 35286.00 ha (35286 pixels)
+DOC (Degree of Coherence): 31.96%
+
+ component_id  core_pixels  bridge_pixels  total_pixels  has_bridge  core_ha  total_ha
+          113         8098              0          8098       False   8098.0    8098.0
+            5         5485             93          5578        True   5485.0    5578.0
+          110         3878             13          3891        True   3878.0    3891.0
+           49         1819             96          1915        True   1819.0    1915.0
+           31         1766             13          1779        True   1766.0    1779.0
+```
+
+The numbers are the part's table: 251 cores, 112 bridges, 138 components (59 networks, 79 isolated cores), ECA
+11,277 ha, ECA_max 35,286 ha and coherence 32.0% (`network.eca`, `network.eca_max`, `network.doc`). The result also
+holds `network.components` (the component of every core and bridge pixel) and `network.colored_map`, the
+networks in GuidosToolbox's colours. The importance of the links and stepping-stone cores:
+
+```python
+importance = tf.gtn_importance(morph, components=network)    # reuse the components
+links = importance.links.sort_values("dpc", ascending=False)
+nodes = importance.nodes.sort_values("dpc", ascending=False)
+print(len(links), "links,", len(nodes), "stepping-stone cores")
+print(links.head(5).round(2).to_string(index=False))
+print(nodes.head(5).round(2).to_string(index=False))
+```
+
+```text
+112 links, 56 stepping-stone cores
+ link_id  component_id  pixels  dpc connected_nodes  normalized_importance
+      36             5       7 7.33         [6, 80]                 100.00
+     102           110       7 1.40      [217, 221]                  19.10
+     101           110       6 1.39      [209, 217]                  19.03
+      66            62       9 1.03      [114, 125]                  14.06
+      51            49       3 0.69      [105, 110]                   9.38
+ node_id  component_id  pixels  dpc  degree  normalized_importance
+      80             5     762 2.03       7                 100.00
+     217           110       1 1.39       2                  68.83
+     125            62     106 0.90       4                  44.41
+     138            62       3 0.64       2                  31.74
+     105            49      82 0.49       3                  24.34
+```
+
+Link 36 (7 cells, 7.3%) and core 80 (762 cells, 2.03%) lead, as in the part. `importance.importance_map` has
+the dPC on the cells (links positive, cores negative), `importance.node_link_ids` their numbers and
+`importance.colored_map` the classes within 1, 5 and 10% of the largest, so rank with the tables, as the pitfall
+above says. The network is also written as Conefor's input files:
+
+```python
+nodes_table, links_table = tf.conefor_inputs(morph, output_dir=".")     # writes mspa_nodes_mspa.txt and mspa_links_mspa.txt
+print(nodes_table.shape, links_table.shape)
+tf.save(network, "network")                    # the maps and tables of the components, in a folder
+```
+
+```text
+(363, 2) (230, 3)
+```
+
+[`tf.conefor_inputs`][terraflux.conefor_inputs] makes cores and bridges both nodes, with a link from each bridge to
+the cores it touches, as [[networks.conefor]] does. Every result saves its maps and tables in a folder with
+`tf.save`, as above.
+
 ## Settings that change the answer
 
 - **The edge width.** A wider edge shrinks the cores and turns more strips into bridges: there are fewer, smaller
