@@ -1,0 +1,766 @@
+family: species-distributions
+title: Species distributions
+order: 80
+source: "predicts / dismo (evaluate), ecospat (Boyce), ENMeval (omission rates, p10), dismo and Liu et al. (thresholds), predicts (MESS), mop (MOP), dsmextra (ExDet)"
+intro: |
+  Metrics that judge a species distribution model from its predictions at presences and at background points (or
+  absences), and measures of how far new conditions lie outside those the model was fitted to. They are the measures of the
+  [species distribution tutorials](../../tutorials/species-distributions/evaluation-and-thresholds/).
+
+  The cards show their values on the model of those tutorials: the Bradypus (brown-throated three-toed sloth) records and
+  the bioclimatic layers that ship with the library, a MaxNet model with 2000 background points and spatial folds. The
+  evaluation cards use the **out-of-fold predictions** of the model (`o_pres` at the presences, `o_back` at the background:
+  what each record gets from the model fitted without its block), the score you would report, and `ev` is their
+  evaluation. The threshold cards read the table of `ev` at the threshold of maximum TSS (`at`). The omission rates compare
+  the predictions of the model fitted on every record at the presences (`pres`, the training ones) with the out-of-fold
+  ones (the test ones). The extrapolation cards project the model to a scenario, `new`, with a warmest month 2 degrees
+  hotter and a driest quarter 20% drier than today, and compare it with the conditions of the records and background.
+
+  Conventions: the candidate thresholds of `evaluate` are the prediction values minus 0.0001, and at a threshold a
+  prediction at or above it counts as predicted present.
+example: |
+  import numpy as np
+  import terraflux as tf
+
+  occ = tf.load_table(tf.sdm.example_data("bradypus"))
+  env = tf.load_raster(tf.sdm.example_data("bioclim"))
+  data = tf.sdm.prepare(occ, env, thin=50_000, area=500_000, background=2000,
+                        folds={"size": 500_000, "k": 5}, seed=1)
+  res = tf.sdm.fit(data, {"maxnet": tf.sdm.MaxNet(regmult=2, classes="lqh")})
+
+  p = res.models["maxnet"].predict_proba(data.X)[:, 1]          # the model fitted on every record, at every record
+  pres = p[data.y == 1]                                         # training predictions at the presences
+  oof = res.predictions["maxnet"].to_numpy()                    # out-of-fold: the model fitted without the record's block
+  ok = ~np.isnan(oof)
+  o_pres, o_back = oof[ok & (data.y == 1)], oof[ok & (data.y == 0)]
+  ev = tf.sdm.evaluate(o_pres, o_back)
+  at = ev.table.loc[ev.table["tss"].idxmax()]                   # the row of the confusion table at the maximum TSS
+
+  future = env.copy()                                           # a scenario: a hotter warmest month, a drier driest quarter
+  future.loc[{"band": "bio5"}] = env.sel(band="bio5") + 20
+  future.loc[{"band": "bio17"}] = env.sel(band="bio17") * 0.8
+  new = future.sel(band=data.predictors)
+metrics:
+  # impl: _evaluate.py:267-269
+  - id: sdm_auc
+    name: "Area under the ROC curve (AUC)"
+    level: model
+    theme: discrimination
+    unit: "none"
+    range: "0 ≤ AUC ≤ 1 (0.5 = random)"
+    aliases: [AUC, ROC]
+    what: |
+      The probability that a random presence gets a higher prediction than a random background point (ties count one
+      half). It is independent of any threshold.
+    use: |
+      With background points instead of true absences the maximum possible AUC is below 1 and depends on prevalence;
+      do not compare AUC across studies with different backgrounds.
+    formula: |
+      AUC = \frac{R_p - n_p(n_p+1)/2}{n_p\, n_a}
+    symbols:
+      'n_p, n_a': "number of presences and background points"
+      'R_p': "sum of the ranks of the presences in the pooled predictions (average ranks for ties). This is the Mann-Whitney statistic."
+    python: 'ev.stats["auc"]'
+    operator: sdm.evaluate
+    refs:
+      - "Hanley & McNeil (1982). The meaning and use of the area under a receiver operating characteristic (ROC) curve. Radiology 143: 29-36."
+      - "Fielding & Bell (1997). A review of methods for the assessment of prediction errors in conservation presence/absence models. Environmental Conservation 24: 38-49."
+
+  # impl: _evaluate.py:270-278
+  - id: sdm_cor
+    name: "Point-biserial correlation (cor, pcor)"
+    level: model
+    theme: discrimination
+    unit: "none"
+    range: "-1 ≤ cor ≤ 1"
+    what: |
+      The Pearson correlation between the predictions and the presence indicator (1 at presences, 0 at background),
+      with the two-sided p-value of a t-test.
+    use: |
+      Sensitive to the scale of the predictions. Background points are not independent absences, so read the p-value
+      as descriptive.
+    formula: |
+      cor = \operatorname{corr}(\hat{y},\, z),\quad t = \frac{cor\sqrt{N-2}}{\sqrt{1-cor^{2}}},\quad pcor = 2\min\bigl(F_t(t),\, 1-F_t(t)\bigr)
+    symbols:
+      '\hat{y}': "predictions,"
+      'z': "1 for presences, 0 for background; \\( N = n_p + n_a \\)"
+      'F_t': "Student's t distribution with \\( N-2 \\) degrees of freedom. Returned as `cor` and `pcor`."
+    python: 'ev.stats["cor"], ev.stats["pcor"]'
+    operator: sdm.evaluate
+    refs:
+      - "dismo R package (Hijmans et al.), function evaluate."
+
+  # impl: _evaluate.py:299, 316-317
+  - id: sdm_n_prevalence
+    name: "Sample sizes and prevalence (np, na, prevalence)"
+    level: model
+    theme: discrimination
+    unit: "count; none for prevalence"
+    range: "0 < prevalence < 1"
+    what: |
+      The numbers of presences (np) and background points (na) used, and the share of presences in the pooled sample.
+    use: |
+      With background points, the prevalence is set by the number of points you draw, not by the species; it is only
+      used for the equal-prevalence threshold.
+    formula: |
+      prevalence = \frac{n_p}{n_p + n_a}
+    symbols:
+      'n_p, n_a': "number of presences and background points after dropping missing values."
+    python: 'ev.stats["np"], ev.stats["na"], ev.stats["prevalence"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:317
+  - id: sdm_max_tss
+    name: "Maximum TSS (max_tss)"
+    level: model
+    theme: discrimination
+    unit: "none"
+    range: "-1 ≤ max_tss ≤ 1"
+    what: |
+      The highest true skill statistic over all candidate thresholds, a threshold-free summary of how well some
+      threshold can separate presences from background.
+    use: |
+      Optimistic because the threshold is chosen on the same data. Use cross-validated predictions.
+    formula: |
+      max\_tss = \max_{\tau}\,(TPR_\tau + TNR_\tau - 1)
+    symbols:
+      '\tau': "candidate threshold; TPR and TNR as defined in the table of the evaluation."
+    python: 'ev.stats["max_tss"]'
+    operator: sdm.evaluate
+    refs:
+      - "Allouche et al. (2006). Assessing the accuracy of species distribution models: prevalence, kappa and the true skill statistic (TSS). Journal of Applied Ecology 43: 1223-1232. doi:10.1111/j.1365-2664.2006.01214.x"
+
+  # impl: _evaluate.py:279-284
+  - id: sdm_confusion
+    name: "Confusion matrix (tp, fp, fn, tn)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "count"
+    range: "0 ≤ x ≤ n"
+    what: |
+      At each candidate threshold, the counts of presences predicted present (tp), background predicted present (fp),
+      presences predicted absent (fn) and background predicted absent (tn).
+    use: |
+      Basis of all the threshold-dependent measures below. With background points, fp is not a true false-positive
+      count.
+    formula: |
+      tp_\tau = \#\{p_i \ge \tau\},\; fp_\tau = \#\{a_j \ge \tau\},\; fn_\tau = n_p - tp_\tau,\; tn_\tau = n_a - fp_\tau
+    symbols:
+      'p_i': "prediction at presence \\( i \\)"
+      'a_j': "prediction at background point \\( j \\)"
+      '\tau': "threshold (a column `threshold` in `ev.table`)."
+    python: 'at[["threshold", "tp", "fp", "fn", "tn"]]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:288-293
+  - id: sdm_kappa
+    name: "Cohen's kappa"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "-1 ≤ kappa ≤ 1"
+    what: |
+      The agreement between predicted and observed presence/absence beyond what chance would give from the marginal
+      totals.
+    use: |
+      Depends on prevalence, which with background points is arbitrary; many authors advise against it for
+      presence-background data. The `max_kappa` threshold maximises it.
+    formula: |
+      \kappa = \frac{p_o - p_e}{1 - p_e},\quad p_o = \frac{tp+tn}{N},\quad p_e = \frac{(tp+fp)(tp+fn) + (fn+tn)(fp+tn)}{N^{2}}
+    symbols:
+      'N': "number of points, \\(tp+fp+fn+tn\\); the column `kappa` of `ev.table`"
+      'p_o, p_e': "observed agreement and the agreement expected by chance from the marginal totals"
+    python: 'at["kappa"]'
+    operator: sdm.evaluate
+    refs:
+      - "Cohen (1960). A coefficient of agreement for nominal scales. Educational and Psychological Measurement 20: 37-46."
+      - "Allouche et al. (2006). Assessing the accuracy of species distribution models: prevalence, kappa and the true skill statistic (TSS). Journal of Applied Ecology 43: 1223-1232. doi:10.1111/j.1365-2664.2006.01214.x"
+
+  # impl: _evaluate.py:295
+  - id: sdm_ccr
+    name: "Correct classification rate (ccr)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ ccr ≤ 1"
+    aliases: [overall accuracy, accuracy]
+    what: |
+      The share of all points classified correctly (overall accuracy).
+    use: |
+      Misleading when presences are rare: a model predicting absence everywhere scores high.
+    formula: |
+      ccr = \frac{tp + tn}{N}
+    symbols:
+      'N': "number of points, \\(tp+fp+fn+tn\\)"
+    python: 'at["ccr"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:287
+  - id: sdm_tpr
+    name: "Sensitivity (tpr)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ tpr ≤ 1"
+    aliases: [sensitivity, true positive rate, recall]
+    what: |
+      The share of presences predicted present: how well the threshold keeps the known occurrences.
+    use: |
+      Reliable with presence-background data, since it only uses presences. Equals 1 minus the omission rate (fnr).
+    formula: |
+      TPR = \frac{tp}{tp + fn}
+    symbols:
+      'tp, fn': "presences predicted present and absent (the confusion matrix); the column `tpr`"
+    python: 'at["tpr"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:288
+  - id: sdm_tnr
+    name: "Specificity (tnr)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ tnr ≤ 1"
+    aliases: [specificity, true negative rate]
+    what: |
+      The share of background points (or absences) predicted absent.
+    use: |
+      With background points it measures how much of the area is predicted absent, not true specificity.
+    formula: |
+      TNR = \frac{tn}{fp + tn}
+    symbols:
+      'tn, fp': "background points predicted absent and present (the confusion matrix); the column `tnr`"
+    python: 'at["tnr"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:296
+  - id: sdm_fpr
+    name: "False positive rate (fpr)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ fpr ≤ 1"
+    what: |
+      The share of background points predicted present; the x-axis of the ROC curve.
+    use: |
+      With background points it is the fraction of the area predicted suitable.
+    formula: |
+      FPR = \frac{fp}{fp + tn} = 1 - TNR
+    symbols:
+      'fp, tn': "background points predicted present and absent (the confusion matrix); the column `fpr`"
+    python: 'at["fpr"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:296
+  - id: sdm_fnr
+    name: "False negative (omission) rate (fnr)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ fnr ≤ 1"
+    aliases: [omission rate, miss rate]
+    what: |
+      The share of presences predicted absent: how many known occurrences the threshold omits.
+    use: |
+      The omission rate at a chosen threshold; for omission on independent test data use `omission_rate`.
+    formula: |
+      FNR = \frac{fn}{tp + fn} = 1 - TPR
+    symbols:
+      'fn, tp': "presences predicted absent and present (the confusion matrix); the column `fnr`"
+    python: 'at["fnr"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:296
+  - id: sdm_ppp
+    name: "Positive predictive power (ppp)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ ppp ≤ 1"
+    aliases: [precision]
+    what: |
+      The share of points predicted present that are presences.
+    use: |
+      Depends on prevalence, hence arbitrary with background points.
+    formula: |
+      PPP = \frac{tp}{tp + fp}
+    symbols:
+      'tp, fp': "presences and background points predicted present (the confusion matrix); the column `ppp`"
+    python: 'at["ppp"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:297
+  - id: sdm_npp
+    name: "Negative predictive power (npp)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ npp ≤ 1"
+    what: |
+      The share of points predicted absent that are really absent (background).
+    use: |
+      As ppp, depends on prevalence.
+    formula: |
+      NPP = \frac{tn}{fn + tn}
+    symbols:
+      'tn, fn': "background points and presences predicted absent (the confusion matrix); the column `npp`"
+    python: 'at["npp"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:297
+  - id: sdm_mcr
+    name: "Misclassification rate (mcr)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ mcr ≤ 1"
+    what: |
+      The share of all points classified wrongly.
+    use: |
+      As ccr, misleading for rare presences.
+    formula: |
+      MCR = \frac{fp + fn}{N} = 1 - ccr
+    symbols:
+      'fp, fn': "background points predicted present and presences predicted absent; \\(N\\) is their total with tp and tn; the column `mcr`"
+    python: 'at["mcr"]'
+    operator: sdm.evaluate
+
+  # impl: _evaluate.py:297
+  - id: sdm_or
+    name: "Odds ratio (or)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "or ≥ 0 (inf when fn or fp is 0)"
+    what: |
+      The odds of a presence being predicted present relative to the odds for a background point. Note the column name
+      `or` is the odds ratio, not an omission rate.
+    use: |
+      Becomes infinite when the model has no omission or no commission at the threshold.
+    formula: |
+      OR = \frac{tp \cdot tn}{fn \cdot fp}
+    symbols:
+      'tp, tn, fn, fp': "the four counts of the confusion matrix; the column `or`"
+    python: 'at["or"]'
+    operator: sdm.evaluate
+    refs:
+      - "dismo R package (Hijmans et al.), function evaluate."
+
+  # impl: _evaluate.py:297
+  - id: sdm_tss
+    name: "True skill statistic (TSS)"
+    level: threshold
+    theme: threshold-dependent
+    unit: "none"
+    range: "-1 ≤ TSS ≤ 1"
+    aliases: [Youden J, Hanssen-Kuipers]
+    what: |
+      Sensitivity plus specificity minus one. It is a kappa-like agreement measure that does not depend on prevalence.
+    use: |
+      Preferred over kappa; its maximum over thresholds defines the `max_spec_sens` threshold.
+    formula: |
+      TSS = TPR + TNR - 1
+    symbols:
+      'TPR, TNR': "sensitivity and specificity at the threshold (the two cards above); the column `tss`"
+    python: 'at["tss"]'
+    operator: sdm.evaluate
+    refs:
+      - "Allouche et al. (2006). Assessing the accuracy of species distribution models: prevalence, kappa and the true skill statistic (TSS). Journal of Applied Ecology 43: 1223-1232. doi:10.1111/j.1365-2664.2006.01214.x"
+
+  # impl: _evaluate.py:92-181
+  - id: sdm_boyce
+    name: "Continuous Boyce index"
+    level: model
+    theme: presence-only
+    unit: "none"
+    range: "-1 ≤ B ≤ 1"
+    aliases: [Boyce index, CBI, ecospat.boyce]
+    what: |
+      Whether presences fall more often than expected in the cells the model predicts as more suitable. It uses only
+      presences and the distribution of predictions over the area, so it needs no absences.
+    use: |
+      Unlike ecospat, the last window ends at the maximum prediction on any scale (no "+1 trick"), so the index does
+      not depend on whether predictions are 0-1 or 0-1000. Needs enough presences; noisy with fewer than about 30.
+    formula: |
+      F_k = \frac{P_k / n_p}{E_k / n_b},\qquad B = \rho_s\bigl(F_k,\; w_k\bigr)
+    symbols:
+      'w': "width of the moving windows: a tenth of the range of the available predictions by default, moved in `res` = 100 steps (`nclass = k` uses k equal classes instead)"
+      'P_k, E_k': "presences and background points in window \\(k\\); windows without background are dropped, and with `rm_duplicate` only the last of each run of equal ratios is kept"
+      'n_p, n_b': "total numbers of presences and background points"
+      'w_k': "lower bound of window \\(k\\)"
+      '\rho_s': "Spearman correlation (`method`); the result is rounded to 3 decimals"
+    python: 'tf.sdm.boyce(o_pres, o_back)["cor"]'
+    operator: sdm.boyce
+    refs:
+      - "Boyce et al. (2002). Evaluating resource selection functions. Ecological Modelling 157: 281-300."
+      - "Hirzel et al. (2006). Evaluating the ability of habitat suitability models to predict species presences. Ecological Modelling 199: 142-152."
+
+  # impl: _evaluate.py:301-307
+  - id: sdm_max_kappa
+    name: "Threshold maximising kappa (max_kappa)"
+    level: threshold
+    theme: threshold
+    unit: "prediction scale"
+    range: "within the range of predictions"
+    what: |
+      The candidate threshold with the highest kappa (first one on a tie).
+    use: |
+      Depends on prevalence; with background points the result varies with the number of points drawn.
+    formula: |
+      \tau^{*} = \arg\max_{\tau}\, \kappa_\tau
+    symbols:
+      '\kappa_\tau': "kappa at threshold \\( \\tau \\)."
+    python: 'tf.sdm.threshold(o_pres, o_back, "max_kappa")'
+    operator: sdm.threshold
+    setting: method = max_kappa
+    refs:
+      - "Liu et al. (2013). Selecting thresholds for the prediction of species occurrence with presence-only data. Journal of Biogeography 40: 778-789. doi:10.1111/jbi.12058"
+
+  # impl: _evaluate.py:308
+  - id: sdm_max_spec_sens
+    name: "Threshold maximising sensitivity + specificity (max_spec_sens)"
+    level: threshold
+    theme: threshold
+    unit: "prediction scale"
+    range: "within the range of predictions"
+    aliases: [max TSS, maxSSS]
+    what: |
+      The candidate threshold where the sum of sensitivity and specificity (equivalently TSS) is highest.
+    use: |
+      The default recommendation for presence-background models; insensitive to prevalence.
+    formula: |
+      \tau^{*} = \arg\max_{\tau}\,(TPR_\tau + TNR_\tau)
+    symbols:
+      'TPR_\tau, TNR_\tau': "sensitivity and specificity at threshold \\(\\tau\\); the default method of `threshold`"
+    python: 'tf.sdm.threshold(o_pres, o_back, "max_spec_sens")'
+    operator: sdm.threshold
+    setting: method = max_spec_sens
+    refs:
+      - "Liu et al. (2013). Selecting thresholds for the prediction of species occurrence with presence-only data. Journal of Biogeography 40: 778-789. doi:10.1111/jbi.12058"
+
+  # impl: _evaluate.py:305-309
+  - id: sdm_no_omission
+    name: "Threshold without omission (no_omission)"
+    level: threshold
+    theme: threshold
+    unit: "prediction scale"
+    range: "within the range of predictions"
+    what: |
+      The highest candidate threshold that keeps every presence (no false negatives).
+    use: |
+      Very permissive; determined by the lowest presence prediction, so a single bad record sets it.
+    formula: |
+      \tau^{*} = \max\{\tau : fn_\tau = 0\}
+    symbols:
+      'fn_\tau': "presences predicted absent at threshold \\(\\tau\\); the result is NaN when no threshold has \\(fn = 0\\)"
+    python: 'tf.sdm.threshold(o_pres, o_back, "no_omission")'
+    operator: sdm.threshold
+    setting: method = no_omission
+
+  # impl: _evaluate.py:310
+  - id: sdm_equal_prevalence
+    name: "Threshold at the prevalence (equal_prevalence)"
+    level: threshold
+    theme: threshold
+    unit: "prediction scale"
+    range: "within the range of predictions"
+    what: |
+      The candidate threshold closest to the prevalence value itself (the share of presences in the pooled sample),
+      compared on the prediction scale.
+    use: |
+      Only meaningful for predictions that are probabilities; arbitrary with background points.
+    formula: |
+      \tau^{*} = \arg\min_{\tau}\,\bigl|\tau - \text{prevalence}\bigr|
+    symbols:
+      '\text{prevalence}': "\\(n_p/(n_p+n_a)\\), the share of presences in the pooled sample; this is dismo's `prevalence` method"
+    python: 'tf.sdm.threshold(o_pres, o_back, "equal_prevalence")'
+    operator: sdm.threshold
+    setting: method = equal_prevalence
+
+  # impl: _evaluate.py:311
+  - id: sdm_equal_sens_spec
+    name: "Threshold with equal sensitivity and specificity (equal_sens_spec)"
+    level: threshold
+    theme: threshold
+    unit: "prediction scale"
+    range: "within the range of predictions"
+    what: |
+      The candidate threshold where sensitivity and specificity are closest to each other.
+    use: |
+      Balances errors on presences and background; the value often equals max_spec_sens.
+    formula: |
+      \tau^{*} = \arg\min_{\tau}\,\bigl|TPR_\tau - TNR_\tau\bigr|
+    symbols:
+      'TPR_\tau, TNR_\tau': "sensitivity and specificity at threshold \\(\\tau\\)"
+    python: 'tf.sdm.threshold(o_pres, o_back, "equal_sens_spec")'
+    operator: sdm.threshold
+    setting: method = equal_sens_spec
+
+  # impl: _evaluate.py:358-360
+  - id: sdm_sensitivity_threshold
+    name: "Threshold for a given sensitivity (sensitivity)"
+    level: threshold
+    theme: threshold
+    unit: "prediction scale"
+    range: "within the range of predictions"
+    what: |
+      The highest threshold that still keeps at least the requested share of presences (default 0.9). dismo returns
+      the first one below it; here it is the last one at or above it.
+    use: |
+      For conservation uses where a fixed omission is acceptable.
+    formula: |
+      \tau^{*} = \max\{\tau : TPR_\tau \ge s\}
+    symbols:
+      's': "the requested sensitivity (`sensitivity`, default 0.9). NaN when no threshold reaches it."
+    python: 'tf.sdm.threshold(o_pres, o_back, "sensitivity", sensitivity=0.8)'
+    operator: sdm.threshold
+    setting: method = sensitivity
+
+  # impl: _evaluate.py:321-327
+  - id: sdm_p10
+    name: "10th percentile training presence (p10)"
+    level: threshold
+    theme: threshold
+    unit: "prediction scale"
+    range: "within the range of the presence predictions"
+    what: |
+      The prediction value that leaves 10 percent of the presences below it, so the model omits about 10 percent of
+      the training records by construction. It guards against a few erroneous records.
+    use: |
+      A robust choice when records may contain errors. NaN with a single presence (\( k < 1 \)).
+    formula: |
+      \tau^{*} = p_{(k)}^{\downarrow},\quad k = \begin{cases}\lfloor 0.9\, n_p \rfloor & n_p < 10\\ \lceil 0.9\, n_p \rceil & n_p \ge 10\end{cases}
+    symbols:
+      'p^{\downarrow}_{(k)}': "the \\( k \\)-th largest presence prediction (an order statistic, as ENMeval)."
+    python: 'tf.sdm.threshold(o_pres, o_back, "p10")'
+    operator: sdm.threshold
+    setting: method = p10
+    refs:
+      - "Radosavljevic & Anderson (2014). Making better Maxent models of species distributions: complexity, overfitting and evaluation. Journal of Biogeography 41: 629-643."
+
+  # impl: _evaluate.py:312
+  - id: sdm_mtp
+    name: "Minimum training presence (mtp)"
+    level: threshold
+    theme: threshold
+    unit: "prediction scale"
+    range: "within the range of the presence predictions"
+    aliases: [lowest presence threshold, LPT]
+    what: |
+      The lowest prediction at any presence; the threshold that keeps all training presences.
+    use: |
+      Sensitive to a single outlying record.
+    formula: |
+      \tau^{*} = \min_i\, p_i
+    symbols:
+      'p_i': "predictions at the presences."
+    python: 'tf.sdm.threshold(o_pres, o_back, "mtp")'
+    operator: sdm.threshold
+    setting: method = mtp
+    refs:
+      - "Pearson et al. (2007). Predicting species distributions from small numbers of occurrence records: a test case using cryptic geckos in Madagascar. Journal of Biogeography 34: 102-117."
+
+  # impl: _evaluate.py:385-393
+  - id: sdm_omission_mtp
+    name: "Omission rate at the minimum training presence (or.mtp)"
+    level: model
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ x ≤ 1"
+    what: |
+      The share of test presences that are predicted below the lowest training presence. It tests whether the model is
+      overfitted: it should be near 0.
+    use: |
+      Needs predictions at independent test presences (cross-validation fold). Values well above 0 indicate
+      overfitting.
+    formula: |
+      OR_{mtp} = \frac{\#\{x^{test}_i < \min_j x^{train}_j\}}{n_{test}}
+    symbols:
+      'x^{train}, x^{test}': "predictions at training and test presences."
+    python: 'tf.sdm.omission_rate(pres, o_pres, "mtp")'
+    operator: sdm.omission_rate
+    setting: threshold = mtp
+    refs:
+      - "Radosavljevic & Anderson (2014). Making better Maxent models of species distributions: complexity, overfitting and evaluation. Journal of Biogeography 41: 629-643."
+      - "Kass et al. (2021). ENMeval 2.0: redesigned for customizable and reproducible modeling of species' niches and distributions. Methods in Ecology and Evolution 12: 1602-1608. doi:10.1111/2041-210X.13628"
+
+  # impl: _evaluate.py:387-393
+  - id: sdm_omission_p10
+    name: "Omission rate at the 10th percentile (or.10p)"
+    level: model
+    theme: threshold-dependent
+    unit: "none"
+    range: "0 ≤ x ≤ 1"
+    what: |
+      The share of test presences predicted below the 10th percentile training presence threshold. A well-fitted model
+      omits about 0.1.
+    use: |
+      Much more than 0.1 suggests overfitting; much less, an overly permissive model.
+    formula: |
+      OR_{10} = \frac{\#\{x^{test}_i < p10(x^{train})\}}{n_{test}}
+    symbols:
+      'p10(\cdot)': "the 10th percentile training presence threshold (above)."
+    python: 'tf.sdm.omission_rate(pres, o_pres, "p10")'
+    operator: sdm.omission_rate
+    setting: threshold = p10
+    refs:
+      - "Radosavljevic & Anderson (2014). Making better Maxent models of species distributions: complexity, overfitting and evaluation. Journal of Biogeography 41: 629-643."
+      - "Kass et al. (2021). ENMeval 2.0: redesigned for customizable and reproducible modeling of species' niches and distributions. Methods in Ecology and Evolution 12: 1602-1608. doi:10.1111/2041-210X.13628"
+
+  # impl: _extrapolation.py:74-145
+  - id: sdm_mess
+    name: "Multivariate environmental similarity surface (MESS)"
+    level: cell
+    theme: extrapolation
+    unit: "% of the reference range"
+    range: "negative = novel; up to 100 at the median"
+    aliases: [MESS, novel environments]
+    what: |
+      For each cell, the smallest over the variables of the similarity of its value to the reference sample: 100 at
+      the median, falling to 0 at the reference extremes and negative outside the reference range. Negative cells are
+      conditions at least one variable of which the model has never seen.
+    use: |
+      Use to mask projections into novel climates. It only looks at each variable separately; combinations of values
+      that never occurred together are not flagged (use ExDet or MOP for that).
+    formula: |
+      S_j(x) = \begin{cases}2F & F \le 50\\ 200 - 2F & 50 < F < 100\\ 100\,\dfrac{x - \min}{\max - \min} & F = 0\\ 100\,\dfrac{\max - x}{\max - \min} & F = 100\end{cases},\qquad MESS = \min_j S_j
+    symbols:
+      'F = 100\,\#\{v \le x\}/n': "percent of the reference values of the variable that are at or below the cell's value \\( x \\); min and max: extremes of the reference values. Option `full=True` also returns \\( S_j \\) per variable (bands `<name>_mess`)."
+    python: 'tf.sdm.mess(data, new)'
+    operator: sdm.mess
+    refs:
+      - "Elith et al. (2010). The art of modelling range-shifting species. Methods in Ecology and Evolution 1: 330-342."
+
+  # impl: _extrapolation.py:155-270
+  - id: sdm_mop_distance
+    name: "Mobility-oriented parity distance (mop)"
+    level: cell
+    theme: extrapolation
+    unit: "variable units (or standardised)"
+    range: "≥ 0"
+    aliases: [MOP]
+    what: |
+      For each cell, the mean distance in environmental space to its nearest reference conditions. Large values mean
+      the cell is unlike the conditions the model was fitted to, even inside the ranges.
+    use: |
+      Compare with MESS (range only). The Mahalanobis form uses the reference covariance, unlike the R package, which
+      uses that of the tested cells.
+    formula: |
+      MOP(x) = \frac{1}{k}\sum_{m=1}^{k} d\bigl(x,\, r_{(m)}\bigr),\qquad k = \max\!\left(\operatorname{round}\!\left(n_r\,\frac{\text{percentage}}{100}\right),\, 1\right)
+    symbols:
+      'r_{(m)}': "the \\( m \\)-th nearest reference point"
+      'd': "Euclidean distance (optionally after centring and scaling both sets together) or Mahalanobis distance with the covariance of the reference conditions"
+      'n_r': "number of reference points. Computed by default only in cells inside every variable's reference range (`where=\"in_range\"`); other cells are NaN. `rescale` maps the values to 0-1."
+    python: 'tf.sdm.mop(data, new).sel(band="mop")'
+    operator: sdm.mop
+    setting: distance = euclidean
+    refs:
+      - "Owens et al. (2013). Constraints on interpretation of ecological niche models by limited environmental ranges on calibration areas. Ecological Modelling 263: 10-18."
+
+  # impl: _extrapolation.py:232-236
+  - id: sdm_mop_basic
+    name: "MOP outside-range mask (basic, simple)"
+    level: cell
+    theme: extrapolation
+    unit: "1 or count"
+    range: "basic = 1 or NaN; simple ≥ 1 or NaN"
+    what: |
+      The band `basic` is 1 in cells where at least one variable is outside the reference range, NaN otherwise. With
+      `type="simple"` the band `simple` counts how many variables are outside.
+    use: |
+      A binary equivalent of MESS < 0; `simple` shows how many variables extrapolate.
+    formula: |
+      basic(x) = 1[\,\exists j:\; x_j < \min_j \lor x_j > \max_j\,],\qquad simple(x) = \sum_j 1[x_j < \min_j \lor x_j > \max_j]
+    symbols:
+      '\min_j, \max_j': "extremes of variable \\(j\\) in the reference sample"
+      'x_j': "value of variable \\(j\\) in the cell"
+    python: 'tf.sdm.mop(data, new, type="simple").sel(band="simple")'
+    operator: sdm.mop
+    setting: type = simple
+
+  # impl: _extrapolation.py:264-269
+  - id: sdm_mop_combined
+    name: "MOP variables below / above range (low_combined, high_combined)"
+    level: cell
+    theme: extrapolation
+    unit: "code"
+    range: "sums of powers of 2"
+    what: |
+      With `type="detailed"`, two codes saying which variables are below and which above the reference range in each
+      cell: for each variable j (1-based) outside in that direction, 2^j is added.
+    use: |
+      To map which variables drive extrapolation.
+    formula: |
+      low(x) = \sum_{j:\, x_j < \min_j} 2^{j},\qquad high(x) = \sum_{j:\, x_j > \max_j} 2^{j}
+    symbols:
+      'j': "position of the variable in the reference table, starting at 1. A code of 6 means variables 1 and 2 (2 + 4)."
+    python: 'tf.sdm.mop(data, new, type="detailed").sel(band="low_combined")'
+    operator: sdm.mop
+    setting: type = detailed
+
+  # impl: _extrapolation.py:323-327
+  - id: sdm_exdet_nt1
+    name: "Univariate novelty (ExDet NT1)"
+    level: cell
+    theme: extrapolation
+    unit: "fraction of each variable's range"
+    range: "NT1 ≤ 0 (negative = outside range)"
+    aliases: [ExDet, type 1 novelty]
+    what: |
+      Where at least one variable is outside its reference range, the sum over the variables of how far outside it is,
+      in units of the reference range of that variable. It is 0 inside every range.
+    use: |
+      Negative cells are univariate extrapolation; the more negative, the farther out.
+    formula: |
+      NT1(x) = \sum_{j}\frac{\min\bigl(x_j - a_j,\; b_j - x_j,\; 0\bigr)}{b_j - a_j}
+    symbols:
+      'a_j, b_j': "minimum and maximum of variable \\( j \\) in the reference sample. The band `exdet` holds NT1 where it is below 0."
+    python: 'tf.sdm.exdet(data, new).sel(band="exdet").where(lambda x: x < 0)'
+    operator: sdm.exdet
+    refs:
+      - "Mesgaran et al. (2014). Here be dragons: a tool for quantifying novelty due to covariate range and correlation change when projecting species distribution models. Diversity and Distributions 20: 1147-1159."
+
+  # impl: _extrapolation.py:328-340
+  - id: sdm_exdet_nt2
+    name: "Combinatorial novelty (ExDet NT2)"
+    level: cell
+    theme: extrapolation
+    unit: "none"
+    range: "NT2 ≥ 0; > 1 = novel combination"
+    what: |
+      For cells inside every variable's range, the squared Mahalanobis distance to the reference centre relative to
+      the largest such distance among the reference points. A value above 1 marks a combination of values (a
+      correlation structure) the reference sample never had.
+    use: |
+      Complements MESS and NT1: it finds novelty that no single variable shows.
+    formula: |
+      NT2(x) = \frac{D^{2}(x)}{\max_{r \in R} D^{2}(r)},\qquad D^{2}(x) = (x - \bar{r})^{\top} \Sigma^{-1} (x - \bar{r})
+    symbols:
+      '\bar{r}': "mean of the reference conditions"
+      '\Sigma': "their covariance"
+      'R': "reference points. The band `exdet` holds NT2 where NT1 = 0. Collinear predictors make \\( \\Sigma \\) singular and raise an error."
+    python: 'tf.sdm.exdet(data, new).sel(band="exdet").where(lambda x: x >= 0)'
+    operator: sdm.exdet
+    refs:
+      - "Mesgaran et al. (2014). Here be dragons: a tool for quantifying novelty due to covariate range and correlation change when projecting species distribution models. Diversity and Distributions 20: 1147-1159."
+
+  # impl: _extrapolation.py:327, 341-347
+  - id: sdm_exdet_mic
+    name: "Most influential covariate (ExDet mic)"
+    level: cell
+    theme: extrapolation
+    unit: "variable index"
+    range: "0, or 1 ... number of variables"
+    what: |
+      The variable most responsible for the novelty of the cell (1-based position), or 0 for conditions that are
+      analogue.
+    use: |
+      Use to explain why a projection extrapolates.
+    formula: |
+      mic(x) = \begin{cases}\arg\min_j \dfrac{\min(x_j - a_j,\, b_j - x_j,\, 0)}{b_j - a_j} & NT1 < 0\\ \arg\max_k \dfrac{D^{2}(x) - D^{2}_{-k}(x)}{D^{2}_{-k}(x)} & NT2 > 1\\ 0 & \text{otherwise}\end{cases}
+    symbols:
+      'D^{2}_{-k}': "squared Mahalanobis distance without variable \\( k \\) (reference centre and covariance recomputed). The R package dsmextra numbered the variables backwards in the combinatorial case; here it points to the right variable."
+    python: 'tf.sdm.exdet(data, new).sel(band="mic")'
+    operator: sdm.exdet
+    refs:
+      - "Mesgaran et al. (2014). Here be dragons: a tool for quantifying novelty due to covariate range and correlation change when projecting species distribution models. Diversity and Distributions 20: 1147-1159."

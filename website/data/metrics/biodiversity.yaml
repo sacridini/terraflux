@@ -1,0 +1,1803 @@
+family: biodiversity
+title: Biodiversity (Biodiverse)
+order: 40
+source: Biodiverse (Laffan, Lubarsky and Rosauer 2010), ported as tf.bio
+intro: |
+  Species (labels) counted in cells (groups). Every index is computed for each group over its neighbourhood: one or two
+  sets of groups chosen by spatial conditions (set 1, set 2). The names are Biodiverse's and the values match its output.
+
+  The cards show the values of one cell, `3350000:750000`, on Biodiverse's own example: 365 records of 31 species snapped
+  to cells of 100 km (`tf.bio.example_data("sites")`), with the phylogeny of those species (`"tree"`). The neighbourhood
+  is `C`, the cells within 200 km; the indices of two sets use `C2`, the cell itself as set 1 and its neighbourhood as
+  set 2. A call gives a table (`.table`, a row per cell) and list indices (`.lists`); `at` picks what the cell `G` holds
+  (a list shows its first six entries). The example has no label or group properties and no label matrix, so those cards
+  use a small toy made with a seeded random generator: a mass between 1 and 50 for each species, an elevation between 0
+  and 800 for each cell, and random symmetric distances between the species. The numeric-label cards read the record
+  number of the table as the label. The toy values show how a calculation is called, not a result about the species.
+
+  Shared notation: `S` richness (labels in the neighbourhood); `A`, `B`, `C` the labels in both sets, only in set 1 and
+  only in set 2 (`ABC = A+B+C`); `R_l` the range of a label (the groups holding it in the whole basedata, or its RANGE
+  property if larger); `r_l` its local range (groups of the neighbourhood holding it); `N_l` and `n_l` the same counts in
+  samples. Where the code departs from the usual definition the card says so. Moran's I and Geary's C are not here: they
+  live in `tf.stats`.
+example: |
+  import numpy as np
+  import pandas as pd
+  import terraflux as tf
+
+  # Biodiverse's example records: 365 records of 31 species, snapped to cells of 100 km
+  sites = tf.bio.example_data("sites")
+  bd = tf.bio.BaseData.from_table(sites, group_columns=["x", "y"], label_columns=["genus", "species"],
+                                  cell_sizes=[100000, 100000])
+  tree = tf.bio.read_tree(tf.bio.example_data("tree"))  # the phylogeny of those species
+  C = "sp_circle (radius => 200000)"                    # the neighbourhood: the cells within 200 km
+  C2 = ["sp_self_only()", C]                            # two sets: the cell itself (set 1), its neighbourhood (set 2)
+  G = "3350000:750000"                                  # the cell whose values the cards show
+
+  # a small seeded toy where the example has no data: a mass per species, an elevation per cell, a label matrix
+  rng = np.random.default_rng(1)
+  bd.set_label_properties(pd.DataFrame({"MASS": rng.integers(1, 51, len(bd.labels)).astype(float)}, index=bd.labels))
+  bd.set_group_properties(pd.DataFrame({"ELEV": rng.integers(0, 801, len(bd.groups)).astype(float)}, index=bd.groups))
+  v = rng.random((len(bd.labels), len(bd.labels)))
+  mx = tf.bio.Matrix(bd.labels, (v + v.T) / 2, self_similarity=0.0)
+  # numeric labels: the record number of the table is the label
+  bn = tf.bio.BaseData.from_table(sites, group_columns=["x", "y"], label_columns=["num"], cell_sizes=[100000, 100000])
+
+
+  def at(res, *keys, like=None, n=6):
+      """What a result holds for the cell G: columns of its table, or the first n entries of a list index."""
+      if keys and keys[0] in res.lists:
+          d = res.lists[keys[0]]
+          return d[d["group"] == G].set_index("key")["value"].head(n)
+      row = res.table.loc[G]
+      if like:
+          return row.filter(like=like)
+      return row[keys[0]] if len(keys) == 1 else row[list(keys)] if keys else row
+
+metrics:
+  # ---------------------------------------------------------------- richness
+  # impl: indices.cpp:1595
+  - id: RICHNESS_ALL
+    name: Richness
+    level: cell
+    theme: richness
+    unit: labels
+    range: ≥ 0
+    what: Number of distinct labels (species) in the neighbourhood. RICHNESS_SET1 and RICHNESS_SET2 give it for each set alone.
+    formula: 'S_{all} = A+B+C,\quad S_{1} = A+B,\quad S_{2} = A+C'
+    symbols:
+      'A': 'the labels in both sets'
+      'B': 'the labels only in set 1'
+      'C': 'the labels only in set 2'
+    use: The base measure of diversity; depends on the cell size and on the neighbourhood. Sampling effort inflates or hides it, see the estimators.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "richness"), "RICHNESS_ALL")'
+    operator: bio.spatial
+    setting: calculations = richness
+    aliases: [species richness, RICHNESS_SET1, RICHNESS_SET2]
+
+  # impl: indices.cpp:1599
+  - id: REDUNDANCY_ALL
+    name: Redundancy
+    level: cell
+    theme: richness
+    unit: none
+    range: 0 ≤ value < 1 (undefined without samples)
+    what: How much sampling exceeds richness, one minus labels per sample. Near 0 every sample is a different label, near 1 most are repeats.
+    formula: 'Red = 1 - \frac{S}{\sum_l n_l}'
+    symbols:
+      'S': 'richness of the set'
+      'n_l': 'the samples of label \(l\) in the neighbourhood. REDUNDANCY_SET1 and _SET2 use their own set.'
+    use: A cheap check of sample completeness; unlike the estimators it says nothing about unseen labels.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "redundancy"), "REDUNDANCY_ALL")'
+    operator: bio.spatial
+    setting: calculations = redundancy
+
+  # impl: indices.cpp:1610
+  - id: ABC_A
+    name: Shared and exclusive label counts (A, B, C, ABC)
+    level: cell
+    theme: richness
+    unit: labels
+    range: ≥ 0
+    what: Counts of labels in both neighbour sets (ABC_A), only in set 1 (ABC_B), only in set 2 (ABC_C) and in either (ABC_ABC); the inputs of every taxonomic turnover index.
+    formula: 'ABC = A + B + C'
+    symbols:
+      'A': 'the labels in both sets'
+      'B': 'the labels only in set 1'
+      'C': 'the labels only in set 2'
+    use: Needs two conditions. Read them first when a turnover value looks odd.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "abc_counts"))'
+    operator: bio.spatial
+    setting: calculations = abc_counts
+    aliases: [ABC_B, ABC_C, ABC_ABC]
+
+  # impl: indices.cpp:1615
+  - id: ABC_D
+    name: Labels in the basedata but not in the neighbourhood (D)
+    level: cell
+    theme: richness
+    unit: labels
+    range: ≥ 0
+    what: Count of labels of the whole basedata absent from both neighbour sets.
+    formula: 'D = L - (A+B+C)'
+    symbols:
+      'L': 'number of labels in the basedata'
+    use: Completes the 2x2 table of A, B, C, D that presence-absence indices work from.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "d"), "ABC_D")'
+    operator: bio.spatial
+    setting: calculations = d
+
+  # impl: indices.cpp:1617
+  - id: EL_COUNT_ALL
+    name: Element (group) counts
+    level: cell
+    theme: richness
+    unit: groups
+    range: ≥ 0
+    what: Number of groups in the neighbourhood, EL_COUNT_ALL for both sets, EL_COUNT_SET1 and EL_COUNT_SET2 for each; the nonempty version counts only groups holding at least one label.
+    formula: 'E_{all} = |G_1 \cup G_2|'
+    symbols:
+      'G_1, G_2': 'the groups of set 1 and set 2'
+    use: Gives the area in cells behind the other indices (it is the divisor of the normalised endemism indices).
+    python: 'at(tf.bio.spatial_analysis(bd, C2, ["elements_used", "nonempty_elements_used"]))'
+    operator: bio.spatial
+    setting: calculations = elements_used
+    aliases: [EL_COUNT_SET1, EL_COUNT_SET2, EL_COUNT_NONEMPTY_ALL, EL_COUNT_NONEMPTY_SET1, EL_COUNT_NONEMPTY_SET2, nonempty_elements_used]
+
+  # impl: indices.cpp:1627
+  - id: EL_LIST_ALL
+    name: Element lists (groups of the neighbourhood)
+    level: cell
+    theme: lists
+    unit: none
+    range: 1 per group
+    what: The groups of the neighbourhood as a list (key group name, value 1), for both sets and for each. The "as arrays" version gives the same keys in Biodiverse's array form.
+    formula: 'L(g) = 1 \quad \forall g \in G_1 \cup G_2'
+    symbols:
+      'G_1, G_2': 'the groups of the two sets'
+    use: To see or export which cells made up a neighbourhood.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "element_lists_used"), "EL_LIST_ALL")'
+    operator: bio.spatial
+    setting: calculations = element_lists_used
+    aliases: [EL_LIST_SET1, EL_LIST_SET2, EL_ARRAY_ALL, EL_ARRAY_SET1, EL_ARRAY_SET2, element_lists_used_as_arrays]
+
+  # impl: indices.cpp:1633
+  - id: LABEL_COUNT_RANK_PCT
+    name: Label count rank (percent)
+    level: cell
+    theme: abundance
+    unit: percent
+    range: 0 ≤ p ≤ 100
+    what: For each label, the percentage of the other groups in the neighbourhood that hold fewer samples of it than the focal group (groups without it count as 0).
+    formula: 'p_l = 100\,\frac{\#\{g \ne g_0 : n_{g,l} < n_{g_0,l}\}}{|G| - 1}'
+    symbols:
+      'g_0': 'the processing group'
+      'G': 'the neighbourhood groups'
+      'n_{g,l}': 'samples of label \(l\) in group \(g\)'
+    use: Tells whether the focal cell is rich or poor in a species relative to its neighbours; a label absent from the focal group gets 0.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "label_count_quantile_position"), "LABEL_COUNT_RANK_PCT")'
+    operator: bio.spatial
+    setting: calculations = label_count_quantile_position
+
+  # ---------------------------------------------------------------- abundance (local ranges and sample counts)
+  # impl: indices.cpp:1674-1684
+  - id: ABC2_MEAN_ALL
+    name: Local range statistics
+    level: cell
+    theme: abundance
+    unit: groups
+    range: ≥ 1
+    what: Mean and standard deviation, over the labels of the neighbourhood, of their local range (number of neighbourhood groups holding the label). Per set as ABC2_MEAN_SET1 / _SET2 and ABC2_SD_*.
+    formula: '\bar r = \frac{1}{S}\sum_l r_l,\quad s_r = \sqrt{\frac{\sum_l (r_l-\bar r)^2}{S-1}}'
+    symbols:
+      'r_l': 'groups of the neighbourhood holding label \(l\)'
+      'S': 'the number of labels'
+    use: Separates a neighbourhood of widespread species from one of local ones; the lists ABC2_LABELS_ALL (_SET1, _SET2) give the \(r_l\) themselves (calculation local_range_lists).
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "local_range_stats"))'
+    operator: bio.spatial
+    setting: calculations = local_range_stats
+    aliases: [ABC2_SD_ALL, ABC2_MEAN_SET1, ABC2_MEAN_SET2, ABC2_SD_SET1, ABC2_SD_SET2, ABC2_LABELS_ALL, local_range_lists]
+
+  # impl: indices.cpp:1689-1700
+  - id: ABC3_MEAN_ALL
+    name: Local sample count statistics
+    level: cell
+    theme: abundance
+    unit: samples
+    range: ≥ 1
+    what: Mean, standard deviation and sum of the sample counts of the labels over the neighbourhood (ABC3_MEAN_*, ABC3_SD_*, ABC3_SUM_*, for all, set 1, set 2).
+    formula: 'n_l = \sum_{g \in G} n_{g,l},\quad \bar n = \frac{1}{S}\sum_l n_l,\quad \text{SUM} = \sum_l n_l'
+    symbols:
+      'n_{g,l}': 'samples of label \(l\) in group \(g\)'
+      'n_l': 'samples of label \(l\) in the neighbourhood'
+      'S': 'the number of labels'
+      'SD': 'the sample standard deviation of \(n_l\)'
+    use: A summary of abundance; ABC3_LABELS_ALL gives the \(n_l\) (local_sample_count_lists).
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "local_sample_count_stats"))'
+    operator: bio.spatial
+    setting: calculations = local_sample_count_stats
+    aliases: [ABC3_SD_ALL, ABC3_SUM_ALL, ABC3_MEAN_SET1, ABC3_SUM_SET1, ABC3_LABELS_ALL, local_sample_count_lists]
+
+  # impl: indices.cpp:1701
+  - id: ABC3_QUANTILES_ALL
+    name: Local sample count quantiles
+    level: cell
+    theme: abundance
+    unit: samples
+    range: ≥ 1
+    what: The 0, 5, 10 ... 100 percent quantiles (keys Q000 to Q100) of the label sample counts over the neighbourhood, as a list.
+    formula: 'Q_p = \text{percentile}_p\{n_l\}'
+    symbols:
+      'n_l': 'the sample count of label \(l\) in the neighbourhood'
+      'p': 'the percentage: 0, 5, ..., 100'
+    use: Shows the shape of the abundance distribution. With one set the lists for set 1 repeat the all-set values.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "local_sample_count_quantiles"), "ABC3_QUANTILES_ALL")'
+    operator: bio.spatial
+    setting: calculations = local_sample_count_quantiles
+    aliases: [ABC3_QUANTILES_SET1, ABC3_QUANTILES_SET2]
+
+  # ---------------------------------------------------------------- diversity
+  # impl: indices.cpp:1777
+  - id: SIMPSON_D
+    name: Simpson diversity
+    level: cell
+    theme: diversity
+    unit: none
+    range: 0 ≤ D < 1
+    what: Probability that two samples drawn at random from the neighbourhood are different labels (one minus the sum of squared proportions).
+    formula: 'D = 1 - \sum_l p_l^2,\quad p_l = \frac{n_l}{\sum_k n_k}'
+    symbols:
+      'n_l': 'samples of label \(l\) in the neighbourhood'
+    use: Weights common species; insensitive to rare ones. It is the Gini-Simpson index (1 − Σp²), not Σp².
+    python: 'at(tf.bio.spatial_analysis(bd, C, "simpson_shannon"), "SIMPSON_D")'
+    operator: bio.spatial
+    setting: calculations = simpson_shannon
+    aliases: [Gini-Simpson]
+
+  # impl: indices.cpp:1777
+  - id: SHANNON_H
+    name: Shannon entropy
+    level: cell
+    theme: diversity
+    unit: nats
+    range: 0 ≤ H ≤ ln S
+    what: Entropy of the label proportions with the natural logarithm. The same calculation gives SHANNON_HMAX = ln S and the evenness SHANNON_E = H / ln S.
+    formula: 'H = -\sum_l p_l \ln p_l,\quad H_{max} = \ln S,\quad E = H / H_{max}'
+    symbols:
+      'p_l': 'proportion of the samples that belong to label \(l\)'
+      'S': 'richness'
+      'E': 'evenness, undefined when \(S = 1\)'
+    use: Sensitive to rare labels more than Simpson. SHANNON_E compares cells of different richness.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "simpson_shannon"), "SHANNON_H", "SHANNON_HMAX", "SHANNON_E")'
+    operator: bio.spatial
+    setting: calculations = simpson_shannon
+    aliases: [SHANNON_E, SHANNON_HMAX, evenness]
+
+  # impl: indices.cpp:1794
+  - id: TX_RAO_QE
+    name: Rao quadratic entropy (taxonomic)
+    level: cell
+    theme: diversity
+    unit: none
+    range: 0 ≤ Q < 1
+    what: Rao's quadratic entropy with every pair of different labels at distance 1; TX_RAO_TN is the number of label pairs counted (S squared), TX_RAO_TLABELS the proportions.
+    formula: 'Q = \sum_{i}\sum_{j \ne i} p_i p_j = 1 - \sum_l p_l^2'
+    symbols:
+      'p_l': 'proportion of the samples of label \(l\)'
+    use: With distance 1 it equals SIMPSON_D; use the matrix version MX_RAO_QE for real label distances.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "tx_rao_qe"))'
+    operator: bio.spatial
+    setting: calculations = tx_rao_qe
+    aliases: [TX_RAO_TN, TX_RAO_TLABELS]
+    refs: ["Rao (1982). Diversity and dissimilarity coefficients: a unified approach. Theoretical Population Biology 21: 24-43."]
+
+  # impl: indices.cpp:1920
+  - id: HURLBERT_ES
+    name: Hurlbert's rarefied richness (ES)
+    level: cell
+    theme: diversity
+    unit: labels
+    range: 1 ≤ ES(n) ≤ S
+    what: Expected number of labels in a random draw of n samples, for n = 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000 (those not above the total samples), as a list keyed by n.
+    formula: 'ES(n) = \sum_l \left[1 - \frac{\binom{N-N_l}{n}}{\binom{N}{n}}\right]'
+    symbols:
+      'n': 'the number of samples drawn'
+      'N': 'total samples in the neighbourhood'
+      'N_l': 'samples of label \(l\); a term is 1 when \(N - N_l < n\)'
+    use: Compares richness between cells with different sampling effort. A cell with fewer than 5 samples returns nothing.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "hurlbert_es"), "HURLBERT_ES")'
+    operator: bio.spatial
+    setting: calculations = hurlbert_es
+    refs: ["Hurlbert (1971). The nonconcept of species diversity: a critique and alternative parameters. Ecology 52: 577-586."]
+
+  # ---------------------------------------------------------------- estimation
+  # impl: indices.cpp:487
+  - id: CHAO1_ESTIMATE
+    name: Chao1 richness estimate
+    level: cell
+    theme: estimation
+    unit: labels
+    range: ≥ S
+    what: Lower-bound estimate of the true richness from the singletons and doubletons of the sample counts, with the variance, standard error, 95% interval, undetected labels and the counts f1, f2 (CHAO1_*).
+    formula: 'S_{Chao1} = S + \frac{n-1}{n}\cdot\begin{cases}\dfrac{f_1^2}{2 f_2} & f_2 > 0\\[4pt] \dfrac{f_1 (f_1-1)}{2} & f_2 = 0,\ f_1 > 1\\ 0 & \text{otherwise}\end{cases}'
+    symbols:
+      'S': 'observed labels'
+      'n': 'total samples'
+      'f_1, f_2': 'labels with exactly one and two samples (CHAO1_F1_COUNT, CHAO1_F2_COUNT)'
+      'S_{Chao1} - S': 'the labels not yet seen (CHAO1_UNDETECTED)'
+      'z': '1.959964, the normal quantile of the log-normal 95% interval (CHAO1_CI_LOWER, CHAO1_CI_UPPER); CHAO1_META lists the formulas used'
+    use: Good for sample counts with many rare labels; uses sample counts (see CHAO2 for presence in groups). Unreliable with no singletons.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "chao1"), like="CHAO1")'
+    operator: bio.spatial
+    setting: calculations = chao1
+    aliases: [CHAO1_SE, CHAO1_VARIANCE, CHAO1_UNDETECTED, CHAO1_CI_LOWER, CHAO1_CI_UPPER, CHAO1_F1_COUNT, CHAO1_F2_COUNT, CHAO1_META]
+    refs: ["Chao (1984). Nonparametric estimation of the number of classes in a population. Scandinavian Journal of Statistics 11: 265-270.", "Chao (1987). Estimating the population size for capture-recapture data with unequal catchability. Biometrics 43: 783-791."]
+
+  # impl: indices.cpp:487
+  - id: CHAO2_ESTIMATE
+    name: Chao2 richness estimate
+    level: cell
+    theme: estimation
+    unit: labels
+    range: ≥ S
+    what: 'The incidence-based Chao estimator: it works on the number of groups each label occurs in, so the labels found in exactly one or two groups play the role of singletons and doubletons.'
+    formula: 'S_{Chao2} = S + \frac{m-1}{m}\cdot\begin{cases}\dfrac{Q_1^2}{2 Q_2} & Q_2 > 0\\[4pt] \dfrac{Q_1 (Q_1-1)}{2} & Q_2 = 0,\ Q_1 > 1\\ 0 & \text{otherwise}\end{cases}'
+    symbols:
+      'm': 'groups in the neighbourhood'
+      'Q_1, Q_2': 'labels in exactly one and two groups (CHAO2_Q1_COUNT, CHAO2_Q2_COUNT)'
+      'S_{Chao2} - S': 'the labels not yet seen (CHAO2_UNDETECTED); the other CHAO2_* values are as for Chao1'
+    use: Better when the data are presence per group rather than counts; needs several groups in the neighbourhood.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "chao2"), like="CHAO2")'
+    operator: bio.spatial
+    setting: calculations = chao2
+    aliases: [CHAO2_SE, CHAO2_VARIANCE, CHAO2_UNDETECTED, CHAO2_CI_LOWER, CHAO2_CI_UPPER, CHAO2_Q1_COUNT, CHAO2_Q2_COUNT, CHAO2_META]
+    refs: ["Chao (1987). Estimating the population size for capture-recapture data with unequal catchability. Biometrics 43: 783-791."]
+
+  # impl: indices.cpp:707-
+  - id: ACE_ESTIMATE
+    name: ACE richness estimate
+    level: cell
+    theme: estimation
+    unit: labels
+    range: ≥ S
+    what: Abundance-based coverage estimator. Labels with 10 or fewer samples are "rare"; their number is inflated by the sample coverage and a coefficient of variation. Falls back on Chao1 when coverage is 0.
+    formula: 'S_{ACE} = S_{abund} + \frac{S_{rare}}{C} + \frac{f_1}{C}\gamma^2,\quad C = 1 - \frac{f_1}{N_{rare}}'
+    symbols:
+      'S_{abund}, S_{rare}': 'labels with more than / at most 10 samples'
+      'N_{rare}': 'samples of the rare ones'
+      'f_1': 'singletons'
+      'C': 'the sample coverage of the rare labels, \(1 - f_1/N_{rare}\)'
+      '\gamma^2': 'the coefficient-of-variation term, \(\max\left(\frac{S_{rare}}{C}\frac{\sum_i i(i-1)f_i}{N_{rare}(N_{rare}-1)}-1,\,0\right)\) with the sum over 1 to 10; ACE_ESTIMATE_USED_CHAO is 1 when the Chao1 fallback was used'
+    use: Uses all the rare labels, not only singletons and doubletons; the cutoff 10 is fixed. Variance by the delta method as in EstimateS.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "ace"), like="ACE")'
+    operator: bio.spatial
+    setting: calculations = ace
+    aliases: [ACE_SE, ACE_VARIANCE, ACE_UNDETECTED, ACE_CI_LOWER, ACE_CI_UPPER, ACE_INFREQUENT_COUNT, ACE_ESTIMATE_USED_CHAO]
+    refs: ["Chao & Lee (1992). Estimating the number of classes via sample coverage. Journal of the American Statistical Association 87: 210-217."]
+
+  # impl: indices.cpp:707-
+  - id: ICE_ESTIMATE
+    name: ICE richness estimate
+    level: cell
+    theme: estimation
+    unit: labels
+    range: ≥ S
+    what: 'The incidence version of ACE: rare labels are those found in 10 or fewer groups, and the coverage and variation use the number of groups t that hold any label.'
+    formula: 'S_{ICE} = S_{freq} + \frac{S_{infreq}}{C} + \frac{Q_1}{C}\gamma^2,\quad C = 1 - \frac{Q_1}{N_{infreq}}(1-A)'
+    symbols:
+      'S_{freq}, S_{infreq}': 'labels in more than / at most 10 groups'
+      'Q_i': 'labels in exactly \(i\) groups'
+      'N_{infreq}': 'the sum of the group counts of the infrequent labels'
+      't': 'groups holding labels'
+      'A': 'the correction \(\frac{2Q_2}{(t-1)Q_1+2Q_2}\) (a variant when \(Q_2=0\))'
+      'C': 'the sample coverage of the infrequent labels'
+      '\gamma^2': 'the coefficient-of-variation term, with the factor \(t/(t-1)\)'
+    use: Use with presence data over several groups; needs t > 1 else it returns the observed richness.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "ice"), like="ICE")'
+    operator: bio.spatial
+    setting: calculations = ice
+    aliases: [ICE_SE, ICE_VARIANCE, ICE_UNDETECTED, ICE_CI_LOWER, ICE_CI_UPPER, ICE_INFREQUENT_COUNT, ICE_ESTIMATE_USED_CHAO]
+    refs: ["Lee & Chao (1994). Estimating population size via sample coverage for closed capture-recapture models. Biometrics 50: 88-97."]
+
+  # ---------------------------------------------------------------- endemism
+  # impl: indices.cpp:415
+  - id: ENDW_WE
+    name: Weighted endemism (whole neighbourhood)
+    level: cell
+    theme: endemism
+    unit: label equivalents
+    range: ≥ 0
+    what: Sum over the labels of the neighbourhood of the share of each label's range that lies in it. A label wholly inside counts 1, a widespread one counts little.
+    formula: 'WE = \sum_{l} \frac{r_l}{R_l}'
+    symbols:
+      'r_l': 'groups of the neighbourhood (both sets) that hold label \(l\)'
+      'R_l': 'its range in the basedata (the RANGE property if larger)'
+    use: Rises with richness as well as with narrow ranges; use the corrected version (ENDW_CWE) to compare cells.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "endemism_whole"))'
+    operator: bio.spatial
+    setting: calculations = endemism_whole
+    aliases: [WE, weighted endemism, ENDW_RICHNESS]
+    refs: ["Crisp et al. (2001). Endemism in the Australian flora. Journal of Biogeography 28: 183-198.", "Laffan & Crisp (2003). Assessing endemism at multiple spatial scales, with an example from the Australian vascular flora. Journal of Biogeography 30: 511-520."]
+
+  # impl: indices.cpp:432
+  - id: ENDW_CWE
+    name: Corrected weighted endemism (whole neighbourhood)
+    level: cell
+    theme: endemism
+    unit: none
+    range: 0 ≤ CWE ≤ 1
+    what: 'Weighted endemism divided by richness: the mean proportion of its range the labels of the neighbourhood have there.'
+    formula: 'CWE = \frac{WE}{S}'
+    symbols:
+      'WE': 'as ENDW_WE'
+      'S': 'labels in the neighbourhood'
+    use: Removes the richness effect, so it shows range restriction rather than species numbers. Undefined for empty neighbourhoods.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "endemism_whole"), "ENDW_CWE")'
+    operator: bio.spatial
+    setting: calculations = endemism_whole
+    aliases: [CWE]
+    refs: ["Crisp et al. (2001). Endemism in the Australian flora. Journal of Biogeography 28: 183-198."]
+
+  # impl: indices.cpp:415
+  - id: ENDW_SINGLE
+    name: Endemism, single (Rosauer)
+    level: cell
+    theme: endemism
+    unit: none
+    range: '> 0'
+    what: Sum over the labels of the neighbourhood of one over its range, each label counted once whatever its local range.
+    formula: 'E_{single} = \sum_l \frac{1}{R_l}'
+    symbols:
+      'R_l': 'range of label \(l\) in the basedata'
+    use: The range-size-weighted richness used in phylogenetic endemism of single cells; unlike WE it ignores how widely the label occurs in the neighbourhood.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "endemism_whole"), "ENDW_SINGLE")'
+    operator: bio.spatial
+    setting: calculations = endemism_whole
+    refs: ["Slatyer et al. (2007). An assessment of endemism and species richness patterns in the Australian Anura. Journal of Biogeography 34: 583-596. doi:10.1111/j.1365-2699.2006.01647.x"]
+
+  # impl: indices.cpp:1858
+  - id: ENDW_RANGELIST
+    name: Endemism lists (whole neighbourhood)
+    level: cell
+    theme: lists
+    unit: groups / none
+    range: per label
+    what: Per label of the neighbourhood, its range (ENDW_RANGELIST) and its endemism weight r/R (ENDW_WTLIST), the terms behind WE.
+    formula: 'w_l = \frac{r_l}{R_l}'
+    symbols:
+      'r_l': 'local range'
+      'R_l': 'range in the basedata'
+    use: To map or rank the species that drive an endemism hotspot.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "endemism_whole_lists"), "ENDW_WTLIST")'
+    operator: bio.spatial
+    setting: calculations = endemism_whole_lists
+    aliases: [ENDW_WTLIST]
+
+  # impl: indices.cpp:1865
+  - id: ENDW_WE_NORM
+    name: Normalised weighted endemism (whole)
+    level: cell
+    theme: endemism
+    unit: label equivalents per group
+    range: ≥ 0
+    what: WE and CWE divided by the number of groups in the neighbourhood, so neighbourhoods of different size can be compared (ENDW_WE_NORM, ENDW_CWE_NORM).
+    formula: 'WE_{norm} = \frac{WE}{E_{all}},\quad CWE_{norm} = \frac{CWE}{E_{all}}'
+    symbols:
+      'E_{all}': 'groups in the neighbourhood (EL_COUNT_ALL)'
+    use: Only for comparing results between conditions of different sizes; undefined when there are no groups.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "endemism_whole_normalised"))'
+    operator: bio.spatial
+    setting: calculations = endemism_whole_normalised
+    aliases: [ENDW_CWE_NORM]
+
+  # impl: indices.cpp:415
+  - id: ENDC_WE
+    name: Weighted endemism (central)
+    level: cell
+    theme: endemism
+    unit: label equivalents
+    range: ≥ 0
+    what: Weighted endemism of the labels of set 1 only (the central cell), with the local ranges counted over the whole neighbourhood. The calculation also gives ENDC_CWE, ENDC_SINGLE and ENDC_RICHNESS.
+    formula: 'WE_C = \sum_{l \in S_1} \frac{r_l}{R_l},\quad CWE_C = \frac{WE_C}{|S_1|},\quad E_{single} = \sum_{l \in S_1}\frac{1}{R_l}'
+    symbols:
+      'S_1': 'labels in set 1'
+      'r_l': 'groups of both sets holding label \(l\)'
+      'R_l': 'its range in the basedata'
+    use: Needs two conditions (central cell, then the neighbourhood). Shows how endemic the central cell's species are in context.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "endemism_central"))'
+    operator: bio.spatial
+    setting: calculations = endemism_central
+    aliases: [ENDC_CWE, ENDC_SINGLE, ENDC_RICHNESS]
+
+  # impl: indices.cpp:1858, 1865
+  - id: ENDC_RANGELIST
+    name: Endemism lists (central)
+    level: cell
+    theme: lists
+    unit: groups / none
+    range: per label
+    what: Range (ENDC_RANGELIST) and weight r/R (ENDC_WTLIST) per label of set 1; the normalised version ENDC_WE_NORM, ENDC_CWE_NORM divides WE and CWE by the groups in the neighbourhood.
+    formula: 'w_l = \frac{r_l}{R_l},\quad l \in S_1'
+    symbols:
+      'r_l': 'groups of the neighbourhood holding \(l\)'
+      'R_l': 'its range'
+    use: As the whole-neighbourhood lists but for the central cell only.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, ["endemism_central_lists", "endemism_central_normalised"]), "ENDC_WTLIST")'
+    operator: bio.spatial
+    setting: calculations = endemism_central_lists
+    aliases: [ENDC_WTLIST, ENDC_WE_NORM, ENDC_CWE_NORM, endemism_central_normalised]
+
+  # impl: indices.cpp:1871
+  - id: END_ABS_ALL
+    name: Absolute endemism
+    level: cell
+    theme: endemism
+    unit: labels
+    range: ≥ 0
+    what: Number of labels of the neighbourhood whose whole range is inside it. END_ABS_ALL_P is their share of the labels; END_ABS1 / END_ABS2 (and _P) count them for set 1 and set 2 alone.
+    formula: 'END_{abs} = \#\{l : R_l \le r_l\},\quad END_{abs,P} = END_{abs} / S'
+    symbols:
+      'R_l': 'range in the basedata; for set 1 alone the test uses its range in set 1'
+      'r_l': 'local range'
+      'S': 'the number of labels'
+    use: 'A strict test: one record outside the neighbourhood excludes a label. Depends strongly on neighbourhood size.'
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "endemism_absolute"))'
+    operator: bio.spatial
+    setting: calculations = endemism_absolute
+    aliases: [END_ABS_ALL_P, END_ABS1, END_ABS1_P, END_ABS2, END_ABS2_P, END_ABS_ALL_LIST, END_ABS1_LIST, END_ABS2_LIST, endemism_absolute_lists]
+
+  # impl: indices.cpp:1941-1968
+  - id: ENDW_HPART_1
+    name: Hierarchical partition of weighted endemism
+    level: cell
+    theme: hierarchy
+    unit: none
+    range: 0 ≤ share ≤ 1
+    what: 'Splits WE by the levels of a hierarchical label name (here Genus:species): for each level a list of the share of WE contributed by each prefix, the count of labels in it, the expected share and the observed minus expected (_i, _C_i, _E_i, _OME_i; ENDC_HPART_* for the central version).'
+    formula: 'O_{k} = \sum_{l \in k} \frac{w_l}{WE},\quad E_k = \frac{n_k}{S},\quad OME_k = E_k - O_k'
+    symbols:
+      'k': 'a prefix at level \(i\)'
+      'w_l': 'the endemism weight \(r_l/R_l\) of label \(l\)'
+      'n_k': 'the labels under \(k\)'
+      'S': 'the number of labels; level 0 is the first name part. OME is expected minus observed, as the code computes it'
+    use: Shows which genera over- or under-contribute to endemism relative to their species number. Needs labels with ":"-separated parts.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "endemism_whole_hier_part"), "ENDW_HPART_1")'
+    operator: bio.spatial
+    setting: calculations = endemism_whole_hier_part
+    aliases: [ENDW_HPART_C_1, ENDW_HPART_E_1, ENDW_HPART_OME_1, ENDC_HPART_1, endemism_central_hier_part]
+
+  # impl: indices.cpp:2736-2756
+  - id: HIER_A
+    name: Hierarchical label ratios
+    level: cell
+    theme: hierarchy
+    unit: labels
+    range: ≥ 0
+    what: A, B, C counts and their ratios by label level (lists HIER_A, HIER_ARAT, HIER_ASUM, HIER_ASUMRAT, HIER_B, HIER_BRAT, HIER_C, HIER_CRAT), for hierarchical label names.
+    formula: 'ARAT_i = A_i / A_{i-1}'
+    symbols:
+      'A_i': 'shared labels at level \(i\); likewise B, C. Biodiverse computes the same A, B, C for every level, and so does this port, so the ratios are 1.'
+    use: Reproduces Biodiverse as it is; the per-level values do not differ between levels. Needs two conditions and a hierarchy.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "hierarchical_label_ratios"), "HIER_A")'
+    operator: bio.spatial
+    setting: calculations = hierarchical_label_ratios
+    aliases: [HIER_ARAT, HIER_ASUM, HIER_ASUMRAT, HIER_B, HIER_BRAT, HIER_C, HIER_CRAT]
+
+  # ---------------------------------------------------------------- rarity
+  # impl: indices.cpp:415
+  - id: RAREW_WE
+    name: Weighted rarity (whole neighbourhood)
+    level: cell
+    theme: rarity
+    unit: label equivalents
+    range: ≥ 0
+    what: 'The endemism calculation with samples in place of groups: sum of the share of each label''s total samples that falls in the neighbourhood. The calculation also gives RAREW_CWE and RAREW_RICHNESS.'
+    formula: 'WR = \sum_l \frac{n_l}{N_l},\quad CWR = \frac{WR}{S}'
+    symbols:
+      'n_l': 'samples of label \(l\) in the neighbourhood'
+      'N_l': 'its samples in the basedata (the ABUNDANCE property if larger)'
+      'S': 'labels'
+    use: Uses abundance rather than range, so it suits sampled data where a cell is not simply present or absent.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "rarity_whole"))'
+    operator: bio.spatial
+    setting: calculations = rarity_whole
+    aliases: [RAREW_CWE, RAREW_RICHNESS]
+
+  # impl: indices.cpp:415, 1858
+  - id: RAREC_WE
+    name: Weighted rarity (central)
+    level: cell
+    theme: rarity
+    unit: label equivalents
+    range: ≥ 0
+    what: Weighted rarity of the labels of set 1 with local samples over the whole neighbourhood (RAREC_WE, RAREC_CWE, RAREC_RICHNESS).
+    formula: 'WR_C = \sum_{l \in S_1} \frac{n_l}{N_l}'
+    symbols:
+      'S_1': 'labels of set 1'
+      'n_l': 'neighbourhood samples'
+      'N_l': 'basedata samples'
+    use: Needs two conditions; central version of RAREW_WE. The lists RAREC_RANGELIST / RAREC_WTLIST (rarity_central_lists) and RAREW_* (rarity_whole_lists) give the terms.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "rarity_central"))'
+    operator: bio.spatial
+    setting: calculations = rarity_central
+    aliases: [RAREC_CWE, RAREC_RICHNESS, RAREC_RANGELIST, RAREC_WTLIST, RAREW_RANGELIST, RAREW_WTLIST, rarity_central_lists, rarity_whole_lists]
+
+  # ---------------------------------------------------------------- turnover
+  # impl: indices.cpp:1725
+  - id: SORENSON
+    name: Sorenson dissimilarity
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: 'Presence-absence dissimilarity between the two neighbour sets: 0 when they hold the same labels, 1 when they share none.'
+    formula: '\mathrm{SORENSON} = 1 - \frac{2A}{2A+B+C}'
+    symbols:
+      'A': 'the labels in both sets'
+      'B': 'the labels only in set 1'
+      'C': 'the labels only in set 2'
+    use: Needs two conditions. Undefined (NaN) when both sets are empty; it is 1 when \(A=0\) but both \(B\) and \(C\) are non-zero. Also a `cluster` dissimilarity (the default).
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "sorenson"), "SORENSON")'
+    operator: bio.spatial
+    setting: calculations = sorenson
+    aliases: [Sørensen, Dice]
+
+  # impl: indices.cpp:1729
+  - id: JACCARD
+    name: Jaccard dissimilarity
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: One minus the share of labels the two sets have in common out of all labels found in either.
+    formula: 'J = 1 - \frac{A}{A+B+C}'
+    symbols:
+      'A, B, C': 'the labels in both sets, only in set 1 and only in set 2, as in SORENSON'
+    use: Same edge rules as SORENSON; counts unshared labels more heavily.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "jaccard"), "JACCARD")'
+    operator: bio.spatial
+    setting: calculations = jaccard
+
+  # impl: indices.cpp:1770
+  - id: S2
+    name: S2 dissimilarity (Lennon)
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: 'Turnover that does not depend on differences in richness between the sets: the shared labels are compared with the smaller of the two unshared parts.'
+    formula: 'S2 = 1 - \frac{A}{A + \min(B, C)}'
+    symbols:
+      'A, B, C': 'the labels in both sets, only in set 1 and only in set 2, as in SORENSON'
+    use: Use when the sets differ much in richness, where Sorenson mixes turnover with nestedness. Undefined when no label is found.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "s2"), "S2")'
+    operator: bio.spatial
+    setting: calculations = s2
+    refs: ["Lennon et al. (2001). The geographical structure of British bird distributions: diversity, spatial turnover and scale. Journal of Animal Ecology 70: 966-979. doi:10.1046/j.0021-8790.2001.00563.x"]
+
+  # impl: indices.cpp:1719
+  - id: KULCZYNSKI2
+    name: Kulczynski 2 dissimilarity
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: One minus the mean of the share of set 1 labels found in set 2 and of set 2 labels found in set 1.
+    formula: 'K2 = 1 - \frac{1}{2}\left(\frac{A}{A+B} + \frac{A}{A+C}\right)'
+    symbols:
+      'A, B, C': 'the labels in both sets, only in set 1 and only in set 2, as in SORENSON'
+    use: Treats the two sets symmetrically while weighting by each set's own richness.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "kulczynski2"), "KULCZYNSKI2")'
+    operator: bio.spatial
+    setting: calculations = kulczynski2
+
+  # impl: indices.cpp:1767
+  - id: BETA_2
+    name: Beta diversity (Whittaker form)
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: Gamma richness over the larger set richness, minus one.
+    formula: '\beta = \frac{A+B+C}{\max(A+B,\ A+C)} - 1'
+    symbols:
+      'A, B, C': 'the labels in both sets, only in set 1 and only in set 2, as in SORENSON'
+    use: 0 when one set contains the other; the maximum depends on the set sizes.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "beta_diversity"), "BETA_2")'
+    operator: bio.spatial
+    setting: calculations = beta_diversity
+    aliases: [Whittaker beta]
+
+  # impl: indices.cpp:1736
+  - id: NEST_RESULTANT
+    name: Nestedness-resultant dissimilarity
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: The part of dissimilarity that comes from nestedness, the poorer set being a subset of the richer one (Baselga).
+    formula: 'D_{nest} = \frac{|B - C|}{2A+B+C}\cdot\frac{A}{A + \min(B, C)}'
+    symbols:
+      'A, B, C': 'the labels in both sets, only in set 1 and only in set 2, as in SORENSON'
+    use: 0 when \(A = 0\) and both \(B, C > 0\) (no overlap), NaN with no overlap and one set empty. Subtract from Sorenson for the spatial turnover part.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "nestedness_resultant"), "NEST_RESULTANT")'
+    operator: bio.spatial
+    setting: calculations = nestedness_resultant
+    refs: ["Baselga (2010). Partitioning the turnover and nestedness components of beta diversity. Global Ecology and Biogeography 19: 134-143. doi:10.1111/j.1466-8238.2009.00490.x"]
+
+  # impl: indices.cpp:1749
+  - id: BRAY_CURTIS
+    name: Bray-Curtis dissimilarity
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: Abundance-based dissimilarity between the two sets, with sample counts summed over each set. The calculation also gives the parts BC_A, BC_B (totals of set 1 and set 2) and BC_W (shared minimum).
+    formula: 'BC = 1 - \frac{2W}{\sum_l n_{1l} + \sum_l n_{2l}},\quad W = \sum_l \min(n_{1l}, n_{2l})'
+    symbols:
+      'n_{1l}, n_{2l}': 'samples of label \(l\) in set 1 and in set 2 (0 when absent)'
+    use: Sets with many more groups have larger counts; the normalised version divides by group numbers.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "bray_curtis"))'
+    operator: bio.spatial
+    setting: calculations = bray_curtis
+    aliases: [BC_A, BC_B, BC_W]
+
+  # impl: indices.cpp:1749
+  - id: BRAY_CURTIS_NORM
+    name: Bray-Curtis dissimilarity, normalised by group counts
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: Bray-Curtis with each set's counts divided by its number of groups, so the sets are compared as mean samples per group (BCN_A, BCN_B, BCN_W are the parts).
+    formula: 'BC_N = 1 - \frac{2W}{\sum_l \bar n_{1l} + \sum_l \bar n_{2l}},\quad \bar n_{kl} = n_{kl}/E_k'
+    symbols:
+      'n_{kl}': 'samples of label \(l\) in set \(k\)'
+      'E_k': 'groups in set \(k\)'
+      'W': '\(\sum_l \min(\bar n_{1l}, \bar n_{2l})\)'
+    use: Prefer it when the two sets contain different numbers of cells.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "bray_curtis_norm_by_gp_counts"))'
+    operator: bio.spatial
+    setting: calculations = bray_curtis_norm_by_gp_counts
+    aliases: [BCN_A, BCN_B, BCN_W]
+
+  # impl: indices.cpp:1820
+  - id: RW_TURNOVER
+    name: Range-weighted turnover
+    level: cell
+    theme: turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: Jaccard-type turnover in which every label counts by its endemism weight, so shared widespread species matter little and shared endemics a lot (RW_TURNOVER_A, _B, _C are the weighted parts).
+    formula: 'RW = 1 - \frac{A_w}{A_w + B_w + C_w},\quad X_w = \sum_{l \in X} \frac{r_l}{R_l}'
+    symbols:
+      'A_w': 'weights of labels in both sets'
+      'B_w': 'only in set 1'
+      'C_w': 'only in set 2'
+      'r_l/R_l': 'as in ENDW_WE (local range over the whole neighbourhood)'
+    use: Turnover that focuses on restricted-range species. NaN when A and B, or A and C, are both zero.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "rw_turnover"))'
+    operator: bio.spatial
+    setting: calculations = rw_turnover
+    aliases: [RW_TURNOVER_A, RW_TURNOVER_B, RW_TURNOVER_C]
+    refs: ["Laffan et al. (2016). Range-weighted metrics of species and phylogenetic turnover can better resolve biogeographic transition zones. Methods in Ecology and Evolution 7: 580-588. doi:10.1111/2041-210X.12513"]
+
+  # ---------------------------------------------------------------- tree matching
+  # impl: indices.cpp:1969-1971
+  - id: PHYLO_LABELS_ON_TREE_COUNT
+    name: Labels on the tree
+    level: cell
+    theme: tree matching
+    unit: labels
+    range: ≥ 0
+    what: Number of labels of the neighbourhood that are terminals of the tree. PHYLO_LABELS_ON_TREE is the list of them.
+    formula: 'S_{tree} = |\{l \in N : l \in T\}|'
+    symbols:
+      'N': 'the labels of the neighbourhood'
+      'T': 'the terminal names of the tree'
+    use: 'Check it against richness before reading any phylogenetic index: labels missing from the tree are ignored by PD and PE.'
+    python: 'at(tf.bio.spatial_analysis(bd, C, ["count_labels_on_tree", "labels_on_tree"], tree=tree))'
+    operator: bio.spatial
+    setting: calculations = count_labels_on_tree
+    aliases: [PHYLO_LABELS_ON_TREE, labels_on_tree, count_labels_on_tree]
+
+  # impl: indices.cpp:1973
+  - id: PHYLO_LABELS_NOT_ON_TREE_N
+    name: Labels not on the tree
+    level: cell
+    theme: tree matching
+    unit: labels
+    range: ≥ 0
+    what: Number of labels of the neighbourhood with no terminal on the tree (PHYLO_LABELS_NOT_ON_TREE_N), their proportion (_P) and the list (PHYLO_LABELS_NOT_ON_TREE).
+    formula: 'N_{off} = |\{l \in N: l \notin T\}|,\quad P_{off} = N_{off} / S'
+    symbols:
+      'N': 'labels of the neighbourhood'
+      'T': 'tree terminals'
+      'S': 'richness'
+    use: 'A non-zero value means the tree does not cover the data: fix names before trusting PD.'
+    python: 'at(tf.bio.spatial_analysis(bd, C, "labels_not_on_tree", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = labels_not_on_tree
+    aliases: [PHYLO_LABELS_NOT_ON_TREE_P, PHYLO_LABELS_NOT_ON_TREE]
+
+  # impl: indices.cpp:2352
+  - id: PHYLO_LABELS_NOT_ON_TRIMMED_TREE_N
+    name: Labels on or off the trimmed tree
+    level: cell
+    theme: tree matching
+    unit: labels
+    range: ≥ 0
+    what: 'As the on-tree counts, against the tree trimmed to the labels of the basedata: PHYLO_LABELS_ON_TRIMMED_TREE (list), PHYLO_LABELS_NOT_ON_TRIMMED_TREE_N, _P and the list.'
+    formula: 'N_{off} = |\{l \in N : l \notin T_{trim}\}|'
+    symbols:
+      'T_{trim}': 'the tree trimmed to the labels present in the basedata'
+    use: The trimmed tree is the reference of PE and the relative indices.
+    python: 'at(tf.bio.spatial_analysis(bd, C, ["labels_on_trimmed_tree", "labels_not_on_trimmed_tree"], tree=tree))'
+    operator: bio.spatial
+    setting: calculations = labels_not_on_trimmed_tree
+    aliases: [PHYLO_LABELS_NOT_ON_TRIMMED_TREE_P, PHYLO_LABELS_NOT_ON_TRIMMED_TREE, PHYLO_LABELS_ON_TRIMMED_TREE, labels_on_trimmed_tree]
+
+  # impl: indices.cpp:2050
+  - id: LAST_SHARED_ANCESTOR_DEPTH
+    name: Last shared ancestor
+    level: cell
+    theme: tree matching
+    unit: depth / tree length units
+    range: ≥ 0
+    what: 'Properties of the most recent common ancestor of the neighbourhood labels: its depth (LAST_SHARED_ANCESTOR_DEPTH), distance to the root (_DIST_TO_ROOT), to the farthest tip (_DIST_TO_TIP), its own branch length (_LENGTH) and the relative position (_POS_REL).'
+    formula: 'POS_{rel} = \frac{d_{root}}{d_{root} + d_{tip}}'
+    symbols:
+      'd_{root}': 'the summed branch lengths from the ancestor to the root (0 for the root)'
+      'd_{tip}': 'the longest path from the ancestor to a label tip (0 for a terminal)'
+    use: Tells how deep in the tree the group's species diverge, a quick check of clustering by clade.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "last_shared_ancestor_props", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = last_shared_ancestor_props
+    aliases: [LAST_SHARED_ANCESTOR_DIST_TO_ROOT, LAST_SHARED_ANCESTOR_DIST_TO_TIP, LAST_SHARED_ANCESTOR_LENGTH, LAST_SHARED_ANCESTOR_POS_REL]
+
+  # ---------------------------------------------------------------- phylogenetic diversity
+  # impl: indices.cpp:1994-2005
+  - id: PD
+    name: Phylogenetic diversity (PD)
+    level: cell
+    theme: phylogenetic diversity
+    unit: branch length units
+    range: ≥ 0
+    what: Total length of the branches of the tree that connect the neighbourhood labels to the root. PD_P is it as a share of the whole tree, PD_per_taxon and PD_P_per_taxon divide by the labels on the tree.
+    formula: 'PD = \sum_{b \in \mathrm{span}(N)} L_b,\quad PD_P = \frac{PD}{\sum_b L_b},\quad PD_{taxon} = \frac{PD}{S_{tree}}'
+    symbols:
+      '\mathrm{span}(N)': 'branches on the paths from the labels of the neighbourhood that are on the tree up to the root'
+      'L_b': 'branch length'
+      'S_{tree}': 'labels on the tree'
+      '\sum_b L_b': 'the length of the full tree (not trimmed), the divisor of PD_P'
+    use: Includes the path to the root, so a single species has PD > 0. Rises with richness; compare with relative PD (RPD) or randomisation.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "pd", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = pd
+    aliases: [PD_P, PD_per_taxon, PD_P_per_taxon, Faith PD]
+    refs: ["Faith (1992). Conservation evaluation and phylogenetic diversity. Biological Conservation 61: 1-10. doi:10.1016/0006-3207(92)91201-3"]
+
+  # impl: indices.cpp:2031-2049
+  - id: PD_LOCAL
+    name: Local phylogenetic diversity
+    level: cell
+    theme: phylogenetic diversity
+    unit: branch length units
+    range: ≥ 0
+    what: 'PD without the stem: the length shared by all labels from their last common ancestor up to the root is removed (PD_LOCAL, and PD_LOCAL_P as a share of the whole tree).'
+    formula: 'PD_{local} = PD - \sum_{b \in \mathrm{path}(a \to root)} L_b'
+    symbols:
+      'a': 'the last shared ancestor of the neighbourhood labels on the tree, included in the removed path. Not applied if the ancestor is a terminal.'
+    use: Separates the spread of a group within the tree from how deep its clade sits.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "pd_local", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = pd_local
+    aliases: [PD_LOCAL_P]
+
+  # impl: indices.cpp:2017-2030
+  - id: PD_INCLUDED_NODE_LIST
+    name: PD node and terminal lists
+    level: cell
+    theme: lists
+    unit: branch length units
+    range: '> 0 per node'
+    what: The branches counted in PD, keyed by node name with their lengths (PD_INCLUDED_NODE_LIST), only the terminal ones (PD_INCLUDED_TERMINAL_NODE_LIST) and their number (PD_INCLUDED_TERMINAL_NODE_COUNT).
+    formula: 'L(b) = L_b \quad \forall b \in \mathrm{span}(N)'
+    symbols:
+      '\mathrm{span}(N)': 'as in PD'
+    use: To see which clades a cell's PD comes from, or map branch use.
+    python: 'at(tf.bio.spatial_analysis(bd, C, ["pd_node_list", "pd_terminal_node_list", "pd_terminal_node_count"], tree=tree), "PD_INCLUDED_NODE_LIST")'
+    operator: bio.spatial
+    setting: calculations = pd_node_list
+    aliases: [PD_INCLUDED_TERMINAL_NODE_LIST, PD_INCLUDED_TERMINAL_NODE_COUNT, pd_terminal_node_list, pd_terminal_node_count]
+
+  # impl: indices.cpp:2169-2209, phylo spanning 1026
+  - id: PD_CLADE_CONTR
+    name: PD clade contributions
+    level: cell
+    theme: phylogenetic diversity
+    unit: none / branch length units
+    range: 0 ≤ share ≤ 1
+    what: For each clade (node) of the neighbourhood's tree, the PD in it (PD_CLADE_SCORE), as a share of the cell's PD (PD_CLADE_CONTR) and of the whole tree (PD_CLADE_CONTR_P).
+    formula: 'score(n) = L_n + \sum_{k \in \mathrm{kids}(n)} score(k),\quad contr(n) = \frac{score(n)}{PD}'
+    symbols:
+      'L_n': 'length of node \(n\) if it is on the PD tree'
+      '\mathrm{kids}(n)': 'the children of the node, summed over the spanning sub-tree'
+      'contr_P': 'the same share of the total tree length; the values are truncated to 11 decimals as Biodiverse does'
+    use: Finds the clades that account for a cell's PD.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "pd_clade_contributions", tree=tree), "PD_CLADE_CONTR")'
+    operator: bio.spatial
+    setting: calculations = pd_clade_contributions
+    aliases: [PD_CLADE_CONTR_P, PD_CLADE_SCORE]
+
+  # impl: indices.cpp:1057, 2169-2209
+  - id: PD_CLADE_LOSS_CONTR
+    name: PD clade loss
+    level: cell
+    theme: phylogenetic diversity
+    unit: none / branch length units
+    range: 0 ≤ share ≤ 1
+    what: 'PD lost if a clade were removed, counting the unbranched stem above it: nodes with a single child inherit the loss of the first branching ancestor (PD_CLADE_LOSS_CONTR, _CONTR_P, _SCORE). The ancestral version gives the extra loss beyond the clade (PD_CLADE_LOSS_ANC, _ANC_P).'
+    formula: 'loss(n) = score(a(n)),\quad ANC(n) = loss(n) - score(n)'
+    symbols:
+      'a(n)': 'the first ancestor of \(n\) (or \(n\)) with more than one child on the PD tree'
+      'score': 'as in PD_CLADE_CONTR'
+    use: Ranks the clades whose extinction would cost most PD, stem included.
+    python: 'at(tf.bio.spatial_analysis(bd, C, ["pd_clade_loss", "pd_clade_loss_ancestral"], tree=tree), "PD_CLADE_LOSS_CONTR")'
+    operator: bio.spatial
+    setting: calculations = pd_clade_loss
+    aliases: [PD_CLADE_LOSS_CONTR_P, PD_CLADE_LOSS_SCORE, PD_CLADE_LOSS_ANC, PD_CLADE_LOSS_ANC_P, pd_clade_loss_ancestral]
+
+  # impl: indices.cpp:2298
+  - id: PHYLO_ABUNDANCE
+    name: Phylogenetic abundance
+    level: cell
+    theme: phylogenetic diversity
+    unit: samples x branch length
+    range: ≥ 0
+    what: 'PD weighted by sample counts: each label''s samples are multiplied by the length of each branch on its path to the root and summed (PHYLO_ABUNDANCE; PHYLO_ABUNDANCE_BRANCH_HASH by branch).'
+    formula: 'PA = \sum_{l \in N} n_l \sum_{b \in \mathrm{path}(l)} L_b'
+    symbols:
+      'n_l': 'samples of label \(l\) in the neighbourhood'
+      '\mathrm{path}(l)': 'branches from its tip to the root'
+    use: Shows how much of the sampling lies in long branches; not scaled by PD.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_abundance", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_abundance
+    aliases: [PHYLO_ABUNDANCE_BRANCH_HASH]
+
+  # ---------------------------------------------------------------- phylogenetic endemism
+  # impl: indices.cpp:2091, phylo.cpp:40-100
+  - id: PE_WE
+    name: Phylogenetic endemism (PE)
+    level: cell
+    theme: phylogenetic endemism
+    unit: branch length units
+    range: ≥ 0
+    what: 'Endemism summed over branches: each branch of the neighbourhood''s PD tree counts its length times the share of its range inside the neighbourhood. PE_WE_P gives it relative to the trimmed tree.'
+    formula: 'PE = \sum_{b} L_b \frac{r_b}{R_b},\quad PE_P = \frac{PE}{\sum_{b \in T_{trim}} L_b}'
+    symbols:
+      'L_b': 'branch length'
+      'r_b': 'groups of the neighbourhood whose labels descend from \(b\)'
+      'R_b': 'groups in the whole basedata that do (the range of the branch)'
+      'T_{trim}': 'the tree trimmed to the labels present in the basedata'
+    use: High where narrow-ranged, long branches concentrate; confounded with richness (compare with CWE or randomisations).
+    python: 'at(tf.bio.spatial_analysis(bd, C, "pe", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = pe
+    aliases: [PE, PE_WE_P, phylogenetic endemism]
+    refs: ["Rosauer et al. (2009). Phylogenetic endemism: a new approach for identifying geographical concentrations of evolutionary history. Molecular Ecology 18: 4061-4072. doi:10.1111/j.1365-294X.2009.04311.x"]
+
+  # impl: indices.cpp:2105
+  - id: PE_WE_SINGLE
+    name: Phylogenetic endemism, single (PE_WE_SINGLE)
+    level: cell
+    theme: phylogenetic endemism
+    unit: branch length units
+    range: '> 0'
+    what: 'PE counting each branch once, whatever its local range: the sum of branch length over branch range (PE_WE_SINGLE_P relative to the trimmed tree).'
+    formula: 'PE_{single} = \sum_{b \in \mathrm{PE\ nodes}} \frac{L_b}{R_b}'
+    symbols:
+      'L_b': 'branch length'
+      'R_b': 'its range in the basedata'
+    use: The phylogenetic version of Rosauer's single-cell endemism; independent of how many neighbour cells share the branch.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "pe_single", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = pe_single
+    aliases: [PE_WE_SINGLE_P]
+
+  # impl: indices.cpp:2006
+  - id: PE_CWE
+    name: Corrected weighted phylogenetic endemism
+    level: cell
+    theme: phylogenetic endemism
+    unit: none
+    range: 0 ≤ CWE ≤ 1
+    what: 'PE divided by PD: the average range-restriction of the branches in the neighbourhood, a PE not driven by tree size.'
+    formula: 'CWE_{PE} = \frac{PE}{PD}'
+    symbols:
+      'PE': 'as PE_WE'
+      'PD': 'as PD'
+    use: The phylogenetic counterpart of CWE; NaN when PD is 0.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_corrected_weighted_endemism", tree=tree), "PE_CWE")'
+    operator: bio.spatial
+    setting: calculations = phylo_corrected_weighted_endemism
+
+  # impl: indices.cpp:2096
+  - id: PE_WTLIST
+    name: PE lists
+    level: cell
+    theme: lists
+    unit: branch length units / groups
+    range: per node
+    what: 'Per branch of the neighbourhood: local range (PE_LOCAL_RANGELIST), range (PE_RANGELIST) and weight \(L_b r_b/R_b\) (PE_WTLIST), the terms of PE.'
+    formula: 'w_b = L_b \frac{r_b}{R_b}'
+    symbols:
+      'L_b': 'branch length'
+      'r_b, R_b': 'local and global range of the branch'
+    use: Maps the branches behind a PE hotspot.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "pe_lists", tree=tree), "PE_WTLIST")'
+    operator: bio.spatial
+    setting: calculations = pe_lists
+    aliases: [PE_LOCAL_RANGELIST, PE_RANGELIST]
+
+  # impl: indices.cpp:2128-2160
+  - id: PEC_WE
+    name: Phylogenetic endemism, central
+    level: cell
+    theme: phylogenetic endemism
+    unit: branch length units
+    range: ≥ 0
+    what: 'PE of the central cell''s tree: the PE of the whole neighbourhood minus the weights of the branches found only in set 2 (PEC_WE_P relative to the trimmed tree).'
+    formula: 'PE_C = PE - \sum_{b \in C} w_b'
+    symbols:
+      'C': 'branches present only in set 2'
+      'w_b': 'the branch weight \(L_b r_b/R_b\)'
+    use: Needs two conditions (central cell, neighbourhood); the branch ranges still count the whole neighbourhood.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "pe_central", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = pe_central
+    aliases: [PEC_WE_P]
+
+  # impl: indices.cpp:2161
+  - id: PEC_CWE
+    name: Corrected phylogenetic endemism, central
+    level: cell
+    theme: phylogenetic endemism
+    unit: none
+    range: 0 ≤ CWE ≤ 1
+    what: Central PE divided by the length of the central branches that are in the neighbourhood's PD tree (PEC_CWE_PD).
+    formula: 'CWE_C = \frac{PE_C}{PD_C}'
+    symbols:
+      'PE_C': 'as PEC_WE'
+      'PD_C': 'sum of lengths of the central branches in the PD tree (PEC_CWE_PD)'
+    use: The central analogue of PE_CWE.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "pe_central_cwe", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = pe_central_cwe
+    aliases: [PEC_CWE_PD]
+
+  # impl: indices.cpp:2151
+  - id: PEC_WTLIST
+    name: PE lists, central
+    level: cell
+    theme: lists
+    unit: branch length units / groups
+    range: per node
+    what: 'The PE lists restricted to the central branches: PEC_LOCAL_RANGELIST, PEC_RANGELIST and PEC_WTLIST.'
+    formula: 'w_b = L_b \frac{r_b}{R_b},\quad b \in A \cup B'
+    symbols:
+      'A, B': 'branches in both sets and only in set 1 (all when set 2 adds none)'
+    use: As PE_WTLIST for the central cell.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "pe_central_lists", tree=tree), "PEC_WTLIST")'
+    operator: bio.spatial
+    setting: calculations = pe_central_lists
+    aliases: [PEC_LOCAL_RANGELIST, PEC_RANGELIST]
+
+  # impl: indices.cpp:2116
+  - id: PD_ENDEMISM
+    name: PD endemism
+    level: cell
+    theme: phylogenetic endemism
+    unit: branch length units
+    range: ≥ 0
+    what: 'Total length of the branches found only in the neighbourhood: the part of PD not found in any group outside it. PD_ENDEMISM_P is relative to the trimmed tree, PD_ENDEMISM_WTS the per-branch list.'
+    formula: 'PDE = \sum_{b:\ r_b = R_b} L_b'
+    symbols:
+      'r_b': 'groups of the neighbourhood with the branch'
+      'R_b': 'groups in the basedata with it'
+    use: The branch-length analogue of absolute endemism; strict and neighbourhood-size dependent.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "pd_endemism", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = pd_endemism
+    aliases: [PD_ENDEMISM_P, PD_ENDEMISM_WTS]
+
+  # impl: indices.cpp:2169-2209
+  - id: PE_CLADE_CONTR
+    name: PE clade contributions and loss
+    level: cell
+    theme: phylogenetic endemism
+    unit: none / branch length units
+    range: 0 ≤ share ≤ 1
+    what: 'The clade contribution and loss lists of PD, with PE weights in place of lengths: PE_CLADE_CONTR, _CONTR_P, _SCORE; PE_CLADE_LOSS_CONTR, _CONTR_P, _SCORE; PE_CLADE_LOSS_ANC, _ANC_P.'
+    formula: 'score(n) = w_n + \sum_{k \in \mathrm{kids}(n)} score(k),\quad contr(n) = \frac{score(n)}{PE}'
+    symbols:
+      'w_n': 'the PE weight \(L_n r_n/R_n\) of node \(n\)'
+      'contr_P': 'divides by the trimmed tree length; the loss and ancestral lists are as in PD_CLADE_LOSS_CONTR'
+    use: Shows which clades carry a cell's phylogenetic endemism.
+    python: 'at(tf.bio.spatial_analysis(bd, C, ["pe_clade_contributions", "pe_clade_loss", "pe_clade_loss_ancestral"], tree=tree), "PE_CLADE_CONTR")'
+    operator: bio.spatial
+    setting: calculations = pe_clade_contributions
+    aliases: [PE_CLADE_CONTR_P, PE_CLADE_SCORE, PE_CLADE_LOSS_CONTR, PE_CLADE_LOSS_CONTR_P, PE_CLADE_LOSS_SCORE, PE_CLADE_LOSS_ANC, PE_CLADE_LOSS_ANC_P, pe_clade_loss, pe_clade_loss_ancestral]
+
+  # ---------------------------------------------------------------- evolutionary distinctiveness
+  # impl: indices.cpp:2319, phylo.cpp:100-190
+  - id: PHYLO_AED_LIST
+    name: Evolutionary distinctiveness (ED, ES, AED lists)
+    level: cell
+    theme: evolutionary distinctiveness
+    unit: branch length units
+    range: '> 0'
+    what: 'Per label of the neighbourhood that is on the tree, three distinctiveness scores of its tip: ED (fair proportion), ES (equal splits) and AED (abundance-weighted ED) in the lists PHYLO_ED_LIST, PHYLO_ES_LIST, PHYLO_AED_LIST.'
+    formula: 'ED_l = \sum_{n \in \mathrm{anc}(l)} \frac{L_n}{T_n},\quad ES_l = \sum_n L_n \prod \frac{1}{c_a},\quad AED_l = \sum_n \frac{L_n}{N_n}'
+    symbols:
+      'n': 'the tip and its ancestors on the trimmed tree'
+      'T_n': 'terminals below \(n\)'
+      'c_a': 'children of each ancestor on the way up (ES)'
+      'N_n': 'total samples (basedata-wide, not local) of the labels below \(n\)'
+    use: ED/ES/AED rank species by how much unique evolutionary history they carry; AED weights by abundance.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_aed", tree=tree), "PHYLO_AED_LIST")'
+    operator: bio.spatial
+    setting: calculations = phylo_aed
+    aliases: [PHYLO_ED_LIST, PHYLO_ES_LIST, AED, ED, ES]
+    refs: ["Cadotte et al. (2010). Phylogenetic diversity metrics for ecological communities: integrating species richness, abundance and evolutionary history. Ecology Letters 13: 96-105.", "Redding & Mooers (2006). Incorporating evolutionary measures into conservation prioritization. Conservation Biology 20: 1670-1678. doi:10.1111/j.1523-1739.2006.00555.x", "Isaac et al. (2007). Mammals on the EDGE: conservation priorities based on threat and phylogeny. PLoS ONE 2: e296. doi:10.1371/journal.pone.0000296"]
+
+  # impl: indices.cpp:2327
+  - id: PHYLO_AED_T
+    name: AED total
+    level: cell
+    theme: evolutionary distinctiveness
+    unit: branch length units
+    range: ≥ 0
+    what: Sum over the labels of the neighbourhood of their samples times their AED. The lists PHYLO_AED_T_WTLIST and _P hold each label's term and its proportion.
+    formula: 'AED_T = \sum_{l \in N} n_l \cdot AED_l'
+    symbols:
+      'n_l': 'local samples of label \(l\)'
+      'AED_l': 'as in PHYLO_AED_LIST'
+    use: Corresponds to the phylogenetic diversity of the sampled individuals; see PHYLO_RARITY_CWR.
+    python: 'at(tf.bio.spatial_analysis(bd, C, ["phylo_aed_t", "phylo_aed_t_wtlists"], tree=tree), "PHYLO_AED_T")'
+    operator: bio.spatial
+    setting: calculations = phylo_aed_t
+    aliases: [PHYLO_AED_T_WTLIST, PHYLO_AED_T_WTLIST_P, phylo_aed_t_wtlists]
+
+  # impl: indices.cpp:2007-2015
+  - id: PHYLO_RARITY_CWR
+    name: Corrected weighted phylogenetic rarity
+    level: cell
+    theme: evolutionary distinctiveness
+    unit: none
+    range: ≥ 0
+    what: 'AED total divided by PD: abundance-weighted distinctiveness of the neighbourhood per unit of its PD.'
+    formula: 'CWR = \frac{AED_T}{PD}'
+    symbols:
+      'AED_T': 'as PHYLO_AED_T'
+      'PD': 'as PD'
+    use: Phylogenetic rarity corrected for tree size, as CWE is for endemism; NaN when PD is 0.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_corrected_weighted_rarity", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_corrected_weighted_rarity
+
+  # ---------------------------------------------------------------- phylogenetic turnover
+  # impl: indices.cpp:2210-2264
+  - id: PHYLO_SORENSON
+    name: Phylogenetic Sorenson dissimilarity
+    level: cell
+    theme: phylogenetic turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: Sorenson turnover with branch lengths in place of label counts.
+    formula: '\mathrm{PHYLO\_SORENSON} = 1 - \frac{2A}{2A+B+C}'
+    symbols:
+      'A': 'total length of the branches shared by the paths of the two sets (PHYLO_A)'
+      'B': 'length of those only in set 1 (PHYLO_B)'
+      'C': 'length of those only in set 2 (PHYLO_C); PHYLO_ABC is their sum'
+    use: Needs two conditions and a tree. Compares what ancestry two cells share, not just the species.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "phylo_sorenson", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_sorenson
+    aliases: [phylosor]
+    refs: ["Bryant et al. (2008). Microbes on mountainsides: contrasting elevational patterns of bacterial and plant diversity. PNAS 105: 11505-11511. doi:10.1073/pnas.0801920105"]
+
+  # impl: indices.cpp:2255
+  - id: PHYLO_JACCARD
+    name: Phylogenetic Jaccard dissimilarity
+    level: cell
+    theme: phylogenetic turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: Jaccard turnover over branch lengths.
+    formula: 'PJ = 1 - \frac{A}{A+B+C}'
+    symbols:
+      'A, B, C': 'branch length shared, only in set 1, only in set 2'
+    use: As PHYLO_SORENSON, weighting unshared branches more.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "phylo_jaccard", tree=tree), "PHYLO_JACCARD")'
+    operator: bio.spatial
+    setting: calculations = phylo_jaccard
+
+  # impl: indices.cpp:2259
+  - id: PHYLO_S2
+    name: Phylogenetic S2 dissimilarity
+    level: cell
+    theme: phylogenetic turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: S2 turnover over branch lengths.
+    formula: 'PS2 = 1 - \frac{A}{A + \min(B, C)}'
+    symbols:
+      'A, B, C': 'branch length shared, only in set 1, only in set 2'
+    use: Less affected by differences in PD between the cells than Sorenson.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "phylo_s2", tree=tree), "PHYLO_S2")'
+    operator: bio.spatial
+    setting: calculations = phylo_s2
+
+  # impl: indices.cpp:2244
+  - id: PHYLO_A
+    name: Phylogenetic A, B, C counts
+    level: cell
+    theme: phylogenetic turnover
+    unit: branch length units
+    range: ≥ 0
+    what: 'The branch lengths behind the phylogenetic turnover indices: shared (PHYLO_A), only in set 1 (PHYLO_B), only in set 2 (PHYLO_C) and their sum (PHYLO_ABC).'
+    formula: 'A = \sum_{b \in P_1 \cap P_2} L_b,\ B = \sum_{b \in P_1 \setminus P_2} L_b,\ C = \sum_{b \in P_2 \setminus P_1} L_b'
+    symbols:
+      'P_k': 'branches on the paths from the labels of set \(k\) to the root'
+    use: Read to see what the phylogenetic turnover values are made of.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "phylo_abc", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_abc
+    aliases: [PHYLO_B, PHYLO_C, PHYLO_ABC]
+
+  # impl: indices.cpp:2265
+  - id: PHYLO_RW_TURNOVER
+    name: Phylogenetic range-weighted turnover
+    level: cell
+    theme: phylogenetic turnover
+    unit: none
+    range: 0 ≤ value ≤ 1
+    what: 'Range-weighted turnover over branches: each branch counts by its PE weight, so shared restricted-range lineages weigh most (PHYLO_RW_TURNOVER_A, _B, _C are the parts).'
+    formula: 'PRW = 1 - \frac{A_w}{A_w + B_w + C_w}'
+    symbols:
+      'A_w': 'sum of the PE weights of the branches in both sets (each set''s weight added)'
+      'B_w': 'the weights of the branches only in set 1'
+      'C_w': 'the weights of the branches only in set 2'
+      'w_b': 'the PE weight \(L_b r_b/R_b\), with \(r_b\) the local range of the branch in that set'
+    use: Needs two non-empty sets; NaN otherwise.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "phylo_rw_turnover", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_rw_turnover
+    aliases: [PHYLO_RW_TURNOVER_A, PHYLO_RW_TURNOVER_B, PHYLO_RW_TURNOVER_C]
+
+  # ---------------------------------------------------------------- phylogenetic relative
+  # impl: indices.cpp:2356
+  - id: PHYLO_RPD1
+    name: Relative phylogenetic diversity, RPD1
+    level: cell
+    theme: phylogenetic relative
+    unit: none
+    range: ≥ 0
+    what: PD as a share of the whole tree, divided by the share expected if all the terminals counted equally (labels on the tree over terminals). PHYLO_RPD_NULL1 is the denominator, PHYLO_RPD_DIFF1 the difference scaled to tree length.
+    formula: 'RPD1 = \frac{PD_P}{S_{tree}/S_T},\quad DIFF = L_T (PD_P - NULL)'
+    symbols:
+      'PD_P': 'as PD_P'
+      'S_{tree}': 'labels of the neighbourhood on the tree'
+      'S_T': 'terminals of the tree'
+      'L_T': 'total tree length'
+    use: Above 1 the cell holds more phylogenetic history than its richness predicts, below 1 less. Use RPD2 on trees with zero-length branches.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_rpd1", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_rpd1
+    aliases: [PHYLO_RPD_DIFF1, PHYLO_RPD_NULL1, RPD]
+    refs: ["Mishler et al. (2014). Phylogenetic measures of biodiversity and neo- and paleo-endemism in Australian Acacia. Nature Communications 5: 4473. doi:10.1038/ncomms5473"]
+
+  # impl: indices.cpp:2356
+  - id: PHYLO_RPD2
+    name: Relative phylogenetic diversity, RPD2
+    level: cell
+    theme: phylogenetic relative
+    unit: none
+    range: ≥ 0
+    what: PD as a share of the tree divided by the same share on a tree with all non-zero branches of equal length.
+    formula: 'RPD2 = \frac{PD_P}{k_{PD}/k_T},\quad DIFF = L_T (PD_P - NULL)'
+    symbols:
+      'k_{PD}': 'non-zero-length branches in the PD tree of the cell'
+      'k_T': 'non-zero-length branches in the whole tree; NULL is \(k_{PD}/k_T\) (PHYLO_RPD_NULL2)'
+    use: Removes the effect of branch lengths, so it tests whether the cell's lineages are long or short relative to the tree's shape.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_rpd2", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_rpd2
+    aliases: [PHYLO_RPD_DIFF2, PHYLO_RPD_NULL2]
+
+  # impl: indices.cpp:2375
+  - id: PHYLO_RPE1
+    name: Relative phylogenetic endemism, RPE1
+    level: cell
+    theme: phylogenetic relative
+    unit: none
+    range: ≥ 0
+    what: PE as a share of the trimmed tree divided by the weighted endemism of the labels on the trimmed tree over the number of terminals, the PE of a star tree.
+    formula: 'RPE1 = \frac{PE_P}{WE_{trim}/S_{trim}},\quad DIFF = L_{trim}(PE_P - NULL)'
+    symbols:
+      'PE_P': 'as PE_WE_P'
+      'WE_{trim}': 'weighted endemism (ENDW_WE) over the labels on the trimmed tree'
+      'S_{trim}': 'terminals of the trimmed tree'
+      'L_{trim}': 'trimmed tree length'
+    use: Tests whether endemism is on long or short branches given the range sizes. Prefer RPE2 when the tree has zero-length branches.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_rpe1", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_rpe1
+    aliases: [PHYLO_RPE_DIFF1, PHYLO_RPE_NULL1, RPE]
+    refs: ["Mishler et al. (2014). Phylogenetic measures of biodiversity and neo- and paleo-endemism in Australian Acacia. Nature Communications 5: 4473. doi:10.1038/ncomms5473"]
+
+  # impl: indices.cpp:2389-2455
+  - id: PHYLO_RPE2
+    name: Relative phylogenetic endemism, RPE2
+    level: cell
+    theme: phylogenetic relative
+    unit: none
+    range: ≥ 0
+    what: PE as a share of the tree divided by the PE of the same tree with all non-zero branches set to one equal length. The RPE of the CANAPE test.
+    formula: 'RPE2 = \frac{PE_P}{PE_{eq}/L_{eq}},\quad PE_{eq} = \bar\ell\sum_{g}\sum_{b \in g}\frac{[L_b \ne 0]}{R_b}'
+    symbols:
+      'PE_P': 'as PE_WE_P'
+      '\bar\ell': 'mean non-zero branch length of the trimmed tree'
+      'L_{eq}': 'total length of the equalised tree'
+      'PE_{eq}': 'the PE of the equalised tree, summed over the groups of the neighbourhood and over the branches of each group; PHYLO_RPE_NULL2 is \(PE_{eq}/L_{eq}\) and PHYLO_RPE_DIFF2 the scaled difference'
+    use: Above 1 the lineages are longer than expected (palaeo-endemism), below 1 shorter (neo-endemism); significance by randomisation, see CANAPE.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_rpe2", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_rpe2
+    aliases: [PHYLO_RPE_DIFF2, PHYLO_RPE_NULL2]
+    refs: ["Mishler et al. (2014). Phylogenetic measures of biodiversity and neo- and paleo-endemism in Australian Acacia. Nature Communications 5: 4473. doi:10.1038/ncomms5473"]
+
+  # impl: indices.cpp:2389-2455
+  - id: PHYLO_RPEC
+    name: Relative phylogenetic endemism, central
+    level: cell
+    theme: phylogenetic relative
+    unit: none
+    range: ≥ 0
+    what: 'RPE of the central cell: the central PE (PEC_WE_P) against the PE of the equalised tree restricted to the central branches (PHYLO_RPE_NULLC, PHYLO_RPE_DIFFC).'
+    formula: 'RPE_C = \frac{PE_{C,P}}{PE_{eq,C}/L_{eq}}'
+    symbols:
+      'PE_{C,P}': 'as PEC_WE_P'
+      'PE_{eq,C}': 'the equal-length PE over the central branches with their local ranges'
+    use: Needs two conditions; equals RPE2 when set 2 adds no branches.
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "phylo_rpe_central", tree=tree))'
+    operator: bio.spatial
+    setting: calculations = phylo_rpe_central
+    aliases: [PHYLO_RPE_DIFFC, PHYLO_RPE_NULLC]
+
+  # ---------------------------------------------------------------- phylogenetic structure (PhyloCom)
+  # impl: indices.cpp:1495-1507, phylocom.cpp:342-410
+  - id: PMPD1_MEAN
+    name: Mean pairwise distance (MPD), variants 1 to 3
+    level: cell
+    theme: phylogenetic structure
+    unit: tree distance units
+    range: ≥ 0
+    what: Mean of the tree distances between all pairs of labels of the neighbourhood. Variant 1 counts each label once, 2 weights it by its local range (groups holding it), 3 by its samples. Each gives MAX, MEAN, MIN, N, RMSD and VARIANCE (PMPD1_*, PMPD2_*, PMPD3_*).
+    formula: 'MPD = \frac{\sum_{i \ne j} w_i w_j d_{ij}}{\sum_{i \ne j} w_i w_j}'
+    symbols:
+      'd_{ij}': 'path length between the tips of labels \(i, j\) on the tree'
+      'w': 'the weight of the variant (1, local range or samples)'
+      '\mathrm{N}': 'the pair weight total'
+      '\mathrm{RMSD}': 'the root of the mean squared distance'
+      '\mathrm{VARIANCE}': 'the variance of the distances'
+    use: Dominated by deep splits; on trees that are not ultrametric the path cache of PhyloCom matters, and values can depend on the order the groups are processed.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_mpd_mntd1", tree=tree), like="PMPD1")'
+    operator: bio.spatial
+    setting: calculations = phylo_mpd_mntd1
+    aliases: [MPD, PMPD1_MAX, PMPD1_MIN, PMPD1_N, PMPD1_RMSD, PMPD1_VARIANCE, PMPD2_MEAN, PMPD3_MEAN, phylo_mpd_mntd2, phylo_mpd_mntd3]
+    refs: ["Webb et al. (2002). Phylogenies and community ecology. Annual Review of Ecology and Systematics 33: 475-505.", "Kembel et al. (2010). Picante: R tools for integrating phylogenies and ecology. Bioinformatics 26: 1463-1464."]
+
+  # impl: indices.cpp:1495-1507
+  - id: PNTD1_MEAN
+    name: Mean nearest taxon distance (MNTD), variants 1 to 3
+    level: cell
+    theme: phylogenetic structure
+    unit: tree distance units
+    range: ≥ 0
+    what: Mean over the labels of the distance to the nearest other label of the neighbourhood on the tree; same weighting variants and statistics as MPD (PNTD1_*, PNTD2_*, PNTD3_*).
+    formula: 'MNTD = \frac{\sum_i w_i \min_{j \ne i} d_{ij}}{\sum_i w_i}'
+    symbols:
+      'd_{ij}': 'tree distance between labels \(i\) and \(j\)'
+      'w_i': 'the weight of the variant'
+      '\mathrm{N}': 'the labels counted with their weights'
+    use: Emphasises tip clustering; MPD emphasises the deep structure.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "phylo_mpd_mntd1", tree=tree), like="PNTD1")'
+    operator: bio.spatial
+    setting: calculations = phylo_mpd_mntd1
+    aliases: [MNTD, PNTD1_MAX, PNTD1_MIN, PNTD1_N, PNTD1_RMSD, PNTD1_VARIANCE, PNTD2_MEAN, PNTD3_MEAN]
+    refs: ["Webb et al. (2002). Phylogenies and community ecology. Annual Review of Ecology and Systematics 33: 475-505."]
+
+  # impl: indices.cpp:2784-2788, phylocom.cpp
+  - id: PHYLO_NRI1
+    name: Net relatedness index (NRI), variants 1 to 3
+    level: cell
+    theme: phylogenetic structure
+    unit: standardised units
+    range: unbounded
+    what: The MPD of the neighbourhood standardised by the expected MPD of random draws of the same number of tips from the tree (PHYLO_NRI1, _NRI2, _NRI3 for the weighting variants).
+    formula: 'NRI = \frac{MPD_{obs} - \overline{MPD}_{exp}}{SD_{exp}}'
+    symbols:
+      '\overline{MPD}_{exp}, SD_{exp}': 'mean and standard deviation of MPD over random sets of \(k\) tips, computed exactly (Tsirogiannis et al.) or sampled with the seed on non-ultrametric trees'
+      'k': 'the labels on the tree'
+    use: 'Sign is observed minus expected, so it is the negative of Webb''s NRI: here negative means clustered. Use `prng_seed` for repeatable values on non-ultrametric trees.'
+    python: 'at(tf.bio.spatial_analysis(bd, C, "nri_nti1", tree=tree, prng_seed=1))'
+    operator: bio.spatial
+    setting: calculations = nri_nti1
+    aliases: [NRI, PHYLO_NRI2, PHYLO_NRI3, nri_nti2, nri_nti3]
+    refs: ["Webb et al. (2002). Phylogenies and community ecology. Annual Review of Ecology and Systematics 33: 475-505.", "Tsirogiannis et al. (2012). Efficient computation of popular phylogenetic tree measures. Algorithms in Bioinformatics, LNCS 7534: 30-43. doi:10.1007/978-3-642-33122-0_3"]
+
+  # impl: indices.cpp:2784-2788
+  - id: PHYLO_NTI1
+    name: Nearest taxon index (NTI), variants 1 to 3
+    level: cell
+    theme: phylogenetic structure
+    unit: standardised units
+    range: unbounded
+    what: The MNTD of the neighbourhood standardised by its expectation under random tips (PHYLO_NTI1, _NTI2, _NTI3).
+    formula: 'NTI = \frac{MNTD_{obs} - \overline{MNTD}_{exp}}{SD_{exp}}'
+    symbols:
+      '\overline{MNTD}_{exp}, SD_{exp}': 'mean and standard deviation of MNTD over random sets of \(k\) tips'
+    use: Same sign convention as NRI (observed minus expected). Negative means closer relatives than random.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "nri_nti1", tree=tree, prng_seed=1), "PHYLO_NTI1")'
+    operator: bio.spatial
+    setting: calculations = nri_nti1
+    aliases: [NTI, PHYLO_NTI2, PHYLO_NTI3, nri_nti2, nri_nti3]
+    refs: ["Webb et al. (2002). Phylogenies and community ecology. Annual Review of Ecology and Systematics 33: 475-505."]
+
+  # impl: indices.cpp:2789
+  - id: PHYLO_NRI_SAMPLE_MEAN
+    name: NRI and NTI expected values
+    level: cell
+    theme: phylogenetic structure
+    unit: tree distance units
+    range: ≥ 0
+    what: The expected mean and standard deviation of MPD (PHYLO_NRI_SAMPLE_MEAN, _SD) and MNTD (PHYLO_NTI_SAMPLE_MEAN, _SD) for the number of labels on the tree, and the sample size (PHYLO_NRI_NTI_SAMPLE_N).
+    formula: 'E[MPD] = \bar d,\quad SD[MPD],\quad E[MNTD],\quad SD[MNTD]'
+    symbols:
+      '\bar d': 'the mean pairwise distance between all terminals; the other expected values come from the exact formulas of Tsirogiannis et al.'
+      'N_{sample}': 'the sample size (PHYLO_NRI_NTI_SAMPLE_N), 0 when the values are exact'
+    use: The reference NRI and NTI are measured against.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "nri_nti_expected_values", tree=tree, prng_seed=1))'
+    operator: bio.spatial
+    setting: calculations = nri_nti_expected_values
+    aliases: [PHYLO_NRI_SAMPLE_SD, PHYLO_NTI_SAMPLE_MEAN, PHYLO_NTI_SAMPLE_SD, PHYLO_NRI_NTI_SAMPLE_N]
+
+  # impl: indices.cpp:2797-2802
+  - id: PHYLO_NET_VPD
+    name: Net variance of pairwise distances (net VPD)
+    level: cell
+    theme: phylogenetic structure
+    unit: standardised units
+    range: unbounded
+    what: The variance of the pairwise distances of the neighbourhood standardised by its expected variance under random tips; PHYLO_NET_VPD_SAMPLE_MEAN, _SD and _N give the expectation.
+    formula: 'netVPD = \frac{VPD_{obs} - \overline{VPD}_{exp}}{SD_{exp}}'
+    symbols:
+      'VPD_{obs}': 'variance of the tree distances between label pairs (variant 1, the PMPD1_VARIANCE)'
+      '\overline{VPD}_{exp}, SD_{exp}': 'their expectation for \(k\) random tips (sampled with the seed)'
+    use: Captures unevenness of relatedness rather than its mean; randomness depends on `prng_seed`.
+    python: 'at(tf.bio.spatial_analysis(bd, C, ["net_vpd", "vpd_expected_values"], tree=tree, prng_seed=1))'
+    operator: bio.spatial
+    setting: calculations = net_vpd
+    aliases: [PHYLO_NET_VPD_SAMPLE_MEAN, PHYLO_NET_VPD_SAMPLE_SD, PHYLO_NET_VPD_SAMPLE_N, vpd_expected_values, VPD]
+
+  # impl: indices.cpp:2803-2820, phylo.cpp:208-241
+  - id: RWIBALD_CODES
+    name: RWiBaLD branch codes
+    level: cell
+    theme: phylogenetic structure
+    unit: code / branch length units
+    range: codes 0 to 3
+    what: 'Classifies each branch of the neighbourhood''s PD tree against a tree of equal branch lengths: code 0 for branches that are not range-restricted, 1 for shorter than the equalised length, 2 for about equal, 3 for longer. The lists give the codes (RWIBALD_CODES), counts (RWIBALD_CODE_COUNTS), the length differences (RWIBALD_DIFFS, RWIBALD_RR_DIFFS for the range-restricted ones) and the thresholds (RWIBALD_METADATA).'
+    formula: 'd_b = \frac{L_b - \ell_{eq}[L_b \ne 0]}{R_b}'
+    symbols:
+      'L_b': 'branch length'
+      '\ell_{eq}': 'the equalised length'
+      'R_b': 'branch range; a branch is range-restricted when \(1/R_b\) reaches an elbow threshold of the sorted \(1/R\) values'
+      'd_b': 'the length difference; codes 1 and 3 are \(d\) at or beyond the negative and positive elbow thresholds of the sorted \(d\)'
+    use: A branch-level counterpart of RPE; thresholds are found per tree by the elbow rule, so they vary with the data.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "rwibald", tree=tree), "RWIBALD_CODES")'
+    operator: bio.spatial
+    setting: calculations = rwibald
+    aliases: [RWIBALD_CODE_COUNTS, RWIBALD_DIFFS, RWIBALD_RR_DIFFS, RWIBALD_METADATA]
+
+  # ---------------------------------------------------------------- label properties
+  # impl: indices.cpp:2483-2503
+  - id: LBPROP_STATS
+    name: Label property statistics
+    level: cell
+    theme: label properties
+    unit: of the property
+    range: any
+    what: 'For each label property (set with `set_label_properties`), summary statistics over the labels of the neighbourhood, each label counted once: COUNT, MEAN, MIN, MAX, MEDIAN, SUM, SKEWNESS, KURTOSIS, SD, IQR (keys PROP_MEAN etc.). The _abc2 version weights each label by its local range.'
+    formula: '\bar x = \frac{\sum_l w_l x_l}{\sum_l w_l}'
+    symbols:
+      'x_l': 'the property value of label \(l\); values that are not numbers are dropped'
+      'w_l': '1 (lbprop_stats) or \(r_l\) (lbprop_stats_abc2)'
+    use: To summarise traits, body mass, threat scores per cell. Needs label properties set on the basedata.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "lbprop_stats"), "LBPROP_STATS")'
+    operator: bio.spatial
+    setting: calculations = lbprop_stats
+    aliases: [LBPROP_STATS_ABC2, lbprop_stats_abc2, lbprop_data, lbprop_lists, lbprop_hashes, lbprop_hashes_abc2]
+
+  # impl: indices.cpp:2504
+  - id: LBPROP_QUANTILES
+    name: Label property quantiles
+    level: cell
+    theme: label properties
+    unit: of the property
+    range: any
+    what: The 5, 10, 20, 30, 40, 50, 60, 70, 80, 90 and 95 percent quantiles of each label property over the neighbourhood labels (keys PROP_Q05 ...); _abc2 weights by local range.
+    formula: 'Q_p = \text{percentile}_p\{x_l; w_l\}'
+    symbols:
+      'x_l': 'property value'
+      'w_l': 'weight (1 or local range \(r_l\))'
+    use: Better than the mean for skewed traits.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "lbprop_quantiles"), "LBPROP_QUANTILES")'
+    operator: bio.spatial
+    setting: calculations = lbprop_quantiles
+    aliases: [LBPROP_QUANTILES_ABC2, lbprop_quantiles_abc2]
+
+  # impl: indices.cpp:2517, props.cpp:305
+  - id: LBPROP_GISTAR_LIST
+    name: Getis-Ord Gi* of label properties
+    level: cell
+    theme: label properties
+    unit: z-score
+    range: unbounded
+    what: Z-score of the sum of a label property over the neighbourhood against its global mean and spread; positive when the neighbourhood holds unusually high values (LBPROP_GISTAR_LIST per property; the _abc2 version weights labels by range).
+    formula: 'G^* = \frac{\sum_l x_l - w\bar x}{s\sqrt{\dfrac{nw - w^2}{n-1}}}'
+    symbols:
+      'x_l': 'property of label \(l\) in the neighbourhood'
+      'w': 'their count (or summed weights)'
+      'n': 'the number of labels in the basedata (weights summed)'
+      '\bar x, s': 'the global mean and standard deviation, with weight 1 (or the label range for abc2)'
+    use: Uses the labels, not the groups, as the units, so it is a hotspot measure of trait values rather than of space. Undefined when \(w=0\).
+    python: 'at(tf.bio.spatial_analysis(bd, C, "lbprop_gistar"), "LBPROP_GISTAR_LIST")'
+    operator: bio.spatial
+    setting: calculations = lbprop_gistar
+    aliases: [LBPROP_GISTAR_LIST_ABC2, lbprop_gistar_abc2, Gi*]
+    refs: ["Getis & Ord (1992). The analysis of spatial association by use of distance statistics. Geographical Analysis 24: 189-206. doi:10.1111/j.1538-4632.1992.tb00261.x"]
+
+  # impl: indices.cpp:2483-2530, props.cpp:305
+  - id: GPPROP_STATS_LIST
+    name: Group property statistics
+    level: cell
+    theme: label properties
+    unit: of the property
+    range: any
+    what: The same statistics as LBPROP_STATS for group properties over the groups of the neighbourhood (COUNT, MEAN, MIN, MAX, MEDIAN, SUM, SD, IQR), quantiles (GPPROP_QUANTILE_LIST, keys GPPROP_STATS_PROP_Q05 ...) and Gi* (GPPROP_GISTAR_LIST).
+    formula: '\bar x = \frac{1}{|G|}\sum_{g \in G} x_g,\quad G^* = \frac{\sum_g x_g - |G|\bar x_{glob}}{s\sqrt{\dfrac{n|G| - |G|^2}{n-1}}}'
+    symbols:
+      'x_g': 'the property of group \(g\)'
+      'G': 'the groups of both sets'
+      'n': 'all groups of the basedata'
+      '\bar x_{glob}, s': 'their mean and standard deviation'
+    use: To summarise a cell attribute (elevation, rainfall) over the neighbourhood; Gi* marks hot and cold spots.
+    python: 'at(tf.bio.spatial_analysis(bd, C, ["gpprop_stats", "gpprop_quantiles", "gpprop_gistar"]), "GPPROP_STATS_LIST")'
+    operator: bio.spatial
+    setting: calculations = gpprop_stats
+    aliases: [GPPROP_QUANTILE_LIST, GPPROP_GISTAR_LIST, gpprop_quantiles, gpprop_gistar, gpprop_lists, gpprop_hashes]
+
+  # ---------------------------------------------------------------- numeric labels
+  # impl: indices.cpp:2531-2570
+  - id: NUM_MEAN
+    name: Numeric label statistics
+    level: cell
+    theme: numeric labels
+    unit: of the label values
+    range: any
+    what: 'When the labels themselves are numbers (for example sizes), the weighted statistics of the label values, each weighted by its sample count: N, MEAN, SD, MIN, MAX, RANGE, CV, SKEW, KURT (NUM_*). Geometric and harmonic means come from numeric_label_other_means (NUM_GMEAN, NUM_HMEAN).'
+    formula: 'CV = \frac{s}{\bar x},\quad \bar x = \frac{\sum_l n_l x_l}{\sum_l n_l}'
+    symbols:
+      'x_l': 'the numeric label'
+      'n_l': 'its samples in the neighbourhood; skewness needs N > 2 and kurtosis N > 3'
+    use: For data where the label is a measurement (a size class, an altitude). Not for names such as species codes.
+    python: 'at(tf.bio.spatial_analysis(bn, C, ["numeric_label_stats", "numeric_label_other_means"]))'
+    operator: bio.spatial
+    setting: calculations = numeric_label_stats
+    aliases: [NUM_SD, NUM_N, NUM_MIN, NUM_MAX, NUM_RANGE, NUM_CV, NUM_SKEW, NUM_KURT, NUM_GMEAN, NUM_HMEAN, numeric_label_other_means, numeric_label_data, NUM_DATA_ARRAY]
+
+  # impl: indices.cpp:2571
+  - id: NUM_Q050
+    name: Numeric label quantiles
+    level: cell
+    theme: numeric labels
+    unit: of the label values
+    range: any
+    what: The 5, 10, ... 95 percent quantiles of the numeric labels weighted by their sample counts (NUM_Q005 to NUM_Q095).
+    formula: 'Q_p = \text{percentile}_p\{x_l; n_l\}'
+    symbols:
+      'x_l': 'numeric label'
+      'n_l': 'its samples'
+    use: Robust summary of the value distribution of a neighbourhood.
+    python: 'at(tf.bio.spatial_analysis(bn, C, "numeric_label_quantiles"))'
+    operator: bio.spatial
+    setting: calculations = numeric_label_quantiles
+    aliases: [NUM_Q005, NUM_Q010, NUM_Q095]
+
+  # impl: indices.cpp:2626, props.cpp:305
+  - id: NUM_GISTAR
+    name: Getis-Ord Gi* of numeric labels
+    level: cell
+    theme: numeric labels
+    unit: z-score
+    range: unbounded
+    what: Z-score of the sum of the numeric label values (weighted by samples) over the neighbourhood against their global mean and spread.
+    formula: 'G^* = \frac{\sum_l n_l x_l - w\bar x}{s\sqrt{\dfrac{N w - w^2}{N-1}}}'
+    symbols:
+      'w': '\(\sum_l n_l\) in the neighbourhood'
+      'N': 'total samples of the basedata'
+      '\bar x, s': 'their global weighted mean and standard deviation'
+    use: Hotspot of high (positive) or low (negative) label values.
+    python: 'at(tf.bio.spatial_analysis(bn, C, "num_labels_gistar"))'
+    operator: bio.spatial
+    setting: calculations = num_labels_gistar
+    refs: ["Getis & Ord (1992). The analysis of spatial association by use of distance statistics. Geographical Analysis 24: 189-206. doi:10.1111/j.1538-4632.1992.tb00261.x"]
+
+  # impl: indices.cpp:2582-2640
+  - id: IEI_MEAN
+    name: Inter-event interval statistics (IEI)
+    level: cell
+    theme: numeric labels
+    unit: of the label values
+    range: ≥ 0
+    what: 'In each group of the neighbourhood the numeric labels are treated as event times; the intervals between consecutive labels, plus zero intervals for repeated samples, are summarised: N, MEAN, SD, MIN, MAX, RANGE, CV, GMEAN, SKEW, KURT (IEI_*). IEI_DATA_ARRAY and IEI_DATA_HASH hold the intervals.'
+    formula: 'I_g = \{x_{(i+1)} - x_{(i)}\} \cup \{0 \times (n_{l} - 1)\},\quad \text{stats over } \bigcup_g I_g'
+    symbols:
+      'x_{(i)}': 'the sorted numeric labels of group \(g\) (at least two labels)'
+      'n_l': 'samples of a label; each label with \(n_l > 1\) adds \(n_l - 1\) zero intervals'
+    use: From BiodiverseX; for time-stamped or ordered labels. The geometric mean is NaN if any interval is negative.
+    python: 'at(tf.bio.spatial_analysis(bn, C, ["iei_stats", "iei_data"]))'
+    operator: bio.spatial
+    setting: calculations = iei_stats
+    aliases: [IEI_SD, IEI_N, IEI_MIN, IEI_MAX, IEI_RANGE, IEI_CV, IEI_GMEAN, IEI_SKEW, IEI_KURT, IEI_DATA_ARRAY, IEI_DATA_HASH, iei_data]
+
+  # impl: indices.cpp:2641-2720
+  - id: NUMD_ABSMEAN
+    name: Numeric label dissimilarity between two sets
+    level: cell
+    theme: numeric labels
+    unit: of the label values
+    range: ≥ 0
+    what: Weighted mean absolute difference (NUMD_ABSMEAN) and mean squared difference (NUMD_VARIANCE) between the numeric labels of set 1 and those of set 2, over all pairs weighted by their samples; NUMD_COUNT is the weight total.
+    formula: 'ABSMEAN = \frac{\sum_{i,j} a_i b_j |x_i - y_j|}{\sum_{i,j} a_i b_j},\quad VAR = \frac{\sum_{i,j} a_i b_j (x_i - y_j)^2}{\sum_{i,j} a_i b_j}'
+    symbols:
+      'x_i, y_j': 'numeric labels of set 1 and set 2'
+      'a_i, b_j': 'their samples in that set'
+      'VAR': 'the mean square, not a variance about the mean difference (NUMD_VARIANCE)'
+    use: Needs two conditions; compares the value distributions of two neighbourhoods (for example cell against surroundings).
+    python: 'at(tf.bio.spatial_analysis(bn, C2, "numeric_label_dissimilarity"))'
+    operator: bio.spatial
+    setting: calculations = numeric_label_dissimilarity
+    aliases: [NUMD_COUNT, NUMD_VARIANCE]
+
+  # ---------------------------------------------------------------- label matrix
+  # impl: indices.cpp:2722-2750
+  - id: MX_MEAN
+    name: Matrix statistics
+    level: cell
+    theme: label matrix
+    unit: of the matrix values
+    range: any
+    what: 'Statistics of the values of a label matrix (distances, similarities) over the pairs of labels in the neighbourhood, diagonal included: N, MEAN, MEDIAN, SD, MIN, MAX, RANGE, SKEW, KURT, and the 5, 25, 75, 95 percent quantiles (MX_*). MX_LABELS and MX_VALUES list the labels and values.'
+    formula: '\bar v = \frac{1}{P}\sum_{i \le j} v_{ij}'
+    symbols:
+      'v_{ij}': 'the matrix value of labels \(i, j\) of the neighbourhood that are in the matrix'
+      'P': 'the defined pairs'
+    use: Needs `matrix=` (for example functional or genetic distances). Labels outside the matrix are ignored.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "matrix_stats", matrix=mx))'
+    operator: bio.spatial
+    setting: calculations = matrix_stats
+    aliases: [MX_N, MX_MEDIAN, MX_SD, MX_MINVALUE, MX_MAXVALUE, MX_RANGE, MX_SKEW, MX_KURT, MX_PCT05, MX_PCT25, MX_PCT75, MX_PCT95, MX_LABELS, MX_VALUES]
+
+  # impl: indices.cpp:2751-2772
+  - id: MXD_MEAN
+    name: Matrix comparison of two sets
+    level: cell
+    theme: label matrix
+    unit: of the matrix values
+    range: any
+    what: Mean (MXD_MEAN) and mean square (MXD_VARIANCE) of the matrix values between each label of set 1 and each label of set 2, with MXD_COUNT pairs; MXD_LIST1 and MXD_LIST2 hold the labels used.
+    formula: 'MXD = \frac{1}{|A||B|}\sum_{i \in A}\sum_{j \in B} v_{ij},\quad MXD_{var} = \frac{1}{|A||B|}\sum v_{ij}^2'
+    symbols:
+      'A': 'the labels of set 1 that are in the matrix'
+      'B': 'the labels of set 2 that are in the matrix'
+      'v_{ij}': 'the matrix value; a missing pair or \(i = j\) counts 0. MXD_VARIANCE is the mean square, not a variance'
+    use: 'Needs two conditions and a matrix: the mean distance between the species of a cell and those of its neighbours.'
+    python: 'at(tf.bio.spatial_analysis(bd, C2, "compare_dissim_matrix_values", matrix=mx))'
+    operator: bio.spatial
+    setting: calculations = compare_dissim_matrix_values
+    aliases: [MXD_VARIANCE, MXD_COUNT, MXD_LIST1, MXD_LIST2]
+
+  # impl: indices.cpp:2773
+  - id: MX_RAO_QE
+    name: Rao quadratic entropy from a matrix
+    level: cell
+    theme: label matrix
+    unit: of the matrix values
+    range: ≥ 0
+    what: Rao's quadratic entropy with the pairwise distances taken from a label matrix; MX_RAO_TN is the number of pairs counted (n squared) and MX_RAO_TLABELS the label proportions.
+    formula: 'Q = \sum_{i \le j} 2\, v_{ij}\, p_i p_j,\quad p_i = 1/n'
+    symbols:
+      'v_{ij}': 'matrix distance (a missing value counts 0)'
+      'n': 'labels of the neighbourhood that are in the matrix'
+      'p_i': '\(1/n\), as presence only; the sum includes \(i=j\) with the factor 2, so the diagonal values count double'
+    use: Needs `matrix=`. Presence-only (label weights are 1/n); with a zero diagonal it equals the usual quadratic entropy of equal proportions.
+    python: 'at(tf.bio.spatial_analysis(bd, C, "mx_rao_qe", matrix=mx))'
+    operator: bio.spatial
+    setting: calculations = mx_rao_qe
+    aliases: [MX_RAO_TN, MX_RAO_TLABELS]
+    refs: ["Rao (1982). Diversity and dissimilarity coefficients: a unified approach. Theoretical Population Biology 21: 24-43."]
+
+  # ---------------------------------------------------------------- randomisation
+  # impl: _randomise.py:406-445
+  - id: P_RANK
+    name: P-rank of an index (randomisation)
+    level: cell
+    theme: randomisation
+    unit: none
+    range: 0 ≤ p ≤ 1
+    what: Where the observed index lies among its randomised values. High (near 1) means the observed value is larger than most random ones, low means smaller.
+    formula: 'P = \frac{C}{Q},\quad \text{rank} = \begin{cases} P & P > 0.5 \\ (C + T)/Q & \text{else}\end{cases}'
+    symbols:
+      'C': 'number of randomisations in which the observed value exceeds the random one (by more than a tolerance)'
+      'T': 'ties'
+      'Q': 'comparisons made (those with both values defined)'
+    use: 'The significance test of Biodiverse: rank above 0.95 or below 0.05 for a two-tailed 10% test. Counts, p-ranks and z-scores come from `randomise(...)` on a SpatialResult; they are not calculations to list in the analysis.'
+    python: 'rn = tf.bio.randomise(tf.bio.spatial_analysis(bd, C, ["pe", "phylo_rpe2"], tree=tree), "rand_structured", iterations=99, seed=1); rn.p_rank().loc[G]'
+    operator: bio.randomise
+    setting: function = rand_structured
+    aliases: [p-rank, randomisation p, COMPARE_C, COMPARE_T, COMPARE_Q]
+
+  # impl: _randomise.py:437-444
+  - id: Z_SCORE
+    name: Z-score of an index (randomisation)
+    level: cell
+    theme: randomisation
+    unit: standard deviations
+    range: unbounded
+    what: Observed index minus the mean of the randomised values, over their standard deviation (the population form, divided by Q).
+    formula: 'z = \frac{x_{obs} - \bar x_{rand}}{s_{rand}},\quad s_{rand}^2 = \frac{\sum x^2 - (\sum x)^2/Q}{Q}'
+    symbols:
+      'x_{obs}': 'observed value'
+      'x': 'randomised values'
+      'Q': 'their number; z is 0 when they do not vary'
+      '\sum x, \sum x^2': 'held in SUMX and SUMXX'
+    use: Complements the p-rank when the null distribution is roughly normal; `rn.comparison()` also gives the counters C, T, Q, P, SUMX, SUMXX.
+    python: 'rn = tf.bio.randomise(tf.bio.spatial_analysis(bd, C, ["pe", "phylo_rpe2"], tree=tree), "rand_structured", iterations=99, seed=1); rn.z_scores().loc[G]'
+    operator: bio.randomise
+    setting: function = rand_structured
+    aliases: [z-score, SUMX, SUMXX]
+
+  # impl: _randomise.py:596-625
+  - id: CANAPE_CODE
+    name: CANAPE categories
+    level: cell
+    theme: randomisation
+    unit: category code
+    range: 0 to 4
+    what: 'Categorical analysis of neo- and palaeo-endemism: each cell is classed from the p-ranks of PE, the PE of the equalised tree (the null PE) and RPE as not significant (0), neo-endemism (1), palaeo-endemism (2), mixed (3) or super (4); also as indicator columns NEO, PALAEO, MIXED, SUPER.'
+    formula: 'code = \begin{cases} 0 & p_{PE} \le 0.95 \ \wedge\ p_{null} \le 0.95\\ 1 & p_{RPE} < 0.025\\ 2 & p_{RPE} > 0.975\\ 4 & p_{PE} > 0.99 \ \wedge\ p_{null} > 0.99\\ 3 & \text{otherwise}\end{cases}'
+    symbols:
+      'p': 'the p-ranks (missing counted 0.5) of PE_WE, PHYLO_RPE_NULL2 and PHYLO_RPE2 (the diff variant uses PHYLO_RPE_DIFF2; `central=True` uses PEC_WE, PHYLO_RPE_NULLC, PHYLO_RPEC). Tests are applied in the order shown.'
+    use: Needs `pe` and `phylo_rpe2` in the analysis and randomisations (use rand_structured). Palaeo cells are rich in long-branch endemics, neo cells in short-branch ones.
+    python: 'tf.bio.randomise(tf.bio.spatial_analysis(bd, C, ["pe", "phylo_rpe2"], tree=tree), "rand_structured", iterations=99, seed=1).canape().loc[G]'
+    operator: bio.randomise
+    setting: calculations = pe, phylo_rpe2
+    aliases: [NEO, PALAEO, MIXED, SUPER, CANAPE]
+    refs: ["Mishler et al. (2014). Phylogenetic measures of biodiversity and neo- and paleo-endemism in Australian Acacia. Nature Communications 5: 4473. doi:10.1038/ncomms5473"]
+
+

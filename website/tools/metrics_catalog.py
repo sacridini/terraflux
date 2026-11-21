@@ -49,7 +49,8 @@ CONTENT = WEB / "content" / "metrics"
 FAMILY_REQUIRED = ("family", "title", "order", "source", "intro", "example", "metrics")
 FAMILY_OPTIONAL = ("library", "prefix", "data")
 ENTRY_REQUIRED = ("id", "name", "level", "theme", "unit", "range", "what", "formula", "symbols", "use")
-ENTRY_OPTIONAL = ("python", "operator", "setting", "refs", "aliases", "variants", "api")
+ENTRY_OPTIONAL = ("python", "operator", "setting", "refs", "aliases", "variants", "api", "listed", "options",
+                  "variant_base")
 
 # The summary statistics of a patch metric at the class and landscape level (the library's `_mn`, `_sd`...), as the
 # library computes them over the patches of a class (or of the landscape): label, definition.
@@ -93,7 +94,8 @@ class Lib:
     def keys(self) -> set[str]:
         raise NotImplementedError
 
-    def call(self, key: str, data: str) -> str:
+    def call(self, key: str, data: str, options: str | None = None) -> str:
+        """The call that computes `key` on `data`; `options`: more keyword arguments, as text ("search_radius=300")."""
         raise NotImplementedError
 
     def operator(self, key: str) -> tuple[str, str] | None:
@@ -102,7 +104,7 @@ class Lib:
     def api(self, key: str) -> str | None:
         return None
 
-    def variants(self, key: str, suffixes: list[str]) -> list[dict]:
+    def variants(self, key: str, suffixes: list[str], base: str | None = None) -> list[dict]:
         return []
 
     def value(self, key: str, result) -> str:
@@ -128,8 +130,9 @@ class LsmLib(Lib):
     def level(self, key):
         return LSM_LEVEL[key.split("_")[1]]
 
-    def call(self, key, data):
-        return f'tf.landscape_metrics({data}, what=["{key}"])'
+    def call(self, key, data, options=None):
+        more = f", {options}" if options else ""
+        return f'tf.landscape_metrics({data}, what=["{key}"]{more})'
 
     def operator(self, key):
         _, lv, metric = key.split("_", 2)
@@ -138,8 +141,9 @@ class LsmLib(Lib):
     def api(self, key):
         return "terraflux.landscape_metrics"
 
-    def variants(self, key, suffixes):
-        """The class- and landscape-level statistics of a patch metric `lsm_p_<base>` the library has."""
+    def variants(self, key, suffixes, base=None):
+        """The class- and landscape-level statistics of a patch metric `lsm_p_<base>` the library has (`base`: their
+        name when it is not the patch metric's, as landscapemetrics' `dcore_*`, the statistics of `ncore`)."""
         parts = key.split("_", 2)
         if parts[1] != "p":
             raise CatalogError(f"{key}: `variants` are the statistics of a patch-level metric (lsm_p_...)")
@@ -148,7 +152,7 @@ class LsmLib(Lib):
             for s in suffixes:
                 if s not in LSM_STATS:
                     raise CatalogError(f"{key}: unknown variant {s!r} (the library has {', '.join(LSM_STATS)})")
-                k = f"lsm_{lv}_{parts[2]}_{s}"
+                k = f"lsm_{lv}_{base or parts[2]}_{s}"
                 if k in self._keys:
                     out.append({"id": k, "stat": s, "level": LSM_LEVEL[lv]})
         return out
@@ -180,16 +184,17 @@ class SurfaceLib(Lib):
     def level(self, key):
         return "map"
 
-    def call(self, key, data):
+    def call(self, key, data, options=None):
+        more = f", {options}" if options else ""
         if hasattr(self.tf.surface, key):
-            return f"tf.surface.{key}({data})"
-        return f'tf.surface.metrics({data}, metrics=["{key}"])["{key}"]'
+            return f"tf.surface.{key}({data}{more})"
+        return f'tf.surface.metrics({data}, metrics=["{key}"]{more})["{key}"]'
 
     def operator(self, key):
         return "surface.metrics", f'metrics = ["{key}"]'
 
     def api(self, key):
-        return f"terraflux.surface.{key}" if hasattr(self.tf.surface, key) else "terraflux.surface.metrics"
+        return f"terraflux.surface.{key}" if key and hasattr(self.tf.surface, key) else "terraflux.surface.metrics"
 
 
 def generic_value(r) -> str:
@@ -205,6 +210,29 @@ def generic_value(r) -> str:
         return "\n".join(f"{k}  {num(v) if isinstance(v, (int, float, np.number)) else v}" for k, v in r.items())
     if isinstance(r, pd.DataFrame):
         return r.round(4).to_string(index=False)
+    if isinstance(r, tuple) and len(r) <= 4:
+        return "; ".join(generic_value(x) for x in r)
+    # a map (numpy array, xarray DataArray, a raster): its summary, not its repr
+    a = None
+    if isinstance(r, np.ndarray):
+        a = r
+    elif hasattr(r, "values") and isinstance(getattr(r, "values"), np.ndarray):
+        a = r.values
+    elif hasattr(r, "__array__") and not isinstance(r, (list, dict)):
+        try:
+            a = np.asarray(r)
+        except Exception:  # noqa: BLE001 - not an array after all
+            a = None
+    if a is not None and a.dtype.kind in "biuf":
+        if a.ndim <= 1 and a.size <= 6:
+            return ", ".join(num(v) for v in a.ravel())
+        f = a.astype("float64", copy=False)
+        ok = np.isfinite(f)
+        if not ok.any():
+            return f"a map of {a.size} cells, none with a value"
+        text = (f"a map: mean {num(f[ok].mean())}, from {num(f[ok].min())} to {num(f[ok].max())}")
+        missing = int(a.size - ok.sum())
+        return text + (f"; {missing} cells without a value" if missing else "")
     return str(r)
 
 
@@ -266,12 +294,20 @@ def check_entry(e, where: str, f: dict, errors: list[str]) -> bool:
     sym = e["symbols"]
     if not isinstance(sym, dict) or not all(isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in sym.items()):
         errors.append(f"{where}: `symbols` must be a mapping from a LaTeX symbol to its meaning")
-    for k in ("python", "operator", "setting", "api"):
+    for k in ("options", "variant_base"):
+        if k in e and not f.get("library"):
+            errors.append(f"{where}: `{k}` is for the generated calls of a family with a `library:`")
+    if "options" in e and "python" in e:
+        errors.append(f"{where}: `options` add to the generated call; with your own `python:` write them there")
+    for k in ("python", "operator", "setting", "api", "options", "variant_base"):
         if k in e and (not isinstance(e[k], str) or not e[k].strip()):
             errors.append(f"{where}: `{k}` must be a non-empty text")
     for k in ("refs", "aliases", "variants"):
         if k in e and (not isinstance(e[k], list) or not all(isinstance(x, str) and x.strip() for x in e[k])):
             errors.append(f"{where}: `{k}` must be a list of texts")
+    if "listed" in e and (e["listed"] is not False or "python" not in e or not f.get("library")):
+        errors.append(f"{where}: `listed: false` (and only false) marks, in a family with a `library:`, a metric its "
+                      "list does not hold; it needs its own `python:`")
     if "setting" in e and "operator" not in e:
         errors.append(f"{where}: `setting` needs `operator` (the operator it is a setting of)")
     if not f.get("library") and "python" not in e:
@@ -363,20 +399,26 @@ def build(only=None):
             if lib:
                 key = e["id"][len(prefix):] if e["id"].startswith(prefix) else None
                 if key is None or key not in lib.keys():
-                    errors.append(f"{where}: the library has no metric {key or e['id']!r} (family `library: {lib.name}`)")
-                    continue
-                covered.add(key)
-                if lib.level(key) and lib.level(key) != e["level"]:
-                    errors.append(f"{where}: `level` is {e['level']!r}, the library's is {lib.level(key)!r}")
-            code = e.get("python") or (lib.call(key, data) if lib else None)
+                    if e.get("listed") is False and e.get("python"):
+                        key = None  # a metric of the library its list does not hold: its own call
+                    else:
+                        errors.append(f"{where}: the library has no metric {key or e['id']!r} (family `library: "
+                                      f"{lib.name}`; an entry outside the library's list says `listed: false` and gives "
+                                      f"its `python:`)")
+                        continue
+                if key is not None:
+                    covered.add(key)
+                    if lib.level(key) and lib.level(key) != e["level"]:
+                        errors.append(f"{where}: `level` is {e['level']!r}, the library's is {lib.level(key)!r}")
+            code = e.get("python") or (lib.call(key, data, e.get("options")) if lib else None)
             out["python"] = code
-            op = lib.operator(key) if lib else None
+            op = lib.operator(key) if lib and key is not None else None
             operator = e.get("operator") or (op[0] if op else None)
             setting = e.get("setting") or (op[1] if op and not e.get("operator") else None)
             if operator:
                 check_operator(where, operator, setting, ops, errors)
                 out["operator"], out["setting"] = operator, setting
-            apipath = e.get("api") or (lib.api(key) if lib else None)
+            apipath = e.get("api") or (lib.api(key) if lib and key is not None else None)
             if apipath:
                 if not resolve_path(apipath, api["objects"], api["aliases"]):
                     errors.append(f"{where}: no object {apipath!r} in data/python_api.json")
@@ -393,7 +435,7 @@ def build(only=None):
                     errors.append(f"{where}: `variants` need a family `library:`")
                     continue
                 try:
-                    vs = lib.variants(key, e["variants"])
+                    vs = lib.variants(key, e["variants"], e.get("variant_base"))
                 except CatalogError as ex:
                     errors.append(f"{where}: {ex}")
                     continue
@@ -404,7 +446,7 @@ def build(only=None):
                     seen_ids[v["id"]] = fname
                     covered.add(v["id"])
                     try:
-                        v["value"] = lib.value(v["id"], run(lib.call(v["id"], data), dict(ns)))
+                        v["value"] = lib.value(v["id"], run(lib.call(v["id"], data, e.get("options")), dict(ns)))
                     except Exception as ex:  # noqa: BLE001
                         errors.append(f"{where}: variant {v['id']} raises: {type(ex).__name__}: {ex}")
                         continue
@@ -443,6 +485,8 @@ def main():
     ap.add_argument("--only", nargs="+", metavar="FAMILY",
                     help="check only these families (data/metrics/<family>.yaml) and write nothing: for work on one family "
                          "while others are being edited")
+    ap.add_argument("--out", type=pathlib.Path, metavar="FILE",
+                    help="with --only: write those families' JSON to FILE (for tools/check_formulas.py --json FILE)")
     a = ap.parse_args()
     try:
         data, coverage = build(set(a.only) if a.only else None)
@@ -463,7 +507,10 @@ def main():
         print(f"  library {fam}: it has {have}, the catalog covers {got}, {len(rest)} not yet"
               + (f": {', '.join(shown)}{' ...' if len(shown) < len(rest) else ''}" if rest else ""))
     text = json.dumps(data, ensure_ascii=False, indent=1) + "\n"
-    if a.only:
+    if a.only and a.out:
+        a.out.write_text(text, encoding="utf-8")
+        print(f"--only: wrote {a.out} (not data/metrics.json)")
+    elif a.only:
         print("--only: nothing written")
     elif a.check:
         old = OUT.read_text(encoding="utf-8") if OUT.is_file() else ""

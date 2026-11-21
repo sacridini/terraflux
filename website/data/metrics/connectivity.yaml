@@ -1,0 +1,1449 @@
+family: connectivity
+title: Connectivity
+order: 70
+source: "Conefor Sensinode (Saura & Torne 2009; Saura & Pascual-Hortal 2007; Pascual-Hortal & Saura 2006) and Makurhini (MK_dPCIIC, MK_dECA, MK_RMCentrality, MK_Focal_nodes, MK_ProtConn)"
+intro: |
+  Indices of a habitat graph: the nodes are habitat patches with an attribute (usually the area) and the links join patches
+  that are close enough for the species to disperse between them. They are the measures of the
+  [habitat networks tutorials](../../tutorials/habitat-networks/connectivity-as-a-graph/), and of Conefor Sensinode and
+  Makurhini.
+
+  The cards show their values on the forests (CORINE classes 23, 24 and 25) of the 50 x 50 km excerpt around Lake Steinhude
+  and Hannover, Lower Saxony, that those tutorials use, on 100 m cells: `net` is the graph of its 154 forest patches
+  (51 569 ha of forest in a landscape of 250 000 ha), with edge-to-edge distances, read at a dispersal distance of 1000 m
+  and, for the probabilistic indices, a probability of 0.5 at that distance. `scrub` is the same graph with the
+  transitional woodland-shrub of class 29 as habitat too. The importance of a node or a link comes as a row for each of the
+  154 nodes, so the cards show the three highest, with the small function `top`. The ProtConn cards use the 18 forests of
+  500 ha or more as hypothetical reserves (they are not the real protected areas of the region) in the whole square; the
+  cards that need a transboundary zone use a region 30 x 30 km inside it, with a zone of 5 km around.
+
+  Conventions: the default `makurhini` convention links pairs closer than the distance (`d < t`), derives the probability
+  of a direct link as \(p_{ij} = P^{d_{ij}/t}\) and drops it below `pij_min` (0.01); the `conefor` convention links pairs
+  up to the distance (`d <= t`) and keeps every probability. Node importance is the percent loss of an index when the node
+  is removed.
+example: |
+  import geopandas as gpd
+  import numpy as np
+  import rasterio.features
+  import shapely
+  import terraflux as tf
+
+  # CORINE land cover of the Steinhude-Hannover excerpt (EPSG:3035) on 100 m cells; the forests are the habitat
+  land = tf.reproject(tf.load_raster(tf.example_data("clc")), res=100, resampling="mode")
+  kw = dict(area_unit="ha", distance="edge", landscape_area=250_000)       # ha, edge-to-edge distances, a 50 x 50 km landscape
+  net = tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25], **kw)
+  scrub = tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25, 29], **kw)   # with transitional woodland-shrub as habitat too
+  nodes = tf.conn.node_table(land, habitat=[23, 24, 25], area_unit="ha")
+  candidate = (nodes["attribute"] >= 40).astype(int).to_numpy()            # 0 marks the forests under 40 ha, candidates to add
+
+  # hypothetical reserves: the forests of 500 ha or more as polygons, in the whole square and in a region inside it
+  ids = net.to_raster(nodes[nodes["attribute"] >= 500], "id")
+  grid = np.nan_to_num(ids.values).astype("int32")
+  shapes = rasterio.features.shapes(grid, mask=grid > 0, transform=land.rio.transform(), connectivity=8)
+  reserves = gpd.GeoDataFrame(geometry=[shapely.geometry.shape(s) for s, _ in shapes], crs=land.rio.crs)
+  x0, y0, x1, y1 = land.rio.bounds()
+  region = gpd.GeoDataFrame(geometry=[shapely.box(x0, y0, x1, y1)], crs=land.rio.crs)
+  inner = gpd.GeoDataFrame(geometry=[shapely.box(x0 + 10_000, y0 + 10_000, x1 - 10_000, y1 - 10_000)], crs=land.rio.crs)
+
+
+  def top(table, by, *cols, n=3):
+      """The n rows of a table with the highest value of a column, with some other columns."""
+      return table.nlargest(n, by)[["id", by, *cols]].round(4)
+metrics:
+  # impl: graph.py:706
+  - id: conn_a
+    name: "Total node attribute (A)"
+    level: network
+    theme: structural
+    unit: "unit of the attribute (e.g. ha)"
+    range: "A ≥ 0"
+    what: |
+      The sum of the attributes of all nodes, normally the total habitat area. It is the denominator of CCP and of the
+      node importance dA.
+    use: |
+      Context for the other indices. Not a connectivity measure by itself.
+    formula: |
+      A = \sum_{i=1}^{n} a_i
+    symbols:
+      'a_i': "attribute of node \\( i \\)"
+      'n': "number of nodes."
+    python: 'net.overall("A", distance=1000)["A"][0]'
+    operator: conn.overall
+    setting: metrics = A
+    refs:
+      - "Saura & Torné (2009). Conefor Sensinode 2.2: a software package for quantifying the importance of habitat patches for landscape connectivity. Environmental Modelling & Software 24: 135-139. doi:10.1016/j.envsoft.2008.05.005"
+
+  # impl: graph.py:708 (counted in the Rust core, conn_analyse)
+  - id: conn_nc
+    name: "Number of components (NC)"
+    level: network
+    theme: structural
+    unit: "count"
+    range: "1 ≤ NC ≤ n"
+    what: |
+      How many groups of nodes are connected to each other by links at the chosen distance. A single component means
+      any patch can be reached from any other through stepping stones.
+    use: |
+      A coarse indicator; it ignores patch size and the strength of connections. Use IIC, PC or CCP when sizes matter.
+    formula: |
+      NC = \#\{\text{connected components of the link graph}\}
+    symbols:
+      'l_{ij}': "1 when nodes \\(i\\) and \\(j\\) are linked, that is when \\(d_{ij} < t\\) (\\(d_{ij} \\le t\\) with the Conefor convention)"
+    python: 'net.overall("NC", distance=1000)["NC"][0]'
+    operator: conn.overall
+    setting: metrics = NC
+    refs:
+      - "Pascual-Hortal & Saura (2006). Comparison and development of new graph-based landscape connectivity indices: towards the prioritization of habitat patches and corridors for conservation. Landscape Ecology 21: 959-967."
+
+  # impl: graph.py:710
+  - id: conn_nl
+    name: "Number of links (NL)"
+    level: network
+    theme: structural
+    unit: "count"
+    range: "0 ≤ NL ≤ n(n-1)/2"
+    what: |
+      The number of node pairs that are linked at the chosen distance.
+    use: |
+      Grows with the threshold; it does not tell whether the links join separate groups or only add redundancy.
+    formula: |
+      NL = \sum_{i<j} l_{ij}, \qquad l_{ij}=\begin{cases}1 & d_{ij} < t\\ 0 & \text{otherwise}\end{cases}
+    symbols:
+      'l_{ij}': "1 when nodes \\( i \\) and \\( j \\) are linked"
+      'd_{ij}': "distance"
+      't': "distance threshold."
+    python: 'net.overall("NL", distance=1000)["NL"][0]'
+    operator: conn.overall
+    setting: metrics = NL
+    refs:
+      - "Pascual-Hortal & Saura (2006). Comparison and development of new graph-based landscape connectivity indices: towards the prioritization of habitat patches and corridors for conservation. Landscape Ecology 21: 959-967."
+
+  # impl: graph.py:712 (r["h"]); example: 1 + 1 + 1/2 = 2.5
+  - id: conn_h
+    name: "Harary index (H)"
+    level: network
+    theme: structural
+    unit: "none"
+    range: "H ≥ 0"
+    what: |
+      The sum, over node pairs, of the inverse of the number of links on the shortest path. Pairs in different
+      components contribute nothing; closely linked pairs contribute most.
+    use: |
+      Topological only (ignores areas). Sensitive to the number of nodes, so compare graphs with the same nodes.
+    formula: |
+      H = \sum_{i<j} \frac{1}{nl_{ij}}
+    symbols:
+      'nl_{ij}': "number of links on the shortest path between \\( i \\) and \\( j \\) in the link graph; pairs without a path add 0."
+    python: 'net.overall("H", distance=1000)["H"][0]'
+    operator: conn.overall
+    setting: metrics = H
+    refs:
+      - "Pascual-Hortal & Saura (2006). Comparison and development of new graph-based landscape connectivity indices: towards the prioritization of habitat patches and corridors for conservation. Landscape Ecology 21: 959-967."
+
+  # impl: graph.py:715 (comp_sq / total^2); (170^2 + 80^2) / 250^2
+  - id: conn_ccp
+    name: "Class coincidence probability (CCP)"
+    level: network
+    theme: structural
+    unit: "none"
+    range: "0 < CCP ≤ 1"
+    what: |
+      The probability that two random points in the habitat fall in the same component. It is 1 when all habitat is in
+      one component and falls as the habitat splits into pieces.
+    use: |
+      Normalised by the habitat present, not by the landscape. Use LCP when different landscapes (or habitat amounts)
+      are compared.
+    formula: |
+      CCP = \frac{\sum_{k} A_k^{2}}{A^{2}}
+    symbols:
+      'A_k': "sum of node attributes in component \\( k \\); \\( A = \\sum_i a_i \\)."
+    python: 'net.overall("CCP", distance=1000)["CCP"][0]'
+    operator: conn.overall
+    setting: metrics = CCP
+    refs:
+      - "Pascual-Hortal & Saura (2006). Comparison and development of new graph-based landscape connectivity indices: towards the prioritization of habitat patches and corridors for conservation. Landscape Ecology 21: 959-967."
+
+  # impl: graph.py:716-718
+  - id: conn_lcp
+    name: "Landscape coincidence probability (LCP)"
+    level: network
+    theme: structural
+    unit: "none"
+    range: "0 ≤ LCP ≤ 1"
+    what: |
+      Like CCP but divided by the whole landscape area, so it also drops when habitat is lost.
+    use: |
+      Needs a landscape area. Good for comparing landscapes or scenarios of the same extent.
+    formula: |
+      LCP = \frac{\sum_{k} A_k^{2}}{LA^{2}}
+    symbols:
+      'A_k': "attribute total of component \\( k \\)"
+      'LA': "landscape attribute (`landscape_area`). Without `landscape_area` Makurhini gives only the numerator (here NaN), Conefor uses \\( LA = 1 \\). The numerator is also returned as `LCPnum`."
+    python: 'net.overall("LCP", distance=1000)["LCP"][0]'
+    operator: conn.overall
+    setting: metrics = LCP
+    refs:
+      - "Pascual-Hortal & Saura (2006). Comparison and development of new graph-based landscape connectivity indices: towards the prioritization of habitat patches and corridors for conservation. Landscape Ecology 21: 959-967."
+
+  # impl: graph.py:719-722, 741-750
+  - id: conn_iic
+    name: "Integral index of connectivity (IIC)"
+    level: network
+    theme: structural
+    unit: "none"
+    range: "0 ≤ IIC ≤ 1"
+    aliases: [integral index of connectivity]
+    what: |
+      Habitat available in the landscape, counting each pair of patches weighted by their sizes and discounted by the
+      number of links between them. It rises with larger patches and with shorter link paths, and is 1 when all the
+      landscape is one habitat patch.
+    use: |
+      Binary links: it does not use dispersal probabilities. Prefer PC for graded dispersal. Needs `landscape_area`,
+      otherwise NaN.
+    formula: |
+      IIC = \frac{1}{LA^{2}} \sum_{i=1}^{n}\sum_{j=1}^{n} \frac{a_i\, a_j}{1 + nl_{ij}}
+    symbols:
+      'a_i': "node attribute"
+      'nl_{ij}': "links on the shortest path (0 for \\( i = j \\))"
+      'LA': "landscape attribute. Pairs without a path add 0 (Conefor); with the `makurhini` convention they add \\( a_i a_j/(1+16443701) \\) (Makurhini's stand-in for an unreachable pair, practically 0), and the value is capped at 1. The numerator is `IICnum`."
+    python: 'net.overall("IIC", distance=1000)["IIC"][0]'
+    operator: conn.overall
+    setting: metrics = IIC
+    refs:
+      - "Pascual-Hortal & Saura (2006). Comparison and development of new graph-based landscape connectivity indices: towards the prioritization of habitat patches and corridors for conservation. Landscape Ecology 21: 959-967."
+
+  # impl: graph.py:742, 750
+  - id: conn_ec_iic
+    name: "Equivalent connectivity of IIC (EC(IIC))"
+    level: network
+    theme: structural
+    unit: "unit of the attribute (e.g. ha)"
+    range: "0 ≤ EC(IIC) ≤ LA"
+    aliases: [ECA, equivalent connected area]
+    what: |
+      The size of a single habitat patch that would give the same IIC as the real graph. It puts IIC back in area
+      units (also called ECA).
+    use: |
+      Easier to read than IIC and comparable across scenarios; changes of EC in % are what `eca_change` reports.
+    formula: |
+      EC(IIC) = \sqrt{\sum_{i}\sum_{j} \frac{a_i\, a_j}{1 + nl_{ij}}} = LA\sqrt{IIC}
+    symbols:
+      'IIC': "the integral index of connectivity (the card above)"
+      'LA': "landscape attribute; with the `makurhini` convention the result is capped at it"
+    python: 'net.overall("IIC", distance=1000)["EC(IIC)"][0]'
+    operator: conn.overall
+    setting: metrics = IIC
+    refs:
+      - "Saura et al. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416."
+
+  # impl: graph.py:723-724, 752-755 (direct = r["iic_direct"], step = reach - intra - direct)
+  - id: conn_iic_fractions
+    name: "IIC fractions (intra, direct, step)"
+    level: network
+    theme: structural
+    unit: "% of IICnum"
+    range: "0 ≤ x ≤ 100; the three sum to 100"
+    what: |
+      Splits the IIC numerator into the part from within the patches themselves, the part from directly linked pairs
+      and the part from pairs reached through stepping stones.
+    use: |
+      Shows how much connectivity depends on patch size alone, on neighbours, or on stepping stones.
+    formula: |
+      IIC_{intra} = \frac{100\sum_i a_i^{2}}{IIC_{num}},\quad IIC_{direct} = \frac{100\sum_{i\neq j,\, nl_{ij}=1}\frac{a_i a_j}{2}}{IIC_{num}},\quad IIC_{step} = 100 - IIC_{intra} - IIC_{direct}
+    symbols:
+      'IIC_{num}': "numerator of IIC; direct pairs are those one link apart (the sum runs over ordered pairs). Columns `IICintra(%)`, `IICdirect(%)`, `IICstep(%)`."
+    python: 'net.overall("IIC", distance=1000)[["IICintra(%)", "IICdirect(%)", "IICstep(%)"]]'
+    operator: conn.overall
+    setting: metrics = IIC
+    refs:
+      - "Saura & Rubio (2010). A common currency for the different ways in which patches and links can contribute to habitat availability and connectivity in the landscape. Ecography 33: 523-537."
+
+  # impl: graph.py:725-726 (sum of the rows); checked by hand: 2 x 1.806 = 3.613
+  - id: conn_f
+    name: "Flux (F)"
+    level: network
+    theme: probabilistic
+    unit: "none"
+    range: "F ≥ 0"
+    what: |
+      The total dispersal flux between patches: the sum of the direct dispersal probabilities over all ordered pairs
+      of different nodes.
+    use: |
+      Uses direct links only (no stepping stones) and no areas; AWF adds the areas. Needs distances or probabilities.
+    formula: |
+      F = \sum_{i \neq j} p_{ij}
+    symbols:
+      'p_{ij} = P^{d_{ij}/t}': "probability of direct dispersal at distance \\( d_{ij} \\) (\\( P \\) is the probability at the threshold \\( t \\)); values below `pij_min` are dropped."
+    python: 'net.overall("F", distance=1000, probability=0.5)["F"][0]'
+    operator: conn.overall
+    setting: metrics = F
+    refs:
+      - "Saura & Torné (2009). Conefor Sensinode 2.2: a software package for quantifying the importance of habitat patches for landscape connectivity. Environmental Modelling & Software 24: 135-139. doi:10.1016/j.envsoft.2008.05.005"
+
+  # impl: graph.py:727-728 (a . awf_row)
+  - id: conn_awf
+    name: "Area-weighted flux (AWF)"
+    level: network
+    theme: probabilistic
+    unit: "unit of the attribute squared"
+    range: "AWF ≥ 0"
+    what: |
+      Like the flux, but each pair of patches is weighted by the product of their attributes, so exchange between
+      large patches counts most.
+    use: |
+      Direct dispersal only. PC extends it with the best path through stepping stones and adds the intra-patch term.
+    formula: |
+      AWF = \sum_{i \neq j} a_i\, a_j\, p_{ij}
+    symbols:
+      'a_i': "attribute of node \\(i\\)"
+      'p_{ij}': "probability of direct dispersal between \\(i\\) and \\(j\\) (as F)"
+    python: 'net.overall("AWF", distance=1000, probability=0.5)["AWF"][0]'
+    operator: conn.overall
+    setting: metrics = AWF
+    refs:
+      - "Saura & Torné (2009). Conefor Sensinode 2.2: a software package for quantifying the importance of habitat patches for landscape connectivity. Environmental Modelling & Software 24: 135-139. doi:10.1016/j.envsoft.2008.05.005"
+
+  # impl: graph.py:729-733, 741-750
+  - id: conn_pc
+    name: "Probability of connectivity (PC)"
+    level: network
+    theme: probabilistic
+    unit: "none"
+    range: "0 ≤ PC ≤ 1"
+    aliases: [probability of connectivity]
+    what: |
+      The probability that two random points of the landscape fall in habitat areas that are connected, taking into
+      account the best dispersal path (possibly through stepping stones) between every pair of patches.
+    use: |
+      The preferred index when dispersal probabilities are known. Needs `landscape_area` for the 0-1 value (NaN
+      otherwise); depends on the probability chosen at the distance.
+    formula: |
+      PC = \frac{1}{LA^{2}} \sum_{i=1}^{n}\sum_{j=1}^{n} a_i\, a_j\, p^{*}_{ij}
+    symbols:
+      'p^{*}_{ij}': "the highest product of direct probabilities \\( p_{ij} = P^{d_{ij}/t} \\) along any path between \\( i \\) and \\( j \\) (1 for \\( i = j \\), 0 if no path stays above `pij_min`)"
+      'LA': "landscape attribute. The numerator is `PCnum`; the Makurhini convention caps PC at 1."
+    python: 'net.overall("PC", distance=1000, probability=0.5)["PC"][0]'
+    operator: conn.overall
+    setting: metrics = PC
+    refs:
+      - "Saura & Pascual-Hortal (2007). A new habitat availability index to integrate connectivity in landscape conservation planning: comparison with existing indices and application to a case study. Landscape and Urban Planning 83: 91-103."
+
+  # impl: graph.py:742, 750
+  - id: conn_ec_pc
+    name: "Equivalent connectivity of PC (EC(PC))"
+    level: network
+    theme: probabilistic
+    unit: "unit of the attribute (e.g. ha)"
+    range: "0 ≤ EC(PC) ≤ LA"
+    aliases: [ECA, equivalent connected area]
+    what: |
+      The size of a single patch with the same PC as the graph, in area units. It is the ECA most often reported.
+    use: |
+      Compare habitat-area changes with `eca_change`. A drop of EC larger than the drop of habitat area means
+      connectivity was lost too.
+    formula: |
+      EC(PC) = \sqrt{\sum_i\sum_j a_i\, a_j\, p^{*}_{ij}} = LA \sqrt{PC}
+    symbols:
+      'PC': "the probability of connectivity (the card above)"
+      'LA': "landscape attribute; with the `makurhini` convention the result is capped at it"
+    python: 'net.overall("PC", distance=1000, probability=0.5)["EC(PC)"][0]'
+    operator: conn.overall
+    setting: metrics = PC
+    refs:
+      - "Saura et al. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416."
+
+  # impl: graph.py:732-733, 752-755
+  - id: conn_pc_fractions
+    name: "PC fractions (intra, direct, step)"
+    level: network
+    theme: probabilistic
+    unit: "% of PCnum"
+    range: "0 ≤ x ≤ 100; the three sum to 100"
+    what: |
+      The share of PC due to the area of the patches themselves, to direct dispersal between patches, and to dispersal
+      through stepping stones.
+    use: |
+      A high step share means the network works through stepping stones; removing the middle patches would hurt most.
+    formula: |
+      PC_{intra} = \frac{100\sum_i a_i^{2}}{PC_{num}},\quad PC_{direct} = \frac{100\sum_{i\neq j} a_i a_j p_{ij}}{PC_{num}},\quad PC_{step} = 100 - PC_{intra} - PC_{direct}
+    symbols:
+      'PC_{num}': "numerator of PC, \\(\\sum_i\\sum_j a_i a_j p^{*}_{ij}\\)"
+      'p_{ij}': "probability of direct dispersal between \\(i\\) and \\(j\\); the columns are `PCintra(%)`, `PCdirect(%)`, `PCstep(%)`"
+    python: 'net.overall("PC", distance=1000, probability=0.5)[["PCintra(%)", "PCdirect(%)", "PCstep(%)"]]'
+    operator: conn.overall
+    setting: metrics = PC
+
+  # impl: graph.py:806-807
+  - id: conn_da
+    name: "Node importance of area (dA)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 < dA < 100"
+    what: |
+      The share of the total attribute held by the node: what is lost if only its area counted.
+    use: |
+      The baseline against which dIIC and dPC show the extra weight of connectivity.
+    formula: |
+      dA_i = 100\,\frac{a_i}{A}
+    symbols:
+      'a_i': "attribute of node \\( i \\)"
+      'A': "total attribute."
+    python: 'top(net.node_importance("A", distance=1000), "dA")'
+    operator: conn.node_importance
+    setting: metrics = A
+    refs:
+      - "Saura & Rubio (2010). A common currency for the different ways in which patches and links can contribute to habitat availability and connectivity in the landscape. Ecography 33: 523-537."
+
+  # impl: graph.py:812-813
+  - id: conn_dnc
+    name: "Node importance for NC (dNC)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "can be negative (removal splits a component)"
+    what: |
+      The percent change in the number of components when the node is removed. Negative when removing it splits its
+      component in two or more, positive when it was a component on its own.
+    use: |
+      Finds cut nodes (negative values). Ignores sizes.
+    formula: |
+      dNC_i = 100\,\frac{NC - NC_{-i}}{NC}
+    symbols:
+      'NC_{-i}': "components of the graph without node \\( i \\). An isolated node gives \\( +100/NC \\)."
+    python: 'net.node_importance("NC", distance=1000).nsmallest(3, "dNC")[["id", "dNC"]].round(4)'
+    operator: conn.node_importance
+    setting: metrics = NC
+
+  # impl: graph.py:814-816
+  - id: conn_dnl
+    name: "Node importance for NL (dNL)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 ≤ dNL ≤ 100"
+    what: |
+      The share of all links that are lost when the node is removed, i.e. its degree relative to NL.
+    use: |
+      A degree measure; blind to the sizes and to what lies behind the links.
+    formula: |
+      dNL_i = 100\,\frac{k_i}{NL}
+    symbols:
+      'k_i': "number of links of node \\( i \\)."
+    python: 'top(net.node_importance("NL", distance=1000), "dNL")'
+    operator: conn.node_importance
+    setting: metrics = NL
+
+  # impl: graph.py:817-819
+  - id: conn_dh
+    name: "Node importance for H (dH)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 ≤ dH ≤ 100"
+    what: |
+      The percent of the Harary index lost when the node is removed, both from its own pairs and from pairs whose
+      shortest path went through it.
+    use: |
+      Topological importance; needs the links only.
+    formula: |
+      dH_i = 100\,\frac{H - H_{-i}}{H}
+    symbols:
+      'H_{-i}': "Harary index of the graph without node \\( i \\)."
+    python: 'top(net.node_importance("H", distance=1000), "dH")'
+    operator: conn.node_importance
+    setting: metrics = H
+
+  # impl: graph.py:820-823
+  - id: conn_dccp
+    name: "Node importance for CCP (dCCP)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "can be negative"
+    what: |
+      The percent change of CCP when the node is removed. Negative when removing the node leaves a more concentrated
+      habitat, as for a patch that was poorly connected to the rest.
+    use: |
+      Because CCP is normalised by the remaining habitat, a negative sign can reflect that the removed node was poorly
+      connected.
+    formula: |
+      dCCP_i = 100\,\frac{CCP - CCP_{-i}}{CCP}
+    symbols:
+      'CCP_{-i}': "CCP of the graph without node \\( i \\) (recomputed with \\( A - a_i \\))."
+    python: 'top(net.node_importance("CCP", distance=1000), "dCCP")'
+    operator: conn.node_importance
+    setting: metrics = CCP
+
+  # impl: graph.py:824-825
+  - id: conn_dlcp
+    name: "Node importance for LCP (dLCP)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 ≤ dLCP ≤ 100"
+    what: |
+      The percent of LCP lost when the node is removed (its component's area leaves the sum of squares).
+    use: |
+      Rates nodes by their weight in the largest components.
+    formula: |
+      dLCP_i = 100\,\frac{LCP - LCP_{-i}}{LCP}
+    symbols:
+      'LCP_{-i}': "LCP of the graph without node \\( i \\), with the same landscape area."
+    python: 'top(net.node_importance("LCP", distance=1000), "dLCP")'
+    operator: conn.node_importance
+    setting: metrics = LCP
+
+  # impl: graph.py:826-847
+  - id: conn_diic
+    name: "Node importance for IIC (dIIC)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 ≤ dIIC ≤ 100"
+    what: |
+      The percent of IIC lost when the node is removed. It is the node's own area, its flux with other nodes and its
+      role as a connector (stepping stone) between others.
+    use: |
+      The standard priority ranking for habitat patches with binary links. With the `makurhini` convention unreachable
+      pairs count in the whole graph but not in the reduced graph, which slightly changes flux and connector.
+    formula: |
+      dIIC_i = 100\,\frac{IIC - IIC_{-i}}{IIC} = dIIC^{intra}_i + dIIC^{flux}_i + dIIC^{connector}_i
+    symbols:
+      'IIC_{-i}': "IIC of the graph without node \\( i \\), same landscape area."
+    python: 'top(net.node_importance("IIC", distance=1000), "dIIC")'
+    operator: conn.node_importance
+    setting: metrics = IIC
+    refs:
+      - "Pascual-Hortal & Saura (2006). Comparison and development of new graph-based landscape connectivity indices: towards the prioritization of habitat patches and corridors for conservation. Landscape Ecology 21: 959-967."
+      - "Saura & Rubio (2010). A common currency for the different ways in which patches and links can contribute to habitat availability and connectivity in the landscape. Ecography 33: 523-537."
+
+  # impl: graph.py:828-847
+  - id: conn_diic_fractions
+    name: "dIIC fractions (intra, flux, connector)"
+    level: node
+    theme: importance
+    unit: "% of IIC"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      Splits dIIC into the loss of the node's own area, of pairs that have the node as an endpoint, and of pairs whose
+      shortest path passed through it.
+    use: |
+      A large connector part flags a stepping stone; a large intra part flags a patch important by size alone.
+    formula: |
+      dIIC^{intra}_i = 100\frac{a_i^{2}}{IIC_{num}},\quad dIIC^{flux}_i = 100\frac{2 a_i \sum_{j\neq i}\frac{a_j}{1+nl_{ij}}}{IIC_{num}},\quad dIIC^{connector}_i = dIIC_i - dIIC^{intra}_i - dIIC^{flux}_i
+    symbols:
+      'dIIC^{intra}_i, dIIC^{flux}_i, dIIC^{connector}_i': "the columns `dIICintra`, `dIICflux`, `dIICconnector`; the connector part is the loss of the pairs that do not contain \\(i\\) but whose shortest path used it"
+      'IIC_{num}': "numerator of IIC"
+      'nl_{ij}': "links on the shortest path between \\(i\\) and \\(j\\)"
+    python: 'top(net.node_importance("IIC", distance=1000), "dIIC", "dIICintra", "dIICflux", "dIICconnector")'
+    operator: conn.node_importance
+    setting: metrics = IIC
+    refs:
+      - "Saura & Rubio (2010). A common currency for the different ways in which patches and links can contribute to habitat availability and connectivity in the landscape. Ecography 33: 523-537."
+
+  # impl: graph.py:848-850
+  - id: conn_df
+    name: "Node importance for F (dF)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 ≤ dF ≤ 100"
+    what: |
+      The percent of the flux lost when the node is removed (all its direct links).
+    use: |
+      Direct links only; sizes ignored.
+    formula: |
+      dF_i = 100\,\frac{2\sum_{j\neq i} p_{ij}}{F}
+    symbols:
+      'p_{ij}': "direct dispersal probability"
+      'F': "total flux (ordered pairs)."
+    python: 'top(net.node_importance("F", distance=1000, probability=0.5), "dF")'
+    operator: conn.node_importance
+    setting: metrics = F
+
+  # impl: graph.py:851-853
+  - id: conn_dawf
+    name: "Node importance for AWF (dAWF)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 ≤ dAWF ≤ 100"
+    what: |
+      The percent of the area-weighted flux lost when the node is removed.
+    use: |
+      Like dF but weighted by areas.
+    formula: |
+      dAWF_i = 100\,\frac{2\, a_i \sum_{j\neq i} a_j\, p_{ij}}{AWF}
+    symbols:
+      'a_i': "attribute of node \\(i\\)"
+      'p_{ij}': "probability of direct dispersal"
+      'AWF': "area-weighted flux of the whole graph"
+    python: 'top(net.node_importance("AWF", distance=1000, probability=0.5), "dAWF")'
+    operator: conn.node_importance
+    setting: metrics = AWF
+
+  # impl: graph.py:854-859
+  - id: conn_dpc
+    name: "Node importance for PC (dPC)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 ≤ dPC ≤ 100"
+    aliases: [dI, node importance]
+    what: |
+      The percent of PC lost when the node is removed, combining its area, its direct exchange with other nodes and
+      its role as stepping stone.
+    use: |
+      The standard ranking of patches for conservation priority with probabilistic dispersal.
+    formula: |
+      dPC_i = 100\,\frac{PC - PC_{-i}}{PC} = dPC^{intra}_i + dPC^{flux}_i + dPC^{connector}_i
+    symbols:
+      'PC_{-i}': "PC of the graph without node \\( i \\), same landscape area."
+    python: 'top(net.node_importance("PC", distance=1000, probability=0.5), "dPC")'
+    operator: conn.node_importance
+    setting: metrics = PC
+    refs:
+      - "Saura & Rubio (2010). A common currency for the different ways in which patches and links can contribute to habitat availability and connectivity in the landscape. Ecography 33: 523-537."
+
+  # impl: graph.py:856-862
+  - id: conn_dpc_fractions
+    name: "dPC fractions (intra, flux, connector)"
+    level: node
+    theme: importance
+    unit: "% of PC"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The parts of dPC due to the node's own area, to the flux with other nodes and to its role as connector.
+    use: |
+      As for IIC: separates size, position and stepping-stone value.
+    formula: |
+      dPC^{intra}_i = 100\frac{a_i^{2}}{PC_{num}},\quad dPC^{flux}_i = 100\frac{2 a_i\sum_{j\neq i} a_j p^{*}_{ij}}{PC_{num}},\quad dPC^{connector}_i = dPC_i - dPC^{intra}_i - dPC^{flux}_i
+    symbols:
+      'dPC^{intra}_i, dPC^{flux}_i, dPC^{connector}_i': "the columns `dPCintra`, `dPCflux`, `dPCconnector`"
+      'PC_{num}': "numerator of PC, \\(\\sum_i\\sum_j a_i a_j p^{*}_{ij}\\)"
+      'p^{*}_{ij}': "highest product of direct probabilities along a path between \\(i\\) and \\(j\\)"
+    python: 'top(net.node_importance("PC", distance=1000, probability=0.5), "dPC", "dPCintra", "dPCflux", "dPCconnector")'
+    operator: conn.node_importance
+    setting: metrics = PC
+
+  # impl: graph.py:863
+  - id: conn_varpc
+    name: "Absolute loss of PC (varPC)"
+    level: node
+    theme: importance
+    unit: "none"
+    range: "varPC ≥ 0"
+    what: |
+      The absolute drop of PC (not in percent) when the node is removed.
+    use: |
+      Use when absolute changes of PC are summed across nodes or scenarios.
+    formula: |
+      varPC_i = PC - PC_{-i} = \frac{dPC_i\,PC_{num}}{100\, LA^{2}}
+    symbols:
+      'PC_{-i}': "PC of the graph without node \\(i\\), with the same landscape area"
+      'dPC_i': "the percent loss of the card above"
+      'LA': "landscape attribute (NaN without `landscape_area`)"
+      'PC_{num}': "numerator of PC"
+    python: 'top(net.node_importance("PC", distance=1000, probability=0.5), "varPC")'
+    operator: conn.node_importance
+    setting: metrics = PC
+
+  # impl: graph.py:865-867
+  - id: conn_bc
+    name: "Betweenness centrality (BC)"
+    level: node
+    theme: importance
+    unit: "none"
+    range: "0 ≤ BC ≤ 1"
+    what: |
+      How often the node lies on the shortest link path between two other nodes (Freeman betweenness), normalised by
+      the number of pairs of other nodes. Asked for by name; it is not in the default metric list.
+    use: |
+      Topological. For graph-theory ranking of stepping stones. Zero for n < 3.
+    formula: |
+      BC_i = \frac{\sum_{j<k;\, j,k\neq i} \sigma_{jk}(i)/\sigma_{jk}}{(n-1)(n-2)/2}
+    symbols:
+      '\sigma_{jk}': "number of shortest paths between \\( j \\) and \\( k \\)"
+      '\sigma_{jk}(i)': "those through \\( i \\)."
+    python: 'top(net.node_importance("BC", distance=1000), "BC")'
+    operator: conn.node_importance
+    setting: metrics = BC
+    refs:
+      - "Freeman (1977). A set of measures of centrality based on betweenness. Sociometry 40: 35-41."
+      - "Bodin & Saura (2010). Ranking individual habitat patches as connectivity providers: integrating network analysis and patch removal experiments. Ecological Modelling 221: 2393-2405."
+
+  # impl: graph.py:868-870
+  - id: conn_dbc_iic
+    name: "Betweenness importance for IIC (dBC_IIC)"
+    level: node
+    theme: importance
+    unit: "% of IICnum"
+    range: "0 ≤ dBC_IIC ≤ 100"
+    what: |
+      The part of the IIC numerator that flows over the shortest paths running through the node, in percent. It
+      isolates the stepping-stone role of the node.
+    use: |
+      Compare with the connector part of dIIC; it is the betweenness-based version (Bodin & Saura 2010).
+    formula: |
+      dBC_{IIC,i} = 100\,\frac{varBC_{IIC,i}}{IIC_{num}}
+    symbols:
+      'varBC_{IIC,i}': "the betweenness contribution to IIC of node \\(i\\) (the next card)"
+      'IIC_{num}': "IIC numerator (the Conefor value, without the unreachable-pair term)"
+    python: 'top(net.node_importance("BCIIC", distance=1000), "dBC_IIC")'
+    operator: conn.node_importance
+    setting: metrics = BCIIC
+    refs:
+      - "Bodin & Saura (2010). Ranking individual habitat patches as connectivity providers: integrating network analysis and patch removal experiments. Ecological Modelling 221: 2393-2405."
+
+  # impl: graph.py:868-870; node 2 carries 2 x (100 x 20)/3 = 1333.3
+  - id: conn_varbc_iic
+    name: "Betweenness contribution to IIC (varBC_IIC)"
+    level: node
+    theme: importance
+    unit: "unit of the attribute squared"
+    range: "varBC_IIC ≥ 0"
+    what: |
+      The sum, over ordered pairs of other nodes, of the share of their shortest paths that pass through the node
+      times the IIC weight of the pair.
+    use: |
+      Absolute version of dBC_IIC.
+    formula: |
+      varBC_{IIC,i} = \sum_{j\neq k;\; j,k\neq i} \frac{\sigma_{jk}(i)}{\sigma_{jk}} \cdot \frac{a_j\, a_k}{1 + nl_{jk}}
+    symbols:
+      '\sigma_{jk}(i)/\sigma_{jk}': "share of shortest \\( j \\)-\\( k \\) paths through \\( i \\)"
+      'nl_{jk}': "links on the shortest path."
+    python: 'top(net.node_importance("BCIIC", distance=1000), "varBC_IIC")'
+    operator: conn.node_importance
+    setting: metrics = BCIIC
+    refs:
+      - "Bodin & Saura (2010). Ranking individual habitat patches as connectivity providers: integrating network analysis and patch removal experiments. Ecological Modelling 221: 2393-2405."
+
+  # impl: graph.py:871-873
+  - id: conn_dbc_pc
+    name: "Betweenness importance for PC (dBC_PC)"
+    level: node
+    theme: importance
+    unit: "% of PCnum"
+    range: "0 ≤ dBC_PC ≤ 100"
+    what: |
+      The part of the PC numerator carried by most-probable paths that pass through the node, in percent.
+    use: |
+      Probabilistic counterpart of dBC_IIC.
+    formula: |
+      dBC_{PC,i} = 100\,\frac{varBC_{PC,i}}{PC_{num}}
+    symbols:
+      'varBC_{PC,i}': "the betweenness contribution to PC of node \\(i\\) (the card below)"
+      'PC_{num}': "numerator of PC"
+    python: 'top(net.node_importance("BCPC", distance=1000, probability=0.5), "dBC_PC")'
+    operator: conn.node_importance
+    setting: metrics = BCPC
+    refs:
+      - "Bodin & Saura (2010). Ranking individual habitat patches as connectivity providers: integrating network analysis and patch removal experiments. Ecological Modelling 221: 2393-2405."
+
+  # impl: graph.py:871-873
+  - id: conn_varbc_pc
+    name: "Betweenness contribution to PC (varBC_PC)"
+    level: node
+    theme: importance
+    unit: "unit of the attribute squared"
+    range: "varBC_PC ≥ 0"
+    what: |
+      The sum of the pair weights a_j a_k p*_jk over ordered pairs whose most probable path runs through the node (the
+      node itself is not an endpoint).
+    use: |
+      Absolute version of dBC_PC.
+    formula: |
+      varBC_{PC,i} = \sum_{j\neq k;\; j,k\neq i,\; i\in path^{*}_{jk}} a_j\, a_k\, p^{*}_{jk}
+    symbols:
+      'path^{*}_{jk}': "the most probable path between \\( j \\) and \\( k \\)."
+    python: 'top(net.node_importance("BCPC", distance=1000, probability=0.5), "varBC_PC")'
+    operator: conn.node_importance
+    setting: metrics = BCPC
+    refs:
+      - "Bodin & Saura (2010). Ranking individual habitat patches as connectivity providers: integrating network analysis and patch removal experiments. Ecological Modelling 221: 2393-2405."
+
+  # impl: graph.py:956-1055 (_conefor_additions)
+  - id: conn_dadd
+    name: "Gain of a node to add (d...add, Conefor adding mode)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "can be negative"
+    what: |
+      With `restoration` flags and `convention="conefor"`, every index of the existing graph gets a gain column for
+      each candidate node (dAadd, dNCadd, dNLadd, dHadd, dCCPadd, dLCPadd, dIICadd, dFadd, dAWFadd, dPCadd).
+    use: |
+      Rates sites for restoration. Candidates are those with restoration flag 0; values for existing nodes are NaN.
+    formula: |
+      d\mathrm{X}^{add}_c = 100\,\frac{\mathrm{X}_{+c} - \mathrm{X}}{\mathrm{X}}
+    symbols:
+      '\mathrm{X}': "the index of the existing nodes"
+      '\mathrm{X}_{+c}': "the index once candidate \\( c \\) is added with its links to existing nodes. dAadd is \\( 100\\,a_c/A \\) and the flux gains use the added direct probabilities; the rest follow the pattern above."
+    python: 'top(tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25], restoration=candidate, convention="conefor", **kw).node_importance("PC", distance=1000, probability=0.5), "dPCadd")'
+    operator: conn.node_importance
+    setting: metrics = PC (graph restoration column set)
+    refs:
+      - "Saura & Torné (2009). Conefor Sensinode 2.2: a software package for quantifying the importance of habitat patches for landscape connectivity. Environmental Modelling & Software 24: 135-139. doi:10.1016/j.envsoft.2008.05.005"
+
+  # impl: graph.py:946-954 (line 953)
+  - id: conn_dres
+    name: "Gain of a node to add (dIICres, dPCres)"
+    level: node
+    theme: importance
+    unit: "%"
+    range: "0 ≤ x < 100"
+    what: |
+      Makurhini's restoration importance: for the nodes flagged 0 (possible additions), the gain of IIC or PC in
+      percent of the graph that includes them.
+    use: |
+      Different normalisation from Conefor's `...add` gains (share of the graph with the node, not of the existing
+      graph).
+    formula: |
+      d\mathrm{X}^{res}_c = 100\,\frac{\Delta_c}{\mathrm{X}_{num} + \Delta_c}
+    symbols:
+      '\Delta_c': "increase of the numerator of IIC or PC from adding candidate \\( c \\) to the existing nodes"
+      '\mathrm{X}_{num}': "numerator of the existing graph."
+    python: 'top(tf.HabitatGraph.from_raster(land, habitat=[23, 24, 25], restoration=candidate, **kw).node_importance("PC", distance=1000, probability=0.5), "dPCres")'
+    operator: conn.node_importance
+    setting: metrics = PC (graph restoration column set)
+    refs:
+      - "Godínez-Gómez & Correa Ayram (2020). Makurhini: analyzing landscape connectivity. R package. doi:10.5281/zenodo.3748095"
+
+  # impl: graph.py:1085-1099
+  - id: conn_diic_removal
+    name: "Link importance for IIC (dIIC_removal)"
+    level: link
+    theme: importance
+    unit: "%"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The percent of IIC lost when a single link is removed. Only the links of the graph at the chosen distance are
+      rated.
+    use: |
+      Finds the links worth protecting (corridors). A link inside a redundant cycle scores near 0.
+    formula: |
+      dIIC^{removal}_{ij} = 100\,\frac{IIC_{num} - IIC_{num}^{-ij}}{IIC_{num}}
+    symbols:
+      'IIC_{num}^{-ij}': "numerator after removing the link between \\( i \\) and \\( j \\)."
+    python: 'net.link_importance("IIC", distance=1000).nlargest(3, "dIIC_removal").round(4)'
+    operator: conn.link_importance
+    setting: metric = IIC
+
+  # impl: graph.py:1094-1099
+  - id: conn_dpc_removal
+    name: "Link importance for PC (dPC_removal)"
+    level: link
+    theme: importance
+    unit: "%"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The percent of PC lost when one edge (a pair above `pij_min`) is removed.
+    use: |
+      Probabilistic version; pairs not above `pij_min` score 0.
+    formula: |
+      dPC^{removal}_{ij} = 100\,\frac{PC_{num} - PC_{num}^{-ij}}{PC_{num}}
+    symbols:
+      'PC_{num}^{-ij}': "numerator after removing the direct edge of \\( i \\) and \\( j \\) (paths may re-route through other edges)."
+    python: 'net.link_importance("PC", distance=1000, probability=0.5).nlargest(3, "dPC_removal").round(4)'
+    operator: conn.link_importance
+    setting: metric = PC
+
+  # impl: graph.py:1134-1178
+  - id: conn_dindex_change
+    name: "Change of IIC or PC when a pair's value changes (dIIC_change, dPC_change)"
+    level: link
+    theme: importance
+    unit: "%"
+    range: "negative for a gain"
+    what: |
+      The percent change of IIC or PC when the distance of a pair is replaced by a new value, e.g. a corridor that
+      brings two patches closer. Positive is a loss, negative a gain.
+    use: |
+      Tests a planned corridor or a barrier before building it.
+    formula: |
+      d\mathrm{X}^{change}_{ij} = 100\,\frac{\mathrm{X} - \mathrm{X}' }{\mathrm{X}}
+    symbols:
+      '\mathrm{X}': "IIC or PC now"
+      '\mathrm{X}''''': "the same with the pair's new value. For IIC a pair that comes closer than the distance gains a link and any other change counts 0; for PC the new probability is not cut by `pij_min`."
+    python: 'net.link_change([(30, 47, 500)], "IIC", distance=1000)'
+    operator: conn.link_change
+    setting: metric = IIC or PC
+    refs:
+      - "Godínez-Gómez & Correa Ayram (2020). Makurhini: analyzing landscape connectivity. R package, function MK_dPCIIC_links. doi:10.5281/zenodo.3748095"
+
+  # impl: graph.py:1293-1294
+  - id: conn_degree
+    name: "Degree or strength"
+    level: node
+    theme: centrality
+    unit: "count (degree) or none (strength)"
+    range: "≥ 0"
+    what: |
+      The number of links of the node (binary graph) or the sum of the edge weights 1/p over its edges (weighted
+      graph, when a probability is given).
+    use: |
+      Local importance only. Note the strength sums lengths, so a larger value means weaker connections.
+    formula: |
+      k_i = \sum_j l_{ij}, \qquad s_i = \sum_j \frac{1}{p_{ij}}
+    symbols:
+      'l_{ij}': "link indicator; \\( p_{ij} = P^{d_{ij}/t} \\); in the weighted graph \\( 1/p_{ij} \\) is the length of the edge. Column `degree` (binary) or `strength`."
+    python: 'top(net.centrality(1000), "degree")'
+    operator: conn.centrality
+    refs:
+      - "Godínez-Gómez & Correa Ayram (2020). Makurhini: analyzing landscape connectivity. R package, function MK_RMCentrality. doi:10.5281/zenodo.3748095"
+
+  # impl: graph.py:1307-1321
+  - id: conn_eigen
+    name: "Eigenvector centrality (eigen)"
+    level: node
+    theme: centrality
+    unit: "none"
+    range: "0 ≤ eigen ≤ 1"
+    what: |
+      A node scores high when it is linked to nodes that themselves score high; scaled so the highest node is 1.
+    use: |
+      Highlights well-connected clusters. Meaningful within one component; isolated nodes get 0.
+    formula: |
+      A\,v = \lambda_{max}\, v, \qquad eigen_i = v_i / \max_k |v_k|
+    symbols:
+      'A': "adjacency matrix (weights \\( 1/p_{ij} \\) when weighted)"
+      'v': "the leading eigenvector."
+    python: 'top(net.centrality(1000), "eigen")'
+    operator: conn.centrality
+
+  # impl: graph.py:1288-1292
+  - id: conn_close
+    name: "Closeness centrality (close)"
+    level: node
+    theme: centrality
+    unit: "none"
+    range: "> 0, NaN for a node that reaches no other"
+    what: |
+      The inverse of the total path length from the node to all nodes it can reach; high for nodes close to the rest.
+    use: |
+      Only reachable nodes count, so values are not comparable between components of different size.
+    formula: |
+      close_i = \frac{1}{\sum_{j} \ell_{ij}} \;\text{(binary)},\qquad close_i = \frac{r_i - 1}{\sum_j \ell_{ij}} \;\text{(weighted)}
+    symbols:
+      '\ell_{ij}': "shortest path length (hops, or the sum of \\( 1/p \\))"
+      'r_i': "number of nodes reached including \\( i \\)."
+    python: 'top(net.centrality(1000), "close")'
+    operator: conn.centrality
+
+  # impl: graph.py:1295
+  - id: conn_bwc
+    name: "Betweenness centrality of the graph (BWC)"
+    level: node
+    theme: centrality
+    unit: "none"
+    range: "≥ 0"
+    what: |
+      The number of shortest paths between pairs of other nodes that pass through the node (unnormalised), as igraph
+      computes it; paths of equal length within 1e-10 share it.
+    use: |
+      Unlike `BC` of the node importance table it is not normalised.
+    formula: |
+      BWC_i = \sum_{j<k;\, j,k\neq i} \frac{\sigma_{jk}(i)}{\sigma_{jk}}
+    symbols:
+      '\sigma_{jk}': "number of shortest paths between \\( j \\) and \\( k \\) (lengths 1 per link, or \\( 1/p \\) when weighted)."
+    python: 'top(net.centrality(1000), "BWC")'
+    operator: conn.centrality
+
+  # impl: graph.py:899-900, 1296
+  - id: conn_cluster
+    name: "Component of a node (cluster)"
+    level: node
+    theme: centrality
+    unit: "none"
+    range: "1 ... NC"
+    what: |
+      The number of the connected component the node belongs to (numbered from 1). `conn.components` returns the same.
+    use: |
+      To map or group patches that are connected. With python-igraph installed `centrality` also gives `memb_rw`, the
+      walktrap community of the node.
+    formula: |
+      cluster_i = k \iff i \in \text{component } k
+    symbols:
+      'k': "number of the connected component (1 to NC) of the link graph at the chosen distance"
+    python: 'net.components(distance=1000).value_counts().head(3)'
+    operator: conn.components
+
+  # impl: change.py:27 ff.
+  - id: conn_eca
+    name: "ECA of a time (ECA)"
+    level: network
+    theme: change
+    unit: "unit of the attribute (e.g. ha)"
+    range: "0 ≤ ECA ≤ LA"
+    what: |
+      The equivalent connected area of the graph of each time or scenario, EC(PC) or EC(IIC), together with its share
+      of the landscape (ECA_LA) and of the habitat area (ECA_area).
+    use: |
+      ECA_area near 100 means the habitat is almost fully connected; a falling value means fragmentation within the
+      habitat.
+    formula: |
+      ECA = EC(\mathrm{PC\ or\ IIC}),\quad ECA_{LA} = 100\,\frac{ECA}{LA},\quad ECA_{area} = 100\,\frac{ECA}{A}
+    symbols:
+      'A': "habitat area of that time (the sum of the node attributes or the habitat area of raster or vector nodes)"
+      'LA': "landscape area, common to all times."
+    python: 'tf.conn.eca_change([net, scrub], "PC", distance=1000, probability=0.5, landscape_area=250_000)[["ECA", "ECA_LA", "ECA_area"]].round(3)'
+    operator: conn.eca_change
+    refs:
+      - "Saura et al. (2011). Network analysis to assess landscape connectivity trends: application to European forests (1990-2000). Ecological Indicators 11: 407-416."
+      - "Godínez-Gómez & Correa Ayram (2020). Makurhini: analyzing landscape connectivity. R package, function MK_dECA. doi:10.5281/zenodo.3748095"
+
+  # impl: change.py:14-24 and eca_change body
+  - id: conn_deca
+    name: "Change of ECA and of habitat area (dECA, dA, rECA)"
+    level: network
+    theme: change
+    unit: "% (dECA, dA); none (rECA)"
+    range: "dECA, dA > -100 after the first time"
+    what: |
+      The percent change of ECA and of habitat area between consecutive times (the first time is compared with LA),
+      and their ratio. It separates habitat loss from connectivity loss.
+    use: |
+      rECA above 1 means connectivity changes faster than the area. Needs a common landscape area.
+    formula: |
+      dECA_t = 100\,\frac{ECA_t - ECA_{t-1}}{ECA_{t-1}},\quad dA_t = 100\,\frac{A_t - A_{t-1}}{A_{t-1}},\quad rECA_t = \frac{dECA_t}{dA_t}
+    symbols:
+      'ECA_t': "equivalent connected area at time \\(t\\)"
+      'A_t': "habitat area at time \\(t\\)"
+      'LA': "landscape area, used as \\(ECA_{t-1}\\) and \\(A_{t-1}\\) at the first time; `comparison` and `change` classify the pair (dECA < dA < 0: connectivity loss beyond habitat loss; dA < dECA < 0: habitat loss; equal; or a gain), as Makurhini's dECAfun"
+    python: 'tf.conn.eca_change([net, scrub], "PC", distance=1000, probability=0.5, landscape_area=250_000)[["dA", "dECA", "rECA", "change"]].round(3)'
+    operator: conn.eca_change
+    refs:
+      - "Godínez-Gómez & Correa Ayram (2020). Makurhini: analyzing landscape connectivity. R package, function MK_dECA. doi:10.5281/zenodo.3748095"
+
+  # impl: focal.py:25-110
+  - id: conn_icomp
+    name: "Composite connectivity of a focal node (IComp)"
+    level: node
+    theme: importance
+    unit: "none"
+    range: "IComp ≥ 0"
+    what: |
+      For a node and the neighbourhood of nodes around it (within a search buffer), the product of the neighbourhood's
+      IIC (or PC) and the node's dIIC (or dPC). It is high where the surroundings are connected and the focal node
+      matters in them.
+    use: |
+      Ranks nodes locally; the neighbourhood is defined by the buffer you choose.
+    formula: |
+      IComp_i = IIC_{N(i)} \times dIIC_i^{N(i)}
+    symbols:
+      'N(i)': "nodes whose polygons intersect the buffer of node \\( i \\); IIC and dIIC are computed on that sub-graph with the area of its bounding box as landscape (PC and dPC with `metric=\"PC\"`). NaN with fewer than three nodes."
+    python: 'tf.conn.focal_nodes(reserves, distance=2000, search_buffer=12000).nlargest(3, "IComp")[["id", "dIIC", "IComp"]].round(4)'
+    operator: conn.focal_nodes
+    refs:
+      - "Godínez-Gómez & Correa Ayram (2020). Makurhini: analyzing landscape connectivity. R package, function MK_Focal_nodes. doi:10.5281/zenodo.3748095"
+
+  # impl: protconn.py:292-305
+  - id: protconn_eca
+    name: "ProtConn ECA (ECA)"
+    level: region
+    theme: protected-area
+    unit: "unit of area_unit (m2, ha, km2)"
+    range: "0 ≤ ECA ≤ LA"
+    what: |
+      The equivalent connected area of the protected areas in a region: the area of one protected patch that would
+      give the same PC.
+    use: |
+      With a single protected node the result is the node's area (capped at LA).
+    formula: |
+      ECA = \sqrt{\sum_{i}\sum_{j} a_i\, a_j\, p^{*}_{ij}}
+    symbols:
+      'a_i': "area of protected node \\(i\\): the protected areas cut to the region, dissolved and split into separate polygons (distances between edges, or least-cost)"
+      'p^{*}_{ij}': "highest product of direct probabilities along a path between \\(i\\) and \\(j\\); transboundary and region nodes take part as stepping stones, their products \\(a_i a_j\\) replaced by `transboundary_weight` (1 for Makurhini; 0 for Saura et al. 2017)"
+    python: 'tf.conn.protconn(reserves, region, distance=2000, area_unit="ha")["ECA"][0]'
+    operator: conn.protconn
+    refs:
+      - "Saura et al. (2017). Protected areas in the world's ecoregions: how well connected are they? Ecological Indicators 76: 144-158."
+      - "Saura et al. (2018). Protected area connectivity: shortfalls in global targets and country-level priorities. Biological Conservation 219: 53-67."
+      - "Godínez-Gómez & Correa Ayram (2020). Makurhini: analyzing landscape connectivity. R package, function MK_ProtConn. doi:10.5281/zenodo.3748095"
+
+  # impl: protconn.py:305
+  - id: protconn_pc
+    name: "ProtConn PC (PC)"
+    level: region
+    theme: protected-area
+    unit: "none"
+    range: "0 ≤ PC ≤ 1"
+    what: |
+      The probability of connectivity of the protected-area network in the region.
+    use: |
+      Usually read through ProtConn (its square root, in %).
+    formula: |
+      PC = \frac{ECA^{2}}{LA^{2}}
+    symbols:
+      'LA': "area of the region."
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["PC"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:138, 284
+  - id: protconn_la
+    name: "Region area (LA)"
+    level: region
+    theme: protected-area
+    unit: "unit of area_unit"
+    range: "LA > 0"
+    what: |
+      The area of the region (all polygons merged) in the chosen unit.
+    use: |
+      The denominator of all percentages below.
+    formula: |
+      LA = \sum \text{areas of the region polygons}
+    symbols:
+      'LA': "area of the region polygons, computed with GDAL areas on the projected polygons"
+    python: 'tf.conn.protconn(reserves, region, distance=2000, area_unit="ha")["LA"][0]'
+    operator: conn.protconn
+    setting: area_unit = "ha"
+
+  # impl: protconn.py:304-305
+  - id: protconn_protected_surface
+    name: "Protected surface"
+    level: region
+    theme: protected-area
+    unit: "unit of area_unit"
+    range: "0 ≤ x ≤ LA"
+    what: |
+      The total area of the protected areas inside the region (non-transboundary nodes, after dissolving).
+    use: |
+      Overlapping protected areas are dissolved, so overlaps are not double counted.
+    formula: |
+      A_{prot} = \sum_{i \in \text{inside}} a_i
+    symbols:
+      'a_i': "area of protected node \\(i\\); only nodes of type Non-Transboundary are summed"
+    python: 'tf.conn.protconn(reserves, region, distance=2000, area_unit="ha")["Protected_surface"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:306
+  - id: protconn_prot
+    name: "Protected area (Prot)"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ Prot ≤ 100"
+    what: |
+      The share of the region that is protected.
+    use: |
+      The Aichi/Kunming-Montreal style coverage indicator; says nothing about connectivity.
+    formula: |
+      Prot = 100\,\frac{A_{prot}}{LA}
+    symbols:
+      'A_{prot}': "protected surface"
+      'LA': "region area."
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["Prot"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:307
+  - id: protconn_protconn
+    name: "Protected connected land (ProtConn)"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ ProtConn ≤ Prot"
+    what: |
+      The share of the region that is both protected and connected: the ECA of the protected-area network as a
+      percentage of the region.
+    use: |
+      The headline indicator; it depends on the dispersal distance and the probability assumed. Compare with Prot to
+      see how much of the protection is connected.
+    formula: |
+      ProtConn = 100\,\frac{ECA}{LA}
+    symbols:
+      'ECA': "equivalent connected area of the protected areas (above)."
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtConn"][0]'
+    operator: conn.protconn
+    refs:
+      - "Saura et al. (2017). Protected areas in the world's ecoregions: how well connected are they? Ecological Indicators 76: 144-158."
+      - "Saura et al. (2018). Protected area connectivity: shortfalls in global targets and country-level priorities. Biological Conservation 219: 53-67."
+
+  # impl: protconn.py:308
+  - id: protconn_protunconn
+    name: "Protected unconnected land (ProtUnconn)"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ ProtUnconn ≤ Prot"
+    what: |
+      The part of the protected area that is not connected: Prot minus ProtConn.
+    use: |
+      Shows how much protected land is isolated at the chosen distance.
+    formula: |
+      ProtUnconn = Prot - ProtConn
+    symbols:
+      'Prot': "share of the region that is protected"
+      'ProtConn': "share of the region that is protected and connected"
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtUnconn"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:309
+  - id: protconn_relconn
+    name: "Relative connectivity (RelConn)"
+    level: region
+    theme: protected-area
+    unit: "% of protected area"
+    range: "0 ≤ RelConn ≤ 100"
+    what: |
+      The share of the protected area that is connected.
+    use: |
+      Useful for comparing regions with different coverage.
+    formula: |
+      RelConn = 100\,\frac{ProtConn}{Prot}
+    symbols:
+      'ProtConn': "share of the region that is protected and connected"
+      'Prot': "share of the region that is protected"
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["RelConn"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:310
+  - id: protconn_unprotected
+    name: "Unprotected land (Unprotected)"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The share of the region that is not protected.
+    use: |
+      Complement of Prot.
+    formula: |
+      Unprotected = 100 - Prot
+    symbols:
+      'Prot': "share of the region that is protected"
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["Unprotected"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:324-326
+  - id: protconn_protunconn_design
+    name: "Design of unconnected land (ProtUnconn_Design)"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "any real"
+    what: |
+      The change in connected area when the region itself is added as a stepping-stone node. Only given when
+      `bound=True` and transboundary nodes exist; NaN otherwise.
+    use: |
+      A technical term of the ProtConn[Bound] decomposition.
+    formula: |
+      ProtUnconn_{Design} = 100\,\frac{ECA_{all} - ECA}{LA}
+    symbols:
+      'ECA_{all}': "ECA of the graph with the region node included."
+    python: 'tf.conn.protconn(reserves, inner, distance=2000, transboundary=5000, bound=True)["ProtUnconn_Design"][0]'
+    operator: conn.protconn
+    setting: bound = true
+
+  # impl: protconn.py:327
+  - id: protconn_protconn_bound
+    name: "ProtConn within the boundary (ProtConn_Bound)"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ x ≤ Prot"
+    what: |
+      The part of the protected area that is connected through the region's boundary, as Prot minus
+      ProtUnconn[Design].
+    use: |
+      Technical term of the decomposition.
+    formula: |
+      ProtConn_{Bound} = Prot - ProtUnconn_{Design}
+    symbols:
+      'Prot': "share of the region that is protected"
+      'ProtUnconn_{Design}': "the card above; NaN unless `bound=True` with transboundary nodes"
+    python: 'tf.conn.protconn(reserves, inner, distance=2000, transboundary=5000, bound=True)["ProtConn_Bound"][0]'
+    operator: conn.protconn
+    setting: bound = true
+
+  # impl: protconn.py:311
+  - id: protconn_protconn_prot
+    name: "ProtConn[Prot]"
+    level: region
+    theme: protected-area
+    unit: "% of ProtConn"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The share of ProtConn that comes from the area of the protected nodes themselves (intra-node connectivity).
+    use: |
+      Together with Trans and Unprot it sums to 100 (with Within and Contig, a second decomposition).
+    formula: |
+      ProtConn_{Prot} = 100\,\frac{100\sqrt{\sum_i a_i^{2}}\,/\,LA}{ProtConn}
+    symbols:
+      'a_i': "area of protected node \\( i \\)."
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtConn_Prot"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:312-316
+  - id: protconn_protconn_trans
+    name: "ProtConn[Trans]"
+    level: region
+    theme: protected-area
+    unit: "% of ProtConn"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The share of ProtConn that depends on transboundary protected areas (outside the region within the transboundary
+      distance).
+    use: |
+      Needs `transboundary`. Shows how much a region relies on its neighbours.
+    formula: |
+      ProtConn_{Trans} = 100\,\frac{100\,(ECA - ECA_{no\,trans})\,/\,LA}{ProtConn}
+    symbols:
+      'ECA_{no\,trans}': "ECA computed without transboundary nodes. 0 without transboundary nodes."
+    python: 'tf.conn.protconn(reserves, inner, distance=2000, transboundary=5000, bound=True)["ProtConn_Trans"][0]'
+    operator: conn.protconn
+    setting: transboundary = 5000
+
+  # impl: protconn.py:317
+  - id: protconn_protconn_unprot
+    name: "ProtConn[Unprot]"
+    level: region
+    theme: protected-area
+    unit: "% of ProtConn"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The share of ProtConn due to dispersal between protected areas across unprotected land.
+    use: |
+      The part that would be lost if the matrix between reserves became impassable.
+    formula: |
+      ProtConn_{Unprot} = \max(100 - ProtConn_{Prot} - ProtConn_{Trans},\, 0)
+    symbols:
+      'ProtConn_{Prot}': "share of ProtConn from the area of the nodes"
+      'ProtConn_{Trans}': "share from transboundary areas"
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtConn_Unprot"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:318-320
+  - id: protconn_protconn_within
+    name: "ProtConn[Within]"
+    level: region
+    theme: protected-area
+    unit: "% of ProtConn"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The share of ProtConn that comes from within the individual protected areas before they were dissolved (so
+      overlapping or touching areas are treated as separate pieces).
+    use: |
+      Compare with Contig. With one dissolved node it is 100.
+    formula: |
+      ProtConn_{Within} = \min\!\left(100\,\frac{w_1 w_2}{ProtConn},\, 100\right),\quad w_1 = 100\frac{\sqrt{\sum_k s_k^{2}}}{LA},\; w_2 = \sqrt{\frac{A_{prot}}{\sum_k s_k}}
+    symbols:
+      's_k': "area of piece \\( k \\) before dissolving (`pieces`)."
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtConn_Within"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:321
+  - id: protconn_protconn_contig
+    name: "ProtConn[Contig]"
+    level: region
+    theme: protected-area
+    unit: "% of ProtConn"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      The share of ProtConn that comes from contiguous protected areas that were merged into one node.
+    use: |
+      Zero when no protected areas touch or overlap.
+    formula: |
+      ProtConn_{Contig} = \max(100 - ProtConn_{Within},\, 0)
+    symbols:
+      'ProtConn_{Within}': "the share of ProtConn from within the individual pieces (the card above)"
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtConn_Contig"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:322-323
+  - id: protconn_protconn_within_land
+    name: "ProtConn[Within] as land"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ x ≤ ProtConn"
+    what: |
+      ProtConn[Within] expressed as percent of the region rather than of ProtConn.
+    use: |
+      The same decomposition on the same scale as Prot.
+    formula: |
+      ProtConn_{Within}^{land} = ProtConn_{Within}\,\frac{ProtConn}{100}
+    symbols:
+      'ProtConn_{Within}': "share of ProtConn from within the pieces"
+      'ProtConn': "share of the region that is protected and connected"
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtConn_Within_land"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:322-323
+  - id: protconn_protconn_contig_land
+    name: "ProtConn[Contig] as land"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ x ≤ ProtConn"
+    what: |
+      ProtConn[Contig] as percent of the region.
+    use: |
+      As ProtConn[Within] as land.
+    formula: |
+      ProtConn_{Contig}^{land} = ProtConn_{Contig}\,\frac{ProtConn}{100}
+    symbols:
+      'ProtConn_{Contig}': "share of ProtConn from contiguous areas"
+      'ProtConn': "share of the region that is protected and connected"
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtConn_Contig_land"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:322-323
+  - id: protconn_protconn_unprot_land
+    name: "ProtConn[Unprot] as land"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ x ≤ ProtConn"
+    what: |
+      ProtConn[Unprot] as percent of the region.
+    use: |
+      As ProtConn[Within] as land.
+    formula: |
+      ProtConn_{Unprot}^{land} = ProtConn_{Unprot}\,\frac{ProtConn}{100}
+    symbols:
+      'ProtConn_{Unprot}': "share of ProtConn from dispersal across unprotected land"
+      'ProtConn': "share of the region that is protected and connected"
+    python: 'tf.conn.protconn(reserves, region, distance=2000)["ProtConn_Unprot_land"][0]'
+    operator: conn.protconn
+
+  # impl: protconn.py:322-323
+  - id: protconn_protconn_trans_land
+    name: "ProtConn[Trans] as land"
+    level: region
+    theme: protected-area
+    unit: "% of the region"
+    range: "0 ≤ x ≤ ProtConn"
+    what: |
+      ProtConn[Trans] as percent of the region.
+    use: |
+      As ProtConn[Within] as land.
+    formula: |
+      ProtConn_{Trans}^{land} = ProtConn_{Trans}\,\frac{ProtConn}{100}
+    symbols:
+      'ProtConn_{Trans}': "share of ProtConn from transboundary areas"
+      'ProtConn': "share of the region that is protected and connected"
+    python: 'tf.conn.protconn(reserves, inner, distance=2000, transboundary=5000, bound=True)["ProtConn_Trans_land"][0]'
+    operator: conn.protconn
+    setting: transboundary = 5000
+
+  # impl: protconn.py:481-513
+  - id: protconn_dprot
+    name: "Importance of a protected area (dProt, dProtConn, varProtConn)"
+    level: node
+    theme: protected-area
+    unit: "% (dProt, dProtConn); % of the region (varProtConn)"
+    range: "0 ≤ x ≤ 100"
+    what: |
+      With `delta=True`, each protected area (cut to the region) is rated by the share of the protected surface it
+      holds (dProt), by the percent of ProtConn lost when it is removed (dProtConn) and by that loss in percent of the
+      region (varProtConn).
+    use: |
+      Ranks protected areas for their contribution to connected protection.
+    formula: |
+      dProt_i = 100\frac{a_i}{\sum_k a_k},\quad dProtConn_i = 100\Bigl(1 - \sqrt{1 - dPC_i/100}\Bigr),\quad varProtConn_i = ProtConn\Bigl(1-\sqrt{1 - dPC_i/100}\Bigr)
+    symbols:
+      'dPC_i': "node importance for PC of area \\( i \\) in the graph of the clipped areas (PC computed without a probability cut); \\( ProtConn \\) here is that graph's value."
+    python: 'tf.conn.protconn(reserves, region, distance=2000, delta=True)[1].nlargest(3, "dProtConn")[["dProt", "dProtConn", "varProtConn"]].round(3)'
+    operator: conn.protconn
+    setting: delta = true

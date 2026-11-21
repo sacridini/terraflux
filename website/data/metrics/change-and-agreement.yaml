@@ -1,0 +1,1088 @@
+family: change-and-agreement
+title: Change and agreement
+order: 90
+source: "diffeR (Pontius & Santacruz), OpenLand (intensity analysis), lulcc (three-map comparison), MOLUSCE, r.futures.validation, Dinamica EGO (fuzzy similarity), mapaccuracy (Olofsson et al. 2014, Stehman 2014)"
+intro: |
+  Measures that compare two maps of classes: an earlier and a later map of land use (change), a simulation and the observed
+  map (agreement), or a classified map and a sample of reference points (accuracy). They are the measures of the
+  [change detection](../../tutorials/change-detection/) and [land change](../../tutorials/land-change/) tutorials.
+
+  The cards show their values on the land use of Sibuyan Island, the Philippines, in 1997 and 2011 that ships with the
+  library (`lu`, two bands as the float arrays `t0` and `t1`, with 255 read as no value: 5 classes, 7 226 cells with data,
+  743 of them changed), and on `sim`, a simulated 2011 map made from them, since the island has no model run to judge: it
+  takes `t1`, undoes half of the changes (back to the 1997 class) and flips 1 percent of the cells that did not change, with
+  a seeded generator, so that each measure has something to say. It is not the result of any land change model. The accuracy
+  cards use the 2011 map, a stratified random sample of it (`pts`, 100 points at least in each class) whose reference
+  class is read from `sim`, standing in for the labels of an interpreter. The binary card uses forest (class 1) against
+  the rest, with the loss of forest as the change, and the card for the sample cross-tabulation a small toy table.
+
+  Conventions: a cross-tabulation `n` has the comparison map (or the earlier map) in the rows and the reference map (or the
+  later map) in the columns; cells without a value in any map are left out.
+example: |
+  import numpy as np
+  import pandas as pd
+  import terraflux as tf
+
+  lu = tf.load_raster(tf.simulate.example_data("sibuyan_landuse"))      # Sibuyan Island, 1997 and 2011, 5 classes
+  t0 = np.asarray(lu.isel(band=0)).astype(float)
+  t1 = np.asarray(lu.isel(band=1)).astype(float)
+  t0[t0 == 255] = np.nan                                                # 255 is no value
+  t1[t1 == 255] = np.nan
+
+  # a simulated 2011: undo half of the changes and flip 1 percent of the cells that did not change
+  rng = np.random.default_rng(1)
+  sim = t1.copy()
+  changed = (t0 != t1) & ~np.isnan(t0) & ~np.isnan(t1)
+  undo = changed & (rng.random(t0.shape) < 0.5)
+  sim[undo] = t0[undo]
+  stay = ~changed & ~np.isnan(t0)
+  flip = stay & (rng.random(t0.shape) < 0.01)
+  sim[flip] = np.where(t0[flip] == 1, 2, 1)
+
+  zones = np.where(np.arange(t1.shape[1]) < t1.shape[1] // 2, 1.0, 2.0) * np.ones(t1.shape)   # a west and an east stratum
+  nonforest = lambda a: np.where(np.isnan(a), np.nan, (a != 1).astype(float))                # the rest against forest (class 1)
+  o, r, s = nonforest(t0), nonforest(t1), nonforest(sim)
+
+  pts = tf.accuracy.sample(lu.isel(band=1), n=100, seed=1)               # a stratified sample of the 2011 map
+  pts["reference"] = sim[pts["row"], pts["col"]]                         # its reference labels, read from the simulation
+metrics:
+  # impl: _change.py:57-95
+  - id: chg_crosstab
+    name: "Transition (cross-tabulation) matrix"
+    level: transition
+    theme: components
+    unit: "cells"
+    range: "n_ij ≥ 0"
+    what: |
+      The number of cells of class i in the first map and class j in the second. It is the input of every disagreement
+      and kappa measure.
+    use: |
+      For change between two dates read it as from (rows) to (columns); for error as comparison (rows) and reference
+      (columns).
+    formula: |
+      n_{ij} = \#\{\text{cells with class } i \text{ in the first map and } j \text{ in the second}\}
+    symbols:
+      'n_{i+}, n_{+j}': "row sums and column sums"
+      'N': "total number of cells; the diagonal \\(n_{ii}\\) holds the persistence"
+    python: 'tf.simulate.crosstab(t0, t1)'
+    operator: change.crosstab
+
+  # impl: _difference.py:54-62, 71-117
+  - id: chg_gain_loss
+    name: "Gain, loss and persistence of a class (Gain, Loss, Persistence)"
+    level: class
+    theme: components
+    unit: "cells (or the unit of the matrix)"
+    range: "≥ 0"
+    aliases: [omission, commission, agreement]
+    what: |
+      For each class, the cells that arrived in it (gain), left it (loss) and stayed (persistence) between two maps.
+      The same columns are named Omission, Commission and Agreement when the matrix compares a map with a reference.
+    use: |
+      Gain and loss show change by class; quantity, exchange and shift (below) split them further.
+    formula: |
+      Gain_j = n_{+j} - n_{jj},\qquad Loss_i = n_{i+} - n_{ii},\qquad Persistence_i = n_{ii}
+    symbols:
+      'n_{ij}': "rows the earlier map, columns the later map. In `analysis=\"error\"` (rows the comparison, columns the reference) `Omission` = \\( n_{+j} - n_{jj} \\), `Commission` = \\( n_{i+} - n_{ii} \\), `Agreement` = \\( n_{ii} \\) (diffeR spells it \"Comission\")."
+    python: 'tf.simulate.difference_components(tf.simulate.crosstab(t0, t1), analysis="change")'
+    operator: change.components
+    setting: analysis = change
+    refs:
+      - "Pontius & Santacruz (2014). Quantity, exchange, and shift components of difference in a square contingency table. International Journal of Remote Sensing 35: 7543-7554."
+
+  # impl: _difference.py:59, 108-110, 141
+  - id: chg_quantity
+    name: "Quantity difference"
+    level: class
+    theme: components
+    unit: "cells (or the unit of the matrix)"
+    range: "≥ 0"
+    aliases: [quantity disagreement]
+    what: |
+      The part of the difference between two maps that comes from a different number of cells in each class (the net
+      change), independent of where they are.
+    use: |
+      A map with the right quantities but wrong places has Q = 0 and all its disagreement in allocation.
+    formula: |
+      Q_i = \bigl| n_{i+} - n_{+i} \bigr|,\qquad Q = \frac{1}{2}\sum_i Q_i
+    symbols:
+      'n_{i+}, n_{+i}': "row and column totals of class \\( i \\). The overall row of `difference_components` halves the sum because each unit of net change counts in two classes."
+    python: 'tf.simulate.difference_components(tf.simulate.crosstab(sim, t1))[["Category", "Quantity"]]'
+    operator: change.components
+    refs:
+      - "Pontius & Millones (2011). Death to Kappa: birth of quantity disagreement and allocation disagreement for accuracy assessment. International Journal of Remote Sensing 32: 4407-4429. doi:10.1080/01431161.2011.552923"
+
+  # impl: _difference.py:48-52, 143
+  - id: chg_exchange
+    name: "Exchange difference"
+    level: class
+    theme: components
+    unit: "cells (or the unit of the matrix)"
+    range: "≥ 0"
+    what: |
+      The part of the allocation difference that is a swap: cells of class i that went to class j balanced by cells of
+      j that went to i.
+    use: |
+      Exchange needs two classes; a pure one-way transition has none.
+    formula: |
+      E_i = \sum_{j \neq i} 2\min(n_{ij}, n_{ji}),\qquad E = \frac{1}{2}\sum_i E_i = \sum_{i<j} 2\min(n_{ij}, n_{ji})
+    symbols:
+      'n_{ij}': "cells of the cross-tabulation. In the overall row each swap is counted once."
+    python: 'tf.simulate.overall_difference(tf.simulate.crosstab(sim, t1))["exchange"]'
+    operator: change.components
+    refs:
+      - "Pontius & Santacruz (2014). Quantity, exchange, and shift components of difference in a square contingency table. International Journal of Remote Sensing 35: 7543-7554."
+
+  # impl: _difference.py:61, 143
+  - id: chg_shift
+    name: "Shift difference"
+    level: class
+    theme: components
+    unit: "cells (or the unit of the matrix)"
+    range: "≥ 0"
+    what: |
+      The part of the allocation difference that is not an exchange: cells that move among three or more classes
+      without a matching reverse flow.
+    use: |
+      Shift usually shrinks fastest as the resolution coarsens (see difference_resolutions).
+    formula: |
+      S_i = (n_{i+} + n_{+i} - 2n_{ii}) - Q_i - E_i,\qquad S = \frac{1}{2}\sum_i S_i
+    symbols:
+      'Q_i, E_i': "quantity and exchange of class \\( i \\)."
+    python: 'tf.simulate.overall_difference(tf.simulate.crosstab(sim, t1))["shift"]'
+    operator: change.components
+    refs:
+      - "Pontius & Santacruz (2014). Quantity, exchange, and shift components of difference in a square contingency table. International Journal of Remote Sensing 35: 7543-7554."
+
+  # impl: _difference.py:120-144
+  - id: chg_allocation
+    name: "Allocation and overall difference"
+    level: map
+    theme: components
+    unit: "cells (or the unit of the matrix)"
+    range: "≥ 0"
+    aliases: [allocation disagreement, overall disagreement]
+    what: |
+      The allocation difference is the part of the total disagreement that is not quantity (exchange plus shift); the
+      overall difference is everything off the diagonal.
+    use: |
+      Report quantity and allocation separately: they point to different causes (demand versus location).
+    formula: |
+      D = \sum_{i \neq j} n_{ij} = Q + A,\qquad A = E + S
+    symbols:
+      'Q': "quantity"
+      'E': "exchange"
+      'S': "shift. Returned by `overall_difference` as `allocation` and `overall`."
+    python: 'tf.simulate.overall_difference(tf.simulate.crosstab(sim, t1))'
+    operator: change.components
+    refs:
+      - "Pontius & Millones (2011). Death to Kappa: birth of quantity disagreement and allocation disagreement for accuracy assessment. International Journal of Remote Sensing 32: 4407-4429. doi:10.1080/01431161.2011.552923"
+
+  # impl: _difference.py:323-375
+  - id: chg_resolutions
+    name: "Differences at coarser resolutions (Multiples, Resolution)"
+    level: map
+    theme: resolution
+    unit: "% of the domain"
+    range: "≥ 0"
+    what: |
+      Quantity, exchange, shift and overall difference when the maps are compared at blocks of factor^k cells. The
+      differences generally fall as the blocks grow, since small displacements cancel inside a block.
+    use: |
+      Shows at what spatial scale the model is right: disagreement that vanishes at 4-cell blocks was only a small
+      displacement.
+    formula: |
+      Q^{(f)},\; E^{(f)},\; S^{(f)},\; D^{(f)} \text{ of the composite matrix of blocks of side } f
+    symbols:
+      'f': "block side in cells (1, `factor`, `factor`², ...). At \\( f = 1 \\) the ordinary matrix, at coarser sizes the composite matrix (below), as a percent of the domain. Blocks cut by the edge or with a missing cell are left out, which can make the coarsest rows NaN."
+    python: 'tf.simulate.difference_resolutions(sim, t1, factor=4)'
+    operator: change.resolutions
+    refs:
+      - "Pontius (2002). Statistical methods to partition effects of quantity and location during comparison of categorical maps at multiple resolutions. Photogrammetric Engineering and Remote Sensing 68: 1041-1049."
+      - "Pontius & Cheuk (2006). A generalized cross-tabulation matrix to compare soft-classified maps at multiple resolutions. International Journal of Geographical Information Science 20: 1-30."
+
+  # impl: _difference.py:240-288
+  - id: chg_composite
+    name: "Composite cross-tabulation (composite)"
+    level: block
+    theme: resolution
+    unit: "share of the domain"
+    range: "0 ≤ x ≤ 1; the matrix sums to 1"
+    what: |
+      A cross-tabulation at a coarser resolution in which each block of cells is a mix of classes. The agreement of a
+      class in a block is the smaller of its two shares; the remainder is spread over pairs of classes.
+    use: |
+      The matrix whose differences `chg_resolutions` reports. Needs complete blocks.
+    formula: |
+      n_{ii} = \frac{\sum_b w_b \min(c_{ib}, r_{ib})}{\sum_b w_b},\qquad n_{ij} = \frac{\sum_b w_b \dfrac{(c_{ib} - m_{ib})(r_{jb} - m_{jb})}{1 - \sum_k m_{kb}}}{\sum_b w_b}\; (i \neq j)
+    symbols:
+      'c_{ib}, r_{ib}': "share of class \\( i \\) in block \\( b \\) of the comparison and the reference map; \\( m_{ib} = \\min(c_{ib}, r_{ib}) \\)"
+      'w_b': "cells of the block."
+    python: 'tf.simulate.composite_matrix(sim, t1, 4)'
+    operator: change.composite
+    refs:
+      - "Pontius & Cheuk (2006). A generalized cross-tabulation matrix to compare soft-classified maps at multiple resolutions. International Journal of Geographical Information Science 20: 1-30."
+
+  # impl: _difference.py:222-237
+  - id: chg_memberships
+    name: "Class membership of a block (memberships)"
+    level: block
+    theme: resolution
+    unit: "share of the block"
+    range: "0 ≤ x ≤ 1"
+    what: |
+      The share of each class in every block of factor x factor cells; blocks with a missing cell or cut by the edge
+      are NaN.
+    use: |
+      The input of the composite method and of any fuzzy comparison at coarse resolution.
+    formula: |
+      m_{ib} = \frac{1}{f^{2}} \sum_{c \in b} 1[\,x_c = i\,]
+    symbols:
+      'f': "block side"
+      'x_c': "class of cell \\( c \\)."
+    python: 'tf.simulate.memberships(t1, 4)[1.0]'
+    operator: change.memberships
+    setting: factor = 4
+
+  # impl: _difference.py:147-184
+  - id: chg_sample_to_population
+    name: "Sample cross-tabulation scaled to the population"
+    level: map
+    theme: components
+    unit: "population units"
+    range: "≥ 0"
+    what: |
+      Rescales each row of a sample cross-tabulation to the known size of its class in the population, so that the
+      sample counts estimate map areas.
+    use: |
+      For a stratified sample whose strata are the classes of the map.
+    formula: |
+      N_{ij} = P_i\,\frac{n_{ij}}{n_{i+}}
+    symbols:
+      'P_i': "population (e.g. cells) of the row's class"
+      'n_{ij}': "sample counts. Unlike diffeR the row is matched to its population by class, not by position."
+    python: 'tf.simulate.sample_to_population(pd.DataFrame([[40, 10], [5, 45]], index=[1, 2], columns=[1, 2]), {1: 5000, 2: 1200})'
+    operator: change.sample_to_population
+    refs:
+      - "Olofsson et al. (2014). Good practices for estimating area and assessing accuracy of land change. Remote Sensing of Environment 148: 42-57. doi:10.1016/j.rse.2014.02.015"
+
+  # impl: _difference.py:380-435 (components, lines 417-422)
+  - id: chg_mad_quantity
+    name: "MAD quantity"
+    level: map
+    theme: components
+    unit: "unit of the maps"
+    range: "≥ 0"
+    what: |
+      For two continuous maps, the part of the mean absolute deviation due to a net difference in the mean (bias) over
+      the strata.
+    use: |
+      Zero when the two maps have the same mean.
+    formula: |
+      MAD_{Q} = \Bigl|\frac{1}{n}\sum_{h}\sum_{c \in h} (x_c - y_c)\Bigr|
+    symbols:
+      'x, y': "the two maps"
+      'h': "strata (one by default)"
+      'n': "cells in any stratum."
+    python: 'tf.simulate.mad(sim, t1)["Quantity"].iloc[0]'
+    operator: change.mad
+    refs:
+      - "Pontius et al. (2008). Components of information for multiple resolution comparison between maps that share a real variable. Environmental and Ecological Statistics 15: 111-142."
+
+  # impl: _difference.py:420
+  - id: chg_mad_strata
+    name: "MAD strata"
+    level: map
+    theme: components
+    unit: "unit of the maps"
+    range: "≥ 0"
+    what: |
+      The part of the MAD due to deviations that cancel inside each stratum but not between strata.
+    use: |
+      Give a `strata` map to see whether the bias differs between regions. The term is 0 when the net deviation has
+      the same sign in every stratum, as here with a west and an east half.
+    formula: |
+      MAD_{S} = \frac{1}{n}\sum_{h} \Bigl|\sum_{c \in h} (x_c - y_c)\Bigr| - MAD_{Q}
+    symbols:
+      'x, y': "the two maps"
+      'h': "the strata (one by default, and then this term is 0)"
+      'n': "cells in any stratum"
+    python: 'tf.simulate.mad(sim, t1, strata=zones)["Strata"].iloc[0]'
+    operator: change.mad
+
+  # impl: _difference.py:427-431
+  - id: chg_mad_element
+    name: "MAD element"
+    level: map
+    theme: components
+    unit: "unit of the maps"
+    range: "≥ 0"
+    what: |
+      The rest of the MAD: the cell-level deviations that cancel when the maps are summed over larger blocks. It falls
+      to zero at coarse resolutions.
+    use: |
+      Shows how much of the error is a displacement at fine scale.
+    formula: |
+      MAD_{E} = MAD - MAD_{Q} - MAD_{S}
+    symbols:
+      'MAD, MAD_{Q}, MAD_{S}': "the total, quantity and strata parts of the card above and below; computed per resolution from sums of the deviations over blocks of 2, 4, 8, ... cells (`multiple=True`)"
+    python: 'tf.simulate.mad(sim, t1)[["Multiples", "Element"]]'
+    operator: change.mad
+
+  # impl: _difference.py:421
+  - id: chg_mad_total
+    name: "Mean absolute deviation (MAD total)"
+    level: map
+    theme: components
+    unit: "unit of the maps"
+    range: "≥ 0"
+    what: |
+      The mean absolute difference between two continuous maps over the cells with data.
+    use: |
+      Unlike RMSE it is not dominated by outliers.
+    formula: |
+      MAD = \frac{1}{n}\sum_{c} |x_c - y_c|
+    symbols:
+      'x_c, y_c': "values of cell \\(c\\) in the two maps"
+      'n': "cells with data in both; the total of the components, `Total`"
+    python: 'tf.simulate.mad(sim, t1, multiple=False)["Total"]'
+    operator: change.mad
+
+  # impl: _change.py:341-368
+  - id: chg_count
+    name: "Number of changes per cell (change count)"
+    level: cell
+    theme: components
+    unit: "count"
+    range: "0 ≤ k ≤ number of intervals"
+    what: |
+      For a series of maps, how many times each cell changed class, and the share of the area with each count.
+    use: |
+      Highlights cells that flicker (map errors or shifting cultivation) versus stable change.
+    formula: |
+      k_c = \sum_{t} 1[\,x_{c,t} \neq x_{c,t+1}\,],\qquad Percent_k = 100\,\frac{\#\{c: k_c = k\}}{\#\{c\}}
+    symbols:
+      'x_{c,t}': "class of cell \\( c \\) at time \\( t \\). Cells missing in any map get -1 and are excluded from the shares."
+    python: 'tf.simulate.changes(lu).change_count()[1]'
+    operator: change.count
+    refs:
+      - "Exavier & Zeilhofer (2020). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371 (function acc_changes). doi:10.32614/RJ-2021-021"
+
+  # impl: _change.py:272-278
+  - id: chg_interval_change
+    name: "Interval change (PercentChange, St)"
+    level: interval
+    theme: intensity
+    unit: "% of the study area (PercentChange); % per time unit (St)"
+    range: "≥ 0"
+    what: |
+      The share of the study area that changed in a time interval, and the same per year (annual change intensity).
+    use: |
+      The interval level of the intensity analysis; compare \( S_t \) between periods and with the uniform intensity
+      U.
+    formula: |
+      PercentChange_t = 100\,\frac{C_t}{A},\qquad S_t = 100\,\frac{C_t}{\Delta_t\, A}
+    symbols:
+      'C_t': "area that changed in interval \\( t \\)"
+      '\Delta_t': "length of the interval"
+      'A': "study area (the first period's total)."
+    python: 'tf.simulate.changes(lu).intensity(gain=2, loss=1).interval'
+    operator: change.intensity
+    refs:
+      - "Aldwaik & Pontius (2012). Intensity analysis to unify measurements of size and stationarity of land changes by interval, category, and transition. Landscape and Urban Planning 106: 103-114."
+      - "Exavier & Zeilhofer (2020). OpenLand: software for quantitative analysis and visualization of land use and cover change. The R Journal 12(2): 359-371. doi:10.32614/RJ-2021-021"
+
+  # impl: _change.py:276
+  - id: chg_u
+    name: "Uniform change intensity (U)"
+    level: interval
+    theme: intensity
+    unit: "% per time unit"
+    range: "≥ 0"
+    what: |
+      The annual intensity that would apply if the change were spread evenly over the whole series. Intervals with St
+      above U are fast, below U slow.
+    use: |
+      The reference line of the interval level.
+    formula: |
+      U = 100\,\frac{\sum_t C_t}{\Delta\, A}
+    symbols:
+      '\Delta': "the total length of the series"
+      'C_t': "area changed in interval \\( t \\)."
+    python: 'tf.simulate.changes(lu).intensity(gain=2, loss=1).interval["U"].iloc[0]'
+    operator: change.intensity
+    refs:
+      - "Aldwaik & Pontius (2012). Intensity analysis to unify measurements of size and stationarity of land changes by interval, category, and transition. Landscape and Urban Planning 106: 103-114."
+
+  # impl: _change.py:281-290
+  - id: chg_gtj
+    name: "Category gain intensity (Gtj)"
+    level: class
+    theme: intensity
+    unit: "% per time unit"
+    range: "≥ 0"
+    what: |
+      For each class and interval, the gross gain relative to the size of the class at the end of the interval. Gains
+      are active when Gtj exceeds the interval intensity St.
+    use: |
+      Class levels of the intensity analysis; `Test` = Y in the stationarity table says the class is active (or
+      dormant) in every interval.
+    formula: |
+      G_{tj} = 100\,\frac{GG_{tj}}{\Delta_t\, A_{t+1,j}}
+    symbols:
+      'GG_{tj}': "area gained by class \\( j \\) in interval \\( t \\) (`GG_km2`)"
+      'A_{t+1,j}': "area of class \\( j \\) at the end of the interval."
+    python: 'tf.simulate.changes(lu).intensity(gain=2, loss=1).category_gain'
+    operator: change.intensity
+    refs:
+      - "Aldwaik & Pontius (2012). Intensity analysis to unify measurements of size and stationarity of land changes by interval, category, and transition. Landscape and Urban Planning 106: 103-114."
+
+  # impl: _change.py:291
+  - id: chg_lti
+    name: "Category loss intensity (Lti)"
+    level: class
+    theme: intensity
+    unit: "% per time unit"
+    range: "≥ 0"
+    what: |
+      For each class and interval, the gross loss relative to the size of the class at the start. Losses are active
+      when Lti exceeds St.
+    use: |
+      As Gtj.
+    formula: |
+      L_{ti} = 100\,\frac{GL_{ti}}{\Delta_t\, A_{t,i}}
+    symbols:
+      'GL_{ti}': "area lost by class \\( i \\) (`GL_km2`)"
+      'A_{t,i}': "area of class \\( i \\) at the start."
+    python: 'tf.simulate.changes(lu).intensity(gain=2, loss=1).category_loss'
+    operator: change.intensity
+    refs:
+      - "Aldwaik & Pontius (2012). Intensity analysis to unify measurements of size and stationarity of land changes by interval, category, and transition. Landscape and Urban Planning 106: 103-114."
+
+  # impl: _change.py:293-305
+  - id: chg_rtin
+    name: "Transition intensity into a class (Rtin, Wtn)"
+    level: transition
+    theme: intensity
+    unit: "% per time unit"
+    range: "≥ 0"
+    what: |
+      For the chosen gaining class n, how intensively it takes over each other class i (Rtin), compared with the
+      uniform intensity of its gains over all the classes that could be taken (Wtn). Class i is targeted by n when
+      Rtin > Wtn.
+    use: |
+      Tells whether a land use expands preferentially into particular classes. Targeted / avoided classes are listed
+      in the transition stationarity table.
+    formula: |
+      R_{tin} = 100\,\frac{T_{tin}}{\Delta_t\, A_{t,i}},\qquad W_{tn} = 100\,\frac{GG_{tn}}{\Delta_t \sum_{i \neq n} A_{t,i}}
+    symbols:
+      'T_{tin}': "area that changed from \\( i \\) to \\( n \\) (`T_i2n_km2`)"
+      'A_{t,i}': "area of \\( i \\) at the start"
+      'GG_{tn}': "gain of \\( n \\). Chosen with `gain=` of `intensity`."
+    python: 'tf.simulate.changes(lu).intensity(gain=2, loss=1).transition_gain'
+    operator: change.intensity
+    setting: gain = 2
+    refs:
+      - "Aldwaik & Pontius (2012). Intensity analysis to unify measurements of size and stationarity of land changes by interval, category, and transition. Landscape and Urban Planning 106: 103-114."
+
+  # impl: _change.py:307-319
+  - id: chg_qtmj
+    name: "Transition intensity out of a class (Qtmj, Vtm)"
+    level: transition
+    theme: intensity
+    unit: "% per time unit"
+    range: "≥ 0"
+    what: |
+      For the chosen losing class m, how intensively it is lost to each other class j (Qtmj), compared with the
+      uniform intensity of its losses over all the classes that could take it (Vtm). Class j targets m when Qtmj >
+      Vtm.
+    use: |
+      Tells which classes replace a given land use.
+    formula: |
+      Q_{tmj} = 100\,\frac{T_{tmj}}{\Delta_t\, A_{t+1,j}},\qquad V_{tm} = 100\,\frac{GL_{tm}}{\Delta_t \sum_{j \neq m} A_{t+1,j}}
+    symbols:
+      'T_{tmj}': "area that changed from \\( m \\) to \\( j \\) (`T_m2j_km2`)"
+      'A_{t+1,j}': "area of \\( j \\) at the end"
+      'GL_{tm}': "loss of \\( m \\). Chosen with `loss=` of `intensity`."
+    python: 'tf.simulate.changes(lu).intensity(gain=2, loss=1).transition_loss'
+    operator: change.intensity
+    setting: loss = 1
+    refs:
+      - "Aldwaik & Pontius (2012). Intensity analysis to unify measurements of size and stationarity of land changes by interval, category, and transition. Landscape and Urban Planning 106: 103-114."
+
+  # impl: _change.py:151-158
+  - id: chg_stationarity
+    name: "Stationarity test (active / dormant, targeted / avoided)"
+    level: class
+    theme: intensity
+    unit: "count of intervals"
+    range: "Test = Y or N"
+    what: |
+      Counts in how many intervals each class (or transition) is above or below the uniform intensity, and says (Test
+      = Y) whether this holds in every interval, meaning a stable pattern.
+    use: |
+      Only meaningful with several intervals; with one it always says Y.
+    formula: |
+      Test = \begin{cases}Y & \#\{t: G_{tj} > S_t\} = N\\ N & \text{otherwise}\end{cases}\quad\text{(likewise for } L_{ti} \text{ vs } S_t,\; R_{tin} \text{ vs } W_{tn},\; Q_{tmj} \text{ vs } V_{tm})
+    symbols:
+      'N': "number of intervals. Labels: Active / Dormant Gain and Loss; targeted / avoided by the chosen gain and loss class."
+    python: 'tf.simulate.changes(lu).intensity(gain=2, loss=1).category_gain_stationarity'
+    operator: change.intensity
+
+  # impl: _validation.py:353-363
+  - id: chg_kappa
+    name: "Cohen's kappa of two maps"
+    level: map
+    theme: kappa
+    unit: "none"
+    range: "-1 ≤ kappa ≤ 1"
+    aliases: [kappa, KIA]
+    what: |
+      The agreement of two maps cell by cell beyond what chance would give from the class proportions of each map.
+    use: |
+      Overall agreement can look high only because one class dominates; kappa corrects for that but conflates quantity
+      and location (use the next two variants or the disagreement components).
+    formula: |
+      \kappa = \frac{P_o - P_e}{1 - P_e},\quad P_o = \sum_i p_{ii},\quad P_e = \sum_i p_{i+}\, p_{+i}
+    symbols:
+      'p_{ij} = n_{ij}/N': "cross-tabulation in proportions over the classes of both maps"
+      'p_{i+}, p_{+i}': "marginals."
+    python: 'tf.simulate.compare_maps(t1, sim)["kappa"]'
+    operator: validate.kappa
+    refs:
+      - "Cohen (1960). A coefficient of agreement for nominal scales. Educational and Psychological Measurement 20: 37-46."
+      - "MOLUSCE plugin for QGIS (validation tab)."
+
+  # impl: _validation.py:364
+  - id: chg_kappa_location
+    name: "Kappa for location (klocation)"
+    level: map
+    theme: kappa
+    unit: "none"
+    range: "≤ 1"
+    aliases: [Klocation, K-location]
+    what: |
+      How well the maps agree in location given the quantities of the classes: kappa rescaled by the best agreement
+      possible with those quantities.
+    use: |
+      High when allocation is right even if the quantities are off.
+    formula: |
+      \kappa_{loc} = \frac{P_o - P_e}{P_{max} - P_e},\qquad P_{max} = \sum_i \min(p_{i+}, p_{+i})
+    symbols:
+      'P_o, P_e': "observed agreement and the agreement expected by chance (see kappa)"
+      'p_{i+}, p_{+i}': "marginals of the cross-tabulation in proportions; returned as `kappa_location`"
+    python: 'tf.simulate.compare_maps(t1, sim)["kappa_location"]'
+    operator: validate.kappa
+    refs:
+      - "Pontius (2000). Quantification error versus location error in comparison of categorical maps. Photogrammetric Engineering and Remote Sensing 66: 1011-1016."
+      - "MOLUSCE plugin for QGIS (validation tab)."
+
+  # impl: _validation.py:365
+  - id: chg_kappa_histogram
+    name: "Kappa for quantity (khisto)"
+    level: map
+    theme: kappa
+    unit: "none"
+    range: "≤ 1"
+    aliases: [Khisto, K-histogram]
+    what: |
+      How well the class quantities of the two maps match: the best kappa that could be reached with the quantities,
+      given perfect location.
+    use: |
+      Low when the simulated demand differs from the observed.
+    formula: |
+      \kappa_{histo} = \frac{P_{max} - P_e}{1 - P_e}
+    symbols:
+      'P_o, P_e, P_{max}': "observed agreement, expected by chance and the largest possible given the quantities (see kappa for the first two, kappa for location for the last)"
+      '\kappa_{loc}': "kappa for location; returned as `kappa_histogram`, and \\(\\kappa = \\kappa_{loc}\\,\\kappa_{histo}\\)"
+    python: 'tf.simulate.compare_maps(t1, sim)["kappa_histogram"]'
+    operator: validate.kappa
+    refs:
+      - "MOLUSCE plugin for QGIS (validation tab)."
+
+  # impl: _validation.py:366-369
+  - id: chg_correctness
+    name: "Correctness"
+    level: map
+    theme: agreement
+    unit: "% of cells"
+    range: "0 ≤ x ≤ 100"
+    aliases: [overall accuracy, percent agreement]
+    what: |
+      The percent of cells with the same class in both maps.
+    use: |
+      Inflated by persistence when most cells do not change: compare with the null model (no change).
+    formula: |
+      correctness = 100\,\frac{\sum_i n_{ii}}{N}
+    symbols:
+      'n_{ii}': "cells of class \\(i\\) in both maps (the diagonal of the cross-tabulation)"
+      'N': "total number of cells with data"
+    python: 'tf.simulate.compare_maps(t1, sim)["correctness"]'
+    operator: validate.kappa
+
+  # impl: _validation.py:370-377
+  - id: chg_cramer
+    name: "Cramer's V"
+    level: map
+    theme: agreement
+    unit: "none"
+    range: "0 ≤ V ≤ 1"
+    what: |
+      The strength of the association between the classes of the two maps, from the chi-square of their
+      cross-tabulation (computed over the classes each map actually has).
+    use: |
+      Measures association, not agreement: a map that swaps two classes still has a high V.
+    formula: |
+      V = \sqrt{\frac{\chi^{2}}{N\,\min(r - 1,\, c - 1)}},\qquad \chi^{2} = \sum_{ij}\frac{(n_{ij} - e_{ij})^{2}}{e_{ij}}
+    symbols:
+      'e_{ij}': "expected count \\(n_{i+} n_{+j}/N\\)"
+      'r, c': "number of classes of each map; V is NaN if a map has one class"
+    python: 'tf.simulate.compare_maps(t1, sim)["cramer"]'
+    operator: validate.kappa
+
+  # impl: _validation.py:378-384
+  - id: chg_jiu
+    name: "Joint information uncertainty (JIU)"
+    level: map
+    theme: agreement
+    unit: "none"
+    range: "0 ≤ JIU ≤ 1"
+    what: |
+      The information the two maps share, relative to the information they carry in total (a normalised mutual
+      information).
+    use: |
+      1 when one map determines the other. Like V, it ignores which class is which.
+    formula: |
+      JIU = \frac{2\,\bigl(H_x + H_y - H_{xy}\bigr)}{H_x + H_y},\qquad H = -\sum p \ln p
+    symbols:
+      'H_x, H_y': "entropies of the class distributions of the two maps"
+      'H_{xy}': "entropy of the joint distribution."
+    python: 'tf.simulate.compare_maps(t1, sim)["jiu"]'
+    operator: validate.kappa
+
+  # impl: _validation.py:352
+  - id: chg_correlation
+    name: "Correlation of class values"
+    level: map
+    theme: agreement
+    unit: "none"
+    range: "-1 ≤ r ≤ 1"
+    what: |
+      The Pearson correlation between the numeric class codes of the two maps over cells with data.
+    use: |
+      Only meaningful for ordered classes; with nominal codes read it as a rough check.
+    formula: |
+      r = \operatorname{corr}(x_c,\, y_c)
+    symbols:
+      'x_c, y_c': "class codes of cell \\( c \\) in the two maps."
+    python: 'tf.simulate.compare_maps(t1, sim)["correlation"]'
+    operator: validate.kappa
+
+  # impl: _run.py:67, 70
+  - id: chg_agreement_overall
+    name: "Overall agreement and class quantity (validate.agreement)"
+    level: map
+    theme: agreement
+    unit: "none; cells for quantity"
+    range: "0 ≤ overall ≤ 1"
+    what: |
+      The share of cells where the simulated and the observed map are the same class, and for each class the
+      difference between the number of simulated and observed cells.
+    use: |
+      A simple check of the demand: the quantity of each class should be close to 0.
+    formula: |
+      overall = \frac{\#\{o_c = s_c\}}{n},\qquad quantity_k = \#\{s_c = k\} - \#\{o_c = k\}
+    symbols:
+      'o_c, s_c': "observed and simulated class of cell \\( c \\) (cells with a value in the observed, the simulated and the starting map)."
+    python: 'tf.simulate.agreement(t1, sim, t0)["overall"]'
+    operator: validate.agreement
+
+  # impl: _run.py:60-69; _validation.py:83-137 (three-map budget)
+  - id: chg_hits
+    name: "Hits, misses, false alarms and wrong hits"
+    level: map
+    theme: agreement
+    unit: "cells (agreement) or share of the cells (three-map)"
+    range: "≥ 0"
+    aliases: [omission, commission, null successes]
+    what: |
+      The four ways a simulation can treat a cell relative to the starting map. A miss is observed change simulated as
+      persistence; a hit is change simulated correctly; a wrong hit is change simulated as a different class; a false
+      alarm is persistence simulated as change.
+    use: |
+      Judge a simulation by these and not by overall agreement, which is dominated by persistence.
+    formula: |
+      hits = \#\{o \neq a,\, s \neq a,\, s = o\},\quad misses = \#\{o \neq a,\, s = a\},\quad wrong = \#\{o \neq a,\, s \neq a,\, s \neq o\},\quad false = \#\{o = a,\, s \neq a\}
+    symbols:
+      'a, o, s': "class of a cell in the start, observed and simulated maps. Counts in `agreement`; shares of the area in `agreement_budget` (three-map), which adds `correct_rejections` (persistence simulated as persistence)."
+    python: '{k: round(v, 4) for k, v in tf.simulate.agreement(t1, sim, t0).items() if k != "quantity"}'
+    operator: validate.agreement
+    refs:
+      - "Pontius et al. (2008). Comparing the input, output, and validation maps for several models of land change. Annals of Regional Science 42: 11-37."
+      - "Pontius et al. (2011). Comparison of three maps at multiple resolutions: a case study of land change simulation in Cho Don District, Vietnam. Annals of the Association of American Geographers 101: 45-62."
+
+  # impl: _run.py:65-68
+  - id: chg_figure_of_merit
+    name: "Figure of merit"
+    level: map
+    theme: agreement
+    unit: "none"
+    range: "0 ≤ FoM ≤ 1"
+    aliases: [FoM, Pontius figure of merit]
+    what: |
+      The share of the area of observed or simulated change where both agree: hits divided by the sum of hits, misses,
+      wrong hits and false alarms. It ignores persistence, so it is not inflated by the cells that did not change.
+    use: |
+      A simulation without any change scores 0. Typical values are low (10-30 percent); compare with other models, not
+      with 1.
+    formula: |
+      FoM = \frac{H}{M + H + W + F}
+    symbols:
+      'H': "hits"
+      'M': "misses"
+      'W': "wrong hits"
+      'F': "false alarms. `validate.agreement` uses this form; the FUTURES binary version (below) has no wrong hits."
+    python: 'tf.simulate.agreement(t1, sim, t0)["figure_of_merit"]'
+    operator: validate.agreement
+    refs:
+      - "Pontius et al. (2008). Comparing the input, output, and validation maps for several models of land change. Annals of Regional Science 42: 11-37."
+
+  # impl: _validation.py:83-164
+  - id: chg_budget
+    name: "Three-map agreement budget"
+    level: map
+    theme: three-map
+    unit: "share of the area"
+    range: "0 ≤ x ≤ 1; the five components sum to 1"
+    what: |
+      A comparison of the map at the start, the reference at the end and the simulated map at the end, at one or more
+      resolutions. It splits the area into misses, hits, wrong hits, false alarms and correct rejections, for the
+      whole map, for each class and for each transition.
+    use: |
+      At coarser resolutions (`factors`), blocks give partial credit to near misses.
+    formula: |
+      misses = \sum_{i \neq j} T_{iji},\quad hits = \sum_{i \neq j} T_{ijj},\quad wrong = \sum_{i,j,k \text{ distinct}} T_{ijk},\quad false = \sum_{j \neq k} T_{jjk},\quad correct\ rejections = \sum_i T_{iii}
+    symbols:
+      'T_{ijk}': "share of the area with class \\( i \\) in the start map, \\( j \\) in the reference end map and \\( k \\) in the simulated end map (the three-dimensional table, `ThreeMapComparison.table()`). Per class or transition the sums are restricted to the starting class (and end class); rows with from equal to to are not meaningful."
+    python: 'tf.simulate.three_map_comparison(t0, t1, sim, factors=[1, 4]).agreement_budget().query("level == ''overall''")'
+    operator: validate.three_map
+    refs:
+      - "Pontius et al. (2011). Comparison of three maps at multiple resolutions: a case study of land change simulation in Cho Don District, Vietnam. Annals of the Association of American Geographers 101: 45-62."
+      - "Moulds et al. (2015). An open and extensible framework for spatially explicit land use change modelling: the lulcc R package. Geoscientific Model Development 8: 3215-3229 (function AgreementBudget)."
+
+  # impl: _validation.py:168-220
+  - id: chg_fom_three_map
+    name: "Three-map figure of merit (overall, class, transition)"
+    level: map
+    theme: three-map
+    unit: "none"
+    range: "0 ≤ FoM ≤ 1"
+    what: |
+      The figure of merit at the three levels of the three-map comparison: overall, for change from each class and for
+      each from-to transition, at each resolution.
+    use: |
+      The overall value equals `figure_of_merit` of `validate.agreement` at factor 1.
+    formula: |
+      FoM = \frac{H}{1 - CR},\qquad FoM_i = \frac{H_i}{M_i + H_i + W_i + F_i},\qquad FoM_{ij} = \frac{H_{ij}}{H_{ij} + M_{ij} + F_{ij}}
+    symbols:
+      'CR': "correct rejections"
+      'H, M, W, F': "hits, misses, wrong hits and false alarms for the whole map or for class \\( i \\); for a transition \\( i \\to j \\) the denominator is the area of observed \\( i \\to j \\) plus that of simulated \\( i \\to j \\) minus the hits."
+    python: 'tf.simulate.three_map_comparison(t0, t1, sim, factors=[1, 4]).figure_of_merit()["overall"]'
+    operator: validate.three_map
+    refs:
+      - "Pontius et al. (2011). Comparison of three maps at multiple resolutions: a case study of land change simulation in Cho Don District, Vietnam. Annals of the Association of American Geographers 101: 45-62 (eqs. 9-11)."
+      - "Moulds et al. (2015). An open and extensible framework for spatially explicit land use change modelling: the lulcc R package. Geoscientific Model Development 8: 3215-3229 (function FigureOfMerit)."
+
+  # impl: _validation.py:395-468
+  - id: chg_error_budget
+    name: "Error budget levels (no_no ... perfect_perfect)"
+    level: map
+    theme: agreement
+    unit: "share of the cells"
+    range: "0 ≤ x ≤ 1"
+    aliases: [no_no, no_medium, medium_medium, medium_perfect, perfect_perfect]
+    what: |
+      The agreement expected when the model has no, medium or perfect information about the quantity and location of
+      change: no_no, no_medium, medium_medium, medium_perfect and perfect_perfect (always 1), at the map's resolution
+      and at coarser ones.
+    use: |
+      From MOLUSCE's validation: a simulation is only worth trusting if medium_medium is well above no_medium.
+    formula: |
+      no\_no = \frac{1}{N}\sum_c \sum_k \min\Bigl(r_{ck},\, \tfrac{1}{K}\Bigr),\quad no\_medium = \tfrac{1}{N}\sum_c\sum_k \min\bigl(r_{ck},\, \bar{s}_k\bigr),\quad medium\_medium = \tfrac{1}{N}\sum_c\sum_k \min\bigl(r_{ck},\, s_{ck}\bigr),\quad medium\_perfect = \sum_k \min(\bar{r}_k, \bar{s}_k)
+    symbols:
+      'r_{ck}, s_{ck}': "indicator (share, after aggregation) of class \\( k \\) in cell or block \\( c \\) of the reference and the simulated map"
+      '\bar{r}_k, \bar{s}_k': "their means"
+      'K': "number of classes. The difference between the levels shows what is gained by knowing the quantities and the locations."
+    python: 'tf.simulate.error_budget(t1, sim, iterations=3)'
+    operator: validate.error_budget
+    refs:
+      - "Pontius (2002). Statistical methods to partition effects of quantity and location during comparison of categorical maps at multiple resolutions. Photogrammetric Engineering and Remote Sensing 68: 1041-1049."
+      - "MOLUSCE plugin for QGIS (validation tab)."
+
+  # impl: _validation.py:565-567
+  - id: chg_futures_quantity
+    name: "Quantity disagreement (FUTURES)"
+    level: class
+    theme: components
+    unit: "share of the cells"
+    range: "0 ≤ x ≤ 1"
+    what: |
+      The disagreement per class due to a different amount of that class in the simulated and the reference map, and
+      its total over the map.
+    use: |
+      The same as `chg_quantity` in shares.
+    formula: |
+      q_k = \frac{\bigl|n_{k+} - n_{+k}\bigr|}{N},\qquad Q = \frac{1}{2}\sum_k q_k
+    symbols:
+      'n_{k+}': "cells of class \\( k \\) in the simulation"
+      'n_{+k}': "in the reference. Returned as `quantity` (per class) and `total_quantity`."
+    python: 'tf.simulate.futures_validation(t1, sim)["total_quantity"]'
+    operator: validate.futures
+    refs:
+      - "Pontius & Millones (2011). Death to Kappa: birth of quantity disagreement and allocation disagreement for accuracy assessment. International Journal of Remote Sensing 32: 4407-4429. doi:10.1080/01431161.2011.552923"
+      - "r.futures.validation, GRASS GIS addon."
+
+  # impl: _validation.py:568-571
+  - id: chg_futures_allocation
+    name: "Allocation disagreement (FUTURES)"
+    level: class
+    theme: components
+    unit: "share of the cells"
+    range: "0 ≤ x ≤ 1"
+    what: |
+      The disagreement per class from cells being in the wrong place even when the amount is right, and its total.
+    use: |
+      Quantity plus allocation equals 1 minus the overall agreement; it is the same split as the quantity and exchange
+      + shift of diffeR.
+    formula: |
+      a_k = \frac{2\min\bigl(n_{k+} - n_{kk},\, n_{+k} - n_{kk}\bigr)}{N},\qquad A = \frac{1}{2}\sum_k a_k
+    symbols:
+      'n_{kk}': "cells of class \\(k\\) in both maps"
+      'n_{k+}, n_{+k}': "cells of class \\(k\\) in the simulation and in the reference; returned as `allocation` and `total_allocation`"
+    python: 'tf.simulate.futures_validation(t1, sim)["total_allocation"]'
+    operator: validate.futures
+    refs:
+      - "Pontius & Millones (2011). Death to Kappa: birth of quantity disagreement and allocation disagreement for accuracy assessment. International Journal of Remote Sensing 32: 4407-4429. doi:10.1080/01431161.2011.552923"
+      - "r.futures.validation, GRASS GIS addon."
+
+  # impl: _validation.py:579-591
+  - id: chg_kappa_simulation
+    name: "Kappa simulation"
+    level: map
+    theme: kappa
+    unit: "none"
+    range: "≤ 1"
+    aliases: [KSimulation, Ksim]
+    what: |
+      A kappa whose expected agreement accounts for the change that took place: how much better the simulation agrees
+      with the reference than a model that knew each class's overall transition probabilities but not where. It is 0
+      when no better than that.
+    use: |
+      A fairer benchmark than kappa for land change, where persistence inflates agreement.
+    formula: |
+      \kappa_{sim} = \frac{P_o - P_e^{sim}}{1 - P_e^{sim}},\qquad P_e^{sim} = \sum_i d_i \sum_j P(s{=}j \mid o_0{=}i)\,P(r{=}j \mid o_0{=}i)
+    symbols:
+      'P_o': "proportion of cells with the simulated class equal to the reference"
+      'd_i': "share of cells of class \\( i \\) in the original (start) map"
+      'P(s{=}j \mid o_0{=}i)': "share of start-class-\\( i \\) cells that are \\( j \\) in the simulation, and \\( P(r{=}j \\mid o_0{=}i) \\) in the reference. Returned as `kappasimulation` when the original map is given."
+    python: 'tf.simulate.futures_validation(t1, sim, t0)["kappasimulation"]'
+    operator: validate.futures
+    refs:
+      - "van Vliet et al. (2011). Revisiting Kappa to account for change in the accuracy assessment of land-use change models. Ecological Modelling 222: 1367-1375."
+
+  # impl: _validation.py:553-562
+  - id: chg_futures_binary
+    name: "Binary change metrics (FUTURES)"
+    level: map
+    theme: agreement
+    unit: "share of the cells / none"
+    range: "0 ≤ x ≤ 1"
+    aliases: [producer accuracy, user accuracy]
+    what: |
+      For two classes (for example undeveloped and developed) with the original map given: misses, hits, false alarms,
+      null successes (persistence simulated correctly) and initially developed, as shares of the cells, plus the
+      figure of merit, producer's and user's accuracy of the change.
+    use: |
+      Without wrong hits, the FoM here equals the general one. Run on 0/1 maps (for example forest or not).
+    formula: |
+      FoM = \frac{H}{M + H + F},\qquad producer = \frac{H}{M + H},\qquad user = \frac{H}{H + F}
+    symbols:
+      'H, M, F': "hits, misses and false alarms of the cells that were class 0 at the start (class 1 gain is the change); `initially_developed` is the share of cells already 1. There are no wrong hits with two classes."
+    python: '{k: round(v, 4) if isinstance(v, float) else v for k, v in tf.simulate.futures_validation(r, s, o).items() if k not in ("quantity", "allocation")}'
+    operator: validate.futures
+    refs:
+      - "Pontius et al. (2008). Comparing the input, output, and validation maps for several models of land change. Annals of Regional Science 42: 11-37."
+      - "r.futures.validation, GRASS GIS addon."
+
+  # impl: _similarity.py:77-122
+  - id: chg_similarity
+    name: "Fuzzy similarity of two maps"
+    level: cell
+    theme: similarity
+    unit: "none"
+    range: "0 ≤ s ≤ 1"
+    aliases: [fuzzy kappa, reciprocal similarity]
+    what: |
+      For each cell with a class, how well that class is found nearby in the other map: 1 if present in the cell,
+      2^(-d/2) for the nearest cell of the class at d cells inside a square window, 0 if none. The map mean is the
+      similarity.
+    use: |
+      Tolerates small displacements, unlike cell-by-cell agreement. The result depends on the window size and decay.
+    formula: |
+      s_c = \min\bigl(m_{c},\, m^{rev}_{c}\bigr),\qquad m_c = 2^{-d_c/2}
+    symbols:
+      'd_c': "distance in cells from \\( c \\) to the nearest cell of the same class in the other map inside the \\( w \\times w \\) window around \\( c \\) (\\( m_c = 0 \\) if there is none)"
+      'm^{rev}_c': "the reverse membership, taken where the other map has a class too (`decay=\"constant\"` gives 1 everywhere in the window). The two means are `first_mean`, `second_mean`; the smaller is `minimum` (Dinamica's two-way similarity)."
+    python: 'tf.simulate.fuzzy_similarity(t1, sim, window=5)'
+    operator: validate.similarity
+    refs:
+      - "Hagen (2003). Fuzzy set approach to assessing similarity of categorical maps. International Journal of Geographical Information Science 17: 235-249."
+      - "Dinamica EGO software (CSR, UFMG)."
+
+  # impl: _similarity.py:135-170
+  - id: chg_similarity_differences
+    name: "Similarity of the changes (per window)"
+    level: map
+    theme: similarity
+    unit: "none"
+    range: "0 ≤ s ≤ 1"
+    what: |
+      The fuzzy similarity of the observed change and the simulated change: only cells that changed since the start
+      are compared, each in its new class, in windows of growing size. The result per window is the smaller of the two
+      means.
+    use: |
+      Dinamica EGO's validation: a simulation is acceptable when the minimum similarity reaches about 0.5 at the
+      window of the spatial tolerance you accept. Windows are odd (1 = exact).
+    formula: |
+      S_w = \min\bigl(\bar{s}^{sim}_w,\, \bar{s}^{obs}_w\bigr)
+    symbols:
+      '\bar{s}^{sim}_w': "mean similarity over the simulated changes"
+      '\bar{s}^{obs}_w': "over the observed changes, both in a window of side \\( w \\). Columns `simulated`, `observed`, `minimum` and the number of cells of each."
+    python: 'tf.simulate.similarity_of_differences(t0, t1, sim, windows=[1, 3, 5])'
+    operator: validate.similarity
+    setting: windows = [1, 3, 5]
+    refs:
+      - "Hagen (2003). Fuzzy set approach to assessing similarity of categorical maps. International Journal of Geographical Information Science 17: 235-249."
+      - "Dinamica EGO software (CSR, UFMG)."
+
+  # impl: accuracy.py:413-473 (olofsson), 498-579 (stehman)
+  - id: chg_assess_overall
+    name: "Overall accuracy (with standard error)"
+    level: map
+    theme: accuracy
+    unit: "none"
+    range: "0 ≤ OA ≤ 1"
+    what: |
+      The proportion of the map's area that is correctly classified, estimated from a stratified random sample of
+      reference points; given with its standard error and confidence interval.
+    use: |
+      Not the share of sample points that agree, unless the sample is proportional. Needs a design-based sample
+      (`accuracy.sample`).
+    formula: |
+      OA = \sum_j \hat{p}_{jj},\quad \hat{p}_{ij} = W_i\,\frac{n_{ij}}{n_{i+}},\quad SE(OA) = \sqrt{\sum_i W_i^{2}\,\frac{U_i(1 - U_i)}{n_{i+} - 1}},\quad CI = z\,SE
+    symbols:
+      'W_i = A_i/A': "mapped area share of stratum (map class) \\( i \\)"
+      'n_{ij}': "sample points of map class \\( i \\) with reference class \\( j \\)"
+      'U_i = \hat{p}_{ii}/\hat{p}_{i+}': "user's accuracy"
+      'z': "normal quantile of `confidence` (0.95). With `strata` of their own (`estimator=\"stehman\"`) the estimator of Stehman (2014) with finite population correction is used."
+    python: 'tf.accuracy.assess(lu.isel(band=1), pts, cell_area=250_000).overall'
+    operator: accuracy.assess
+    refs:
+      - "Olofsson et al. (2014). Good practices for estimating area and assessing accuracy of land change. Remote Sensing of Environment 148: 42-57. doi:10.1016/j.rse.2014.02.015"
+      - "Stehman (2014). Estimating area and map accuracy for stratified random sampling when the strata are different from the map classes. International Journal of Remote Sensing 35: 4923-4939."
+
+  # impl: accuracy.py:446, 452-458
+  - id: chg_assess_user
+    name: "User's accuracy (with standard error)"
+    level: class
+    theme: accuracy
+    unit: "none"
+    range: "0 ≤ UA ≤ 1"
+    aliases: [commission error, reliability]
+    what: |
+      For each map class, the probability that a cell mapped as that class really is that class: 1 minus the
+      commission error.
+    use: |
+      Tells the map user how far to trust a class.
+    formula: |
+      UA_j = \frac{\hat{p}_{jj}}{\hat{p}_{j+}} = \frac{n_{jj}}{n_{j+}},\qquad SE(UA_j) = \sqrt{\frac{UA_j(1 - UA_j)}{n_{j+} - 1}}
+    symbols:
+      '\hat{p}_{jj}, \hat{p}_{j+}': "estimated area share of the cells mapped as class \\(j\\) that are \\(j\\), and of all cells mapped as \\(j\\)"
+      'n_{jj}, n_{j+}': "sample points mapped and referenced as \\(j\\), and mapped as \\(j\\); columns `user_accuracy`, `user_se`, `user_ci`"
+    python: 'tf.accuracy.assess(lu.isel(band=1), pts, cell_area=250_000).table[["class", "user_accuracy", "user_se"]]'
+    operator: accuracy.assess
+    refs:
+      - "Olofsson et al. (2014). Good practices for estimating area and assessing accuracy of land change. Remote Sensing of Environment 148: 42-57. doi:10.1016/j.rse.2014.02.015"
+
+  # impl: accuracy.py:447, 459-465
+  - id: chg_assess_producer
+    name: "Producer's accuracy (with standard error)"
+    level: class
+    theme: accuracy
+    unit: "none"
+    range: "0 ≤ PA ≤ 1"
+    aliases: [omission error, sensitivity]
+    what: |
+      For each reference class, the probability that a cell that really is that class was mapped as such: 1 minus the
+      omission error, weighted by the mapped areas.
+    use: |
+      Differs from the share of the class's points correctly mapped because the strata have different sizes.
+    formula: |
+      PA_j = \frac{\hat{p}_{jj}}{\hat{p}_{+j}},\qquad \hat{p}_{+j} = \sum_i W_i\,\frac{n_{ij}}{n_{i+}}
+    symbols:
+      '\hat{p}_{jj}': "estimated area share of the cells that are class \\(j\\) in both the map and the reference"
+      '\hat{p}_{+j}': "estimated area share of reference class \\(j\\); the standard error follows Olofsson et al. (2014), eq. 6; columns `producer_accuracy`, `producer_se`, `producer_ci`"
+      'W_i': "area share of map class \\(i\\)"
+    python: 'tf.accuracy.assess(lu.isel(band=1), pts, cell_area=250_000).table[["class", "producer_accuracy", "producer_se"]]'
+    operator: accuracy.assess
+    refs:
+      - "Olofsson et al. (2014). Good practices for estimating area and assessing accuracy of land change. Remote Sensing of Environment 148: 42-57. doi:10.1016/j.rse.2014.02.015"
+
+  # impl: accuracy.py:448, 466-470, 812-815
+  - id: chg_assess_area
+    name: "Estimated class area (with confidence interval)"
+    level: class
+    theme: accuracy
+    unit: "share, cells and hectares"
+    range: "≥ 0"
+    aliases: [area estimate, adjusted area]
+    what: |
+      The area of each class estimated from the sample (error-adjusted), instead of counted on the map, with its
+      standard error and confidence interval. It corrects for the classification errors.
+    use: |
+      Report these areas with their intervals, particularly for rare classes and change, where the map count is
+      biased.
+    formula: |
+      A_j = A\,\hat{p}_{+j},\qquad SE(\hat{p}_{+j}) = \sqrt{\sum_i W_i^{2}\,\frac{\frac{n_{ij}}{n_{i+}}\bigl(1 - \frac{n_{ij}}{n_{i+}}\bigr)}{n_{i+} - 1}}
+    symbols:
+      'A': "total number of cells"
+      '\hat{p}_{+j}': "estimated area share of class \\( j \\). Columns `area_share`, `area_cells`, `area_ha` and their `se` / `ci`; hectares use `cell_area` (m2)."
+    python: 'tf.accuracy.assess(lu.isel(band=1), pts, cell_area=250_000).table[["class", "area_share", "area_ha", "area_ha_ci"]]'
+    operator: accuracy.assess
+    refs:
+      - "Olofsson et al. (2013). Making better use of accuracy data in land change studies: estimating accuracy and area and quantifying uncertainty using stratified estimation. Remote Sensing of Environment 129: 122-131."
+      - "Olofsson et al. (2014). Good practices for estimating area and assessing accuracy of land change. Remote Sensing of Environment 148: 42-57. doi:10.1016/j.rse.2014.02.015"
+
+  # impl: accuracy.py:436, 471
+  - id: chg_assess_matrix
+    name: "Estimated error matrix (area proportions)"
+    level: map
+    theme: accuracy
+    unit: "share of the area"
+    range: "0 ≤ p_ij ≤ 1; sums to 1"
+    what: |
+      The confusion matrix with each cell given as an estimated proportion of the map area, so that it accounts for
+      the unequal sampling of the strata. The matrix of sample counts is also returned.
+    use: |
+      The base from which user's, producer's and overall accuracy and the areas are derived; report it with the sample
+      size.
+    formula: |
+      \hat{p}_{ij} = W_i\,\frac{n_{ij}}{n_{i+}}
+    symbols:
+      '\hat{p}_{ij}': "estimated share of the area mapped as class \\(i\\) whose reference class is \\(j\\) (rows the map, columns the reference; cells without sample points are NaN)"
+      'W_i': "area share of map class \\(i\\)"
+      'n_{ij}, n_{i+}': "sample points of map class \\(i\\) with reference class \\(j\\), and all those of class \\(i\\)"
+    python: 'tf.accuracy.assess(lu.isel(band=1), pts, cell_area=250_000).matrix'
+    operator: accuracy.assess
+    refs:
+      - "Olofsson et al. (2014). Good practices for estimating area and assessing accuracy of land change. Remote Sensing of Environment 148: 42-57. doi:10.1016/j.rse.2014.02.015"

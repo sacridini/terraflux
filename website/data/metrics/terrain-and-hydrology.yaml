@@ -1,0 +1,819 @@
+family: terrain-and-hydrology
+title: Terrain and hydrology
+order: 60
+source: spatialEco (R), terra::terrain, GRASS r.geomorphon, WhiteboxTools, InVEST, riverconn (R), hydrographr (R)
+intro: |
+  Indices computed cell by cell from an elevation model (DEM): slope and aspect, ruggedness, topographic position,
+  curvature, landforms, the hydrological indices that combine the slope with the area that drains through a cell, and the
+  connectivity of rivers. They need no classification: every cell gets a value, and the metrics of the
+  [surface family](../surface-metrics/) (roughness, texture) are the ones that describe a whole surface.
+
+  The cards show their values on the SRTM elevation of south-western Oregon that ships with the library, put on a 30 m grid
+  in UTM zone 10N (369 x 270 cells, 440 to 1388 m), and, for the hydrological indices, the same DEM with its depressions
+  filled. A value on a card is the mean and the range of the raster the call returns. The two dendritic connectivity
+  indices have no river in the example, so their cards use the three-cell toy river of the library's own documentation.
+  Cells at the edge of the raster, or whose window reaches a missing cell, have no value. Windows are odd numbers of cells,
+  heights are in metres and slopes in degrees unless the card says otherwise.
+example: |
+  import numpy as np
+  import xarray as xr
+  import terraflux as tf
+
+  # SRTM elevation of south-western Oregon on a 30 m grid in UTM zone 10N (369 x 270 cells)
+  dem0 = tf.load_raster(tf.surface.example_data("orelevation"))
+  grid = xr.DataArray(np.zeros((369, 270)), dims=("y", "x"),
+                      coords={"y": 4771920 - 15 - 30 * np.arange(369), "x": 500010 + 15 + 30 * np.arange(270)})
+  dem = tf.reproject(dem0, like=grid.rio.write_crs("EPSG:32610"), resampling="bilinear")
+
+  filled = tf.hydro.fill(dem)                           # depressions filled, for the hydrological indices
+  acc = tf.hydro.flow_accumulation(filled)              # D8 accumulation, in cells
+  rivers = tf.hydro.streams(acc, 500)                   # the cells that drain at least 500 cells
+  link_map, links = tf.hydro.stream_links(filled, rivers)
+
+  # the NDVI of the same area, as an illustrative cover weight (a USLE C factor) for the connectivity index
+  ndvi = tf.reproject(tf.load_raster(tf.surface.example_data("orforest")), like=grid.rio.write_crs("EPSG:32610"),
+                      resampling="bilinear")
+  cover = xr.where(ndvi > 0.55, 0.003, 0.05)
+
+metrics:
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:253 (terrain() from :202; Horn weights :230-247), python extern/terraflux-py/src/terraflux/surface/_terrain.py:71
+  - id: slope
+    name: Slope
+    level: cell
+    theme: slope-aspect
+    unit: degrees (or radians)
+    range: "0 or more, below 90"
+    aliases: [steepness, gradient]
+    what: |
+      The steepness of the ground at a cell: the angle of steepest descent, from the elevations of the 3 x 3 window around
+      it.
+    use: |
+      The same as `terra::terrain`. The edge cells have no value. Slope depends on the cell size: the same hill is steeper on
+      a fine DEM than on a coarse one. On longitude/latitude rasters the cell sizes are in metres (geodesics on WGS84) and
+      the elevation must be in metres.
+    formula: |
+      \beta = \arctan \sqrt{\left( \frac{\partial z}{\partial x} \right)^2 + \left( \frac{\partial z}{\partial y} \right)^2}
+    symbols:
+      '\partial z / \partial x': "Horn's derivative along the row, \\([(z_3+2z_6+z_9)-(z_1+2z_4+z_7)]/(8\\,\\Delta x)\\), for the window \\(z_1 \\dots z_9\\) read row by row from the top left"
+      '\partial z / \partial y': "Horn's derivative down the column, \\([(z_7+2z_8+z_9)-(z_1+2z_2+z_3)]/(8\\,\\Delta y)\\)"
+      '\Delta x, \Delta y': the cell sizes
+    python: tf.surface.terrain(dem, "slope")
+    operator: surface.terrain
+    setting: v = "slope"
+    api: terraflux.surface.terrain
+    refs:
+      - "Horn, B. K. P. (1981). Hill shading and the reflectance map. Proceedings of the IEEE, 69(1), 14-47."
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:250-251 (terrain() from :202), python extern/terraflux-py/src/terraflux/surface/_terrain.py:71
+  - id: aspect
+    name: Aspect
+    level: cell
+    theme: slope-aspect
+    unit: degrees (or radians)
+    range: "0 or more, below 360"
+    aliases: [exposure, slope direction]
+    what: |
+      The compass direction that the slope faces, clockwise from north: 0 north, 90 east, 180 south, 270 west.
+    use: |
+      Aspect is circular (359 and 1 are neighbours): do not average it or use it in a regression as it is. Use the
+      transformed aspect (TRASP), the heat load index, or its sine and cosine. A flat cell (both derivatives 0) gets 90, not
+      a missing value.
+    formula: |
+      \alpha = \operatorname{atan2}\left( -\frac{\partial z}{\partial x},\, -\frac{\partial z}{\partial y} \right) \bmod 360^{\circ}
+    symbols:
+      '\partial z / \partial x': Horn's derivative toward the east
+      '\partial z / \partial y': Horn's derivative toward the north (the window of Slope with the sign of its rows reversed)
+      '\alpha': the downhill direction clockwise from north; a surface rising to the east gives 270, one rising to the south gives 0
+    python: tf.surface.terrain(dem, "aspect")
+    operator: surface.terrain
+    setting: v = "aspect"
+    api: terraflux.surface.terrain
+    refs:
+      - "Horn, B. K. P. (1981). Hill shading and the reflectance map. Proceedings of the IEEE, 69(1), 14-47."
+
+  # impl: extern/terraflux-py/src/terraflux/surface/_terrain.py:453
+  - id: trasp
+    name: Transformed aspect (TRASP)
+    level: cell
+    theme: slope-aspect
+    unit: none
+    range: "0 to 1"
+    aliases: [transformed aspect, Roberts and Cooper aspect]
+    what: |
+      Aspect folded into a number from 0 on the cool, wet north-north-east slopes to 1 on the hot, dry south-south-west
+      ones, so that it can enter a linear model.
+    use: |
+      It ignores the slope: a flat cell still gets a value from a meaningless aspect. Combine it with the slope, or use the
+      heat load index, which includes both.
+    formula: |
+      \mathrm{TRASP} = \frac{1 - \cos\left( \frac{\pi}{180} (\alpha - 30^{\circ}) \right)}{2}
+    symbols:
+      '\alpha': the aspect in degrees, clockwise from north (Horn, 3 x 3 window, 8 neighbours)
+    python: tf.surface.trasp(dem)
+    operator: surface.trasp
+    api: terraflux.surface.trasp
+    refs:
+      - "Roberts, D. W., & Cooper, S. V. (1989). Concepts and techniques of vegetation mapping. In Land classifications based on vegetation: applications for resource management (pp. 90-96). USDA Forest Service General Technical Report INT-257."
+
+  # impl: extern/terraflux-py/src/terraflux/surface/_terrain.py:483
+  - id: hli
+    name: Heat load index (HLI)
+    level: cell
+    theme: slope-aspect
+    unit: ln(MJ cm-2 yr-1), or MJ cm-2 yr-1 with scaled=True
+    range: "about -1.7 to 0.1 (log scale) on the example"
+    aliases: [heat load, potential direct incident radiation]
+    what: |
+      The potential annual direct radiation that a slope receives given its steepness, its orientation and the latitude, after
+      McCune and Keon. In the northern hemisphere it is highest on south-west slopes.
+    use: |
+      The latitude is that of the centre of the raster unless you give it, so give it for rasters of large extent.
+      `equation=2` and `3` use other coefficients (3 for latitudes of 30 to 60 degrees). spatialEco has errors in the
+      southern hemisphere branch, which Terraflux corrects.
+    formula: |
+      \ln H = -1.467 + 1.582 \cos L \cos S - 1.5 \cos A \sin S \sin L - 0.262 \sin L \sin S + 0.607 \sin A \sin S
+    symbols:
+      'S': the slope, in radians
+      'L': the latitude, in radians
+      'A': "the aspect \\(\\alpha\\) folded about the north-east to south-west line, \\(|\\pi - |\\alpha - 5\\pi/4||\\) (with `direct=True` about north-south, \\(\\pi - |\\alpha - \\pi|\\); in the southern hemisphere about north-west to south-east, with the absolute latitude)"
+      'H': the heat load; `scaled=True` returns \(e^{\ln H}\)
+    python: tf.surface.hli(tf.surface.terrain(dem, "aspect"), tf.surface.terrain(dem, "slope"), latitude=42.9)
+    operator: surface.hli
+    setting: latitude = 42.9
+    api: terraflux.surface.hli
+    refs:
+      - "McCune, B., & Keon, D. (2002). Equations for potential annual direct incident radiation and heat load. Journal of Vegetation Science, 13(4), 603-606."
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:338
+  - id: tri
+    name: Terrain ruggedness index (TRI)
+    level: cell
+    theme: roughness
+    unit: the unit of the elevation (here m)
+    range: "0 or more"
+    aliases: [ruggedness, terrain ruggedness]
+    what: |
+      How much the heights in a window differ from the central cell: the square root of the summed squared differences, so a
+      flat surface has 0 and a pit or a peak a high value.
+    use: |
+      This is the original of Riley et al. (the root of the sum of squares). It grows with the size of the window and does
+      not subtract the slope: a smooth steep plane has a high TRI. For a roughness that ignores steepness use the vector
+      ruggedness measure.
+    formula: |
+      \mathrm{TRI} = \sqrt{\sum_i (z_0 - z_i)^2}
+    symbols:
+      'z_0': the elevation of the central cell
+      'z_i': the elevations of the other cells of the window (3 x 3 by default) that have a value, so the edge cells get a value from the cells they have
+    python: tf.surface.tri(dem)
+    operator: surface.tri
+    setting: s = 3
+    api: terraflux.surface.tri
+    refs:
+      - "Riley, S. J., DeGloria, S. D., & Elliot, R. (1999). A terrain ruggedness index that quantifies topographic heterogeneity. Intermountain Journal of Sciences, 5(1-4), 23-27."
+
+  # impl: extern/terraflux-py/src/terraflux/surface/_terrain.py:213
+  - id: vrm
+    name: Vector ruggedness measure (VRM)
+    level: cell
+    theme: roughness
+    unit: none
+    range: "0 or more, below 1"
+    aliases: [ruggedness vector, vector ruggedness]
+    what: |
+      Ruggedness as the scatter of the surface normals in a window: 0 for a plane however steep, towards 1 where the ground
+      faces many directions. It separates roughness from steepness.
+    use: |
+      The normals need the slope and the aspect of every cell, so the window loses one more ring of cells at the edge than
+      TRI. Values are small on gentle terrain (mean 0.006 on the example).
+    formula: |
+      \mathrm{VRM} = 1 - \frac{\sqrt{\left(\sum x_i\right)^2 + \left(\sum y_i\right)^2 + \left(\sum z_i\right)^2}}{n}
+    symbols:
+      'x_i, y_i, z_i': "the unit normal of cell \\(i\\) of the window, \\(x_i=\\sin\\alpha_i\\sin\\beta_i\\), \\(y_i=\\cos\\alpha_i\\sin\\beta_i\\), \\(z_i=\\cos\\beta_i\\), from its aspect \\(\\alpha_i\\) and slope \\(\\beta_i\\) (Horn)"
+      'n': the number of cells of the window (3 x 3 by default)
+    python: tf.surface.vrm(dem)
+    operator: surface.vrm
+    setting: s = 3
+    api: terraflux.surface.vrm
+    refs:
+      - "Sappington, J. M., Longshore, K. M., & Thompson, D. B. (2007). Quantifying landscape ruggedness for animal habitat analysis: a case study using bighorn sheep in the Mojave Desert. Journal of Wildlife Management, 71(5), 1419-1426."
+
+  # impl: extern/terraflux-py/src/terraflux/surface/_terrain.py:251
+  - id: srr
+    name: Surface relief ratio (SRR)
+    level: cell
+    theme: roughness
+    unit: none
+    range: "0 to 1"
+    aliases: [relief ratio, elevation-relief ratio]
+    what: |
+      Where the mean elevation of a window lies between its lowest and its highest point: the hypsometric shape of the
+      relief. A low value means that most of the area is near the bottom.
+    use: |
+      NA where the window is flat (maximum equal to minimum). It describes the shape of the relief, not its size.
+    formula: |
+      \mathrm{SRR} = \frac{\bar z - z_{\min}}{z_{\max} - z_{\min}}
+    symbols:
+      '\bar z': the mean elevation of the window (5 x 5 cells by default)
+      'z_{\min}, z_{\max}': the lowest and the highest elevation of the window
+    python: tf.surface.srr(dem)
+    operator: surface.srr
+    setting: s = 5
+    api: terraflux.surface.srr
+    refs:
+      - "Pike, R. J., & Wilson, S. E. (1971). Elevation-relief ratio, hypsometric integral, and geomorphic area-altitude analysis. Geological Society of America Bulletin, 82(4), 1079-1084."
+
+  # impl: extern/terraflux-py/src/terraflux/surface/_terrain.py:283
+  - id: dissection
+    name: Dissection (Martonne)
+    level: cell
+    theme: roughness
+    unit: none
+    range: "0 to 1"
+    aliases: [Martonne dissection, modified dissection, relative position]
+    what: |
+      The position of the central cell between the lowest and the highest elevation of its window: 0 at the lowest, 1 at the
+      highest.
+    use: |
+      It is the value of the cell, not the window mean (as in SRR); it behaves like an elevation rescaled in the window and
+      reads as a relative height. NA on a flat window.
+    formula: |
+      D = \frac{z_0 - z_{\min}}{z_{\max} - z_{\min}}
+    symbols:
+      'z_0': the elevation of the central cell
+      'z_{\min}, z_{\max}': the lowest and the highest elevation of the window (5 x 5 by default)
+    python: tf.surface.dissection(dem)
+    operator: surface.dissection
+    setting: s = 5
+    api: terraflux.surface.dissection
+
+  # impl: extern/terraflux-py/src/terraflux/surface/_terrain.py:361
+  - id: spherical_sd
+    name: Spherical standard deviation (terrain heterogeneity)
+    level: cell
+    theme: roughness
+    unit: none
+    range: "0 or more, below 1"
+    aliases: [spherical sd, terrain heterogeneity, surface normal dispersion]
+    what: |
+      The spread of the surface normals in a window as a spherical standard deviation: 0 where all normals point the same
+      way (a plane), larger where the slope and the aspect change.
+    use: |
+      Built from the same normals as VRM, which measures 1 - R instead of the root of 1 - R squared; the two rank the cells
+      almost alike, so use one of them.
+    formula: |
+      \sigma_s = \sqrt{1 - R^2}, \qquad R = \left\| \frac{1}{n} \sum_i \mathbf{n}_i \right\|
+    symbols:
+      '\mathbf{n}_i': the unit normal of cell \(i\) of the window, from its aspect and slope (see VRM)
+      'n': the number of cells of the window (3 x 3 by default)
+      'R': the length of the mean normal; with `variance=True` the value is \(1 - R^2\), without the root
+    python: tf.surface.spherical_sd(dem)
+    operator: surface.spherical_sd
+    setting: d = 3
+    api: terraflux.surface.spherical_sd
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:401
+  - id: tpi
+    name: Topographic position index (TPI)
+    level: cell
+    theme: position
+    unit: the unit of the elevation (here m)
+    range: "any real number; 0 on a flat or an even slope"
+    aliases: [topographic position, relative topographic position]
+    what: |
+      The elevation of a cell minus the mean elevation of a window around it: positive on ridges and hilltops, negative in
+      valleys and hollows, about zero on flats and even slopes.
+    use: |
+      The scale decides what you see: a small window picks out gullies and bumps, a large one valleys and mountains, so
+      report it. Cells whose window reaches the edge or a missing cell have no value. With `win="circle"` the scale is a
+      radius in map units; `normalize=True` divides the value by the standard deviation of the window.
+    formula: |
+      \mathrm{TPI} = z_0 - \bar z_W
+    symbols:
+      'z_0': the elevation of the cell
+      '\bar z_W': the mean elevation of the window \(W\) around the cell, which includes it (a square of 3 cells by default)
+    python: tf.surface.tpi(dem, 5)
+    operator: surface.tpi
+    setting: scale = 5
+    api: terraflux.surface.tpi
+    refs:
+      - "Weiss, A. D. (2001). Topographic position and landforms analysis. Poster, ESRI International User Conference, San Diego."
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:413
+  - id: hsp
+    name: Hierarchical slope position (HSP)
+    level: cell
+    theme: position
+    unit: none (0 to 1 when normalized)
+    range: "any real number, or 0 to 1 with normalize=True"
+    aliases: [hierarchical slope position, multi-scale topographic position]
+    what: |
+      The position on the slope across several scales at once: the standardised topographic position summed over a series of
+      window sizes.
+    use: |
+      The z-scores use the whole raster, so the value of a cell depends on the extent you process. spatialEco computes the
+      TPI minus the mean, divided by the standard deviation, by operator precedence and not as a z-score; Terraflux
+      computes the z-score.
+    formula: |
+      \mathrm{HSP} = \sum_k 100 \cdot \frac{\mathrm{TPI}_k - \mu_k}{\sigma_k}
+    symbols:
+      '\mathrm{TPI}_k': the topographic position index at scale \(k\), with window sides 3, 7, 11, ... up to 27 by default (`min_scale`, `inc`, `max_scale`)
+      '\mu_k, \sigma_k': its mean and standard deviation over the whole raster
+    python: tf.surface.hsp(dem, 3, 11, 4, normalize=True)
+    operator: surface.hsp
+    setting: min_scale = 3, max_scale = 11, inc = 4
+    api: terraflux.surface.hsp
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:343
+  - id: curvature_planform
+    name: Planform curvature
+    level: cell
+    theme: curvature
+    unit: 1 / map unit
+    range: "any real number; negative on concave (converging) ground, positive on convex"
+    aliases: [plan curvature, contour curvature, tangential curvature]
+    what: |
+      The curvature of the ground across the slope, perpendicular to the direction of steepest descent: positive on spurs,
+      where flow diverges, and negative in hollows, where it converges.
+    use: |
+      No value on flat cells (p = q = 0) or on the edge. Use a projected raster. spatialEco halves the second derivatives,
+      pads the edges with 0 and rounds to 6 decimals; Terraflux does none of that, so its values differ from spatialEco's.
+    formula: |
+      C_{\mathrm{plan}} = -\frac{q^2 r - 2pqs + p^2 t}{(p^2 + q^2) \sqrt{1 + p^2 + q^2}}
+    symbols:
+      'p, q': "Zevenbergen and Thorne's first derivatives of the window \\(z_1 \\dots z_9\\): \\(p=(z_6-z_4)/2L_x\\), \\(q=(z_2-z_8)/2L_y\\)"
+      'r, s, t': "the second derivatives: \\(r=(z_4+z_6-2z_5)/L_x^2\\), \\(s=(z_3+z_7-z_1-z_9)/4L_xL_y\\), \\(t=(z_2+z_8-2z_5)/L_y^2\\)"
+      'L_x, L_y': the cell width and height
+    python: tf.surface.curvature(dem, "planform")
+    operator: surface.curvature
+    setting: type = "planform"
+    api: terraflux.surface.curvature
+    refs:
+      - "Zevenbergen, L. W., & Thorne, C. R. (1987). Quantitative analysis of land surface topography. Earth Surface Processes and Landforms, 12(1), 47-56."
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:394
+  - id: curvature_profile
+    name: Profile curvature
+    level: cell
+    theme: curvature
+    unit: 1 / map unit
+    range: "any real number; negative on concave, positive on convex ground"
+    aliases: [profile convexity, downslope curvature]
+    what: |
+      The curvature of the ground along the direction of steepest descent: positive where the slope steepens away from a
+      crest, negative where it flattens toward a foot. It controls whether flow speeds up or slows down.
+    use: |
+      As for planform curvature, no value on flat cells and on the edge, and spatialEco's halving and rounding are not
+      reproduced. Check the sign on a known shape before comparing with other software: here a dome is positive and a bowl
+      negative.
+    formula: |
+      C_{\mathrm{prof}} = -\frac{p^2 r + 2pqs + q^2 t}{(p^2 + q^2)(1 + p^2 + q^2)^{3/2}}
+    symbols:
+      'p, q, r, s, t': Zevenbergen and Thorne's derivatives of the 3 x 3 window (see planform curvature)
+    python: tf.surface.curvature(dem, "profile")
+    operator: surface.curvature
+    setting: type = "profile"
+    api: terraflux.surface.curvature
+    refs:
+      - "Zevenbergen, L. W., & Thorne, C. R. (1987). Quantitative analysis of land surface topography. Earth Surface Processes and Landforms, 12(1), 47-56."
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:395
+  - id: curvature_total
+    name: Total curvature
+    level: cell
+    theme: curvature
+    unit: 1 / map unit
+    range: "any real number; positive on convex, negative on concave ground"
+    aliases: [total curvature, mean curvature]
+    what: |
+      The sum of the planform and the profile curvatures: one number for how convex or concave the ground is at a cell.
+    use: |
+      It is the sum of the two curvatures above, as spatialEco defines it, not the Laplacian of the surface. Flat cells and
+      the edge have no value.
+    formula: |
+      C_{\mathrm{tot}} = C_{\mathrm{plan}} + C_{\mathrm{prof}}
+    symbols:
+      'C_{\mathrm{plan}}, C_{\mathrm{prof}}': the planform and profile curvatures
+    python: tf.surface.curvature(dem, "total")
+    operator: surface.curvature
+    setting: type = "total"
+    api: terraflux.surface.curvature
+    refs:
+      - "Zevenbergen, L. W., & Thorne, C. R. (1987). Quantitative analysis of land surface topography. Earth Surface Processes and Landforms, 12(1), 47-56."
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:355
+  - id: curvature_mcnab
+    name: McNab curvature
+    level: cell
+    theme: curvature
+    unit: none
+    range: "-1 to 1 (scaled by the raster maximum)"
+    aliases: [McNab curvature, convexity index]
+    what: |
+      How much a cell stands above or below its eight neighbours: the mean difference to them, divided by the largest such
+      mean difference on the raster, so that the most convex cell is 1.
+    use: |
+      The scaling uses the whole raster, so the value of a cell depends on the extent. Positive means convex (the cell is
+      higher than its neighbours), negative concave. spatialEco divides by 9 and subtracts 1 through operator precedence;
+      Terraflux corrects that.
+    formula: |
+      C_{\mathrm{McN}} = \frac{\frac{1}{8} \sum_{j=1}^{8} (z_0 - z_j)}{\max\limits_{\text{raster}} \left[ \frac{1}{8} \sum_{j} (z_0 - z_j) \right]}
+    symbols:
+      'z_0': the elevation of the cell
+      'z_j': the elevations of its neighbours that have a value (the sum is still divided by 8)
+      'denominator': the largest numerator over the whole raster
+    python: tf.surface.curvature(dem, "mcnab")
+    operator: surface.curvature
+    setting: type = "mcnab"
+    api: terraflux.surface.curvature
+
+  # impl: extern/terraflux-py/src/cpp/surf/terrain.cpp:348
+  - id: curvature_bolstad
+    name: Bolstad curvature
+    level: cell
+    theme: curvature
+    unit: 1 / map unit (scaled)
+    range: "any real number; positive on convex ground"
+    aliases: [Laplacian curvature]
+    what: |
+      The difference between a cell and the mean of its 3 x 3 window, scaled by the cell width: a simple local convexity.
+    use: |
+      The factors 10000 and 1000 are those of the spatialEco code, which fails on this option; Terraflux gives the same
+      formula as intended. The result is in odd units, so compare cells within one raster only.
+    formula: |
+      C_{\mathrm{Bol}} = \frac{10000\,(z_0 - \bar z_{3 \times 3}) / 1000}{1.5\, L_x}
+    symbols:
+      'z_0': the elevation of the cell
+      '\bar z_{3 \times 3}': the mean of its 3 x 3 window, the cell included
+      'L_x': the cell width in map units
+    python: tf.surface.curvature(dem, "bolstad")
+    operator: surface.curvature
+    setting: type = "bolstad"
+    api: terraflux.surface.curvature
+
+  # impl: extern/terraflux-py/src/cpp/surf/geomorphons.cpp:49 (form table, form_of :62), counts :260-293; defaults extern/terraflux-py/src/terraflux/surface/_geomorphons.py:92
+  - id: geomorphons
+    name: Geomorphons (landforms)
+    level: cell
+    theme: landform
+    unit: class (1 to 10)
+    range: "1 to 10"
+    aliases: [landforms, geomorphon, r.geomorphon, landform classification]
+    what: |
+      The landform of each cell, from its lines of sight in the 8 compass directions up to a search radius: the numbers of
+      directions that look up (higher) and down (lower) name the form. Unlike the slope or the curvature it sees the
+      terrain at the scale of the search radius.
+    use: |
+      The result depends on the search radius (`search`, in cells; 3 by default) and on the flatness threshold: record both
+      and test several radii. It needs a projected DEM. The result also holds a table `share` of the cells per form, and
+      `measures=True` adds intensity, exposition, range, variance, elongation, azimuth, extend and width. It is a port of
+      GRASS r.geomorphon 8.4 with four of its errors corrected.
+    formula: |
+      \text{form} = f(n_{+},\, n_{-}), \qquad n_{+} + n_{-} \le 8
+    symbols:
+      'n_{+}, n_{-}': |
+        the numbers of the 8 directions that are higher and lower than the cell. In each direction, from \(skip+1\) cells away while the distance is below the search distance (the search in cells times the cell size), the highest elevation angle (zenith) and the lowest (nadir) are found. With the default comparison, the direction is level if neither \(|\text{zenith}|\) nor \(|\text{nadir}|\) exceeds the flatness threshold (`flat`, 1 degree), otherwise higher if \(|\text{nadir}| < |\text{zenith}|\) and lower if it is greater. A direction whose first neighbour is missing or off the raster counts as neither
+      'f': |
+        the form table of r.geomorphon, given as \((n_{-}, n_{+})\) (the same table is `tf.surface.GEOMORPHON_FORMS`). 1 flat: (0,0) (0,1) (0,2) (1,0) (1,1) (2,0); 2 peak: (8,0); 3 ridge: (5,0) (5,1) (6,0) (6,1) (6,2) (7,0) (7,1); 4 shoulder: (2,1) (3,0) (3,1) (4,0) (4,1); 5 spur: (4,2) (5,2) (5,3); 6 slope: (2,2) (2,3) (3,2) (3,3) (3,4) (4,3) (4,4); 7 hollow: (2,4) (2,5) (3,5); 8 footslope: (0,3) (0,4) (1,2) (1,3) (1,4); 9 valley: (0,5) (0,6) (0,7) (1,5) (1,6) (1,7) (2,6); 10 pit: (0,8)
+    python: tf.surface.geomorphons(dem, search=10).share()[["name", "cells", "share"]]
+    operator: surface.geomorphons
+    setting: search = 10
+    api: terraflux.surface.geomorphons
+    refs:
+      - "Jasiewicz, J., & Stepinski, T. F. (2013). Geomorphons - a pattern recognition approach to classification and mapping of landforms. Geomorphology, 182, 147-156."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_flow.py:227
+  - id: flow_accumulation
+    name: Flow accumulation
+    level: cell
+    theme: wetness-flow
+    unit: cells, or area (map units squared), or specific contributing area (map units)
+    range: "1 cell or more"
+    aliases: [contributing area, drainage area, upslope area]
+    what: |
+      The area that drains through each cell, the cell itself included: the basis of every drainage index. D8 sends all of a
+      cell to its steepest neighbour; the multiple-flow methods split it among the lower neighbours.
+    use: |
+      Best on a DEM with its depressions filled (`tf.hydro.fill`). D8 draws artificial parallel lines on hillslopes; the
+      multiple-flow methods avoid them and are the default for the wetness indices.
+    formula:
+      - |
+        A_i = w_i + \sum_{j \to i} p_{ji}\, A_j
+      - |
+        a = \frac{A \,\Delta x\, \Delta y}{(\Delta x + \Delta y)/2}
+    symbols:
+      'A_i': the accumulation of cell \(i\)
+      'w_i': the contribution of the cell itself (1, or a weight raster)
+      'p_{ji}': the share of the flow of cell \(j\) that goes to \(i\), which is 1 for the steepest neighbour with `d8` and proportional to the slope to the power 1.1 with `fd8` (D-infinity, Quinn and `mfd` split it differently)
+      'a': the specific contributing area (`units="sca"`), the area per unit contour width
+      '\Delta x, \Delta y': the cell sizes
+    python: tf.hydro.flow_accumulation(filled)
+    operator: hydro.flow_accumulation
+    setting: method = "d8"
+    api: terraflux.hydro.flow_accumulation
+    refs:
+      - "O'Callaghan, J. F., & Mark, D. M. (1984). The extraction of drainage networks from digital elevation data. Computer Vision, Graphics, and Image Processing, 28(3), 323-344."
+      - "Freeman, T. G. (1991). Calculating catchment area with divergent flow based on a rectangular grid. Computers & Geosciences, 17(3), 413-422."
+      - "Tarboton, D. G. (1997). A new method for the determination of flow directions and upslope areas in grid digital elevation models. Water Resources Research, 33(2), 309-319."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_indices.py:61
+  - id: twi
+    name: Topographic wetness index (TWI)
+    level: cell
+    theme: wetness-flow
+    unit: none (log of m2 per m per tangent)
+    range: "about 3.8 to 19 on the example"
+    aliases: [wetness index, compound topographic index, CTI, topographic index]
+    what: |
+      High where much area drains through a gentle slope (valley floors, hollows, flats) and low on steep ridges: a proxy for
+      soil moisture and saturation.
+    use: |
+      There is no value where the slope is exactly 0 unless you give `min_slope` (as WhiteboxTools does): the flat floors of
+      filled depressions are empty. The DEM should have its depressions filled. The value depends on the accumulation
+      method, so record it.
+    formula: |
+      \mathrm{TWI} = \ln\left( \frac{a}{\tan\beta} \right)
+    symbols:
+      'a': the specific contributing area, the area draining through a cell per unit of contour width (from the FD8 accumulation by default, exponent 1.1)
+      '\tan\beta': the tangent of the slope from Horn's gradient (a missing neighbour takes the value of the cell itself); with `min_slope` it has a floor, for instance 0.001, so that flat cells get a finite value
+    python: tf.hydro.twi(filled)
+    operator: hydro.twi
+    setting: method = "fd8"
+    api: terraflux.hydro.twi
+    refs:
+      - "Beven, K. J., & Kirkby, M. J. (1979). A physically based, variable contributing area model of basin hydrology. Hydrological Sciences Bulletin, 24(1), 43-69."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_indices.py:110
+  - id: spi
+    name: Stream power index (SPI)
+    level: cell
+    theme: wetness-flow
+    unit: m2 per m (specific area times tangent)
+    range: "0 or more"
+    aliases: [stream power]
+    what: |
+      The erosive power of overland flow: large where much water drains and the slope is steep, as in gullies and at channel
+      heads.
+    use: |
+      Heavy-tailed (median 69, maximum 4.4 x 10^5 on the example), so map it on a log scale or take the logarithm. It is zero
+      on flat cells.
+    formula: |
+      \mathrm{SPI} = a \, \tan\beta
+    symbols:
+      'a': the specific contributing area
+      '\tan\beta': the tangent of the slope (see TWI)
+    python: tf.hydro.spi(filled)
+    operator: hydro.spi
+    setting: method = "fd8"
+    api: terraflux.hydro.spi
+    refs:
+      - "Moore, I. D., Grayson, R. B., & Ladson, A. R. (1991). Digital terrain modelling: a review of hydrological, geomorphological, and biological applications. Hydrological Processes, 5(1), 3-30."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_indices.py:137
+  - id: sti
+    name: Sediment transport index (STI)
+    level: cell
+    theme: wetness-flow
+    unit: none
+    range: "0 or more"
+    aliases: [LS factor, length-slope factor]
+    what: |
+      The capacity of flow to carry sediment, the LS factor of the USLE written from the contributing area: large on long,
+      steep, convergent slopes.
+    use: |
+      Compare it with the RUSLE LS factor only with the same exponents. Heavy-tailed (median 17.8, maximum 664 on the
+      example).
+    formula: |
+      \mathrm{STI} = (m + 1) \left( \frac{a}{22.13} \right)^m \left( \frac{\sin\beta}{0.0896} \right)^n
+    symbols:
+      'a': the specific contributing area
+      '\beta': the slope
+      'm, n': 0.4 and 1.3 by default (`sca_exponent`, `slope_exponent`)
+      '22.13, 0.0896': the length (m) and the slope (9 %) of the USLE reference plot
+    python: tf.hydro.sti(filled)
+    operator: hydro.sti
+    setting: sca_exponent = 0.4, slope_exponent = 1.3
+    api: terraflux.hydro.sti
+    refs:
+      - "Moore, I. D., & Burch, G. J. (1986). Physical basis of the length-slope factor in the Universal Soil Loss Equation. Soil Science Society of America Journal, 50(5), 1294-1298."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_flow.py:411
+  - id: hand
+    name: Height above the nearest drainage (HAND)
+    level: cell
+    theme: wetness-flow
+    unit: the unit of the elevation (here m)
+    range: "0 or more"
+    aliases: [height above nearest drainage, relative elevation above channel]
+    what: |
+      The height of each cell above the stream cell where its water reaches the drainage, following the D8 directions
+      downhill: 0 on the streams, small on floodplains and valley floors, large on hilltops. A terrain descriptor of soil
+      water and flood susceptibility, developed at INPE.
+    use: |
+      It depends on what you call a stream, so record the threshold. The DEM needs its depressions filled; cells that reach
+      no stream have no value.
+    formula: |
+      \mathrm{HAND}_i = z_i - z_{s(i)}
+    symbols:
+      'z_i': the elevation of cell \(i\)
+      's(i)': the first stream cell reached from \(i\) along the D8 flow path; the streams are given as a raster or as the cells with D8 accumulation at or above `threshold`
+    python: tf.hydro.hand(filled, threshold=500)
+    operator: hydro.hand
+    setting: threshold = 500
+    api: terraflux.hydro.hand
+    refs:
+      - "Rennó, C. D., Nobre, A. D., Cuartas, L. A., Soares, J. V., Hodnett, M. G., Tomasella, J., & Waterloo, M. J. (2008). HAND, a new terrain descriptor using SRTM-DEM: mapping terra-firme rainforest environments in Amazonia. Remote Sensing of Environment, 112(9), 3469-3481."
+      - "Nobre, A. D., Cuartas, L. A., Hodnett, M., Rennó, C. D., Rodrigues, G., Silveira, A., Waterloo, M., & Saleska, S. (2011). Height Above the Nearest Drainage - a hydrologically relevant new terrain model. Journal of Hydrology, 404(1-2), 13-29."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_flow.py:308
+  - id: distance_to_channel
+    name: Distance to channel (flow path length)
+    level: cell
+    theme: wetness-flow
+    unit: cell lengths (or the units of the weights)
+    range: "0 or more; 0 on the streams"
+    aliases: [flow length to stream, downslope distance to channel]
+    what: |
+      The mean distance that water travels from a cell to a stream along the multiple flow directions of pygeoprocessing,
+      as InVEST's sediment model measures its downslope component.
+    use: |
+      No value where no flow reaches a stream. The unit is the cell length, so multiply by the cell size for metres. It needs
+      the streams raster (1 on the streams) and a filled DEM.
+    formula: |
+      d_i = \sum_k p_{ik} \left( d_k + \ell_{ik} \right), \qquad d_i = 0 \text{ on streams}
+    symbols:
+      'p_{ik}': the share of the flow of cell \(i\) that goes to its neighbour \(k\) (only flow that reaches a stream counts)
+      '\ell_{ik}': the step, 1 for a side, \(\sqrt{2}\) for a diagonal, or the value of the weight raster at the cell stepped onto
+    python: tf.hydro.distance_to_channel(filled, rivers)
+    operator: hydro.distance_to_channel
+    api: terraflux.hydro.distance_to_channel
+
+  # impl: extern/terraflux-py/src/terraflux/services/_sdr.py:105 and :389
+  - id: connectivity_index
+    name: Index of connectivity (IC)
+    level: cell
+    theme: connectivity
+    unit: none (log10)
+    range: "about -8.6 to -1.7 on the example"
+    aliases: [IC, sediment connectivity, Borselli connectivity]
+    what: |
+      How well each cell is connected to the streams for sediment: the upslope component (how much material is produced above
+      it, and how fast) over the downslope component (how much impedes it on the way to a stream).
+    use: |
+      There is no value on the streams or where the flow reaches none. It is a relative index: compare cells of one run. It
+      needs a weight raster on the DEM grid (here two illustrative C factors by cover) and the streams or a `threshold` of
+      accumulation. InVEST's way is followed: the DEM is filled and routed by pygeoprocessing (multiple flow or D8), the
+      slopes are kept between 0.005 and 1, the weights from 0.001 up, and the step weights are those of the cell stepped
+      onto.
+    formula:
+      - |
+        \mathrm{IC} = \log_{10} \frac{D_{\mathrm{up}}}{D_{\mathrm{dn}}}
+      - |
+        D_{\mathrm{up}} = \bar W \, \bar S \, \sqrt{A}, \qquad D_{\mathrm{dn}} = \sum_i \frac{d_i}{W_i S_i}
+    symbols:
+      '\bar W, \bar S': the weight and the slope (in m/m) averaged over the contributing area \(A\) of the cell (accumulation times cell area)
+      'W_i, S_i': the weight and the slope of each cell \(i\) on the flow path down to a stream
+      'd_i': the step along that path
+      'W': usually the USLE C factor of the land cover
+    python: tf.hydro.connectivity_index(filled, cover, threshold=500)
+    operator: hydro.connectivity_index
+    setting: threshold = 500
+    api: terraflux.hydro.connectivity_index
+    refs:
+      - "Borselli, L., Cassi, P., & Torri, D. (2008). Prolegomena to sediment and flow connectivity in the landscape: a GIS and field numerical assessment. Catena, 75(3), 268-277."
+      - "Cavalli, M., Trevisani, S., Comiti, F., & Marchi, L. (2013). Geomorphometric assessment of spatial sediment connectivity in small Alpine catchments. Geomorphology, 188, 31-41."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_rivers.py:897 and :959
+  - id: dci_p
+    name: Dendritic connectivity index, potamodromous (DCI p)
+    level: network
+    theme: connectivity
+    unit: "%"
+    range: "0 to 100"
+    aliases: [DCI, DCIp, dendritic connectivity index, river fragmentation]
+    what: |
+      The chance that a fish placed at random in the river network can reach another random point of it, with the barriers
+      (dams, weirs, culverts) cutting the network into segments.
+    use: |
+      One row per network with barriers. The barriers are moved onto the streams (`snap`). The card is run on the library's toy
+      river of three cells with one barrier of passability 0.5 in the middle: segments of 2 and 1 cells give
+      (2^2 + 1^2 + 2 x 2 x 1 x 0.25) / 3^2 = 66.67 %. The DEM of the example has too few barriers to show.
+    formula: |
+      \mathrm{DCI}_p = 100 \sum_i \sum_j \frac{w_i w_j}{W^2} \, c_{ij}
+    symbols:
+      'i, j': the segments, the stretches of river between barriers
+      'w_i': the weight of a segment, its length (or its length times the habitat raster)
+      'W': the weight of the whole network
+      'c_{ij}': the product of the passabilities (0 to 1) of the barriers on the way between segments \(i\) and \(j\), with \(c_{ii} = 1\); with `direction="symmetric"` each barrier counts as the product of its up and down passabilities, `"asymmetric"` uses the one of the direction of travel
+    python: |
+      dem3 = np.array([[5, 4, 5], [5, 3, 5], [5, 2, 5], [5, 1, 5]], float)
+      toy = tf.hydro.streams(tf.hydro.flow_accumulation(dem3), 2)
+      tf.hydro.dci(dem3, toy, [(1.5, 1.5)], passability=0.5).table.dci_p
+    operator: hydro.dci
+    setting: passability = 0.5
+    api: terraflux.hydro.dci
+    refs:
+      - "Cote, D., Kehler, D. G., Bourne, C., & Wiersma, Y. F. (2009). A new measure of longitudinal connectivity for stream networks. Landscape Ecology, 24(1), 101-113."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_rivers.py:897
+  - id: dci_d
+    name: Dendritic connectivity index, diadromous (DCI d)
+    level: network
+    theme: connectivity
+    unit: "%"
+    range: "0 to 100"
+    aliases: [DCId, diadromous connectivity]
+    what: |
+      The chance that a fish that enters the network at its mouth can reach a random point of it: connectivity for species
+      that migrate between the sea (or the main river) and the headwaters.
+    use: |
+      Read it with the potamodromous index. The barriers table of `tf.hydro.dci` also gives, for every barrier, `d_index` (the
+      percent that DCI p of its network grows if the barrier is removed) and a `rank`, to decide which barrier to remove first.
+      The card is run on the toy river of DCI p.
+    formula: |
+      \mathrm{DCI}_d = 100 \sum_j \frac{w_j}{W} \, c_{mj}
+    symbols:
+      'm': the segment at the mouth of the network
+      'c_{mj}': the product of the passabilities of the barriers between the mouth and segment \(j\)
+      'w_j': the weight of segment \(j\)
+      'W': the weight of the network (see DCI p)
+    python: |
+      dem3 = np.array([[5, 4, 5], [5, 3, 5], [5, 2, 5], [5, 1, 5]], float)
+      toy = tf.hydro.streams(tf.hydro.flow_accumulation(dem3), 2)
+      tf.hydro.dci(dem3, toy, [(1.5, 1.5)], passability=0.5).table.dci_d
+    operator: hydro.dci
+    setting: passability = 0.5
+    api: terraflux.hydro.dci
+    refs:
+      - "Cote, D., Kehler, D. G., Bourne, C., & Wiersma, Y. F. (2009). A new measure of longitudinal connectivity for stream networks. Landscape Ecology, 24(1), 101-113."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_rivers.py:753
+  - id: stream_magnitude
+    name: Stream magnitude (Shreve)
+    level: link
+    theme: connectivity
+    unit: number of sources
+    range: "1 or more"
+    aliases: [Shreve magnitude, magnitude, stream order (Shreve)]
+    what: |
+      The number of headwater links upstream of a stretch of river, itself included if it is a headwater: a measure of the size
+      of the network above it.
+    use: |
+      It is the column `magnitude` of `tf.hydro.centrality` (on the links table of `tf.hydro.stream_links`), with `upstream`
+      (the number of links flowing in), `degree` and `upstream_length` (the summed length of the link and all above it). The
+      card shows its summary over the links of the example.
+    formula: |
+      M_v = \begin{cases} 1 & \text{no links upstream} \\ \sum_{u \to v} M_u & \text{otherwise} \end{cases}
+    symbols:
+      'v': a link of the stream network, the stretch between sources, junctions and outlets
+      'u \to v': the links that flow into \(v\)
+    python: tf.hydro.centrality(links).magnitude.describe().round(2)
+    operator: hydro.centrality
+    api: terraflux.hydro.centrality
+    refs:
+      - "Shreve, R. L. (1966). Statistical law of stream numbers. Journal of Geology, 74(1), 17-37."
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_rivers.py:826
+  - id: betweenness
+    name: Link betweenness
+    level: link
+    theme: connectivity
+    unit: number of pairs of links
+    range: "0 or more"
+    aliases: [betweenness centrality, centrality]
+    what: |
+      The number of pairs of other links whose path in the network goes through this link: how much a stretch of river lies in
+      the way between the parts of the network.
+    use: |
+      The column `betweenness` of `tf.hydro.centrality`. High values mark the stretches that a dam would cut into large parts.
+      There are no weights, only the topology of the links. The card shows its summary over the links of the example.
+    formula: |
+      B_v = \frac{\left( \sum_k s_k \right)^2 - \sum_k s_k^2}{2}
+    symbols:
+      'k': a branch left when the network is cut at link \(v\), one per link flowing in and the rest of the network below it
+      's_k': the number of links of branch \(k\); the formula counts the pairs of links in different branches
+    python: tf.hydro.centrality(links).betweenness.describe().round(2)
+    operator: hydro.centrality
+    api: terraflux.hydro.centrality
+
+  # impl: extern/terraflux-py/src/terraflux/hydro/_rivers.py:817
+  - id: closeness
+    name: Link closeness
+    level: link
+    theme: connectivity
+    unit: 1 / links
+    range: "above 0"
+    aliases: [closeness centrality]
+    what: |
+      The inverse of the summed number of steps from a link to all other links of its network: high for central links and low
+      for those on the periphery.
+    use: |
+      The column `closeness` of `tf.hydro.centrality`, not normalised by the size of the network, so networks of different
+      sizes are not comparable. The card shows its summary over the links of the example.
+    formula: |
+      C_v = \frac{1}{\sum_{u \ne v} d(v, u)}
+    symbols:
+      'd(v, u)': the number of steps along the network between the links \(v\) and \(u\) (links crossed from one to the other)
+      'u': every other link in the same network
+    python: tf.hydro.centrality(links).closeness.describe().round(3)
+    operator: hydro.centrality
+    api: terraflux.hydro.centrality

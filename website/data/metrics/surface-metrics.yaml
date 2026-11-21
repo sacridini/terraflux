@@ -89,3 +89,652 @@ metrics:
       'z_k': the value of cell \(k\)
       '\bar{z}': the mean of the values
       '\mathrm{Sq}': the root mean square roughness, above
+
+  # impl: extern/terraflux-py/src/cpp/surf/amplitude.cpp:71
+  - id: surface_sku
+    name: Excess kurtosis (Sku)
+    level: map
+    theme: amplitude
+    unit: none
+    range: "-2 or more; 0 for a normal distribution"
+    aliases: [Sku, kurtosis, excess kurtosis, tailedness of the height distribution]
+    what: |
+      How much of the spread of the values comes from a few extreme peaks or valleys: the tailedness of the distribution
+      of values. High values mean a spiky or deeply pitted surface; negative values a flat-topped distribution.
+    use: |
+      The library returns the excess form (the fourth moment ratio minus 3), unlike ISO 25178, where a normal surface has
+      Sku = 3: do not compare it with tables of ISO values without adding 3. `excess=False` gives the ISO form.
+    formula: |
+      \mathrm{Sku} = \frac{\frac{1}{N} \sum_{k=1}^{N} \left( z_k - \bar{z} \right)^4}{\mathrm{Sq}^4} - 3
+    symbols:
+      'N': the number of cells with a value
+      'z_k': the value of cell \(k\)
+      '\bar{z}': the mean of the values
+      '\mathrm{Sq}': the root mean square roughness
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/amplitude.cpp:79
+  - id: surface_sv
+    name: Maximum valley depth (Sv)
+    level: map
+    theme: amplitude
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [Sv, maximum pit height, deepest valley]
+    what: |
+      The absolute value of the lowest value of the surface: the depth of the deepest valley below the zero level.
+    use: |
+      It is the absolute value of the minimum, not the depth below the mean, so it means a valley depth only when the mean
+      or the trend has been removed first. A single cell decides it.
+    formula: |
+      \mathrm{Sv} = \left| \min_k z_k \right|
+    symbols:
+      'z_k': the value of cell \(k\)
+
+  # impl: extern/terraflux-py/src/cpp/surf/amplitude.cpp:79
+  - id: surface_sph
+    name: Maximum peak height (Sp)
+    level: map
+    theme: amplitude
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [Sp, sp, maximum peak height, highest peak]
+    what: |
+      The absolute value of the highest value of the surface: the height of the highest peak above the zero level.
+    use: |
+      Named `sph` in the library (Sp in ISO 25178). Like Sv it needs a surface with the mean or the trend removed to mean a
+      peak height, and a single cell decides it. When the mean is zero, Sp + Sv is the maximum height Sz.
+    formula: |
+      \mathrm{Sp} = \left| \max_k z_k \right|
+    symbols:
+      'z_k': the value of cell \(k\)
+
+  # impl: extern/terraflux-py/src/cpp/surf/amplitude.cpp:82
+  - id: surface_smean
+    name: Mean peak height
+    level: map
+    theme: amplitude
+    unit: the unit of the surface (here NDVI)
+    range: "above 0, or NA when no value is positive"
+    aliases: [mean peak height, mean of the heights above zero]
+    what: |
+      The mean of the positive values: the average height of the part of the surface that lies above the zero level.
+    use: |
+      Meaningful only when the mean or the trend has been removed, so that zero is the middle level. It is the geodiv
+      parameter (the mean of the heights above 0), not an ISO 25178 one.
+    formula: |
+      \mathrm{Smean} = \frac{1}{N_+} \sum_{z_k > 0} z_k
+    symbols:
+      'z_k': the value of cell \(k\)
+      'N_+': the number of cells with \(z_k > 0\)
+
+  # impl: extern/terraflux-py/src/cpp/surf/hybrid.cpp:107
+  - id: surface_sdq
+    name: Root mean square slope (Sdq)
+    level: map
+    theme: hybrid
+    unit: the unit of the surface per cell
+    range: "0 or more"
+    aliases: [Sdq, RMS slope, root mean square gradient]
+    what: |
+      How steep the surface is on average, from the differences between each cell and its right and its lower neighbour.
+      It mixes height and spacing: a rough surface with fine texture has a high Sdq.
+    use: |
+      The differences are per cell: the cell size is not used, so the value depends on the resolution; divide by the cell
+      size to get a true gradient. geodiv divides by the number of all cells, including those without both neighbours;
+      Terraflux divides by the number of cells that have them.
+    formula: |
+      \mathrm{Sdq} = \sqrt{\frac{1}{M} \sum_{r,c} \left[ (z_{r,c} - z_{r,c+1})^2 + (z_{r,c} - z_{r+1,c})^2 \right]}
+    symbols:
+      'z_{r,c}': the value at row \(r\), column \(c\)
+      'M': the number of cells that have both the right and the lower neighbour (the last row and column are left out)
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/hybrid.cpp:119
+  - id: surface_sdq6
+    name: Area root mean square slope (Sdq6)
+    level: map
+    theme: hybrid
+    unit: the unit of the surface per cell
+    range: "0 or more; NA on a raster with fewer than 7 rows or columns"
+    aliases: [Sdq6, seven-point slope]
+    what: |
+      The root mean square slope from the seven-point derivative of ISO 25178, which smooths noise more than the
+      two-point differences of Sdq.
+    use: |
+      Per cell, not per metre, like Sdq. The stencil of geodiv repeats the term for +2 in place of the one for -2 and takes
+      the root of the sum, not of the mean; Terraflux corrects both, so its value differs from geodiv's.
+    formula:
+      - |
+        \mathrm{Sdq6} = \sqrt{\frac{1}{M} \sum_{r,c} \left( p_x^2 + p_y^2 \right)}
+      - |
+        p_x = \frac{z_{+3} - 9 z_{+2} + 45 z_{+1} - 45 z_{-1} + 9 z_{-2} - z_{-3}}{60}
+    symbols:
+      'p_x': the derivative along the row, from the cells 3, 2 and 1 steps to the right (\(z_{+k}\)) and to the left (\(z_{-k}\)) of the cell
+      'p_y': the same along the column
+      'M': the number of cells at least 3 cells away from every edge
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/hybrid.cpp:167
+  - id: surface_sdr
+    name: Developed interfacial area ratio (Sdr)
+    level: map
+    theme: hybrid
+    unit: "%"
+    range: "0 or more; 0 for a plane"
+    aliases: [Sdr, developed area ratio, surface area ratio]
+    what: |
+      How much larger the true surface is than its flat projection: the extra area that the relief adds, in percent.
+    use: |
+      As in geodiv, the values are first rescaled to 0 to 1 and the cells are 1 wide, so the value does not depend on the
+      unit of the surface but is not a physical area ratio, and it changes with the range of the surface: compare surfaces
+      only after the same rescaling.
+      The two areas are the [surface area](#surface_area) and the [flat area](#flat_area), which the library gives as
+      functions of their own.
+    formula: |
+      \mathrm{Sdr} = \frac{A_s - A_0}{A_0} \times 100
+    symbols:
+      'A_s': the triangulated area of the surface. Every block of 2 x 2 cell centres is cut into two triangles along each diagonal and the two areas are averaged, summed over the blocks whose four values are present
+      'A_0': the same sum with every value 0, the flat projection
+
+  # impl: extern/terraflux-py/src/cpp/surf/features.cpp:64
+  - id: surface_sds
+    name: Density of summits (Sds)
+    level: map
+    theme: features
+    unit: peaks per cell
+    range: "0 or more, below 1"
+    aliases: [Sds, summit density, peak density]
+    what: |
+      How many peaks the surface has per cell: the number of local maxima above the zero level, over the number of cells.
+    use: |
+      Peaks are compared with 0, so remove the mean or the trend first. A high value means a fine, busy texture, but the
+      count also grows with noise. Per cell, not per square metre: divide by the cell area for a density.
+    formula: |
+      \mathrm{Sds} = \frac{n_{\mathrm{peaks}}}{(R-1)(C-1)}
+    symbols:
+      'n_{\mathrm{peaks}}': the number of peaks, cells off the edge with all 8 neighbours present that are higher than each of them and higher than 0
+      'R, C': the number of rows and columns
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/features.cpp:69
+  - id: surface_ssc
+    name: Mean summit curvature (Ssc)
+    level: map
+    theme: features
+    unit: none (the values rescaled to 0 to 1, as in geodiv)
+    range: "any real number; positive for rounded peaks"
+    aliases: [Ssc, summit curvature, arithmetic mean summit curvature]
+    what: |
+      The average curvature of the peaks: how sharply the summits bend downward around their top. Large positive values
+      mean pointed peaks.
+    use: |
+      The sign follows ISO 25178 (positive for rounded-up peaks); geodiv has the opposite sign and uses first differences.
+      The value depends on the range of the surface because of the rescaling. NA when there are no peaks.
+    formula: |
+      \mathrm{Ssc} = -\frac{1}{2n} \sum_{k=1}^{n} \left[ \frac{z_{x+1} - 2z + z_{x-1}}{\Delta x^2} + \frac{z_{y+1} - 2z + z_{y-1}}{\Delta y^2} \right]
+    symbols:
+      'n': the number of peaks (see Sds)
+      'z': the value of the peak
+      'z_{x \pm 1}, z_{y \pm 1}': its neighbours along the row and the column
+      '\Delta x, \Delta y': the cell width (1) and the ratio of the cell height to its width, as in geodiv
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/features.cpp:115
+  - id: surface_s10z
+    name: Ten-point height (S10z)
+    level: map
+    theme: features
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [S10z, ten point height]
+    what: |
+      The mean height of the five highest peaks plus the mean depth of the five deepest valleys: a range measure that uses
+      several extremes instead of one.
+    use: |
+      Less sensitive to a single outlier than Sp + Sv. Peaks and valleys are defined against 0, so remove the mean or the
+      trend first. Where fewer than five exist, the sum has fewer terms but is still divided by 5.
+    formula: |
+      \mathrm{S10z} = \frac{1}{5} \left( \sum_{k=1}^{5} p_k + \sum_{k=1}^{5} \left| v_k \right| \right)
+    symbols:
+      'p_k': the values of the five highest peaks
+      'v_k': the values of the five lowest valleys (cells lower than their 8 neighbours and lower than 0)
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:208
+  - id: surface_sbi
+    name: Surface bearing index (Sbi)
+    level: map
+    theme: bearing
+    unit: none
+    range: "above 0 on a surface with its mean removed"
+    aliases: [Sbi, bearing index]
+    what: |
+      The root mean square roughness divided by the height that only 5 % of the surface exceeds. A flat-topped, load-bearing
+      surface has a high Sbi; a surface with sharp peaks has a low one.
+    use: |
+      Sensitive to the zero level: it assumes values with the mean removed (a negative \(h(0.05)\) gives a negative index).
+      Use it on a surface without its trend.
+    formula: |
+      \mathrm{Sbi} = \frac{\mathrm{Sq}}{h(0.05)}
+    symbols:
+      '\mathrm{Sq}': the root mean square roughness
+      'h(0.05)': the value at bearing 0.05, the 95th percentile of the values (the bearing is the share of cells at or above a value; type-7 quantile)
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:210
+  - id: surface_sci
+    name: Core fluid retention index (Sci)
+    level: map
+    theme: bearing
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [Sci, core void volume]
+    what: |
+      The void volume per unit area of the core of the surface, the part between 5 % and 80 % bearing: how much fluid the
+      middle of the surface could hold.
+    use: |
+      Defined on the values as they are, with the area measured up to the highest point of the interval; the unit is the
+      surface's. The areas of geodiv change when the bearing curve dips below 0; Terraflux's do not.
+    formula: |
+      \mathrm{Sci} = \left[ h(0.05)\,(1 - 0.05) - \int_{0.05}^{1} h(t)\,dt \right] - \mathrm{Svi}
+    symbols:
+      'h(t)': the value at bearing \(t\), the share of cells at or above it
+      '\mathrm{Svi}': the valley fluid retention index
+      'integral': Simpson's rule on 1000 intervals; the bracket is the void volume from 5 % to 100 % bearing, and subtracting Svi leaves the core zone
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:209
+  - id: surface_svi
+    name: Valley fluid retention index (Svi)
+    level: map
+    theme: bearing
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [Svi, valley void volume]
+    what: |
+      The void volume per unit area of the valley zone, the lowest 20 % of the surface (80 % to 100 % bearing): how much
+      the deepest parts could hold.
+    use: |
+      The version of geodiv gives negative values on positive surfaces and its Simpson's rule drops the last point;
+      Terraflux corrects both, so its value is not comparable with geodiv's.
+    formula: |
+      \mathrm{Svi} = h(0.8)\,(1 - 0.8) - \int_{0.8}^{1} h(t)\,dt
+    symbols:
+      'h(t)': the value at bearing \(t\), the share of cells at or above it
+      'integral': Simpson's rule on 500 intervals; the first term is the rectangle up to the highest point of the zone, \(h(0.8)\)
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:134
+  - id: surface_sk
+    name: Core roughness depth (Sk)
+    level: map
+    theme: bearing
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [Sk, kernel roughness depth, core height]
+    what: |
+      The height range of the core of the surface, read from the flattest 40 % of the bearing curve: the working depth that
+      remains after the highest peaks and the deepest valleys are taken away.
+    use: |
+      The search for the flattest window is the slow part of the bearing metrics: avoid Sk, Spk and Svk in moving windows
+      on large rasters.
+    formula: |
+      \mathrm{Sk} = \left| L(0) - L(1) \right|, \qquad L(t) = b_0 + b_1 t
+    symbols:
+      'L(t)': the least-squares line through the points of the bearing curve in the window of bearing fractions that has the smallest mean absolute slope among all windows covering 40 % of the curve (slopes by central differences at 10000 points); so \(\mathrm{Sk} = |b_1|\)
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:213
+  - id: surface_spk
+    name: Reduced peak height (Spk)
+    level: map
+    theme: bearing
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [Spk, reduced peak height]
+    what: |
+      The height of the peaks that stand above the core: the distance from the top of the surface down to where the core
+      line begins.
+    use: |
+      A large Spk means a few high peaks that wear off quickly. Read it with Sk and Svk, which together split the bearing
+      curve in three.
+    formula: |
+      \mathrm{Spk} = \left| h(0) - h(t_1) \right|, \qquad t_1 = B\big(L(0)\big)
+    symbols:
+      'h(0)': the highest value
+      'L(0)': the height of the core line at bearing 0 (see Sk)
+      't_1': the share of cells at or above that height, so \(h(t_1)\) is the value where the core starts
+      'B': the bearing, the share of cells at or above a value
+
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:214
+  - id: surface_svk
+    name: Reduced valley depth (Svk)
+    level: map
+    theme: bearing
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [Svk, reduced valley depth]
+    what: |
+      The depth of the valleys below the core: the distance from where the core line ends down to the lowest value.
+    use: |
+      A large Svk means deep pits that hold fluid or water. The lowest cells dominate it, so noise or a few sinks raise it.
+    formula: |
+      \mathrm{Svk} = \left| h(1) - h(t_2) \right|, \qquad t_2 = B\big(L(1)\big)
+    symbols:
+      'h(1)': the lowest value
+      'L(1)': the height of the core line at bearing 1 (see Sk)
+      't_2': the share of cells at or above that height
+      'B': the bearing, the share of cells at or above a value
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:379
+  - id: surface_sal
+    name: Autocorrelation length (Sal)
+    level: map
+    theme: spatial
+    unit: map unit (metres on longitude/latitude rasters)
+    range: "0 or more"
+    aliases: [Sal, autocorrelation length, fastest decay length, correlation length]
+    what: |
+      The shortest distance from zero lag at which the autocorrelation of the surface falls to 0.2 or less: the scale over
+      which the surface still resembles itself. Short values mean a fine texture.
+    use: |
+      The threshold 0.2 is ISO 25178's; `tf.surface.scl` gives the lengths for other thresholds (by default 0.2 and 1/e).
+      On longitude/latitude rasters the distances are haversine metres. geodiv measures from one row above zero lag, with
+      single-precision proximity, and fails with missing cells; Terraflux does not.
+    formula: |
+      \mathrm{Sal} = \min \left\{ \sqrt{\tau_x^2 + \tau_y^2} \;:\; \mathrm{ACF}(\tau_x, \tau_y) \le 0.2 \right\}
+    symbols:
+      '\mathrm{ACF}': the areal autocorrelation function of the surface (`tf.surface.aacf`), over the upper half of its image
+      '\tau': the lag in x and y
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/terraflux/surface/_spatial.py:39
+  - id: surface_str
+    name: Texture aspect ratio (Str)
+    level: map
+    theme: spatial
+    unit: none
+    range: "0 to 1"
+    aliases: [Str, texture aspect ratio, isotropy ratio]
+    what: |
+      The ratio of the fastest to the slowest decay of the autocorrelation: near 1 for a texture that is the same in every
+      direction, near 0 for a strongly oriented texture (ridges, stripes).
+    use: |
+      The threshold 0.2 of ISO 25178 is used; `tf.surface.stxr` gives the ratio at several thresholds. When the
+      autocorrelation has a few gaps the slowest decay can be far away, which makes Str small without a real anisotropy.
+    formula: |
+      \mathrm{Str} = \frac{\text{shortest distance with } \mathrm{ACF} \le 0.2}{\text{longest distance with } \mathrm{ACF} \le 0.2}
+    symbols:
+      '\mathrm{ACF}': the areal autocorrelation function; both distances are measured from zero lag on its image, and the numerator is Sal
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:402
+  - id: surface_std
+    name: Texture direction (Std)
+    level: map
+    theme: spatial
+    unit: degrees
+    range: "0 or more, below 180"
+    aliases: [Std, texture direction, dominant direction, direction of texture]
+    what: |
+      The dominant direction of the surface texture, from its Fourier spectrum: the angle of the frequency vector that has
+      the largest summed amplitude.
+    use: |
+      Meaningful only when one direction dominates: look at Stdi first. The angle is that of the frequency vector: 0 for a
+      texture that varies along x (stripes running north to south), 90 for one that varies along y. geodiv takes the angles
+      from one row above zero frequency and counts zero frequency in the 0 degree bin; Terraflux does neither.
+    formula: |
+      \mathrm{Std} = \arg\max_{\theta} A(\theta), \qquad A(\theta) = \sum_{|\arg \mathbf{f} - \theta| < 0.25^{\circ}} \left| \mathcal{F}(z)(\mathbf{f}) \right|
+    symbols:
+      '\mathcal{F}(z)': the Fourier transform of the surface (no window, mean not removed)
+      '\mathbf{f}': a frequency vector in the upper half of the spectrum, within the largest circle around zero frequency that fits (zero frequency itself and the negative side of the zero row are left out)
+      '\theta': the direction, from 0 to 179.5 degrees in steps of 0.5 (360 bins); with ties the smallest angle wins
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:437
+  - id: surface_stdi
+    name: Texture direction index (Stdi)
+    level: map
+    theme: spatial
+    unit: none
+    range: "above 0, up to 1"
+    aliases: [Stdi, texture direction index, directionality index]
+    what: |
+      How strongly one direction dominates the texture: the mean of the amplitude sums over directions, divided by the
+      largest one. Near 1 means no dominant direction; small values mean a clear one.
+    use: |
+      Read it with Std: a direction from a spectrum with Stdi near 1 points at nothing real. Small values mean a strongly
+      directional texture, the opposite of what the name may suggest.
+    formula: |
+      \mathrm{Stdi} = \frac{\overline{A(\theta)}}{\max_\theta A(\theta)}
+    symbols:
+      'A(\theta)': the amplitude of the Fourier spectrum summed in the direction \(\theta\) (see Std)
+      '\overline{A(\theta)}': its mean over the 360 directions
+
+  # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:490
+  - id: surface_srw
+    name: Dominant radial wavelength (Srw)
+    level: map
+    theme: spatial
+    unit: map unit (metres on longitude/latitude rasters)
+    range: "above 0"
+    aliases: [Srw, radial wavelength, dominant wavelength]
+    what: |
+      The radius in the Fourier spectrum with the largest summed amplitude: the spatial frequency that carries most of the
+      texture, given as a distance in the spectrum.
+    use: |
+      The number is a radius in the spectrum, not a ground distance. A texture that repeats \(k\) times across a raster of
+      \(n\) cells has its peak at \(k\) cell sizes, so its wavelength is \(n/k\) cells: convert before comparing it with a
+      scale of interest. NA when two rings tie for the maximum.
+    formula: |
+      \mathrm{Srw} = \arg\max_{r_k} R(r_k), \qquad R(r_k) = \sum_{\left| |\mathbf{f}| - r_k \right| < \delta} \left| \mathcal{F}(z)(\mathbf{f}) \right|, \qquad r_k = k \, \frac{r_{\max}}{K-1}
+    symbols:
+      'R(r_k)': the amplitude of the upper half of the spectrum (no window, mean not removed) summed over the ring of radius \(r_k\) around zero frequency; the first ring (zero frequency) is set to 0
+      'K': the number of rings, \(\min(\lfloor n_x/2 \rfloor, 100)\), evenly spaced
+      'r_{\max}': the largest distance in the zero row of the spectrum
+      '\delta': half the ring spacing, \(r_{\max} / (2(K-1))\)
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:491
+  - id: surface_srwi
+    name: Radial wavelength index (Srwi)
+    level: map
+    theme: spatial
+    unit: none
+    range: "above 0, up to 1"
+    aliases: [Srwi, radial wavelength index]
+    what: |
+      How strongly one wavelength dominates: the mean of the ring amplitude sums over the largest. Near 1 means a flat
+      spectrum with no dominant scale.
+    use: |
+      Read it with Srw. Like Stdi it is small when the dominance is strong.
+    formula: |
+      \mathrm{Srwi} = \frac{\overline{R}}{\max_k R(r_k)}, \qquad \overline{R} = \frac{1}{K} \sum_{k=0}^{K-1} R(r_k)
+    symbols:
+      'R(r_k)': the amplitude summed over the ring of radius \(r_k\) (see Srw)
+      'K': the number of rings; the mean includes the first ring, which is set to 0
+
+  # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:505
+  - id: surface_shw
+    name: Half-power wavelength (Shw)
+    level: map
+    theme: spatial
+    unit: map unit (metres on longitude/latitude rasters)
+    range: "above 0, or NA on ties"
+    aliases: [Shw, half power wavelength]
+    what: |
+      The radius in the spectrum that splits the summed amplitude into two equal halves: the scale below which half of the
+      texture lies.
+    use: |
+      Like Srw it is a radius in the spectrum, not a ground distance. NA where two rings are equally close to the half.
+      geodiv measures from one row above zero frequency; Terraflux from zero frequency.
+    formula: |
+      \mathrm{Shw} = r_j, \qquad j = \arg\min_j \left| \sum_{k \le j} R(r_k) - \tfrac{1}{2} \sum_k R(r_k) \right|
+    symbols:
+      'R(r_k)': the amplitude summed over the ring of radius \(r_k\) (see Srw); the ring chosen is the one where the cumulative sum comes closest to half the total, not necessarily equal to it
+
+  # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:509
+  - id: surface_sfd
+    name: Fractal dimension (Sfd)
+    level: map
+    theme: spatial
+    unit: none
+    range: "2 or more, below 3"
+    aliases: [Sfd, fractal dimension, triangular prism fractal dimension]
+    what: |
+      How rough the surface is across scales, by the triangular prism method: 2 for a smooth surface, towards 3 for a
+      surface that fills space.
+    use: |
+      NA where there are missing cells. Values on smooth rasters sit very close to 2, so differences are small and need a
+      series of surfaces to be read. geodiv has a typo in one prism side and reads past the raster; Terraflux corrects both.
+    formula: |
+      \mathrm{Sfd} = 2 - b, \qquad \ln A(\epsilon) = a + b \ln \epsilon^2
+    symbols:
+      'A(\epsilon)': the total area of triangular prisms laid over the central \(n \times n\) square of the surface (\(n\) the largest power of two strictly below the smaller side; values rescaled to 0 to 1), at steps \(\epsilon = 1, 2, 4, \dots, n\) cells. Each \(\epsilon \times \epsilon\) block gives four triangles joining its corners to the corner mean, their areas by Heron's formula
+      'b': the least-squares slope of \(\ln A\) against \(\ln \epsilon^2\), the log of the cell area
+    refs:
+      - "Clarke, K. C. (1986). Computation of the fractal dimension of topographic surfaces using the triangular prism surface area method. Computers & Geosciences, 12(5), 713-722."
+
+  # impl: extern/terraflux-py/src/cpp/surf/hybrid.cpp:42
+  - id: surface_area
+    name: Surface area (triangulated)
+    level: map
+    theme: hybrid
+    listed: false
+    unit: geodiv units (cells of width 1, the values rescaled to 0 to 1)
+    range: "at least the flat area"
+    aliases: [triangulated surface area, developed area]
+    what: |
+      The area of the surface made of triangles over the cell centres, in geodiv's units: the first part of [Sdr](#surface_sdr).
+    use: |
+      Not an area in square metres: use it only as the part of Sdr. Blocks with a missing corner are left out. It is a
+      function of the library, not one of the metrics of `tf.surface.metrics`.
+    formula: |
+      A_s = \sum_{\text{blocks}} \tfrac{1}{2} \left( \tfrac{1}{2} (s_1 s_2 + s_3 s_4) + \tfrac{1}{2} (s_1 s_4 + s_3 s_2) \right)
+    symbols:
+      's_1, s_2, s_3, s_4': "the sides of one 2 x 2 block with corner values \\(a\\) (top left), \\(b\\) (right), \\(c\\) (below) and \\(d\\) (diagonal), on rescaled values: \\(s_1=\\sqrt{dy^2+(c-a)^2}\\), \\(s_2=\\sqrt{dx^2+(b-a)^2}\\), \\(s_3=\\sqrt{dy^2+(d-b)^2}\\), \\(s_4=\\sqrt{dx^2+(d-c)^2}\\)"
+      'dx, dy': the cell width (1) and the ratio of the cell height to its width
+      'inner terms': the two ways of cutting the block into triangles (half the product of two sides, taken as right-angle pairs)
+    python: tf.surface.surface_area(z)
+    api: terraflux.surface.surface_area
+
+  # impl: extern/terraflux-py/src/cpp/surf/hybrid.cpp:143
+  - id: flat_area
+    name: Flat area (projected)
+    level: map
+    theme: hybrid
+    listed: false
+    unit: geodiv units
+    range: "above 0"
+    aliases: [projected area, flat surface area]
+    what: |
+      The area of the surface projected on a plane: the triangulated area of the same cells with every value 0. It is the
+      denominator of [Sdr](#surface_sdr), and the [surface area](#surface_area) divided by it is the ratio.
+    use: |
+      With square cells and no gaps it is (rows - 1) x (columns - 1): 136900 for the 371 x 371 example.
+    formula: |
+      A_0 = M_{\mathrm{blocks}} \cdot dx \cdot dy
+    symbols:
+      'M_{\mathrm{blocks}}': the number of 2 x 2 blocks whose four values are present
+      'dx, dy': the cell width (1) and the ratio of the cell height to its width, as in geodiv
+    python: tf.surface.flat_area(z)
+    api: terraflux.surface.flat_area
+
+  # impl: extern/terraflux-py/src/terraflux/surface/_bearing.py:114
+  - id: surface_sdc
+    name: Material ratio height difference (Sdc)
+    level: map
+    theme: bearing
+    listed: false
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more"
+    aliases: [Sdc, height between two bearing fractions]
+    what: |
+      The height difference between two bearing fractions of the curve, for instance between 10 % and 80 %: the thickness of
+      the part of the surface between them.
+    use: |
+      There are no default fractions: pass them (ISO often uses 10 % and 80 %). It is not in the library's list of metrics,
+      so `tf.surface.metrics` does not give it.
+    formula: |
+      \mathrm{Sdc} = h(t_1) - h(t_2)
+    symbols:
+      'h(t)': the value at bearing \(t\), the share of cells at or above it (see the [bearing area curve](#surface_bearing_area))
+      't_1, t_2': the two fractions you choose, \(0 \le t_1 < t_2 \le 1\)
+    python: tf.surface.sdc(z, 0.1, 0.8)
+    api: terraflux.surface.sdc
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/bearing.cpp:71
+  - id: surface_bearing_area
+    name: Bearing area (Abbott-Firestone) curve
+    level: map
+    theme: bearing
+    listed: false
+    unit: share of cells against value
+    range: "bearing from 0 to 1"
+    aliases: [Abbott-Firestone curve, material ratio curve, bearing ratio curve]
+    what: |
+      The share of the surface that lies at or above each value, from the highest value (bearing near 0) to the lowest
+      (bearing 1). Sbi, Sci, Svi, Sk, Spk and Svk are read from this curve.
+    use: |
+      geodiv builds the curve from 1 - z, which puts rounding errors in the values; Terraflux uses z. It is a curve (one row
+      per distinct value, with the columns `bearing` and `height`), not a single number: the parameters above summarise it.
+    formula: |
+      B(h) = \frac{\#\{k : z_k \ge h\}}{N}
+    symbols:
+      'B(h)': the bearing at value \(h\)
+      'z_k': the value of cell \(k\)
+      'N': the number of cells with a value
+      'h(t)': the inverse, the value whose bearing is \(t\) (the type-7 quantile of the values at \(1 - t\))
+    python: tf.surface.bearing_area(z)
+    operator: surface.bearing
+    api: terraflux.surface.bearing_area
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  # impl: extern/terraflux-py/src/cpp/surf/spatial.cpp:342
+  - id: surface_aacf
+    name: Areal autocorrelation function (AACF)
+    level: map
+    theme: spatial
+    listed: false
+    unit: none
+    range: "-1 to 1; 1 at zero lag"
+    aliases: [autocorrelation function, areal autocorrelation]
+    what: |
+      The correlation of the surface with a copy of itself shifted by every lag in x and y, as an image with zero lag at the
+      centre. Sal and Str are read from it.
+    use: |
+      The image keeps the size of the input: a 371 x 371 raster gives a 371 x 371 image. With missing cells the largest square
+      without them around the centre is used. A raster with many gaps leaves little to analyse: fill or crop it first.
+    formula: |
+      \mathrm{ACF} = \frac{\mathrm{shift}\left( \mathcal{F}^{-1} \left[ |\mathcal{F}(w \cdot z)|^2 \right] \right)}{\max(\cdot)}
+    symbols:
+      'z': the surface (the mean is not removed)
+      'w': a two-dimensional Hann window, \(w(r,c) = h_R(r)\,h_C(c)\) with \(h_n(k) = \tfrac{1}{2} - \tfrac{1}{2}\cos\frac{2\pi k}{n-1}\), zero at both ends
+      '\mathcal{F}': the Fourier transform
+      'shift': puts zero lag in the centre; dividing by the maximum cancels the scaling constants, so the value at zero lag is 1
+    python: tf.surface.aacf(z)
+    operator: surface.aacf
+    api: terraflux.surface.aacf

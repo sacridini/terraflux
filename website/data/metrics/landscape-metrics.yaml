@@ -10,24 +10,35 @@ intro: |
   the whole map (landscape level). Terraflux computes the metrics of
   [landscapemetrics](https://r-spatialecology.github.io/landscapemetrics/) with the same names and the same numbers, and
   FRAGSTATS' statistics that package lacks. The names are landscapemetrics' function names (`lsm_c_ca`: the class-level
-  total area), and the tables that follow list, for each, what it measures, its formula, the call, and the setting of
-  the application's operators that selects it.
+  total area), and the cards that follow list, for each, what it measures, its formula, the call, and the setting of
+  the application's operators that selects it. They are grouped by theme: area and edge, core area, shape, aggregation,
+  diversity, complexity (information theory) and contrast.
 
   Two settings change many of the numbers: the patches' **connectivity** (`directions`: 8 neighbours, the default, or 4)
   and whether the **map's boundary counts as edge** (`count_boundary`). Patches are found with 8 neighbours unless the
   card says otherwise; adjacencies (aggregation, contagion) always use the 4 sides of a cell. The map is in metres:
-  areas are in hectares and edge lengths in metres.
+  areas are in hectares and edge lengths in metres, and a distance is the distance between cell centres.
+
+  Every patch metric also has class- and landscape-level statistics (the mean, standard deviation, coefficient of
+  variation, area-weighted mean, median and range of its values over the patches): they are listed in a table on the
+  card of the patch metric (`lsm_c_area_mn` is on the card of `lsm_p_area`). A few FRAGSTATS metrics need a choice that
+  only you can make: how far is near (`search_radius` for proximity and similarity, `connect_threshold` for
+  connectance), how different two classes are (a `contrast` table for the edge contrast metrics, a `similarity` table
+  for the similarity index) and how many classes the map could have (`classes_max`). Their cards give the call with a
+  small explicit choice, 300 m (three cells) and weights made up for the example: they show how to call, they are not
+  recommendations.
 example: |
   import terraflux as tf
 
   field = tf.nlm.gaussian_field(30, 30, resolution=100, autocorr_range=8, nug=0.0, seed=7)
   landscape = tf.nlm.classify(field, 3)    # three classes; the cells are 100 m, so one cell is one hectare
 metrics:
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:215
   - id: lsm_p_area
-    name: Patch area
+    name: "Patch area"
     level: patch
     theme: area and edge
-    unit: hectares
+    unit: "hectares"
     range: "> 0, up to the area of the map"
     aliases: [AREA, patch size]
     variants: [mn, sd, cv, am, md, ra]
@@ -42,43 +53,71 @@ metrics:
     formula: |
       a_i = \frac{n_i \, \Delta x \, \Delta y}{10\,000}
     symbols:
-      'a_i': the area of patch \(i\), in hectares
-      'n_i': the number of cells of patch \(i\)
-      '\Delta x, \Delta y': the cell's width and height, in metres (10 000 m² make a hectare)
+      'a_i': 'the area of patch \(i\), in hectares'
+      'n_i': 'the number of cells of patch \(i\)'
+      '\Delta x, \Delta y': "the cell's width and height, in metres (10 000 m² make a hectare)"
     refs:
       - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
       - "Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648-1657. https://doi.org/10.1111/ecog.04617"
 
-  - id: lsm_p_shape
-    name: Shape index
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:217; edge counts extern/terraflux-py/src/cpp/lsm/landscape.cpp:228-233
+  - id: lsm_p_perim
+    name: "Patch perimeter"
     level: patch
-    theme: shape
-    unit: none
-    range: "1 for a square, larger the more irregular; no upper limit"
-    aliases: [SHAPE, patch shape, shape complexity]
+    theme: area and edge
+    unit: "metres"
+    range: "> 0"
+    aliases: [PERIM, patch perimeter]
     variants: [mn, sd, cv, am, md, ra]
     what: |
-      How far a patch's outline is from the simplest one, a square. A compact patch has a value near 1; a long, thin or
-      indented patch has a higher one. It measures complexity of the outline relative to the patch's size, so it can be
-      compared between large and small patches.
+      The length of the outline of a patch, summing every cell side that faces a cell of another class, a cell without
+      data or the edge of the map.
     use: |
-      Use it to find elongated or ragged patches (riparian strips, patches cut by roads) and to compare how compact the
-      patches of two classes are. Very small patches take only a few values (a single cell is exactly 1), so a class of
-      many tiny patches has a mean close to 1 whatever its shape. In the library, `convention="fragstats"` compares the
-      perimeter with the smallest possible perimeter of as many cells instead (the raster version of FRAGSTATS).
+      The map border counts as edge here (unlike total edge `te`, which leaves it out by default), so patches cut by
+      the map frame look more convoluted. Perimeter grows with cell size on staircase outlines: compare maps of one
+      resolution only.
     formula: |
-      \mathrm{SHAPE}_i = \frac{0.25 \, p_i}{\sqrt{A_i}}
+      p_i = \ell_h\, e_h + \ell_v\, e_v \quad(= \Delta x\,(e_h+e_v)\ \text{for square cells})
     symbols:
-      'p_i': the perimeter of patch \(i\), in metres, that is every cell side that faces another class, a hole, a missing cell or the edge of the map
-      'A_i': the area of patch \(i\), in square metres
+      'p_i': 'the perimeter of patch \(i\), in metres'
+      'e_h, e_v': "the number of left/right and top/bottom cell sides of the patch that are not shared with a cell of the same class (or that face a missing cell or the map's edge)"
+      '\ell_h, \ell_v': "the length of those sides, in metres (the cell's width and height)"
     refs:
       - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
 
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:251 (gyrate(), extern/terraflux-py/src/cpp/lsm/metrics.cpp:300-365)
+  - id: lsm_p_gyrate
+    name: "Radius of gyration"
+    level: patch
+    theme: area and edge
+    unit: "metres"
+    range: "0 or more (0 for a single cell)"
+    aliases: [GYRATE, radius of gyration, GYRATE_AM, GYRATE_MN]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      The mean distance from the cells of a patch to the patch centroid. It grows with the extent of the patch, so a
+      long thin patch scores higher than a compact one of the same area; it is a measure of how far an organism can
+      move without leaving the patch.
+    use: |
+      Distances are Euclidean on the map, so use projected data. A patch's own gyrate does not tell whether its shape
+      is complex: pair it with `shape` or `frac`.
+    formula: |
+      G_i = \frac{1}{n_i}\sum_{k=1}^{n_i}\sqrt{(x_k-\bar x_i)^2+(y_k-\bar y_i)^2}
+    symbols:
+      'G_i': 'the radius of gyration of patch \(i\), in metres'
+      'n_i': 'the number of cells of the patch'
+      '(x_k, y_k)': 'the centre of cell \(k\) of the patch, in metres'
+      '(\bar{x}_i, \bar{y}_i)': "the patch's centroid, the mean of its cell centres"
+    refs:
+      - "Keitt, T. H., Urban, D. L., & Milne, B. T. (1997). Detecting critical scales in fragmented landscapes. *Conservation Ecology*, 1(1), 4."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:626
   - id: lsm_c_ca
-    name: Total (class) area
+    name: "Total (class) area"
     level: class
     theme: area and edge
-    unit: hectares
+    unit: "hectares"
     range: "> 0, up to the total area of the map"
     aliases: [CA, class area]
     what: |
@@ -86,66 +125,660 @@ metrics:
       composition measure, and the quantity the next metric turns into a share.
     use: |
       Use it to report the amount of habitat. It says nothing about how that area is arranged: ten hectares in one
-      block and ten hectares in a hundred scattered cells have the same value. Pair it with the number of patches or an
-      aggregation metric.
+      block and ten hectares in a hundred scattered cells have the same value. Pair it with the number of patches or
+      an aggregation metric.
     formula: |
       \mathrm{CA}_c = \sum_{i=1}^{n_c} a_{ic}
     symbols:
-      '\mathrm{CA}_c': the total area of class \(c\), in hectares
-      'n_c': the number of patches of class \(c\)
-      'a_{ic}': the area of patch \(i\) of class \(c\), in hectares
+      '\mathrm{CA}_c': 'the total area of class \(c\), in hectares'
+      'n_c': 'the number of patches of class \(c\)'
+      'a_{ic}': 'the area of patch \(i\) of class \(c\), in hectares'
 
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:627-632
   - id: lsm_c_pland
-    name: Percentage of landscape
+    name: "Percentage of landscape"
     level: class
     theme: area and edge
-    unit: percent
+    unit: "percent"
     range: "(0, 100]; the classes of a map add up to 100"
     aliases: [PLAND, proportion of landscape, class share]
     what: |
-      The share of the map that a class covers. Unlike the area in hectares it can be compared between maps of different
-      sizes, so it is the usual way to say how much habitat a landscape has.
+      The share of the map that a class covers. Unlike the area in hectares it can be compared between maps of
+      different sizes, so it is the usual way to say how much habitat a landscape has.
     use: |
       Use it for the habitat amount that many thresholds are stated in (a landscape with less than a given share of
-      habitat tends to lose species faster). The share is of the cells that have a value: missing cells are left out of
-      the total.
+      habitat tends to lose species faster). The share is of the cells that have a value: missing cells are left out
+      of the total.
     formula: |
       \mathrm{PLAND}_c = 100 \, \frac{\mathrm{CA}_c}{\mathrm{TA}}
     symbols:
-      '\mathrm{CA}_c': the area of class \(c\), in hectares
-      '\mathrm{TA}': the total area of the map, in hectares, without the missing cells
+      '\mathrm{CA}_c': 'the area of class \(c\), in hectares'
+      '\mathrm{TA}': 'the total area of the map, in hectares, without the missing cells'
 
-  - id: lsm_c_ed
-    name: Edge density
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:635-640, 803-807
+  - id: lsm_c_lpi
+    name: "Largest patch index"
     level: class
     theme: area and edge
-    unit: metres per hectare
+    unit: "percent"
+    range: "0 < LPI ≤ 100"
+    aliases: [LPI, largest patch index]
+    what: |
+      The share of the whole landscape taken by the largest patch of a class, a quick measure of dominance. At
+      landscape level the largest patch of any class.
+    use: |
+      Unlike PLAND it only sees the largest patch, so a class can have high PLAND and low LPI when fragmented. The
+      class value divides by the landscape, not by the class.
+    formula: |
+      LPI_c = \frac{\max_{i \in c} a_i}{A}\cdot 100
+    symbols:
+      'a_i': 'the area of patch \(i\) of the class, in hectares'
+      'A': 'the area of the whole map, in hectares (not of the class)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:522-537
+  - id: lsm_c_te
+    name: "Total edge (class)"
+    level: class
+    theme: area and edge
+    unit: "metres"
+    range: "0 or more"
+    aliases: [TE, total edge, edge length]
+    what: |
+      The length of the boundary between a class and all other classes. By default the map border and cells without
+      data are not counted as edge.
+    use: |
+      A shared boundary counts for both of its classes, so the class values add up to twice the landscape's total
+      edge. Edge length changes with cell size.
+    formula: |
+      TE_c = \sum_{k \neq c} \bigl(\ell_h\, h_{ck}+\ell_v\, v_{ck}\bigr)
+    symbols:
+      'h_{ck}, v_{ck}': 'the number of left/right and top/bottom cell sides between a cell of class \(c\) and a cell of class \(k\)'
+      '\ell_h, \ell_v': 'the length of those sides, in metres'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:648-652
+  - id: lsm_c_ed
+    name: "Edge density (class)"
+    level: class
+    theme: area and edge
+    unit: "metres per hectare"
     range: "0 or more; 0 when the class has no edge with another class"
     aliases: [ED, edge length per area]
     what: |
       How much boundary a class has with other classes, per hectare of map. A class with a lot of edge is cut into
       many parts or has convoluted outlines, and a lot of its area lies close to a different land cover.
     use: |
-      Use it to compare how fragmented or exposed a class is in maps of different sizes (the density, unlike the
-      total edge length, does not grow with the map). By default the map's own boundary and the missing cells are not
+      Use it to compare how fragmented or exposed a class is in maps of different sizes (the density, unlike the total
+      edge length, does not grow with the map). By default the map's own boundary and the missing cells are not
       counted as edge; with `count_boundary=True` they are. The map must be in metres for the unit to hold.
     formula: |
       \mathrm{ED}_c = \frac{\mathrm{TE}_c}{\mathrm{TA}}
     symbols:
-      '\mathrm{TE}_c': the total edge of class \(c\), in metres, that is the length of every cell side shared with a cell of another class
-      '\mathrm{TA}': the total area of the map, in hectares
+      '\mathrm{TE}_c': 'the total edge of class \(c\), in metres, that is the length of every cell side shared with a cell of another class'
+      '\mathrm{TA}': 'the total area of the map, in hectares'
 
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:178-184, 800
+  - id: lsm_l_ta
+    name: "Total area"
+    level: landscape
+    theme: area and edge
+    unit: "hectares"
+    range: "> 0"
+    aliases: [TA, total landscape area]
+    what: |
+      The area of the landscape, all cells with data.
+    use: |
+      Cells without data (NA) are not counted, so it may be smaller than the map extent.
+    formula: |
+      A = \sum_{i} a_i
+    symbols:
+      'A': 'the total area of the map, in hectares: every cell that has a value'
+      'a_i': 'the area of patch \(i\), over all patches of all classes, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  - id: lsm_l_lpi
+    name: "Largest patch index (landscape)"
+    level: landscape
+    theme: area and edge
+    unit: "percent"
+    range: "(0, 100]"
+    aliases: [LPI, largest patch index]
+    what: |
+      The share of the map taken by its largest patch, of whatever class: a quick measure of how much one patch
+      dominates.
+    use: |
+      Unlike the class value it looks at all patches together, so it is the dominance of the single biggest patch of
+      the map. It says nothing about the other patches.
+    formula: |
+      \mathrm{LPI} = 100 \, \frac{\max_i a_i}{A}
+    symbols:
+      'a_i': 'the area of patch \(i\), over all patches of all classes, in hectares'
+      'A': 'the area of the map, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:539-557, 808
+  - id: lsm_l_te
+    name: "Total edge (landscape)"
+    level: landscape
+    theme: area and edge
+    unit: "metres"
+    range: "0 or more"
+    aliases: [TE, total edge]
+    what: |
+      The total length of boundaries between different classes in the landscape. The map border and cells without data
+      are not edge by default.
+    use: |
+      Each boundary counts once here, unlike the class-level TE (twice in total). Sensitive to cell size and
+      classification detail.
+    formula: |
+      TE = \sum_{a} \sum_{b<a} \bigl(\ell_h\, h_{ab}+\ell_v\, v_{ab}\bigr)
+    symbols:
+      'h_{ab}, v_{ab}': 'the number of left/right and top/bottom cell sides between classes \(a\) and \(b\), each pair of classes counted once'
+      '\ell_h, \ell_v': 'the length of those sides, in metres'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:814
+  - id: lsm_l_ed
+    name: "Edge density (landscape)"
+    level: landscape
+    theme: area and edge
+    unit: "metres per hectare"
+    range: "0 or more"
+    aliases: [ED, edge density]
+    what: |
+      The edge length between classes per hectare of the landscape, a standard measure of how finely the map is cut.
+    use: |
+      Compare landscapes of the same resolution and classification.
+    formula: |
+      ED = \frac{TE}{A}
+    symbols:
+      '\mathrm{TE}': 'the total edge of the map, in metres (`lsm_l_te`)'
+      'A': 'the area of the map, in hectares (`lsm_l_ta`)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:254-256, extern/terraflux-py/src/cpp/lsm/landscape.cpp:730-760
+  - id: lsm_p_core
+    name: "Core area"
+    level: patch
+    theme: core area
+    unit: "hectares"
+    range: "0 or more, at most the patch area"
+    aliases: [CORE, CORE_MN, core area, interior area]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      The area of a patch that lies farther than an edge depth from its border, the part not exposed to edge effects.
+      A cell is core when it is at least `edge_depth` cells (city-block distance) from any cell of another class, from
+      a cell without data or from the map border.
+    use: |
+      Choose the edge depth from the species or process, in cells; the default of one cell is only a unit of the grid
+      and means different distances at 25 m and 1 km.
+    formula: |
+      ca_i = \frac{\Delta x\,\Delta y}{10\,000}\; \#\{\text{cells of } i \text{ with } d(\text{cell}) > \text{edge depth}\}
+    symbols:
+      'ca_i': 'the core area of patch \(i\), in hectares'
+      'd(\text{cell})': "the city-block distance, in cells, from a cell of the patch to the nearest cell of another class, missing cell or the map's edge"
+      '\Delta x, \Delta y': "the cell's width and height, in metres"
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:257-260; fragstats variant extern/terraflux-py/src/cpp/lsm/fragstats.cpp:358
+  - id: lsm_p_ncore
+    name: "Number of core areas"
+    level: patch
+    theme: core area
+    unit: "count"
+    range: "0 or more"
+    variants: [mn, sd, cv, am, md, ra]
+    variant_base: dcore
+    aliases: [NCORE, DCORE, DCORE_MN, DCORE_AM, number of disjunct core areas]
+    what: |
+      How many separate core areas a patch has, counting connected groups of core cells (with the patch's
+      neighbourhood rule). A patch with a narrow neck can have several cores or none.
+    use: |
+      A high count means that core is fragmented by edges even if total core is large. Zero for patches without core.
+      The class and landscape summaries of this count are the `dcore` statistics listed after the core metrics below;
+      with `convention="fragstats"` they summarise the sizes (in hectares) of all disjunct core areas instead, as
+      FRAGSTATS' DCORE.
+    formula: |
+      ncore_i = \#\{\text{connected groups of core cells of patch } i\}
+    symbols:
+      '\mathrm{ncore}_i': 'the number of disjunct core areas of patch \(i\)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:267-272
+  - id: lsm_p_cai
+    name: "Core area index"
+    level: patch
+    theme: core area
+    unit: "percent"
+    range: "0 ≤ CAI ≤ 100"
+    aliases: [CAI, CAI_MN, CAI_AM, core area index]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      The share of a patch that is core area. It shows how much of a patch is sheltered from the edge, and it drops
+      for small and elongated patches.
+    use: |
+      Depends on the edge depth: report it. Per-class means treat a one-cell patch and a large one alike; use `am` for
+      the share seen by an average cell.
+    formula: |
+      CAI_i = \frac{ca_i}{a_i}\cdot 100
+    symbols:
+      '\mathrm{CAI}_i': 'the core area index of patch \(i\), in percent'
+      'ca_i': 'the core area of the patch, in hectares (`lsm_p_core`)'
+      'a_i': 'the area of the patch, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:687-692, 831-834
+  - id: lsm_c_tca
+    name: "Total core area"
+    level: class
+    theme: core area
+    unit: "hectares"
+    range: "0 or more"
+    aliases: [TCA, total core area]
+    what: |
+      The summed core area of the patches of a class, or of the whole landscape at landscape level.
+    use: |
+      Sensitive to the edge depth; give it with the result.
+    formula: |
+      TCA_c = \sum_{i \in c} ca_i
+    symbols:
+      'ca_i': 'the core area of patch \(i\) of the class, in hectares (`lsm_p_core`)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:687-692
+  - id: lsm_c_cpland
+    name: "Core area percentage of landscape"
+    level: class
+    theme: core area
+    unit: "percent"
+    range: "0 ≤ CPLAND < 100"
+    aliases: [CPLAND, core area percentage of landscape]
+    what: |
+      The share of the landscape that is core area of a class.
+    use: |
+      The edge-corrected counterpart of PLAND; the difference between the two is the class area lost to edge effects.
+      No landscape-level metric of this name in the library.
+    formula: |
+      CPLAND_c = \frac{TCA_c}{A}\cdot 100
+    symbols:
+      '\mathrm{TCA}_c': 'the total core area of class \(c\), in hectares'
+      'A': 'the area of the whole map, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:694-699, 835-839
+  - id: lsm_c_ndca
+    name: "Number of disjunct core areas"
+    level: class
+    theme: core area
+    unit: "count"
+    range: "0 or more"
+    aliases: [NDCA, number of disjunct core areas]
+    what: |
+      The number of separate core areas of a class, summed over its patches (landscape level: all patches).
+    use: |
+      Many core areas of a small total area signal fragmented cores. Zero if the class has no core.
+    formula: |
+      NDCA_c = \sum_{i \in c} ncore_i
+    symbols:
+      '\mathrm{ncore}_i': 'the number of disjunct core areas of patch \(i\) (`lsm_p_ncore`)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:694-699, 835-839
+  - id: lsm_c_dcad
+    name: "Disjunct core area density"
+    level: class
+    theme: core area
+    unit: "number per 100 hectares"
+    range: "0 or more"
+    aliases: [DCAD, disjunct core area density]
+    what: |
+      The number of disjunct core areas of a class per 100 ha of the whole landscape, the density counterpart of NDCA.
+    use: |
+      Allows comparison of maps of different size. The class value divides by the landscape area, not the class area.
+    formula: |
+      DCAD_c = \frac{NDCA_c}{A}\cdot 100
+    symbols:
+      '\mathrm{NDCA}_c': 'the number of disjunct core areas of class \(c\)'
+      'A': 'the area of the whole map, in hectares (not of the class)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  - id: lsm_l_tca
+    name: "Total core area (landscape)"
+    level: landscape
+    theme: core area
+    unit: "hectares"
+    range: "0 or more, at most the area of the map"
+    aliases: [TCA, total core area]
+    what: |
+      The summed core area of all patches of the map: the part of the map that lies farther than the edge depth from
+      any patch border.
+    use: |
+      Sensitive to the edge depth (`edge_depth`, in cells): state it with the result.
+    formula: |
+      \mathrm{TCA} = \sum_{i} ca_i
+    symbols:
+      'ca_i': 'the core area of patch \(i\), in hectares (`lsm_p_core`)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  - id: lsm_l_ndca
+    name: "Number of disjunct core areas (landscape)"
+    level: landscape
+    theme: core area
+    unit: "count"
+    range: "0 or more"
+    aliases: [NDCA, number of disjunct core areas]
+    what: |
+      The number of separate core areas of the whole map, summed over all its patches.
+    use: |
+      Many core areas of a small total core area signal that the cores are fragmented. It is a raw count: use the
+      density (`lsm_l_dcad`) to compare maps of different size.
+    formula: |
+      \mathrm{NDCA} = \sum_{i} \mathrm{ncore}_i
+    symbols:
+      '\mathrm{ncore}_i': 'the number of disjunct core areas of patch \(i\) (`lsm_p_ncore`)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  - id: lsm_l_dcad
+    name: "Disjunct core area density (landscape)"
+    level: landscape
+    theme: core area
+    unit: "number per 100 hectares"
+    range: "0 or more"
+    aliases: [DCAD, disjunct core area density]
+    what: |
+      The number of disjunct core areas of the map per 100 ha: the density counterpart of the number of core areas.
+    use: |
+      Allows the comparison of maps of different size.
+    formula: |
+      \mathrm{DCAD} = 100 \, \frac{\mathrm{NDCA}}{A}
+    symbols:
+      '\mathrm{NDCA}': 'the number of disjunct core areas of all patches'
+      'A': 'the area of the map, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  - id: lsm_p_shape
+    name: "Shape index"
+    level: patch
+    theme: shape
+    unit: "none"
+    range: "1 for a square, larger the more irregular; no upper limit"
+    aliases: [SHAPE, patch shape, shape complexity]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      How far a patch's outline is from the simplest one, a square. A compact patch has a value near 1; a long, thin
+      or indented patch has a higher one. It measures complexity of the outline relative to the patch's size, so it
+      can be compared between large and small patches.
+    use: |
+      Use it to find elongated or ragged patches (riparian strips, patches cut by roads) and to compare how compact
+      the patches of two classes are. Very small patches take only a few values (a single cell is exactly 1), so a
+      class of many tiny patches has a mean close to 1 whatever its shape. In the library, `convention="fragstats"`
+      compares the perimeter with the smallest possible perimeter of as many cells instead (the raster version of
+      FRAGSTATS).
+    formula: |
+      \mathrm{SHAPE}_i = \frac{0.25 \, p_i}{\sqrt{A_i}}
+    symbols:
+      'p_i': 'the perimeter of patch \(i\), in metres, that is every cell side that faces another class, a hole, a missing cell or the edge of the map'
+      'A_i': 'the area of patch \(i\), in square metres'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:224-241
+  - id: lsm_p_para
+    name: "Perimeter-area ratio"
+    level: patch
+    theme: shape
+    unit: "metres per square metre"
+    range: "> 0"
+    aliases: [PARA, PARA_MN, perimeter area ratio]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      The perimeter of a patch divided by its area. Small, compact patches have a high ratio; it depends on patch size
+      as much as on shape.
+    use: |
+      Because the ratio falls as patches grow, it cannot compare patches of very different sizes by shape; use `shape`
+      or `frac` for that.
+    formula: |
+      PARA_i = \frac{p_i}{10\,000\, a_i}
+    symbols:
+      '\mathrm{PARA}_i': 'the perimeter-area ratio of patch \(i\), in metres per square metre'
+      'p_i': 'the perimeter of the patch, in metres'
+      'a_i': 'the area of the patch, in hectares (times 10 000: square metres)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:224-241
+  - id: lsm_p_frac
+    name: "Fractal dimension index"
+    level: patch
+    theme: shape
+    unit: "none"
+    range: "1 ≤ FRAC ≤ 2"
+    aliases: [FRAC, FRAC_MN, FRAC_AM, fractal dimension]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      How the perimeter of a patch grows with its area, as a fractal dimension: near 1 for simple, square-like
+      outlines and approaching 2 for very convoluted ones.
+    use: |
+      Less size dependent than para, so better to compare shape across sizes. On a raster the grid itself limits how
+      complex an outline can look, and patches of a few cells give coarse values.
+    formula: |
+      FRAC_i = \frac{2\,\ln(0.25\, p_i)}{\ln(10\,000\, a_i)}
+    symbols:
+      'p_i': 'the perimeter of patch \(i\), in metres'
+      'a_i': 'the area of the patch, in hectares (times 10 000: square metres)'
+    refs:
+      - "Mandelbrot, B. B. (1977). *Fractals: form, chance, and dimension*. W. H. Freeman, San Francisco."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:244-250 (adjacency counts: extern/terraflux-py/src/cpp/lsm/landscape.cpp:234-237)
+  - id: lsm_p_contig
+    name: "Contiguity index"
+    level: patch
+    theme: shape
+    unit: "none"
+    range: "0 ≤ CONTIG ≤ 1"
+    aliases: [CONTIG, CONTIG_MN, contiguity, LaGro 1991]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      How connected the cells of a patch are, from the neighbours each cell has within its own patch in a 3x3 window.
+      Compact, solid patches approach 1; thin, ragged ones and single cells stay near 0.
+    use: |
+      Describes the internal connectivity of the patch (does it have holes or thin arms), not its outline length.
+      Returns 0 for one-cell patches.
+    formula: |
+      CONTIG_i = \frac{\dfrac{\sum_{k} v_k}{n_i}-1}{12}, \quad \sum_k v_k = n_i + 2\,d_i + 4\,o_i
+    symbols:
+      'n_i': 'the number of cells of patch \(i\)'
+      'o_i': 'the pairs of cells of the patch that touch by a side (each pair adds 2 to the weight of both its cells, hence \(4\,o_i\))'
+      'd_i': 'the pairs that touch by a corner (1 to each of the two cells, hence \(2\,d_i\)); only counted with `directions=8`'
+      'v_k': 'the weight of cell \(k\): 1 for the cell itself plus its weighted neighbours in a 3 x 3 window (at most 13; the divisor 12 is that maximum minus 1)'
+    refs:
+      - "LaGro, J. (1991). Assessing patch shape in landscape mosaics. *Photogrammetric Engineering and Remote Sensing*, 57(3), 285-293."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/geometry.cpp:824-831, circle fit geometry.cpp:833
+  - id: lsm_p_circle
+    name: "Related circumscribing circle"
+    level: patch
+    theme: shape
+    unit: "none"
+    range: "0 ≤ CIRCLE < 1"
+    aliases: [CIRCLE, CIRCLE_MN, circumscribing circle, Baker and Cai 1992]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      How much of the smallest circle that encloses a patch it leaves empty. Compact, round patches give values near 0
+      and elongated or linear patches approach 1.
+    use: |
+      Good at telling linear features (roads, riparian strips) from blobs; it ignores the outline, so a big indented
+      patch can score low. Single cells score 0.36 (a square in its circle). As landscapemetrics does, the circle is
+      fitted to the corners of the cells in the patch's first and last rows and columns only (the same as the circle
+      around the whole patch for convex outlines); `convention="fragstats"` encloses every cell.
+    formula: |
+      CIRCLE_i = 1-\frac{10\,000\, a_i}{\pi\, r_i^{2}}
+    symbols:
+      'a_i': 'the area of patch \(i\), in hectares (times 10 000: square metres)'
+      'r_i': 'the radius, in metres, of the smallest circle that encloses the patch'
+    refs:
+      - "Baker, W. L., & Cai, Y. (1992). The r.le programs for multiscale analysis of landscape structure using the GRASS geographical information system. *Landscape Ecology*, 7, 291-302."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:559-600, 686, 840-843
+  - id: lsm_c_pafrac
+    name: "Perimeter-area fractal dimension"
+    level: class
+    theme: shape
+    unit: "none"
+    range: "1 ≤ PAFRAC ≤ 2 usually; NA below 10 patches"
+    aliases: [PAFRAC, perimeter-area fractal dimension]
+    what: |
+      A single fractal dimension for all patches of a class (or the map), from the slope of the log-log regression of
+      patch area on perimeter. Values near 1 mean simple shapes at all sizes, near 2 complex ones.
+    use: |
+      Needs many patches over a wide range of sizes. It is one regression over the patches, not the mean of FRAC.
+    formula: |
+      \mathrm{PAFRAC} = \frac{2}{\beta},\qquad \ln a_i = \alpha + \beta\,\ln p_i
+    symbols:
+      'a_i': 'the area of patch \(i\)'
+      'p_i': 'the perimeter of the patch, in metres'
+      '\alpha, \beta': 'the intercept and the slope of the least-squares line of \(\ln a_i\) on \(\ln p_i\) over the patches (NA below 10 patches)'
+    refs:
+      - "Burrough, P. A. (1986). *Principles of geographical information systems for land resources assessment*. Clarendon Press, Oxford."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  - id: lsm_l_pafrac
+    name: "Perimeter-area fractal dimension (landscape)"
+    level: landscape
+    theme: shape
+    unit: "none"
+    range: "1 to 2 usually; NA below 10 patches"
+    aliases: [PAFRAC, perimeter-area fractal dimension]
+    what: |
+      One fractal dimension for all patches of the map, from the slope of the log-log regression of patch area on
+      perimeter. Values near 1 mean simple shapes at all sizes, values near 2 complex ones.
+    use: |
+      Needs many patches over a wide range of sizes. It is one regression over the patches, not the mean of the
+      fractal dimension index of each patch.
+    formula: |
+      \mathrm{PAFRAC} = \frac{2}{\beta}, \qquad \ln a_i = \alpha + \beta \ln p_i
+    symbols:
+      'a_i': 'the area of patch \(i\)'
+      'p_i': 'the perimeter of the patch, in metres'
+      '\alpha, \beta': 'the intercept and the slope of the least-squares line of \(\ln a_i\) on \(\ln p_i\) over all patches (NA below 10 patches)'
+    refs:
+      - "Burrough, P. A. (1986). *Principles of geographical information systems for land resources assessment*. Clarendon Press, Oxford."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/geometry.cpp:622 (Landscape::enn); statistics metrics.cpp:36-90 (reduce), stat_values
+  - id: lsm_p_enn
+    name: "Euclidean nearest-neighbour distance"
+    level: patch
+    theme: aggregation
+    unit: "metres"
+    range: "> 0 (NaN for a class with one patch)"
+    aliases: [ENN, nearest neighbour distance, patch isolation, euclidean nearest neighbor distance]
+    variants: [mn, sd, cv, am, md, ra]
+    what: |
+      The distance from a patch to the closest other patch of the same class, measured between cell centres. Small
+      values mean patches of a class sit close together, large values mean they are isolated.
+    use: |
+      Isolation of patches; compare classes with similar patch counts. A class with a single patch gives NaN.
+    formula: |
+      \mathrm{ENN}_{ij}=\min_{k\neq j}\;\min_{a\in ij,\;b\in ik}\sqrt{(x_a-x_b)^2+(y_a-y_b)^2}
+    symbols:
+      '\mathrm{ENN}_{ij}': 'the nearest-neighbour distance of patch \(j\) of class \(i\), in metres'
+      'k': 'runs over the other patches of the same class'
+      'a, b': 'cells of patch \(j\) and of patch \(k\)'
+      '(x, y)': 'the coordinates of a cell centre, in metres'
+    refs:
+      - "Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648-1657. https://doi.org/10.1111/ecog.04617"
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:248 (Landscape::proximity), pairs :162
+  - id: lsm_p_prox
+    name: "Proximity index"
+    level: patch
+    theme: aggregation
+    unit: "square metres per square metre"
+    range: "≥ 0"
+    aliases: [PROX, proximity, Gustafson and Parker proximity]
+    variants: [mn, sd, cv, am, md, ra]
+    options: 'search_radius=300'
+    what: |
+      Gustafson and Parker's proximity: how much patch of its own class lies near a patch, weighting each neighbour by
+      its size and by the inverse square of its distance. Large when big patches of the class are close. A FRAGSTATS
+      metric that landscapemetrics does not have.
+    use: |
+      Needs a search radius that suits the species or process. Distances are cell centre to cell centre, not edge to
+      edge as in some FRAGSTATS versions, so very close patches are at least one cell apart. The summary rows (mean,
+      standard deviation...) take the same option.
+    formula: |
+      \mathrm{PROX}_{ij}=\sum_{k\neq j,\;h_{jk}\le d}\frac{a_{ik}}{h_{jk}^{2}}
+    symbols:
+      '\mathrm{PROX}_{ij}': 'the proximity index of patch \(j\) of class \(i\)'
+      'a_{ik}': 'the area of patch \(k\) of the same class, in square metres'
+      'h_{jk}': 'the shortest centre-to-centre distance between the cells of patches \(j\) and \(k\), in metres'
+      'd': 'the search radius (`search_radius`), in metres; patches farther than \(d\) do not count'
+    refs:
+      - "Gustafson, E. J., & Parker, G. R. (1992). Relationships between landcover proportion and indices of landscape spatial pattern. *Landscape Ecology*, 7, 101-110."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:248 (Landscape::proximity(true))
+  - id: lsm_p_simi
+    name: "Similarity index"
+    level: patch
+    theme: aggregation
+    unit: "square metres per square metre"
+    range: "≥ 0"
+    aliases: [SIMI, similarity]
+    variants: [mn, sd, cv, am, md, ra]
+    options: 'search_radius=300, similarity={(1, 2): .5, (1, 3): .2, (2, 3): .4}'
+    what: |
+      Proximity extended to patches of other classes: neighbours of any class within the radius count, each weighted
+      by how similar its class is to the focal patch's class. Describes how much habitat of related types surrounds a
+      patch. A FRAGSTATS metric that landscapemetrics does not have.
+    use: |
+      Give a weight for every pair of classes that can occur. The weights are your judgement, so report them. The
+      summary rows (mean, standard deviation...) take the same options.
+    formula: |
+      \mathrm{SIMI}_{j}=\sum_{k\neq j,\;h_{jk}\le d}\frac{s_{c(j)c(k)}\;a_{k}}{h_{jk}^{2}}
+    symbols:
+      '\mathrm{SIMI}_j': 'the similarity index of patch \(j\)'
+      'a_k': 'the area of patch \(k\), of any class, in square metres'
+      'h_{jk}': 'the shortest centre-to-centre distance between patches \(j\) and \(k\), in metres'
+      'd': 'the search radius (`search_radius`), in metres'
+      's_{c(j)c(k)}': 'the similarity weight (0 to 1) of the classes of the two patches, from the `similarity` table; a class with itself weighs 1'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:713 (class_metric_impl "ai"), max_adjacency :117
   - id: lsm_c_ai
-    name: Aggregation index
+    name: "Aggregation index (class)"
     level: class
     theme: aggregation
-    unit: percent
+    unit: "percent"
     range: "0 to 100; NA for a class of a single cell"
     aliases: [AI, clumpiness, like adjacencies]
     what: |
-      How clumped a class is. It counts the pairs of side-by-side cells that are both of the class (like adjacencies) and
-      compares them with the most such pairs that many cells could have, which is when they form the most compact block
-      possible. It is 0 for a class whose cells never touch and 100 for a class in one compact block.
+      How clumped a class is. It counts the pairs of side-by-side cells that are both of the class (like adjacencies)
+      and compares them with the most such pairs that many cells could have, which is when they form the most compact
+      block possible. It is 0 for a class whose cells never touch and 100 for a class in one compact block.
     use: |
       Use it to compare the clumping of classes that differ in area: unlike a simple count of patches, it is scaled by
       what the class's own area allows. It looks at the four sides of each cell, whatever the patches' connectivity.
@@ -156,24 +789,550 @@ metrics:
         \max g_{cc} = 2s(s-1) + \begin{cases} 0 & m = 0 \\ 2m - 1 & 0 < m \le s \\ 2m - 2 & m > s \end{cases}
         \qquad s = \lfloor \sqrt{n_c} \rfloor, \quad m = n_c - s^2
     symbols:
-      'g_{cc}': the number of pairs of side-by-side cells that both belong to class \(c\), each pair counted once
-      '\max g_{cc}': the largest value \(g_{cc}\) could take for a class of \(n_c\) cells, reached by the most compact block
-      'n_c': the number of cells of class \(c\)
-      's, m': the side of the largest square of \(n_c\) cells, and the cells left over
+      'g_{cc}': 'the number of pairs of side-by-side cells that both belong to class \(c\), each pair counted once'
+      '\max g_{cc}': 'the largest value \(g_{cc}\) could take for a class of \(n_c\) cells, reached by the most compact block'
+      'n_c': 'the number of cells of class \(c\)'
+      's, m': 'the side of the largest square of \(n_c\) cells, and the cells left over'
     refs:
       - "He, H. S., DeZonia, B. E., & Mladenoff, D. J. (2000). An aggregation index (AI) to quantify spatial patterns of landscapes. *Landscape Ecology*, 15, 591-601. https://doi.org/10.1023/A:1008102521322"
 
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:725 (class_metric_impl "clumpy")
+  - id: lsm_c_clumpy
+    name: "Clumpiness index"
+    level: class
+    theme: aggregation
+    unit: "none"
+    range: "-1 ≤ CLUMPY ≤ 1"
+    aliases: [CLUMPY, clumpiness]
+    what: |
+      Whether a class is more clumped (towards 1) or more dispersed (towards -1) than a random arrangement, taking the
+      class's share of the landscape into account. 0 is random.
+    use: |
+      Good for comparing the clumping of classes of different abundance. It follows landscapemetrics' version of the
+      FRAGSTATS definition, so values can differ slightly from other software.
+    formula: |
+      G_i=\frac{g_{ii}}{\sum_{b}g_{ib}-\min\text{-}e_i},\quad \mathrm{CLUMPY}_i=\begin{cases}\dfrac{G_i-P_i}{1-P_i}&G_i\ge P_i\ \text{or}\ P_i\ge 0.5\\[4pt]\dfrac{G_i-P_i}{-P_i}&\text{otherwise}\end{cases}
+    symbols:
+      'g_{ii}': 'the number of ordered pairs of side-by-side cells that are both of class \(i\) (every like adjacency counted twice)'
+      '\sum_b g_{ib}': "the ordered pairs of a cell of class \\(i\\) with a neighbour of any class, missing cells and the map's outside included"
+      '\min\text{-}e_i': 'the smallest possible perimeter of \(n_i\) cells, in cell sides: \(4s\), \(4s+2\) or \(4s+4\) with \(s = \lfloor \sqrt{n_i} \rfloor\)'
+      'P_i': "the share of the map's cells that belong to class \\(i\\)"
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:507 (cohesion_terms), :518 factor, :676 class
+  - id: lsm_c_cohesion
+    name: "Patch cohesion index (class)"
+    level: class
+    theme: aggregation
+    unit: "percent"
+    range: "0 ≤ COHESION < 100"
+    aliases: [COHESION, patch cohesion, connectedness]
+    what: |
+      Physical connectedness of a class: grows towards 100 when its patches are large and compact (little perimeter
+      for their size), and falls towards 0 as they split into small, ragged pieces.
+    use: |
+      Sensitive to the perimeter convention: it uses landscapemetrics' perimeter (cell sides, the map edge counted).
+      Not comparable across resolutions.
+    formula: |
+      \mathrm{COHESION}_i=\left(1-\frac{\sum_j p_{ij}}{\sum_j p_{ij}\sqrt{n_{ij}}}\right)\left(1-\frac{1}{\sqrt{N}}\right)^{-1}\times 100
+    symbols:
+      'p_{ij}': 'the perimeter of patch \(j\) of class \(i\), in metres'
+      'n_{ij}': 'the number of cells of the patch'
+      'N': 'the number of cells of the map'
+    refs:
+      - "Schumaker, N. H. (1996). Using landscape indices to predict habitat connectivity. *Ecology*, 77(4), 1210-1225."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:280 (Landscape::connectance)
+  - id: lsm_c_connect
+    name: "Connectance index (class)"
+    level: class
+    theme: aggregation
+    unit: "percent"
+    range: "0 ≤ CONNECT ≤ 100 (NaN with fewer than 2 patches)"
+    aliases: [CONNECT, connectance, functional connectivity]
+    options: 'connect_threshold=300'
+    what: |
+      The share of all possible pairs of patches of a class that lie within a chosen distance of each other, a yes/no
+      measure of functional connection. A FRAGSTATS metric that landscapemetrics does not have.
+    use: |
+      The result depends entirely on the threshold; pick it from the dispersal ability of the species. Not defined for
+      rasters read out of core.
+    formula: |
+      \mathrm{CONNECT}_i=\frac{\sum_{j\neq k}c_{jk}}{n_i(n_i-1)/2}\times 100,\quad c_{jk}=\begin{cases}1&h_{jk}\le d\\0&\text{otherwise}\end{cases}
+    symbols:
+      'n_i': 'the number of patches of class \(i\)'
+      'h_{jk}': 'the shortest centre-to-centre distance between patches \(j\) and \(k\), in metres'
+      'd': 'the distance threshold (`connect_threshold`), in metres'
+      'c_{jk}': '1 when the two patches are within \(d\) of each other, else 0; each pair counted once'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:653 (class_metric_impl "division")
+  - id: lsm_c_division
+    name: "Landscape division index (class)"
+    level: class
+    theme: aggregation
+    unit: "none"
+    range: "0 ≤ DIVISION < 1"
+    aliases: [DIVISION, division index, Jaeger division]
+    what: |
+      The probability that two random points of the landscape are in different patches of the class (counting a point
+      outside the class as different). 0 when the class fills the landscape in one patch; near 1 when it is many small
+      patches.
+    use: |
+      Compare with mesh and split, which are transformations of the same sum of squared areas.
+    formula: |
+      \mathrm{DIVISION}_i=1-\sum_{j=1}^{n_i}\left(\frac{a_{ij}}{A}\right)^{2}
+    symbols:
+      'a_{ij}': 'the area of patch \(j\) of class \(i\)'
+      'A': 'the area of the whole map (not of the class), in the same unit'
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15, 115-130."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:774 (class_metric_impl "iji")
+  - id: lsm_c_iji
+    name: "Interspersion and juxtaposition index (class)"
+    level: class
+    theme: aggregation
+    unit: "percent"
+    range: "0 < IJI ≤ 100 (NaN with fewer than 3 classes)"
+    aliases: [IJI, interspersion juxtaposition]
+    what: |
+      How evenly a class is adjacent to each of the other classes. Low values mean it touches only one or two of them,
+      100 means it borders all the others in equal amounts.
+    use: |
+      Describes the mixing of classes, not their pattern: it ignores patch size. Needs at least three classes.
+    formula: |
+      \mathrm{IJI}_i=\frac{-\sum_{b\neq i}\dfrac{e_{ib}}{E_i}\ln\dfrac{e_{ib}}{E_i}}{\ln(m-1)}\times 100
+    symbols:
+      'e_{ib}': 'the number of cell adjacencies between class \(i\) and class \(b\)'
+      'E_i': "\\(\\sum_{b \\ne i} e_{ib}\\), the adjacencies of class \\(i\\) with other classes (missing cells and the map's outside left out)"
+      'm': 'the number of classes'
+    refs:
+      - "McGarigal, K., & Marks, B. J. (1995). FRAGSTATS: spatial pattern analysis program for quantifying landscape structure. General Technical Report PNW-GTR-351, USDA Forest Service, Pacific Northwest Research Station."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:749 (class_metric_impl "lsi"), fragstats variant :736
+  - id: lsm_c_lsi
+    name: "Landscape shape index (class)"
+    level: class
+    theme: aggregation
+    unit: "none"
+    range: "≥ 1"
+    aliases: [LSI, landscape shape index]
+    what: |
+      The total edge of a class compared with the smallest edge a class of the same number of cells could have (a
+      compact square-like block). 1 means maximally compact, larger values mean a more complex or dispersed class.
+    use: |
+      The library lists it under aggregation (as landscapemetrics does); FRAGSTATS calls it a shape metric. The map
+      border counts as edge whatever `count_boundary` is.
+    formula: |
+      \mathrm{LSI}_i=\frac{E_i}{\min\text{-}e_i}
+    symbols:
+      'E_i': "the total edge of class \\(i\\), in cell sides: every side towards another class, a missing cell or the map's border"
+      '\min\text{-}e_i': 'the smallest possible perimeter of \(n_i\) cells: \(4s\), \(4s+2\) or \(4s+4\) with \(s = \lfloor \sqrt{n_i} \rfloor\)'
+    refs:
+      - "Patton, D. R. (1975). A diversity index for quantifying habitat \"edge\". *Wildlife Society Bulletin*, 3(4), 171-173."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:661 (class_metric_impl "mesh")
+  - id: lsm_c_mesh
+    name: "Effective mesh size (class)"
+    level: class
+    theme: aggregation
+    unit: "hectares"
+    range: "cell area ≤ MESH ≤ A"
+    aliases: [MESH, effective mesh size, mesh, Jaeger mesh size]
+    what: |
+      The size of the patches you would get if the class were cut into equal pieces with the same chance that two
+      random points of the landscape fall in the same piece (Jaeger 2000). An area-weighted mean patch size.
+    use: |
+      Insensitive to very small patches, unlike the mean patch size, and so suited to monitoring fragmentation. Large
+      classes dominate because areas are squared.
+    formula: |
+      \mathrm{MESH}_i=\frac{\sum_{j}a_{ij}^{2}}{A}
+    symbols:
+      'a_{ij}': 'the area of patch \(j\) of class \(i\), in hectares'
+      'A': 'the area of the whole map, in hectares'
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15, 115-130."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:749 (class_metric_impl "nlsi")
+  - id: lsm_c_nlsi
+    name: "Normalized landscape shape index (class)"
+    level: class
+    theme: aggregation
+    unit: "none"
+    range: "0 ≤ NLSI ≤ 1"
+    aliases: [NLSI, normalised landscape shape index]
+    what: |
+      The class's edge placed between the smallest possible edge (0) and the largest possible edge (1) for its number
+      of cells in a map of this size, a version of LSI that does not grow with class area.
+    use: |
+      Use instead of LSI to compare classes of very different area. The maximum is a heuristic of landscapemetrics
+      (after Hesselbarth et al.), not an exact bound.
+    formula: |
+      \mathrm{NLSI}_i=\frac{E_i-\min\text{-}e_i}{\max\text{-}e_i-\min\text{-}e_i}
+    symbols:
+      'E_i': "the edge of class \\(i\\) in cell sides (towards other classes, missing cells and the map's border)"
+      '\min\text{-}e_i': 'the smallest possible edge of \(n_i\) cells, as for LSI'
+      '\max\text{-}e_i': 'the largest possible edge of the class in a map of this size: \(4n_i\) if its share \(p = n_i/N\) is at most 0.5, \(3N - 2n_i\) (\(+3\) when \(N\) is odd) up to \(p \le L\) with \(L = (0.5N + 0.5B)/N\), and \(E_i + 4(N - n_i)\) beyond; \(N\) is the number of cells and \(B = 2\,\text{rows} + 2\,\text{cols}\)'
+    refs:
+      - "Bogaert, J., Rousseau, R., Van Hecke, P., & Impens, I. (2000). Alternative area-perimeter ratios for measurement of 2D shape compactness of habitats. *Applied Mathematics and Computation*, 111, 71-85. https://doi.org/10.1016/S0096-3003(99)00075-2"
+      - "Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648-1657. https://doi.org/10.1111/ecog.04617"
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:633 (class_metric_impl "np")
+  - id: lsm_c_np
+    name: "Number of patches (class)"
+    level: class
+    theme: aggregation
+    unit: "count"
+    range: "≥ 1"
+    aliases: [NP, patch number, number of patches, patch count]
+    what: |
+      The number of patches of a class, a patch being a group of cells of the class touching each other.
+    use: |
+      A raw count: it depends on the extent of the map, so compare with patch density when maps differ in size.
+    formula: |
+      \mathrm{NP}_i=n_i^{\text{patches}}
+    symbols:
+      'n_i^{\text{patches}}': 'the number of groups of touching cells of class \(i\) (8 neighbours by default, 4 with `directions=4`)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:634 (class_metric_impl "pd")
+  - id: lsm_c_pd
+    name: "Patch density (class)"
+    level: class
+    theme: aggregation
+    unit: "patches per 100 hectares"
+    range: "> 0"
+    aliases: [PD, patch density]
+    what: |
+      The number of patches of a class per 100 ha of the whole landscape.
+    use: |
+      Use it to compare fragmentation between maps of different size. The area is in hectares, so the map's cell size
+      must be right: a raster without a georeference counts each cell as one map unit.
+    formula: |
+      \mathrm{PD}_i=\frac{n_i^{\text{patches}}}{A}\times 100
+    symbols:
+      'n_i^{\text{patches}}': 'the number of patches of class \(i\)'
+      'A': 'the area of the whole map (not of the class), in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:720 (class_metric_impl "pladj")
+  - id: lsm_c_pladj
+    name: "Percentage of like adjacencies (class)"
+    level: class
+    theme: aggregation
+    unit: "percent"
+    range: "0 ≤ PLADJ ≤ 100"
+    aliases: [PLADJ, like adjacencies, percent like adjacencies]
+    what: |
+      The share of the cell sides of a class that touch another cell of the same class. High values mean the class is
+      aggregated.
+    use: |
+      Simple and unbounded by class area, but a large class has a high value by chance; AI and CLUMPY correct for
+      that.
+    formula: |
+      \mathrm{PLADJ}_i=\frac{g_{ii}}{\sum_{b}g_{ib}}\times 100
+    symbols:
+      'g_{ii}': 'the ordered pairs of side-by-side cells that are both of class \(i\)'
+      'g_{ib}': "the ordered pairs of a cell of class \\(i\\) with a neighbour of class \\(b\\); the sum covers every class, missing cells and the map's outside, so the map's border counts as an unlike neighbour"
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:671 (class_metric_impl "split")
+  - id: lsm_c_split
+    name: "Splitting index (class)"
+    level: class
+    theme: aggregation
+    unit: "none"
+    range: "≥ 1"
+    aliases: [SPLIT, splitting index, Jaeger splitting]
+    what: |
+      The number of equal-sized patches the landscape would be divided into, with the same effective mesh size as the
+      class. 1 for a class that is the whole landscape; larger means more fragmented.
+    use: |
+      Equal to \(A/\mathrm{MESH}\). Easier to read than DIVISION for strong fragmentation, as it has no upper limit.
+    formula: |
+      \mathrm{SPLIT}_i=\frac{A^{2}}{\sum_{j}a_{ij}^{2}}
+    symbols:
+      'a_{ij}': 'the area of patch \(j\) of class \(i\)'
+      'A': 'the area of the whole map, in the same unit'
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15, 115-130."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:877 (landscape_metric_impl "ai")
+  - id: lsm_l_ai
+    name: "Aggregation index (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "percent"
+    range: "0 ≤ AI ≤ 100"
+    aliases: [AI, aggregation index]
+    what: |
+      The aggregation index of the classes averaged with the share of the landscape each covers as weights.
+    use: |
+      This is landscapemetrics' definition (an area-weighted mean of the class values); FRAGSTATS computes the
+      landscape AI from all like adjacencies together, which gives somewhat different values.
+    formula: |
+      \mathrm{AI}=\sum_{i}\mathrm{AI}_i\,\frac{A_i}{A}
+    symbols:
+      '\mathrm{AI}_i': 'the aggregation index of class \(i\) (`lsm_c_ai`)'
+      'A_i / A': 'the share of the map covered by class \(i\)'
+    refs:
+      - "He, H. S., DeZonia, B. E., & Mladenoff, D. J. (2000). An aggregation index (AI) to quantify spatial patterns of landscapes. *Landscape Ecology*, 15, 591-601. https://doi.org/10.1023/A:1008102521322"
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:825 (landscape_metric_impl "cohesion")
+  - id: lsm_l_cohesion
+    name: "Patch cohesion index (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "percent"
+    range: "0 ≤ COHESION < 100"
+    aliases: [COHESION, patch cohesion]
+    what: |
+      Physical connectedness of the patches of all classes together.
+    use: |
+      As the class version; here every patch counts, whatever its class.
+    formula: |
+      \mathrm{COHESION}=\left(1-\frac{\sum_{i,j}p_{ij}}{\sum_{i,j}p_{ij}\sqrt{n_{ij}}}\right)\left(1-\frac{1}{\sqrt{N}}\right)^{-1}\times 100
+    symbols:
+      'p_{ij}': 'the perimeter of patch \(j\) of class \(i\), in metres'
+      'n_{ij}': 'its number of cells'
+      'N': 'the number of cells of the map'
+    refs:
+      - "Schumaker, N. H. (1996). Using landscape indices to predict habitat connectivity. *Ecology*, 77(4), 1210-1225."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:280 (Landscape::connectance, by_class=false)
+  - id: lsm_l_connect
+    name: "Connectance index (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "percent"
+    range: "0 ≤ CONNECT ≤ 100"
+    aliases: [CONNECT, connectance]
+    options: 'connect_threshold=300'
+    what: |
+      The share of all possible same-class patch pairs of the landscape that lie within the threshold distance. A
+      FRAGSTATS metric that landscapemetrics does not have.
+    use: |
+      As the class version; classes with many patches weigh most because pairs grow with \(n_i^2\).
+    formula: |
+      \mathrm{CONNECT}=\frac{\sum_{i}\sum_{j\neq k}c_{jk}^{(i)}}{\sum_i n_i(n_i-1)/2}\times 100
+    symbols:
+      'c^{(i)}_{jk}': '1 when patches \(j\) and \(k\) of class \(i\) are within `connect_threshold` of each other (shortest centre-to-centre distance), else 0'
+      'n_i': 'the number of patches of class \(i\); pairs of different classes are not counted'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:923 (landscape_metric_impl "contag")
+  - id: lsm_l_contag
+    name: "Contagion"
+    level: landscape
+    theme: aggregation
+    unit: "percent"
+    range: "(0, 100]; NA for a map of one class"
+    aliases: [CONTAG, clumping of classes]
+    what: |
+      How clumped the classes of the whole map are. Take every pair of side-by-side cells: contagion is high when most
+      of the pairs are two cells of the same class (a map of a few large patches) and low when classes are mixed up
+      cell by cell, so that any two neighbours are likely to differ.
+    use: |
+      Use it to compare the overall grain of landscapes with the same classes. It depends on the number of classes and
+      on how their areas are shared, so compare it between maps with the same legend. It counts the four sides of each
+      cell and leaves out edges to missing cells and to the map's boundary.
+    formula: |
+      \mathrm{CONTAG} = 100 \left( 1 + \frac{\sum_{i=1}^{m} \sum_{j=1}^{m} p_{ij} \ln p_{ij}}{2 \ln m} \right)
+    symbols:
+      'p_{ij}': 'the share of all pairs of side-by-side cells (counted in both directions) that join a cell of class \(i\) to a cell of class \(j\); a term with \(p_{ij}=0\) is left out'
+      'm': 'the number of classes present in the map'
+    refs:
+      - "O'Neill, R. V., Krummel, J. R., Gardner, R. H., Sugihara, G., Jackson, B., DeAngelis, D. L., Milne, B. T., Turner, M. G., Zygmunt, B., Christensen, S. W., Dale, V. H., & Graham, R. L. (1988). Indices of landscape pattern. *Landscape Ecology*, 1(3), 153-162. https://doi.org/10.1007/BF00162741"
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:815 (landscape_metric_impl "division")
+  - id: lsm_l_division
+    name: "Landscape division index (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "none"
+    range: "0 ≤ DIVISION < 1"
+    aliases: [DIVISION, division index]
+    what: |
+      The probability that two random cells of the landscape lie in different patches.
+    use: |
+      Saturates near 1 for fragmented maps; see SPLIT for a measure with no ceiling.
+    formula: |
+      \mathrm{DIVISION}=1-\sum_{i}\sum_{j}\left(\frac{a_{ij}}{A}\right)^{2}
+    symbols:
+      'a_{ij}': 'the area of patch \(j\) of class \(i\)'
+      'A': 'the area of the map, in the same unit'
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15, 115-130."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:906 (landscape_metric_impl "iji")
+  - id: lsm_l_iji
+    name: "Interspersion and juxtaposition index (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "percent"
+    range: "0 < IJI ≤ 100 (NaN with fewer than 3 classes)"
+    aliases: [IJI]
+    what: |
+      How evenly the classes are adjacent to one another across the landscape: 100 when every pair of classes shares
+      the same length of boundary.
+    use: |
+      Ignores patch size and shape; it is about which classes touch which. Undefined for fewer than three classes.
+    formula: |
+      \mathrm{IJI}=\frac{-\sum_{a>b}\dfrac{e_{ab}}{E}\ln\dfrac{e_{ab}}{E}}{\ln\left(\tfrac12 m(m-1)\right)}\times 100
+    symbols:
+      'e_{ab}': 'the number of adjacencies between classes \(a\) and \(b\), each pair of classes counted once (\(a > b\))'
+      'E': '\(\sum_{a>b} e_{ab}\)'
+      'm': 'the number of classes'
+    refs:
+      - "McGarigal, K., & Marks, B. J. (1995). FRAGSTATS: spatial pattern analysis program for quantifying landscape structure. General Technical Report PNW-GTR-351, USDA Forest Service, Pacific Northwest Research Station."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:891 (landscape_metric_impl "lsi")
+  - id: lsm_l_lsi
+    name: "Landscape shape index (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "none"
+    range: "≥ 1"
+    aliases: [LSI]
+    what: |
+      The total edge of the landscape divided by the smallest edge a single block of the same number of cells would
+      have.
+    use: |
+      Grows with the number of patches and with how intricate the boundaries are; compare landscapes of the same
+      extent. Listed under aggregation as in landscapemetrics.
+    formula: |
+      \mathrm{LSI}=\frac{E}{\min\text{-}e(N)}
+    symbols:
+      'E': "the length of all edges of the map in cell sides: between classes, towards missing cells and along the map's border"
+      '\min\text{-}e(N)': 'the smallest possible perimeter of \(N\) cells: \(4s\), \(4s+2\) or \(4s+4\) with \(s = \lfloor \sqrt{N} \rfloor\)'
+    refs:
+      - "Patton, D. R. (1975). A diversity index for quantifying habitat \"edge\". *Wildlife Society Bulletin*, 3(4), 171-173."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:821 (landscape_metric_impl "mesh")
+  - id: lsm_l_mesh
+    name: "Effective mesh size (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "hectares"
+    range: "cell area ≤ MESH ≤ A"
+    aliases: [MESH, effective mesh size]
+    what: |
+      The area-weighted mean patch size of the landscape; the size of the piece a random point is in, on average.
+    use: |
+      Insensitive to tiny patches; a good fragmentation index for monitoring. Large patches dominate.
+    formula: |
+      \mathrm{MESH}=\frac{\sum_{i,j}a_{ij}^{2}}{A}
+    symbols:
+      'a_{ij}': 'the area of patch \(j\) of class \(i\), in hectares'
+      'A': 'the area of the map, in hectares'
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15, 115-130."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:801 (landscape_metric_impl "np")
+  - id: lsm_l_np
+    name: "Number of patches (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "count"
+    range: "≥ 1"
+    aliases: [NP, number of patches, patch count]
+    what: |
+      The number of patches of all classes in the landscape.
+    use: |
+      A raw count that depends on the extent of the map; use patch density to compare maps of different size.
+    formula: |
+      \mathrm{NP}=\sum_i n_i^{\text{patches}}
+    symbols:
+      'n_i^{\text{patches}}': 'the number of patches of class \(i\) (8 neighbours by default)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:802 (landscape_metric_impl "pd")
+  - id: lsm_l_pd
+    name: "Patch density (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "patches per 100 hectares"
+    range: "> 0"
+    aliases: [PD, patch density]
+    what: |
+      The number of patches in the landscape per 100 ha.
+    use: |
+      Use it to compare fragmentation between maps of different size. The area is in hectares, so the map's cell size
+      must be right: a raster without a georeference counts each cell as one map unit.
+    formula: |
+      \mathrm{PD}=\frac{\mathrm{NP}}{A}\times 100
+    symbols:
+      '\mathrm{NP}': 'the number of patches of all classes'
+      'A': 'the area of the map, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:882 (landscape_metric_impl "pladj")
+  - id: lsm_l_pladj
+    name: "Percentage of like adjacencies (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "percent"
+    range: "0 ≤ PLADJ ≤ 100"
+    aliases: [PLADJ, like adjacencies]
+    what: |
+      The share of all cell sides in the landscape that touch a cell of the same class.
+    use: |
+      Depends strongly on the number and balance of classes (two classes give a higher value by chance than ten);
+      compare landscapes with similar composition.
+    formula: |
+      \mathrm{PLADJ}=\frac{\sum_i g_{ii}}{\sum_i\sum_{b}g_{ib}}\times 100
+    symbols:
+      'g_{ii}': 'the ordered pairs of side-by-side cells that are both of class \(i\)'
+      'g_{ib}': "the ordered pairs of a cell of class \\(i\\) with a neighbour of class \\(b\\); the sum also covers the sides towards the map's outside but, unlike the class level, not those towards missing cells"
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:821 (landscape_metric_impl "split")
+  - id: lsm_l_split
+    name: "Splitting index (landscape)"
+    level: landscape
+    theme: aggregation
+    unit: "none"
+    range: "≥ 1"
+    aliases: [SPLIT, splitting index]
+    what: |
+      The number of equal-sized patches into which the landscape would be split to give the same effective mesh size.
+    use: |
+      Equal to \(A/\mathrm{MESH}\); has no upper limit, so it separates strongly fragmented maps that DIVISION cannot.
+    formula: |
+      \mathrm{SPLIT}=\frac{A^{2}}{\sum_{i,j}a_{ij}^{2}}
+    symbols:
+      'a_{ij}': 'the area of patch \(j\) of class \(i\)'
+      'A': 'the area of the map, in the same unit'
+    refs:
+      - "Jaeger, J. A. G. (2000). Landscape division, splitting index, and effective mesh size: new measures of landscape fragmentation. *Landscape Ecology*, 15, 115-130."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:856 (landscape_metric_impl "shdi")
   - id: lsm_l_shdi
-    name: Shannon's diversity index
+    name: "Shannon's diversity index"
     level: landscape
     theme: diversity
-    unit: none
+    unit: "none"
     range: "0 (one class) to ln m for m classes of equal area"
     aliases: [SHDI, Shannon diversity, landscape diversity]
     what: |
       How many classes the map has and how evenly their areas are spread, in one number. It is the Shannon index of
-      ecology applied to the area shares of the land-cover classes: it grows with the number of classes and, for a given
-      number, is highest when they cover equal areas.
+      ecology applied to the area shares of the land-cover classes: it grows with the number of classes and, for a
+      given number, is highest when they cover equal areas.
     use: |
       Use it to compare the compositional diversity of landscapes. It ignores where the classes are (a map and its
       shuffled cells have the same value), and it is sensitive to rare classes. Its largest possible value depends on
@@ -182,30 +1341,412 @@ metrics:
     formula: |
       \mathrm{SHDI} = - \sum_{c=1}^{m} p_c \ln p_c
     symbols:
-      'p_c': the share of the map covered by class \(c\), that is \(\mathrm{CA}_c / \mathrm{TA}\)
-      'm': the number of classes present in the map
+      'p_c': 'the share of the map covered by class \(c\), that is \(\mathrm{CA}_c / \mathrm{TA}\)'
+      'm': 'the number of classes present in the map'
     refs:
       - "Shannon, C. E. (1948). A mathematical theory of communication. *Bell System Technical Journal*, 27(3), 379-423. https://doi.org/10.1002/j.1538-7305.1948.tb01338.x"
 
-  - id: lsm_l_contag
-    name: Contagion
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:856 (landscape_metric_impl "shei")
+  - id: lsm_l_shei
+    name: "Shannon's evenness index"
     level: landscape
-    theme: aggregation
-    unit: percent
-    range: "(0, 100]; NA for a map of one class"
-    aliases: [CONTAG, clumping of classes]
+    theme: diversity
+    unit: "none"
+    range: "0 ≤ SHEI ≤ 1"
+    aliases: [SHEI, Shannon evenness, Pielou evenness, J]
     what: |
-      How clumped the classes of the whole map are. Take every pair of side-by-side cells: contagion is high when most of
-      the pairs are two cells of the same class (a map of a few large patches) and low when classes are mixed up cell by
-      cell, so that any two neighbours are likely to differ.
+      Shannon's diversity relative to the maximum for the same number of classes: 1 when all classes cover the same
+      area, towards 0 when one dominates.
     use: |
-      Use it to compare the overall grain of landscapes with the same classes. It depends on the number of classes and
-      on how their areas are shared, so compare it between maps with the same legend. It counts the four sides of each
-      cell and leaves out edges to missing cells and to the map's boundary.
+      Evenness only; use with `pr` or SHDI to know how many classes there are.
     formula: |
-      \mathrm{CONTAG} = 100 \left( 1 + \frac{\sum_{i=1}^{m} \sum_{j=1}^{m} p_{ij} \ln p_{ij}}{2 \ln m} \right)
+      \mathrm{SHEI}=\frac{-\sum_i p_i\ln p_i}{\ln m}
     symbols:
-      'p_{ij}': the share of all pairs of side-by-side cells (counted in both directions) that join a cell of class \(i\) to a cell of class \(j\); a term with \(p_{ij}=0\) is left out
-      'm': the number of classes present in the map
+      'p_i': 'the share of the map in class \(i\)'
+      'm': 'the number of classes (the library returns 0 for \(m = 1\))'
     refs:
-      - "O'Neill, R. V., Krummel, J. R., Gardner, R. H., Sugihara, G., Jackson, B., DeAngelis, D. L., Milne, B. T., Turner, M. G., Zygmunt, B., Christensen, S. W., Dale, V. H., & Graham, R. L. (1988). Indices of landscape pattern. *Landscape Ecology*, 1(3), 153-162. https://doi.org/10.1007/BF00162741"
+      - "Pielou, E. C. (1966). The measurement of diversity in different types of biological collections. *Journal of Theoretical Biology*, 13, 131-144."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:862 (landscape_metric_impl "sidi")
+  - id: lsm_l_sidi
+    name: "Simpson's diversity index"
+    level: landscape
+    theme: diversity
+    unit: "none"
+    range: "0 ≤ SIDI < 1"
+    aliases: [SIDI, Simpson diversity, Gini-Simpson]
+    what: |
+      The probability that two random cells are of different classes (Gini-Simpson): 0 for one class, approaching 1
+      for many equally common classes.
+    use: |
+      Weights common classes more than Shannon does, so it is less affected by rare classes. Bounded by \(1-1/m\).
+    formula: |
+      \mathrm{SIDI}=1-\sum_{i=1}^{m}p_i^{2}
+    symbols:
+      'p_i': 'the share of the map in class \(i\)'
+      'm': 'the number of classes'
+    refs:
+      - "Simpson, E. H. (1949). Measurement of diversity. *Nature*, 163, 688."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:862 (landscape_metric_impl "siei")
+  - id: lsm_l_siei
+    name: "Simpson's evenness index"
+    level: landscape
+    theme: diversity
+    unit: "none"
+    range: "0 ≤ SIEI ≤ 1"
+    aliases: [SIEI, Simpson evenness]
+    what: |
+      Simpson's diversity relative to the maximum for the same number of classes: how evenly the area is shared.
+    use: |
+      Evenness only; its catalogue name in landscapemetrics is spelt "simspon's evenness index".
+    formula: |
+      \mathrm{SIEI}=\frac{1-\sum_i p_i^{2}}{1-1/m}
+    symbols:
+      'p_i': 'the share of the map in class \(i\)'
+      'm': 'the number of classes (with one class the denominator is 0 and the result is NA)'
+    refs:
+      - "Simpson, E. H. (1949). Measurement of diversity. *Nature*, 163, 688."
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:867 (landscape_metric_impl "msidi")
+  - id: lsm_l_msidi
+    name: "Modified Simpson's diversity index"
+    level: landscape
+    theme: diversity
+    unit: "none"
+    range: "≥ 0"
+    aliases: [MSIDI, modified Simpson diversity]
+    what: |
+      Simpson's index in the form of a negative logarithm of the probability that two random cells are of the same
+      class: zero for one class, growing with richness and evenness.
+    use: |
+      Less sensitive to rare classes than the Shannon index. Compare maps that use the same classification and
+      resolution.
+    formula: |
+      \mathrm{MSIDI}=-\ln\sum_{i=1}^{m}p_i^{2}
+    symbols:
+      'p_i': 'the share of the map (by area) in class \(i\)'
+      'm': 'the number of classes'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:867 (landscape_metric_impl "msiei")
+  - id: lsm_l_msiei
+    name: "Modified Simpson's evenness index"
+    level: landscape
+    theme: diversity
+    unit: "none"
+    range: "0 ≤ MSIEI ≤ 1"
+    aliases: [MSIEI, modified Simpson evenness]
+    what: |
+      The modified Simpson's diversity relative to its maximum for the same richness: how evenly the area is shared
+      among the classes.
+    use: |
+      Separates evenness from richness; read with `pr`. Undefined with a single class.
+    formula: |
+      \mathrm{MSIEI}=\frac{-\ln\sum_i p_i^{2}}{\ln m}
+    symbols:
+      'p_i': 'the share of the map in class \(i\)'
+      'm': 'the number of classes; \(\ln m\) is the value for \(m\) equally common classes'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:853 (landscape_metric_impl "pr")
+  - id: lsm_l_pr
+    name: "Patch richness"
+    level: landscape
+    theme: diversity
+    unit: "count"
+    range: "≥ 1"
+    aliases: [PR, class richness, richness]
+    what: |
+      The number of classes present in the landscape.
+    use: |
+      The simplest richness measure; it ignores how much of each class there is, and depends on the extent of the map
+      (see PRD).
+    formula: |
+      \mathrm{PR}=m
+    symbols:
+      'm': 'the number of classes with at least one cell (a missing cell is not a class)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:854 (landscape_metric_impl "prd")
+  - id: lsm_l_prd
+    name: "Patch richness density"
+    level: landscape
+    theme: diversity
+    unit: "classes per 100 hectares"
+    range: "> 0"
+    aliases: [PRD, richness density]
+    what: |
+      The number of classes per 100 ha, so that richness can be compared between landscapes of different size.
+    use: |
+      Assumes that richness grows linearly with area, which it does not; compare only landscapes of similar extent.
+      The area is in hectares, so the cell size must be right.
+    formula: |
+      \mathrm{PRD}=\frac{m}{A}\times 100
+    symbols:
+      'm': 'the number of classes'
+      'A': 'the area of the map, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:855 (landscape_metric_impl "rpr")
+  - id: lsm_l_rpr
+    name: "Relative patch richness"
+    level: landscape
+    theme: diversity
+    unit: "percent"
+    range: "0 < RPR ≤ 100 (NaN without classes_max)"
+    aliases: [RPR, relative richness]
+    options: 'classes_max=5'
+    what: |
+      The number of classes present as a percentage of the largest number the landscape could have.
+    use: |
+      Only meaningful if you set `classes_max` from the classification (the potential richness), not from the map.
+    formula: |
+      \mathrm{RPR}=\frac{m}{m_{\max}}\times 100
+    symbols:
+      'm': 'the number of classes present'
+      'm_{\max}': 'the largest number of classes the map could have (`classes_max`, for example the classes of the legend)'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:940-950 (landscape_metric_impl), entropy :95
+  - id: lsm_l_ent
+    name: "Shannon entropy (of the adjacencies)"
+    level: landscape
+    theme: complexity
+    unit: "bits (base-2 logarithm by default)"
+    range: "0 ≤ ent ≤ log(m)"
+    aliases: [ent, Shannon entropy, marginal entropy, compositional complexity]
+    what: |
+      The compositional complexity of the map: the entropy of the marginal distribution of the classes, as seen
+      through the cell pairs. High when classes are evenly represented.
+    use: |
+      Not the Shannon diversity index (`shdi`): ENT is computed from the pair counts, in bits by default, SHDI from
+      class areas in nats. ENT is the starting point of the information-theory set (Nowosad & Stepinski 2019).
+    formula: |
+      \mathrm{ent}=H(x)=-\sum_{a=1}^{m}p_{a}\log p_{a},\qquad p_a=\frac{\sum_b g_{ab}}{\sum_{a,b}g_{ab}}
+    symbols:
+      'g_{ab}': 'the ordered pairs of side-by-side cells of class \(a\) next to class \(b\) (4 neighbours; 8 with `neighbourhood=8`)'
+      'p_a': 'the share of the pairs whose first cell is of class \(a\)'
+      'm': 'the number of classes'
+    refs:
+      - "Nowosad, J., & Stepinski, T. F. (2019). Information theory as a consistent framework for quantification and classification of landscape patterns. *Landscape Ecology*, 34, 2091-2101. https://doi.org/10.1007/s10980-019-00830-x"
+      - "Shannon, C. E. (1948). A mathematical theory of communication. *Bell System Technical Journal*, 27(3), 379-423. https://doi.org/10.1002/j.1538-7305.1948.tb01338.x"
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:940-965 (landscape_metric_impl, condent)
+  - id: lsm_l_condent
+    name: "Conditional entropy"
+    level: landscape
+    theme: complexity
+    unit: "bits (base-2 logarithm by default)"
+    range: "0 ≤ condent ≤ joinent"
+    aliases: [condent, conditional entropy, configurational entropy]
+    what: |
+      The uncertainty that remains about the class of a neighbouring cell once the class of a cell is known: the
+      configurational (spatial) complexity of the map, after removing the part due to composition.
+    use: |
+      Part of the information-theory set of Nowosad and Stepinski (2019): ENT, CONDENT, JOINENT, MUTINF, RELMUTINF.
+      The values change with `base`, so state it when reporting.
+    formula: |
+      \mathrm{condent}=H(y\mid x)=H(x,y)-H(x)
+    symbols:
+      'x, y': 'the class of a cell and of its neighbour'
+      'H(x, y)': 'the joint entropy (`lsm_l_joinent`)'
+      'H(x)': 'the marginal entropy (`lsm_l_ent`)'
+    refs:
+      - "Nowosad, J., & Stepinski, T. F. (2019). Information theory as a consistent framework for quantification and classification of landscape patterns. *Landscape Ecology*, 34, 2091-2101. https://doi.org/10.1007/s10980-019-00830-x"
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:940-962 (landscape_metric_impl, joinent)
+  - id: lsm_l_joinent
+    name: "Joint entropy"
+    level: landscape
+    theme: complexity
+    unit: "bits (base-2 logarithm by default)"
+    range: "ent ≤ joinent ≤ log(m^2) (ordered pairs)"
+    aliases: [joinent, joint entropy]
+    what: |
+      The total uncertainty of a pair of neighbouring cells: both the composition and the arrangement of the map add
+      to it.
+    use: |
+      Use together with ENT: JOINENT minus ENT is CONDENT, and the difference between them is MUTINF.
+    formula: |
+      \mathrm{joinent}=H(x,y)=-\sum_{a,b}p_{ab}\log p_{ab},\qquad p_{ab}=\frac{g_{ab}}{\sum g}
+    symbols:
+      'p_{ab}': 'the share of the neighbour pairs with a cell of class \(a\) next to a cell of class \(b\)'
+      'g': 'the counts of those ordered pairs'
+    refs:
+      - "Nowosad, J., & Stepinski, T. F. (2019). Information theory as a consistent framework for quantification and classification of landscape patterns. *Landscape Ecology*, 34, 2091-2101. https://doi.org/10.1007/s10980-019-00830-x"
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:940-968 (landscape_metric_impl, mutinf)
+  - id: lsm_l_mutinf
+    name: "Mutual information"
+    level: landscape
+    theme: complexity
+    unit: "bits (base-2 logarithm by default)"
+    range: "0 ≤ mutinf ≤ ent"
+    aliases: [mutinf, mutual information, information]
+    what: |
+      How much knowing the class of a cell reduces the uncertainty about the class of its neighbour: the part of the
+      map's composition that is explained by its spatial arrangement. 0 for a random arrangement.
+    use: |
+      Larger when the map is more ordered (aggregated) for a given composition. Depends on the number of classes, so
+      use RELMUTINF to compare maps of different composition.
+    formula: |
+      \mathrm{mutinf}=I(x;y)=H(x)-H(x\mid y)=\mathrm{ent}-\mathrm{condent}
+    symbols:
+      'H(x)': 'the marginal entropy (`lsm_l_ent`)'
+      'H(x \mid y)': 'the conditional entropy (`lsm_l_condent`)'
+    refs:
+      - "Nowosad, J., & Stepinski, T. F. (2019). Information theory as a consistent framework for quantification and classification of landscape patterns. *Landscape Ecology*, 34, 2091-2101. https://doi.org/10.1007/s10980-019-00830-x"
+
+  # impl: extern/terraflux-py/src/cpp/lsm/metrics.cpp:940-969 (landscape_metric_impl, relmutinf)
+  - id: lsm_l_relmutinf
+    name: "Relative mutual information"
+    level: landscape
+    theme: complexity
+    unit: "none"
+    range: "0 ≤ relmutinf ≤ 1"
+    aliases: [relmutinf, relative mutual information, normalised mutual information]
+    what: |
+      Mutual information scaled by the marginal entropy: the fraction of the map's compositional uncertainty explained
+      by the arrangement. 0 is a random arrangement, 1 a perfectly ordered one.
+    use: |
+      A unitless measure to compare maps with different class numbers (Nowosad & Stepinski 2019). It does not depend
+      on the logarithm base.
+    formula: |
+      \mathrm{relmutinf}=\frac{I(x;y)}{H(x)}=\frac{\mathrm{mutinf}}{\mathrm{ent}}
+    symbols:
+      'I(x; y)': 'the mutual information (`lsm_l_mutinf`)'
+      'H(x)': 'the marginal entropy (`lsm_l_ent`)'
+    refs:
+      - "Nowosad, J., & Stepinski, T. F. (2019). Information theory as a consistent framework for quantification and classification of landscape patterns. *Landscape Ecology*, 34, 2091-2101. https://doi.org/10.1007/s10980-019-00830-x"
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:111 (Landscape::econ)
+  - id: lsm_p_econ
+    name: "Edge contrast index"
+    level: patch
+    theme: contrast
+    unit: "percent"
+    range: "0 ≤ ECON ≤ 100 (with weights in 0-1)"
+    aliases: [ECON, edge contrast, contrast-weighted perimeter]
+    variants: [mn, sd, cv, am, md, ra]
+    options: 'contrast={(1, 2): .5, (1, 3): 1., (2, 3): .3}, boundary_contrast=.5'
+    what: |
+      How strongly a patch contrasts with its surroundings: the share of its perimeter that borders other classes,
+      each border weighted by how different the two classes are. 100 means every border is maximal contrast. A
+      FRAGSTATS metric that landscapemetrics does not have.
+    use: |
+      The weights are a judgement (e.g. habitat quality differences); document them. Check that every pair of classes
+      has a weight, a missing pair gives NaN. The summary rows (mean, standard deviation...) take the same options.
+    formula: |
+      \mathrm{ECON}_{j}=\frac{\sum_{s}\ell_s\,w_s}{P_j}\times 100
+    symbols:
+      '\mathrm{ECON}_j': 'the edge contrast index of patch \(j\), in percent'
+      '\ell_s': "the length of cell side \\(s\\) on the patch's border, in metres"
+      'w_s': "the contrast weight (0 to 1) between the patch's class and the class beyond side \\(s\\), from the `contrast` table; `boundary_contrast` for a side towards a missing cell or the map's edge"
+      'P_j': 'the perimeter of the patch, in metres'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:311 (Landscape::contrast_edges)
+  - id: lsm_c_cwed
+    name: "Contrast-weighted edge density (class)"
+    level: class
+    theme: contrast
+    unit: "metres per hectare"
+    range: "≥ 0"
+    aliases: [CWED, contrast weighted edge density]
+    options: 'contrast={(1, 2): .5, (1, 3): 1., (2, 3): .3}'
+    what: |
+      Edge density of a class in which each stretch of edge counts in proportion to the contrast between the two
+      classes it separates. A FRAGSTATS metric that landscapemetrics does not have.
+    use: |
+      Edges are counted from the class's own side, so the edge between two classes counts for both. Use it to compare
+      landscapes of the same classes under the same weights.
+    formula: |
+      \mathrm{CWED}_i=\frac{\sum_{b\neq i}e_{ib}\,d_{ib}\;[+\,e_{i\partial}\,d_{\partial}]}{A}
+    symbols:
+      'e_{ib}': 'the length of edge between class \(i\) and class \(b\), in metres'
+      'd_{ib}': 'the contrast weight (0 to 1) between the two classes, from the `contrast` table'
+      'e_{i\partial}, d_{\partial}': "the edge towards missing cells or the map's border and its weight (`boundary_contrast`); added only with `count_boundary=True`"
+      'A': 'the area of the map, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:311 (Landscape::contrast_edges teci)
+  - id: lsm_c_teci
+    name: "Total edge contrast index (class)"
+    level: class
+    theme: contrast
+    unit: "percent"
+    range: "0 ≤ TECI ≤ 100 (NaN without edges)"
+    aliases: [TECI, total edge contrast, mean edge contrast]
+    options: 'contrast={(1, 2): .5, (1, 3): 1., (2, 3): .3}, boundary_contrast=.5'
+    what: |
+      The mean contrast along the edges of a class: its contrast-weighted edge length as a share of its total edge
+      length. 100 means all the edges are of maximum contrast. A FRAGSTATS metric that landscapemetrics does not have.
+    use: |
+      The border counts as an edge; set `boundary_contrast` to the weight you want it to have (0 treats it as no
+      contrast and lowers TECI).
+    formula: |
+      \mathrm{TECI}_i=\frac{\sum_{b\neq i}e_{ib}\,d_{ib}+e_{i\partial}\,d_{\partial}}{\sum_{b\neq i}e_{ib}+e_{i\partial}}\times 100
+    symbols:
+      'e_{ib}': 'the length of edge between class \(i\) and class \(b\), in metres'
+      'd_{ib}': 'the contrast weight (0 to 1) between the two classes, from the `contrast` table'
+      'e_{i\partial}, d_{\partial}': "the edge towards missing cells or the map's border and its weight (`boundary_contrast`, 0 by default); always counted in TECI"
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:311 (Landscape::contrast_edges)
+  - id: lsm_l_cwed
+    name: "Contrast-weighted edge density (landscape)"
+    level: landscape
+    theme: contrast
+    unit: "metres per hectare"
+    range: "≥ 0"
+    aliases: [CWED]
+    options: 'contrast={(1, 2): .5, (1, 3): 1., (2, 3): .3}'
+    what: |
+      Edge density of the whole landscape with each edge weighted by the contrast between the classes it separates. A
+      FRAGSTATS metric that landscapemetrics does not have.
+    use: |
+      Counting each edge once makes it comparable between maps; at class level an edge is counted from both sides.
+    formula: |
+      \mathrm{CWED}=\frac{\sum_{a>b}e_{ab}\,d_{ab}\;[+\,\sum_a e_{a\partial}\,d_{\partial}]}{A}
+    symbols:
+      'e_{ab}': 'the length of edge between classes \(a\) and \(b\), in metres, each edge counted once (\(a > b\))'
+      'd_{ab}': 'the contrast weight (0 to 1) between the two classes, from the `contrast` table'
+      'e_{a\partial}, d_{\partial}': "the edge towards missing cells or the map's border and its weight (`boundary_contrast`); added only with `count_boundary=True`"
+      'A': 'the area of the map, in hectares'
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+
+  # impl: extern/terraflux-py/src/cpp/lsm/fragstats.cpp:311 (Landscape::contrast_edges)
+  - id: lsm_l_teci
+    name: "Total edge contrast index (landscape)"
+    level: landscape
+    theme: contrast
+    unit: "percent"
+    range: "0 ≤ TECI ≤ 100"
+    aliases: [TECI, total edge contrast]
+    options: 'contrast={(1, 2): .5, (1, 3): 1., (2, 3): .3}, boundary_contrast=.5'
+    what: |
+      The contrast-weighted edge of the whole landscape as a percentage of its total edge length. A FRAGSTATS metric
+      that landscapemetrics does not have.
+    use: |
+      Sensitive to the border weight; set `boundary_contrast` deliberately.
+    formula: |
+      \mathrm{TECI}=\frac{\sum_{a>b}e_{ab}\,d_{ab}+\sum_a e_{a\partial}\,d_{\partial}}{\sum_{a>b}e_{ab}+\sum_a e_{a\partial}}\times 100
+    symbols:
+      'e_{ab}': 'the length of edge between classes \(a\) and \(b\), in metres, each edge counted once (\(a > b\))'
+      'd_{ab}': 'the contrast weight (0 to 1) between the two classes, from the `contrast` table'
+      'e_{a\partial}, d_{\partial}': "the edge towards missing cells or the map's border and its weight (`boundary_contrast`); always counted in TECI"
+    refs:
+      - "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."

@@ -482,7 +482,12 @@ without delimiters, or a list of them: each becomes a display formula), `symbols
 Optional: `python` (the call or a snippet, when it is not generated; its last expression, or `result`, is the value),
 `operator` and `setting` (when not generated: the operator page and the text of the setting, such as `metrics = ["ca"]`),
 `api` (the Python path of the reference, default the library's function), `refs` (Markdown references, verified), `aliases`
-(other names people search for: they go to the search entry's title), `variants`.
+(other names people search for: they go to the search entry's title), `variants`. `listed: false` marks, in a family with a `library:`, a metric of the library that its list
+does not hold (a function such as the surface's bearing area curve): the entry gives its own `python:` and does
+not count in the coverage. `options` (in a family with a `library:`) adds keyword arguments to the generated call
+and to its variants' (`options: 'search_radius=300'`), rather than a `python:` of one's own; `variant_base` names the
+variants after another metric (`lsm_p_ncore` with `variant_base: dcore`: landscapemetrics' `dcore_*` summarise `ncore`). A call's result is shown as a number, a table, or, for a map, its mean, range and
+cells without a value.
 
 Write the formulas in your own words (FRAGSTATS and landscapemetrics are the references, not text to copy) and check each
 against the library's code (`extern/terraflux-py/src/cpp/lsm/metrics.cpp`, `src/terraflux/surface/`): the card says what the
