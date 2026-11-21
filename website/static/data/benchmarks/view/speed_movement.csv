@@ -1,0 +1,11 @@
+case,reference_s,terraflux_1_thread_s,terraflux_8_threads_s,speedup_1_thread,speedup_8_threads,short
+"dBBMM variance, all the fishers (3 tracks)",24.1,21.9,3.1,1.1,7.77,"dBBMM variance, fishers"
+"dBBMM variance, M1",0.61,0.53,0.08,1.15,7.62,"dBBMM variance, M1"
+"dBBMM UD, M1, cells of 100 m",1.47,1.14,0.2,1.29,7.35,"dBBMM UD, M1, 100 m"
+"dBBMM UD, M1, cells of 30 m",13.6,11.0,1.85,1.24,7.35,"dBBMM UD, M1, 30 m"
+"dBBMM variance, a track of 100,000 locations",62.0,64.4,9.6,0.963,6.46,"dBBMM variance, 100,000"
+"dBBMM UD, a track of 100,000 locations, 1669 × 2000 cells",45.9,41.5,8.2,1.11,5.6,"dBBMM UD, 100,000, 1669 × 2000"
+"dBGB variance, all the fishers",12.9,12.8,5.0,1.01,2.58,"dBGB variance, fishers"
+"dBGB variance, M1",0.33,0.32,0.07,1.03,4.71,"dBGB variance, M1"
+"dBGB UD, M1, cells of 100 m",15.7,19.5,4.0,0.805,3.92,"dBGB UD, M1, 100 m"
+"dBGB UD, M1, cells of 30 m",164.0,206.0,42.9,0.796,3.82,"dBGB UD, M1, 30 m"

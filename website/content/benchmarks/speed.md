@@ -549,6 +549,48 @@ agree with its own, which adds up in single precision, to 1e-7, and with NumPy i
 every cell by the share of it the polygon covers, so its means differ slightly. The median and the percentiles take a
 linear-time selection, not a sort; the result does not depend on the number of threads.
 
+## Animal movement
+
+The dynamic Brownian bridges of move2utils 0.4.6 in R 4.4.2 on one thread (`OMP_NUM_THREADS=1`; the C kernels of the
+`move` package), against the library's
+`tf.move.dbbmm_variance`, `dbbmm_ud`, `dbgb_variance` and `dbgb_ud`, which run the same method (the same numbers bit for bit,
+the same on any number of threads). The tracks are the fishers of move2's example data (F1, F2 and M1) and a
+simulated track of 100,000 locations; the UDs are on cells of 100 m or 30 m, or on a grid of 1669 × 2000 cells. The times
+are the library's, with the same C++ as the application's; **the application's own times were not measured**. These
+comparisons are not counted in the 121 cases, the median or the areas of the summary at the top of the page.
+
+```tfchart
+type: bar
+horizontal: true
+log: true
+format: "{v}×"
+rule: { value: 1, label: same speed }
+labels_at_end: true
+data: /data/benchmarks/view/speed_movement.csv
+x: short
+y: [speedup_1_thread, speedup_8_threads]
+labels: { speedup_1_thread: "1 thread", speedup_8_threads: "8 threads" }
+xlabel: Times faster than move2utils in R
+caption: "Terraflux's library on 1 and 8 threads against move2utils 0.4.6 in R, on the fishers of move2 and on a track of 100,000 locations. A bar below the dashed line is slower than R."
+```
+
+```tftable
+data: /data/benchmarks/speed_movement.csv
+columns: [case, reference_s, terraflux_1_thread_s, terraflux_8_threads_s, speedup_1_thread, speedup_8_threads]
+sortable: true
+align: { case: left }
+digits: 4
+format: { speedup_1_thread: "{v}×", speedup_8_threads: "{v}×" }
+labels: { case: Case, reference_s: "move2utils in R (s)", terraflux_1_thread_s: "Terraflux, 1 thread (s)", terraflux_8_threads_s: "Terraflux, 8 threads (s)", speedup_1_thread: "Speed-up, 1 thread", speedup_8_threads: "Speed-up, 8 threads" }
+caption: "The last row, `corridor` on the fishers, has no R time: 0.36 s on 1 thread and 0.16 s on 4."
+```
+
+On one thread the library is about as fast as R, from 1.3 times faster to 0.8 times as fast (the dBGB's UDs, 19.5 s against
+15.7 s on 100 m cells and 206 s against 164 s on 30 m cells): the kernels are ported from R's C code, and each cell adds its
+time steps in the order of the track, which gives the same bits with any number of threads. The gain is the threads: 5.6 to 7.8 times
+faster than R for the dBBMM and 2.6 to 4.7 for the dBGB on 8 threads. R's `move2utils` itself parallelises the cells of
+each time step only; the library gives each thread a strip of rows of the grid.
+
 ## Plotting
 
 `tf.plot`, from the data to the page a notebook or a window shows (the map's HTML, images and data included), measured with

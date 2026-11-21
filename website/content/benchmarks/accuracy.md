@@ -46,7 +46,7 @@ x: domain
 y: [c0, c1, c2, c3]
 labels: { c0: identical, c1: "identical, some values to a tolerance", c2: within a tolerance, c3: partly different }
 xlabel: Comparison groups
-caption: "The 47 comparison groups of the table below, by area and by how they agree with the original. A group is a set of methods compared with one original on a set of cases."
+caption: "The 54 comparison groups of the table below, by area and by how they agree with the original. A group is a set of methods compared with one original on a set of cases."
 ```
 
 ## Results by tool
@@ -81,7 +81,10 @@ original **with its errors corrected**, by a small script or patch kept in the l
 
 - R packages: `tools/cc_fixed.R` (CoordinateCleaner), `tools/ecospat_fixed.R` (ecospat), `tools/lulcc_fixed.R` (lulcc),
   `tools/surface_fixed.R` (geodiv and spatialEco), `tools/differ_fixed.R` (lulcc, OpenLand and diffeR), `tools/move2_fixed.R`
-  (move2's datum code) and `tools/amt_fixed.R` (amt), each in the
+  (move2's datum code), `tools/amt_fixed.R` (amt) and `tools/move2utils_fixed.R` (move2utils: its GPS filter does not find
+  Movebank's column names, its speed cap loses the columns of a track of one location, its corridors use the radius in metres
+  in a CRS in feet, its corridors and bridges a projection centred about a kilometre off; its `location_error =
+  "auto"` does not find Movebank's e-obs column and its kernel reads one cell past the grid), each in the
   [library's `tools` folder](https://github.com/sacridini/terraflux-py/tree/main/tools).
 - Programs: `tools/clumondo_fixed.patch` (CLUMondo's age error), `tools/futures_fixed.patch` (the `r.futures` addons) and
   `tools/molusce_fixed.patch` (MOLUSCE's confidence).
@@ -132,6 +135,7 @@ is checked as the right-hand column says.
 | Land change: Dinamica's continuous Patcher (`ContinuousPatcher`) and road destinations (`destinations`) | Dinamica EGO 8.13's continuous Patcher crashes for patches of more than one cell, as its Patcher does: the candidates, the pruning, the quota and the draw by probability were measured with one-cell patches (exact on the cases that do not depend on the draw, statistical on 32 draws), the growth is the Patcher's; destinations compared statistically on 100 draws (Dinamica's draw errors corrected, see [known differences](#known-differences)) |
 | Hilltop protection areas (`surface.hilltop`) | written from the Forest Code (Lei 12.651/2012): Dinamica EGO's `CalcHilltop` follows the older CONAMA 303/2002 rule on a DEM cut into elevation bands, with its own definitions (its slope criterion measures to the map's edge or to other features: 5° on an isolated cone of 21.8°), so only the heights are compared (to 0.05 m on cones); checked against an independent computation of the landforms by connected components on random DEMs, and on cones, ranges and lakes of known geometry |
 | Land change: PLUS's CA with multi-type random patch seeds (CARS) | PLUS is distributed without source code or licence: written from its paper, checked by its properties (demand met, growth from patches and seeds, the threshold, the rules, the same maps with any number of threads) |
+| Animal movement: `move.validate` (the use of the animals against a connectivity surface) | not in R, and only the abstract of Zeller et al. (2018) was available: the definitions are the library's, checked by unit tests against numbers worked out by hand and Spearman's coefficient against SciPy's |
 | Land change: dynamic variables, regional demands, presets, projections, scenarios, calibration | unit tests: the pieces they assemble are compared above |
 
 ## Details by module
@@ -265,8 +269,8 @@ Three more limits of what these pages claim:
   the original as released ([where the original errs](#where-the-original-errs)).
 - **Not run against the original.** The tools in [checked in other ways](#checked-in-other-ways) are not compared with a run of
   the original: GuidosToolbox's network components, entropy and restoration status, cost distance and corridors, zonal
-  statistics and clipping, Dinamica's Expander, Patcher and continuous Patcher, hilltops, PLUS's CARS, and the dynamic
-  variables, projections and scenarios of land change.
+  statistics and clipping, Dinamica's Expander, Patcher and continuous Patcher, hilltops, PLUS's CARS, `move.validate`,
+  and the dynamic variables, projections and scenarios of land change.
 - **Two hops for the application.** The application is compared with the library, which is compared with the original, so the
   application's agreement with an original is the library's, passed through the application's tests
   ([the application's own tests](/benchmarks/application/)).

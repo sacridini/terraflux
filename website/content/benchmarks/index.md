@@ -30,8 +30,8 @@ comparisons are part of the test suite, so they run again at every change.
 |---|---|
 | Timed comparisons with an original tool | **121**, in 13 areas ([speed](/benchmarks/speed/)) |
 | Median speed-up over the original | **10 times**, from 1.2 to more than 6,000 times |
-| Groups of methods compared with their original | **47** ([accuracy](/benchmarks/accuracy/)) |
-| Of them identical to the original | **25** identical, **13** identical except some values within a stated tolerance, **7** within a tolerance, **2** partly different |
+| Groups of methods compared with their original | **54** ([accuracy](/benchmarks/accuracy/)) |
+| Of them identical to the original | **26** identical, **19** identical except some values within a stated tolerance, **7** within a tolerance, **2** partly different |
 | The library's tests | **4,678** collected, in 171 files; 81 run the original tool |
 | The application's tests | **1,518**: 692 integration and 826 unit tests, plus 83 comparisons with stored references ([application](/benchmarks/application/)) |
 
@@ -82,11 +82,11 @@ badge:
     "identical, some values to a tolerance": info
     "within a tolerance": info
     "partly different": warning
-caption: "The 47 comparison groups of the accuracy page, by how they agree with the original."
+caption: "The 54 comparison groups of the accuracy page, by how they agree with the original."
 csv: |
   class,groups,meaning
-  identical,25,"Every map, count and value has the same bits as the original's."
-  "identical, some values to a tolerance",13,"Maps and counts are identical; some decimal values agree to a stated tolerance (for example 1e-12)."
+  identical,26,"Every map, count and value has the same bits as the original's."
+  "identical, some values to a tolerance",19,"Maps and counts are identical; some decimal values agree to a stated tolerance (for example 1e-12)."
   "within a tolerance",7,"Values agree to a stated tolerance, mostly 1e-9 to 1e-14, where the original's own arithmetic cannot be reproduced."
   "partly different",2,"The original is closed or approximate in part (CLUMondo's 2017 options, ties in Dinamica EGO's road directions)."
 ```
