@@ -53,4 +53,4 @@
   </aside>
 </div>
 {% endblock %}
-{% block scripts %}{% if 'tf-calc' in page.html %}<script src="/js/calc.js?v={{ calc_v }}" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if 'tf-calc' in page.html %}<script src="/js/calc.js?v={{ calc_v }}" defer></script>{% endif %}{% if 'class="mc-index"' in page.html %}<script src="/js/metrics.js?v={{ asset_v }}" defer></script>{% endif %}{% endblock %}

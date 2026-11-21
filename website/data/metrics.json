@@ -1,0 +1,621 @@
+{
+ "library_version": "0.0.0+unknown",
+ "families": [
+  {
+   "family": "landscape-metrics",
+   "title": "Landscape metrics",
+   "order": 10,
+   "source": "landscapemetrics (R) / FRAGSTATS",
+   "intro": "The metrics of a **categorical map** (land cover, habitat and not habitat): each cell has a class, a *patch* is a set\nof neighbouring cells of one class, and the metrics describe the patches (patch level), the classes (class level) or\nthe whole map (landscape level). Terraflux computes the metrics of\n[landscapemetrics](https://r-spatialecology.github.io/landscapemetrics/) with the same names and the same numbers, and\nFRAGSTATS' statistics that package lacks. The names are landscapemetrics' function names (`lsm_c_ca`: the class-level\ntotal area), and the tables that follow list, for each, what it measures, its formula, the call, and the setting of\nthe application's operators that selects it.\n\nTwo settings change many of the numbers: the patches' **connectivity** (`directions`: 8 neighbours, the default, or 4)\nand whether the **map's boundary counts as edge** (`count_boundary`). Patches are found with 8 neighbours unless the\ncard says otherwise; adjacencies (aggregation, contagion) always use the 4 sides of a cell. The map is in metres:\nareas are in hectares and edge lengths in metres.\n",
+   "example": "import terraflux as tf\n\nfield = tf.nlm.gaussian_field(30, 30, resolution=100, autocorr_range=8, nug=0.0, seed=7)\nlandscape = tf.nlm.classify(field, 3)    # three classes; the cells are 100 m, so one cell is one hectare\n",
+   "data": "landscape",
+   "metrics": [
+    {
+     "id": "lsm_p_area",
+     "name": "Patch area",
+     "level": "patch",
+     "theme": "area and edge",
+     "unit": "hectares",
+     "range": "> 0, up to the area of the map",
+     "what": "The size of each patch: how much ground one habitat fragment, one field or one lake covers. It is the base of\nmost other metrics (a patch's shape, core and isolation all depend on its size) and, summarised over a class, it\ntells whether a class is made of a few large patches or of many small ones.\n",
+     "formula": "a_i = \\frac{n_i \\, \\Delta x \\, \\Delta y}{10\\,000}\n",
+     "symbols": {
+      "a_i": "the area of patch \\(i\\), in hectares",
+      "n_i": "the number of cells of patch \\(i\\)",
+      "\\Delta x, \\Delta y": "the cell's width and height, in metres (10 000 m² make a hectare)"
+     },
+     "use": "Use it to rank patches and to see the size distribution of a class. The mean alone hides that distribution: a\nclass of one large patch and many single cells has a small mean and a large standard deviation, so read the\nsummary statistics (below) together, and the median rather than the mean when a few patches dominate.\n",
+     "refs": [
+      "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst.",
+      "Hesselbarth, M. H. K., Sciaini, M., With, K. A., Wiegand, K., & Nowosad, J. (2019). landscapemetrics: an open-source R tool to calculate landscape metrics. *Ecography*, 42(10), 1648-1657. https://doi.org/10.1111/ecog.04617"
+     ],
+     "aliases": [
+      "AREA",
+      "patch size"
+     ],
+     "python": "tf.landscape_metrics(landscape, what=[\"lsm_p_area\"])",
+     "operator": "metrics.patch",
+     "setting": "metrics = [\"area\"]",
+     "api": "terraflux.landscape_metrics",
+     "value": "37 patches; the first four: 142, 1, 1, 1",
+     "variants": [
+      {
+       "id": "lsm_c_area_mn",
+       "stat": "mn",
+       "level": "class",
+       "value": "class 1: 25.1, class 2: 30.5, class 3: 18.87",
+       "name": "Patch area, mean (class level)",
+       "label": "mean",
+       "text": "the mean over the patches",
+       "formula": "\\bar{x} = \\frac{1}{n}\\sum_{i=1}^{n} x_i",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"area_mn\"]"
+      },
+      {
+       "id": "lsm_c_area_sd",
+       "stat": "sd",
+       "level": "class",
+       "value": "class 1: 45.85, class 2: 100.3, class 3: 42.83",
+       "name": "Patch area, standard deviation (class level)",
+       "label": "standard deviation",
+       "text": "the sample standard deviation over the patches (n - 1)",
+       "formula": "s = \\sqrt{\\frac{1}{n-1}\\sum_{i=1}^{n} (x_i - \\bar{x})^2}",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"area_sd\"]"
+      },
+      {
+       "id": "lsm_c_area_cv",
+       "stat": "cv",
+       "level": "class",
+       "value": "class 1: 182.7, class 2: 328.9, class 3: 227",
+       "name": "Patch area, coefficient of variation, in % (class level)",
+       "label": "coefficient of variation, in %",
+       "text": "the standard deviation as a percentage of the mean",
+       "formula": "\\mathrm{CV} = 100\\, s / \\bar{x}",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"area_cv\"]"
+      },
+      {
+       "id": "lsm_c_area_am",
+       "stat": "am",
+       "level": "class",
+       "value": "class 1: 100.5, class 2: 332.9, class 3: 109.6",
+       "name": "Patch area, area-weighted mean (class level)",
+       "label": "area-weighted mean",
+       "text": "the mean weighted by patch area",
+       "formula": "\\frac{\\sum_{i=1}^{n} a_i x_i}{\\sum_{i=1}^{n} a_i}",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"area_am\"]"
+      },
+      {
+       "id": "lsm_c_area_md",
+       "stat": "md",
+       "level": "class",
+       "value": "class 1: 1, class 2: 2, class 3: 1",
+       "name": "Patch area, median (class level)",
+       "label": "median",
+       "text": "the median",
+       "formula": "\\mathrm{median}(x_1, \\dots, x_n)",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"area_md\"]"
+      },
+      {
+       "id": "lsm_c_area_ra",
+       "stat": "ra",
+       "level": "class",
+       "value": "class 1: 141, class 2: 348, class 3: 163",
+       "name": "Patch area, range (class level)",
+       "label": "range",
+       "text": "the range (largest minus smallest)",
+       "formula": "\\max_i x_i - \\min_i x_i",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"area_ra\"]"
+      },
+      {
+       "id": "lsm_l_area_mn",
+       "stat": "mn",
+       "level": "landscape",
+       "value": "24.32",
+       "name": "Patch area, mean (landscape level)",
+       "label": "mean",
+       "text": "the mean over the patches",
+       "formula": "\\bar{x} = \\frac{1}{n}\\sum_{i=1}^{n} x_i",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"area_mn\"]"
+      },
+      {
+       "id": "lsm_l_area_sd",
+       "stat": "sd",
+       "level": "landscape",
+       "value": "65.86",
+       "name": "Patch area, standard deviation (landscape level)",
+       "label": "standard deviation",
+       "text": "the sample standard deviation over the patches (n - 1)",
+       "formula": "s = \\sqrt{\\frac{1}{n-1}\\sum_{i=1}^{n} (x_i - \\bar{x})^2}",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"area_sd\"]"
+      },
+      {
+       "id": "lsm_l_area_cv",
+       "stat": "cv",
+       "level": "landscape",
+       "value": "270.8",
+       "name": "Patch area, coefficient of variation, in % (landscape level)",
+       "label": "coefficient of variation, in %",
+       "text": "the standard deviation as a percentage of the mean",
+       "formula": "\\mathrm{CV} = 100\\, s / \\bar{x}",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"area_cv\"]"
+      },
+      {
+       "id": "lsm_l_area_am",
+       "stat": "am",
+       "level": "landscape",
+       "value": "197.8",
+       "name": "Patch area, area-weighted mean (landscape level)",
+       "label": "area-weighted mean",
+       "text": "the mean weighted by patch area",
+       "formula": "\\frac{\\sum_{i=1}^{n} a_i x_i}{\\sum_{i=1}^{n} a_i}",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"area_am\"]"
+      },
+      {
+       "id": "lsm_l_area_md",
+       "stat": "md",
+       "level": "landscape",
+       "value": "1",
+       "name": "Patch area, median (landscape level)",
+       "label": "median",
+       "text": "the median",
+       "formula": "\\mathrm{median}(x_1, \\dots, x_n)",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"area_md\"]"
+      },
+      {
+       "id": "lsm_l_area_ra",
+       "stat": "ra",
+       "level": "landscape",
+       "value": "348",
+       "name": "Patch area, range (landscape level)",
+       "label": "range",
+       "text": "the range (largest minus smallest)",
+       "formula": "\\max_i x_i - \\min_i x_i",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"area_ra\"]"
+      }
+     ]
+    },
+    {
+     "id": "lsm_p_shape",
+     "name": "Shape index",
+     "level": "patch",
+     "theme": "shape",
+     "unit": "none",
+     "range": "1 for a square, larger the more irregular; no upper limit",
+     "what": "How far a patch's outline is from the simplest one, a square. A compact patch has a value near 1; a long, thin or\nindented patch has a higher one. It measures complexity of the outline relative to the patch's size, so it can be\ncompared between large and small patches.\n",
+     "formula": "\\mathrm{SHAPE}_i = \\frac{0.25 \\, p_i}{\\sqrt{A_i}}\n",
+     "symbols": {
+      "p_i": "the perimeter of patch \\(i\\), in metres, that is every cell side that faces another class, a hole, a missing cell or the edge of the map",
+      "A_i": "the area of patch \\(i\\), in square metres"
+     },
+     "use": "Use it to find elongated or ragged patches (riparian strips, patches cut by roads) and to compare how compact the\npatches of two classes are. Very small patches take only a few values (a single cell is exactly 1), so a class of\nmany tiny patches has a mean close to 1 whatever its shape. In the library, `convention=\"fragstats\"` compares the\nperimeter with the smallest possible perimeter of as many cells instead (the raster version of FRAGSTATS).\n",
+     "refs": [
+      "McGarigal, K., Cushman, S. A., & Ene, E. (2012). FRAGSTATS v4: spatial pattern analysis program for categorical and continuous maps. University of Massachusetts, Amherst."
+     ],
+     "aliases": [
+      "SHAPE",
+      "patch shape",
+      "shape complexity"
+     ],
+     "python": "tf.landscape_metrics(landscape, what=[\"lsm_p_shape\"])",
+     "operator": "metrics.patch",
+     "setting": "metrics = [\"shape\"]",
+     "api": "terraflux.landscape_metrics",
+     "value": "37 patches; the first four: 2.685, 1, 1, 1",
+     "variants": [
+      {
+       "id": "lsm_c_shape_mn",
+       "stat": "mn",
+       "level": "class",
+       "value": "class 1: 1.442, class 2: 1.48, class 3: 1.377",
+       "name": "Shape index, mean (class level)",
+       "label": "mean",
+       "text": "the mean over the patches",
+       "formula": "\\bar{x} = \\frac{1}{n}\\sum_{i=1}^{n} x_i",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"shape_mn\"]"
+      },
+      {
+       "id": "lsm_c_shape_sd",
+       "stat": "sd",
+       "level": "class",
+       "value": "class 1: 0.6902, class 2: 1.549, class 3: 0.6228",
+       "name": "Shape index, standard deviation (class level)",
+       "label": "standard deviation",
+       "text": "the sample standard deviation over the patches (n - 1)",
+       "formula": "s = \\sqrt{\\frac{1}{n-1}\\sum_{i=1}^{n} (x_i - \\bar{x})^2}",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"shape_sd\"]"
+      },
+      {
+       "id": "lsm_c_shape_cv",
+       "stat": "cv",
+       "level": "class",
+       "value": "class 1: 47.87, class 2: 104.6, class 3: 45.24",
+       "name": "Shape index, coefficient of variation, in % (class level)",
+       "label": "coefficient of variation, in %",
+       "text": "the standard deviation as a percentage of the mean",
+       "formula": "\\mathrm{CV} = 100\\, s / \\bar{x}",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"shape_cv\"]"
+      },
+      {
+       "id": "lsm_c_shape_am",
+       "stat": "am",
+       "level": "class",
+       "value": "class 1: 2.453, class 2: 6.148, class 3: 2.46",
+       "name": "Shape index, area-weighted mean (class level)",
+       "label": "area-weighted mean",
+       "text": "the mean weighted by patch area",
+       "formula": "\\frac{\\sum_{i=1}^{n} a_i x_i}{\\sum_{i=1}^{n} a_i}",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"shape_am\"]"
+      },
+      {
+       "id": "lsm_c_shape_md",
+       "stat": "md",
+       "level": "class",
+       "value": "class 1: 1, class 2: 1.061, class 3: 1",
+       "name": "Shape index, median (class level)",
+       "label": "median",
+       "text": "the median",
+       "formula": "\\mathrm{median}(x_1, \\dots, x_n)",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"shape_md\"]"
+      },
+      {
+       "id": "lsm_c_shape_ra",
+       "stat": "ra",
+       "level": "class",
+       "value": "class 1: 1.685, class 2: 5.397, class 3: 1.733",
+       "name": "Shape index, range (class level)",
+       "label": "range",
+       "text": "the range (largest minus smallest)",
+       "formula": "\\max_i x_i - \\min_i x_i",
+       "operator": "metrics.class",
+       "setting": "metrics = [\"shape_ra\"]"
+      },
+      {
+       "id": "lsm_l_shape_mn",
+       "stat": "mn",
+       "level": "landscape",
+       "value": "1.428",
+       "name": "Shape index, mean (landscape level)",
+       "label": "mean",
+       "text": "the mean over the patches",
+       "formula": "\\bar{x} = \\frac{1}{n}\\sum_{i=1}^{n} x_i",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"shape_mn\"]"
+      },
+      {
+       "id": "lsm_l_shape_sd",
+       "stat": "sd",
+       "level": "landscape",
+       "value": "1.002",
+       "name": "Shape index, standard deviation (landscape level)",
+       "label": "standard deviation",
+       "text": "the sample standard deviation over the patches (n - 1)",
+       "formula": "s = \\sqrt{\\frac{1}{n-1}\\sum_{i=1}^{n} (x_i - \\bar{x})^2}",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"shape_sd\"]"
+      },
+      {
+       "id": "lsm_l_shape_cv",
+       "stat": "cv",
+       "level": "landscape",
+       "value": "70.2",
+       "name": "Shape index, coefficient of variation, in % (landscape level)",
+       "label": "coefficient of variation, in %",
+       "text": "the standard deviation as a percentage of the mean",
+       "formula": "\\mathrm{CV} = 100\\, s / \\bar{x}",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"shape_cv\"]"
+      },
+      {
+       "id": "lsm_l_shape_am",
+       "stat": "am",
+       "level": "landscape",
+       "value": "3.958",
+       "name": "Shape index, area-weighted mean (landscape level)",
+       "label": "area-weighted mean",
+       "text": "the mean weighted by patch area",
+       "formula": "\\frac{\\sum_{i=1}^{n} a_i x_i}{\\sum_{i=1}^{n} a_i}",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"shape_am\"]"
+      },
+      {
+       "id": "lsm_l_shape_md",
+       "stat": "md",
+       "level": "landscape",
+       "value": "1",
+       "name": "Shape index, median (landscape level)",
+       "label": "median",
+       "text": "the median",
+       "formula": "\\mathrm{median}(x_1, \\dots, x_n)",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"shape_md\"]"
+      },
+      {
+       "id": "lsm_l_shape_ra",
+       "stat": "ra",
+       "level": "landscape",
+       "value": "5.397",
+       "name": "Shape index, range (landscape level)",
+       "label": "range",
+       "text": "the range (largest minus smallest)",
+       "formula": "\\max_i x_i - \\min_i x_i",
+       "operator": "metrics.landscape",
+       "setting": "metrics = [\"shape_ra\"]"
+      }
+     ]
+    },
+    {
+     "id": "lsm_c_ca",
+     "name": "Total (class) area",
+     "level": "class",
+     "theme": "area and edge",
+     "unit": "hectares",
+     "range": "> 0, up to the total area of the map",
+     "what": "The area a class covers in the map: how much forest, pasture or water there is, in hectares. It is the simplest\ncomposition measure, and the quantity the next metric turns into a share.\n",
+     "formula": "\\mathrm{CA}_c = \\sum_{i=1}^{n_c} a_{ic}\n",
+     "symbols": {
+      "\\mathrm{CA}_c": "the total area of class \\(c\\), in hectares",
+      "n_c": "the number of patches of class \\(c\\)",
+      "a_{ic}": "the area of patch \\(i\\) of class \\(c\\), in hectares"
+     },
+     "use": "Use it to report the amount of habitat. It says nothing about how that area is arranged: ten hectares in one\nblock and ten hectares in a hundred scattered cells have the same value. Pair it with the number of patches or an\naggregation metric.\n",
+     "aliases": [
+      "CA",
+      "class area"
+     ],
+     "python": "tf.landscape_metrics(landscape, what=[\"lsm_c_ca\"])",
+     "operator": "metrics.class",
+     "setting": "metrics = [\"ca\"]",
+     "api": "terraflux.landscape_metrics",
+     "value": "class 1: 251, class 2: 366, class 3: 283"
+    },
+    {
+     "id": "lsm_c_pland",
+     "name": "Percentage of landscape",
+     "level": "class",
+     "theme": "area and edge",
+     "unit": "percent",
+     "range": "(0, 100]; the classes of a map add up to 100",
+     "what": "The share of the map that a class covers. Unlike the area in hectares it can be compared between maps of different\nsizes, so it is the usual way to say how much habitat a landscape has.\n",
+     "formula": "\\mathrm{PLAND}_c = 100 \\, \\frac{\\mathrm{CA}_c}{\\mathrm{TA}}\n",
+     "symbols": {
+      "\\mathrm{CA}_c": "the area of class \\(c\\), in hectares",
+      "\\mathrm{TA}": "the total area of the map, in hectares, without the missing cells"
+     },
+     "use": "Use it for the habitat amount that many thresholds are stated in (a landscape with less than a given share of\nhabitat tends to lose species faster). The share is of the cells that have a value: missing cells are left out of\nthe total.\n",
+     "aliases": [
+      "PLAND",
+      "proportion of landscape",
+      "class share"
+     ],
+     "python": "tf.landscape_metrics(landscape, what=[\"lsm_c_pland\"])",
+     "operator": "metrics.class",
+     "setting": "metrics = [\"pland\"]",
+     "api": "terraflux.landscape_metrics",
+     "value": "class 1: 27.89, class 2: 40.67, class 3: 31.44"
+    },
+    {
+     "id": "lsm_c_ed",
+     "name": "Edge density",
+     "level": "class",
+     "theme": "area and edge",
+     "unit": "metres per hectare",
+     "range": "0 or more; 0 when the class has no edge with another class",
+     "what": "How much boundary a class has with other classes, per hectare of map. A class with a lot of edge is cut into\nmany parts or has convoluted outlines, and a lot of its area lies close to a different land cover.\n",
+     "formula": "\\mathrm{ED}_c = \\frac{\\mathrm{TE}_c}{\\mathrm{TA}}\n",
+     "symbols": {
+      "\\mathrm{TE}_c": "the total edge of class \\(c\\), in metres, that is the length of every cell side shared with a cell of another class",
+      "\\mathrm{TA}": "the total area of the map, in hectares"
+     },
+     "use": "Use it to compare how fragmented or exposed a class is in maps of different sizes (the density, unlike the\ntotal edge length, does not grow with the map). By default the map's own boundary and the missing cells are not\ncounted as edge; with `count_boundary=True` they are. The map must be in metres for the unit to hold.\n",
+     "aliases": [
+      "ED",
+      "edge length per area"
+     ],
+     "python": "tf.landscape_metrics(landscape, what=[\"lsm_c_ed\"])",
+     "operator": "metrics.class",
+     "setting": "metrics = [\"ed\"]",
+     "api": "terraflux.landscape_metrics",
+     "value": "class 1: 26.78, class 2: 57, class 3: 32.89"
+    },
+    {
+     "id": "lsm_c_ai",
+     "name": "Aggregation index",
+     "level": "class",
+     "theme": "aggregation",
+     "unit": "percent",
+     "range": "0 to 100; NA for a class of a single cell",
+     "what": "How clumped a class is. It counts the pairs of side-by-side cells that are both of the class (like adjacencies) and\ncompares them with the most such pairs that many cells could have, which is when they form the most compact block\npossible. It is 0 for a class whose cells never touch and 100 for a class in one compact block.\n",
+     "formula": [
+      "\\mathrm{AI}_c = 100 \\, \\frac{g_{cc}}{\\max g_{cc}}\n",
+      "\\max g_{cc} = 2s(s-1) + \\begin{cases} 0 & m = 0 \\\\ 2m - 1 & 0 < m \\le s \\\\ 2m - 2 & m > s \\end{cases}\n\\qquad s = \\lfloor \\sqrt{n_c} \\rfloor, \\quad m = n_c - s^2\n"
+     ],
+     "symbols": {
+      "g_{cc}": "the number of pairs of side-by-side cells that both belong to class \\(c\\), each pair counted once",
+      "\\max g_{cc}": "the largest value \\(g_{cc}\\) could take for a class of \\(n_c\\) cells, reached by the most compact block",
+      "n_c": "the number of cells of class \\(c\\)",
+      "s, m": "the side of the largest square of \\(n_c\\) cells, and the cells left over"
+     },
+     "use": "Use it to compare the clumping of classes that differ in area: unlike a simple count of patches, it is scaled by\nwhat the class's own area allows. It looks at the four sides of each cell, whatever the patches' connectivity.\n",
+     "refs": [
+      "He, H. S., DeZonia, B. E., & Mladenoff, D. J. (2000). An aggregation index (AI) to quantify spatial patterns of landscapes. *Landscape Ecology*, 15, 591-601. https://doi.org/10.1023/A:1008102521322"
+     ],
+     "aliases": [
+      "AI",
+      "clumpiness",
+      "like adjacencies"
+     ],
+     "python": "tf.landscape_metrics(landscape, what=[\"lsm_c_ai\"])",
+     "operator": "metrics.class",
+     "setting": "metrics = [\"ai\"]",
+     "api": "terraflux.landscape_metrics",
+     "value": "class 1: 75.96, class 2: 67.1, class 3: 73.87"
+    },
+    {
+     "id": "lsm_l_shdi",
+     "name": "Shannon's diversity index",
+     "level": "landscape",
+     "theme": "diversity",
+     "unit": "none",
+     "range": "0 (one class) to ln m for m classes of equal area",
+     "what": "How many classes the map has and how evenly their areas are spread, in one number. It is the Shannon index of\necology applied to the area shares of the land-cover classes: it grows with the number of classes and, for a given\nnumber, is highest when they cover equal areas.\n",
+     "formula": "\\mathrm{SHDI} = - \\sum_{c=1}^{m} p_c \\ln p_c\n",
+     "symbols": {
+      "p_c": "the share of the map covered by class \\(c\\), that is \\(\\mathrm{CA}_c / \\mathrm{TA}\\)",
+      "m": "the number of classes present in the map"
+     },
+     "use": "Use it to compare the compositional diversity of landscapes. It ignores where the classes are (a map and its\nshuffled cells have the same value), and it is sensitive to rare classes. Its largest possible value depends on\nthe number of classes, so divide by ln m (Shannon's evenness, `lsm_l_shei`) to compare maps with different\nnumbers of classes. The logarithm is the natural one.\n",
+     "refs": [
+      "Shannon, C. E. (1948). A mathematical theory of communication. *Bell System Technical Journal*, 27(3), 379-423. https://doi.org/10.1002/j.1538-7305.1948.tb01338.x"
+     ],
+     "aliases": [
+      "SHDI",
+      "Shannon diversity",
+      "landscape diversity"
+     ],
+     "python": "tf.landscape_metrics(landscape, what=[\"lsm_l_shdi\"])",
+     "operator": "metrics.landscape",
+     "setting": "metrics = [\"shdi\"]",
+     "api": "terraflux.landscape_metrics",
+     "value": "1.086"
+    },
+    {
+     "id": "lsm_l_contag",
+     "name": "Contagion",
+     "level": "landscape",
+     "theme": "aggregation",
+     "unit": "percent",
+     "range": "(0, 100]; NA for a map of one class",
+     "what": "How clumped the classes of the whole map are. Take every pair of side-by-side cells: contagion is high when most of\nthe pairs are two cells of the same class (a map of a few large patches) and low when classes are mixed up cell by\ncell, so that any two neighbours are likely to differ.\n",
+     "formula": "\\mathrm{CONTAG} = 100 \\left( 1 + \\frac{\\sum_{i=1}^{m} \\sum_{j=1}^{m} p_{ij} \\ln p_{ij}}{2 \\ln m} \\right)\n",
+     "symbols": {
+      "p_{ij}": "the share of all pairs of side-by-side cells (counted in both directions) that join a cell of class \\(i\\) to a cell of class \\(j\\); a term with \\(p_{ij}=0\\) is left out",
+      "m": "the number of classes present in the map"
+     },
+     "use": "Use it to compare the overall grain of landscapes with the same classes. It depends on the number of classes and\non how their areas are shared, so compare it between maps with the same legend. It counts the four sides of each\ncell and leaves out edges to missing cells and to the map's boundary.\n",
+     "refs": [
+      "O'Neill, R. V., Krummel, J. R., Gardner, R. H., Sugihara, G., Jackson, B., DeAngelis, D. L., Milne, B. T., Turner, M. G., Zygmunt, B., Christensen, S. W., Dale, V. H., & Graham, R. L. (1988). Indices of landscape pattern. *Landscape Ecology*, 1(3), 153-162. https://doi.org/10.1007/BF00162741"
+     ],
+     "aliases": [
+      "CONTAG",
+      "clumping of classes"
+     ],
+     "python": "tf.landscape_metrics(landscape, what=[\"lsm_l_contag\"])",
+     "operator": "metrics.landscape",
+     "setting": "metrics = [\"contag\"]",
+     "api": "terraflux.landscape_metrics",
+     "value": "17.17"
+    }
+   ]
+  },
+  {
+   "family": "surface-metrics",
+   "title": "Surface metrics",
+   "order": 20,
+   "source": "geodiv (R) / ISO 25178",
+   "intro": "The metrics of a **continuous surface**: an elevation model, an NDVI image, a canopy-height model, any raster whose\ncells are measurements and not classes. They come from the surface texture parameters of ISO 25178 and the R package\n[geodiv](https://cran.r-project.org/package=geodiv), which brought them to landscape ecology as *gradient surface\nmetrics*. They need no classification into patches. A trend (a slope across the whole map) is usually removed first,\nso that the metrics describe the texture and not the tilt: `tf.surface.remove_plane`, or use a map that has had it\nremoved.\n\nA metric is computed on all the cells with a value, or in a moving window with `tf.surface.window_metrics`. Heights\nare in the unit of the raster, and the metrics that are not unitless say so on their card.\n",
+   "example": "import terraflux as tf\n\n# NDVI of a part of south-western Oregon (371 x 371 cells), the best-fitting trend already removed\nz = tf.load_raster(tf.surface.example_data(\"normforest\"))\n",
+   "data": "z",
+   "metrics": [
+    {
+     "id": "surface_sa",
+     "name": "Average roughness (Sa)",
+     "level": "map",
+     "theme": "amplitude",
+     "unit": "the unit of the surface (here NDVI)",
+     "range": "0 or more; 0 for a flat surface",
+     "what": "The typical distance of a cell's value from the surface's mean: how rough the surface is, in the surface's own\nunit. It is the most used amplitude parameter, simple to read and little affected by a few extreme cells.\n",
+     "formula": "\\mathrm{Sa} = \\frac{1}{N} \\sum_{k=1}^{N} \\left| z_k - \\bar{z} \\right|\n",
+     "symbols": {
+      "N": "the number of cells with a value",
+      "z_k": "the value of cell \\(k\\)",
+      "\\bar{z}": "the mean of the values, \\(\\frac{1}{N}\\sum_k z_k\\)"
+     },
+     "use": "Use it to compare the roughness of two surfaces in the same unit (the NDVI of two forests, the elevation of two\nterrains). It does not tell the shape of the roughness, only its size: pair it with `Ssk` and the spatial metrics\nto know whether the roughness comes from peaks or valleys, and how far apart they are.\n",
+     "refs": [
+      "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+     ],
+     "aliases": [
+      "Sa",
+      "arithmetical mean height",
+      "mean absolute deviation"
+     ],
+     "python": "tf.surface.sa(z)",
+     "operator": "surface.metrics",
+     "setting": "metrics = [\"sa\"]",
+     "api": "terraflux.surface.sa",
+     "value": "0.04429"
+    },
+    {
+     "id": "surface_sq",
+     "name": "Root mean square roughness (Sq)",
+     "level": "map",
+     "theme": "amplitude",
+     "unit": "the unit of the surface (here NDVI)",
+     "range": "0 or more, never below Sa",
+     "what": "The standard deviation of the surface's values, in the surface's unit. Like Sa it measures how far the values\nspread from the mean, but it squares the differences first, so a few high peaks or deep valleys weigh more.\n",
+     "formula": "\\mathrm{Sq} = \\sqrt{\\frac{1}{N} \\sum_{k=1}^{N} \\left( z_k - \\bar{z} \\right)^2}\n",
+     "symbols": {
+      "N": "the number of cells with a value",
+      "z_k": "the value of cell \\(k\\)",
+      "\\bar{z}": "the mean of the values"
+     },
+     "use": "Use it as the spread of the heights, and as the scale that the shape metrics (`Ssk`, `Sku`) are divided by. Sq is at\nleast as large as Sa, and much larger when there are outliers. Terraflux divides by the number of cells, as\nISO 25178 does; the R package geodiv divides by one less (the sample standard deviation), which differs by a\nfactor of \\(\\sqrt{(N-1)/N}\\), negligible for a real map.\n",
+     "aliases": [
+      "Sq",
+      "RMS roughness",
+      "standard deviation of heights",
+      "root mean square height"
+     ],
+     "python": "tf.surface.sq(z)",
+     "operator": "surface.metrics",
+     "setting": "metrics = [\"sq\"]",
+     "api": "terraflux.surface.sq",
+     "value": "0.06485"
+    },
+    {
+     "id": "surface_ssk",
+     "name": "Skewness (Ssk)",
+     "level": "map",
+     "theme": "amplitude",
+     "unit": "none",
+     "range": "no fixed limits; 0 for a symmetric distribution of values",
+     "what": "Whether the surface's values are balanced around the mean or lean to one side. A negative value means that valleys\n(values far below the mean) dominate over peaks, as in a plateau cut by gullies or a canopy with gaps; a positive\nvalue means isolated peaks stand out over a flat floor.\n",
+     "formula": "\\mathrm{Ssk} = \\frac{\\sqrt{N(N-1)}}{N-2} \\cdot \\frac{\\frac{1}{N} \\sum_{k=1}^{N} \\left( z_k - \\bar{z} \\right)^3}{\\mathrm{Sq}^3}\n",
+     "symbols": {
+      "N": "the number of cells with a value",
+      "z_k": "the value of cell \\(k\\)",
+      "\\bar{z}": "the mean of the values",
+      "\\mathrm{Sq}": "the root mean square roughness, above"
+     },
+     "use": "Use it to tell apart surfaces that have the same Sa or Sq but a different shape. It is unitless, so it compares\nsurfaces in different units. It is sensitive to a few extreme cells, and is defined only when there are more than\ntwo cells with a value. The value of the library is the adjusted one (the correction factor on the right), as the\nadjusted Fisher-Pearson coefficient; `adj=False` leaves it out.\n",
+     "aliases": [
+      "Ssk",
+      "skewness of heights",
+      "asymmetry of the height distribution"
+     ],
+     "python": "tf.surface.ssk(z)",
+     "operator": "surface.metrics",
+     "setting": "metrics = [\"ssk\"]",
+     "api": "terraflux.surface.ssk",
+     "value": "-1.934"
+    }
+   ]
+  }
+ ]
+}

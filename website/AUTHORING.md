@@ -448,6 +448,59 @@ serves: `PYTHONPATH=extern/terraflux-py/src` (its `_core` built for that Python)
 installed. At most 4 threads in all (`--jobs` pages at once, default 2; the rest of the 4 goes to each page's
 OpenMP, Rayon and dask). It is not in the CI.
 
+## The metrics catalog (`/metrics/`)
+
+Every metric Terraflux computes has a card (what it measures, formula, Python call with a real value, operator and
+setting). The text is hand-written, one file per family, in `website/data/metrics/<family>.yaml`; the generator checks it
+against the library, runs the calls and writes `website/data/metrics.json` (committed: the site's build does not need the
+library). Heavy, so through the run lock, with `PYTHONPATH=extern/terraflux-py/src`:
+
+```bash
+python website/tools/one_at_a_time.py -- python website/tools/metrics_catalog.py            # check, run, write the JSON
+python website/tools/one_at_a_time.py -- python website/tools/metrics_catalog.py --strict   # also fail on uncovered metrics
+python website/tools/one_at_a_time.py -- python website/tools/metrics_catalog.py --check    # write nothing; JSON up to date?
+```
+
+It **fails** on: an unknown or missing key, a wrong type, a duplicate id (site-wide), an entry (or `variants`) the library
+does not have, a `level` that is not the library's, an operator that is not in `data/ops.json` or a `setting` that is not
+one of its settings, an `api` path not in `data/python_api.json`, a call that raises, a family without its page or whose
+page lacks the `example:` code. It **reports** (a list per library; a failure only with `--strict`) the metrics the library
+has that no entry covers. Commit the YAML and the regenerated `metrics.json` together.
+
+**Family file** (`<family>.yaml`; the name is the `family` slug): `family`, `title`, `order` (position in the section),
+`source` (e.g. "landscapemetrics (R) / FRAGSTATS"), `intro` (Markdown, shown at the top of the family's page), `example`
+(the Python that makes the example map or surface; see below), `metrics` (the list). Optional: `library` (`lsm` or
+`surface`: the names, calls, operators and values are then generated from the library's own list; leave it out and give
+every entry its own `python:`), `prefix` (what precedes the library's name in an id, e.g. `surface_` so `surface_sa` is
+`tf.surface.sa`), `data` (the example's variable the generated calls use: `landscape` or `z` by default).
+
+**Entry**: required `id` (the anchor and the search key; for lsm the function name, `lsm_c_ca`), `name`, `level` (patch,
+class, landscape, cell, map, network, node, link, region, species, model...), `theme` (a small fixed vocabulary per family:
+the groups of the page), `unit` and `range` (plain text, no Markdown), `what` (2 to 3 sentences, Markdown), `formula` (LaTeX
+without delimiters, or a list of them: each becomes a display formula), `symbols` (a mapping from a LaTeX symbol, in
+**single quotes** because of the backslashes, to its meaning, inline Markdown), `use` (when to use it or avoid it).
+Optional: `python` (the call or a snippet, when it is not generated; its last expression, or `result`, is the value),
+`operator` and `setting` (when not generated: the operator page and the text of the setting, such as `metrics = ["ca"]`),
+`api` (the Python path of the reference, default the library's function), `refs` (Markdown references, verified), `aliases`
+(other names people search for: they go to the search entry's title), `variants`.
+
+Write the formulas in your own words (FRAGSTATS and landscapemetrics are the references, not text to copy) and check each
+against the library's code (`extern/terraflux-py/src/cpp/lsm/metrics.cpp`, `src/terraflux/surface/`): the card says what the
+code computes, units included. `what` and `use` may use `[`tf.x`][terraflux.x]` and `[[operator]]` links.
+
+**Variants.** `variants: [mn, sd, cv, am, md, ra]` on a patch metric (`lsm_p_area`) adds the library's class- and
+landscape-level statistics of it (`lsm_c_area_mn`, `lsm_l_area_sd`... those the library has) to the same card, as a table
+with the example values; each variant id has its own anchor (the table row), search entry and row in the index, pointing to
+the card, and counts as covered.
+
+**Pages.** `content/metrics/<family>.md`: front matter, the line `::: metrics <family>` (the intro, then a heading per theme
+and the cards), and a section `## The example map {#example}` holding **one complete Python example**, a ```` ```python ````
+block that contains the family's `example:` code as it is, then its ```` ```text ```` output (checked by
+`check_python_blocks.py --outputs metrics/<family>.md`). `content/metrics/index.md` ends with `::: metrics-index`: the list of
+every metric, filtered in the browser by words, family, theme and level (`static/js/metrics.js`; a plain table without
+JavaScript). The section's address and main-menu entry are in `site.yaml` (`nav`, `sections`). A new family needs a Lib
+class in `tools/metrics_catalog.py` when it has a library list (or none, with `python:` in each entry).
+
 ## Figures: made from real runs
 
 Every map, chart and table of results comes from **running Terraflux**, by a script kept in the repository so

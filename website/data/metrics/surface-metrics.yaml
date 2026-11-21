@@ -1,0 +1,91 @@
+family: surface-metrics
+title: Surface metrics
+order: 20
+source: geodiv (R) / ISO 25178
+library: surface
+prefix: surface_
+data: z
+intro: |
+  The metrics of a **continuous surface**: an elevation model, an NDVI image, a canopy-height model, any raster whose
+  cells are measurements and not classes. They come from the surface texture parameters of ISO 25178 and the R package
+  [geodiv](https://cran.r-project.org/package=geodiv), which brought them to landscape ecology as *gradient surface
+  metrics*. They need no classification into patches. A trend (a slope across the whole map) is usually removed first,
+  so that the metrics describe the texture and not the tilt: `tf.surface.remove_plane`, or use a map that has had it
+  removed.
+
+  A metric is computed on all the cells with a value, or in a moving window with `tf.surface.window_metrics`. Heights
+  are in the unit of the raster, and the metrics that are not unitless say so on their card.
+example: |
+  import terraflux as tf
+
+  # NDVI of a part of south-western Oregon (371 x 371 cells), the best-fitting trend already removed
+  z = tf.load_raster(tf.surface.example_data("normforest"))
+metrics:
+  - id: surface_sa
+    name: Average roughness (Sa)
+    level: map
+    theme: amplitude
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more; 0 for a flat surface"
+    aliases: [Sa, arithmetical mean height, mean absolute deviation]
+    what: |
+      The typical distance of a cell's value from the surface's mean: how rough the surface is, in the surface's own
+      unit. It is the most used amplitude parameter, simple to read and little affected by a few extreme cells.
+    use: |
+      Use it to compare the roughness of two surfaces in the same unit (the NDVI of two forests, the elevation of two
+      terrains). It does not tell the shape of the roughness, only its size: pair it with `Ssk` and the spatial metrics
+      to know whether the roughness comes from peaks or valleys, and how far apart they are.
+    formula: |
+      \mathrm{Sa} = \frac{1}{N} \sum_{k=1}^{N} \left| z_k - \bar{z} \right|
+    symbols:
+      'N': the number of cells with a value
+      'z_k': the value of cell \(k\)
+      '\bar{z}': the mean of the values, \(\frac{1}{N}\sum_k z_k\)
+    refs:
+      - "ISO 25178-2:2021. Geometrical product specifications (GPS) - Surface texture: areal - Part 2: Terms, definitions and surface texture parameters."
+
+  - id: surface_sq
+    name: Root mean square roughness (Sq)
+    level: map
+    theme: amplitude
+    unit: the unit of the surface (here NDVI)
+    range: "0 or more, never below Sa"
+    aliases: [Sq, RMS roughness, standard deviation of heights, root mean square height]
+    what: |
+      The standard deviation of the surface's values, in the surface's unit. Like Sa it measures how far the values
+      spread from the mean, but it squares the differences first, so a few high peaks or deep valleys weigh more.
+    use: |
+      Use it as the spread of the heights, and as the scale that the shape metrics (`Ssk`, `Sku`) are divided by. Sq is at
+      least as large as Sa, and much larger when there are outliers. Terraflux divides by the number of cells, as
+      ISO 25178 does; the R package geodiv divides by one less (the sample standard deviation), which differs by a
+      factor of \(\sqrt{(N-1)/N}\), negligible for a real map.
+    formula: |
+      \mathrm{Sq} = \sqrt{\frac{1}{N} \sum_{k=1}^{N} \left( z_k - \bar{z} \right)^2}
+    symbols:
+      'N': the number of cells with a value
+      'z_k': the value of cell \(k\)
+      '\bar{z}': the mean of the values
+
+  - id: surface_ssk
+    name: Skewness (Ssk)
+    level: map
+    theme: amplitude
+    unit: none
+    range: "no fixed limits; 0 for a symmetric distribution of values"
+    aliases: [Ssk, skewness of heights, asymmetry of the height distribution]
+    what: |
+      Whether the surface's values are balanced around the mean or lean to one side. A negative value means that valleys
+      (values far below the mean) dominate over peaks, as in a plateau cut by gullies or a canopy with gaps; a positive
+      value means isolated peaks stand out over a flat floor.
+    use: |
+      Use it to tell apart surfaces that have the same Sa or Sq but a different shape. It is unitless, so it compares
+      surfaces in different units. It is sensitive to a few extreme cells, and is defined only when there are more than
+      two cells with a value. The value of the library is the adjusted one (the correction factor on the right), as the
+      adjusted Fisher-Pearson coefficient; `adj=False` leaves it out.
+    formula: |
+      \mathrm{Ssk} = \frac{\sqrt{N(N-1)}}{N-2} \cdot \frac{\frac{1}{N} \sum_{k=1}^{N} \left( z_k - \bar{z} \right)^3}{\mathrm{Sq}^3}
+    symbols:
+      'N': the number of cells with a value
+      'z_k': the value of cell \(k\)
+      '\bar{z}': the mean of the values
+      '\mathrm{Sq}': the root mean square roughness, above

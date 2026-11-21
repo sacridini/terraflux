@@ -40,6 +40,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 from lib import offline as OFFLINE  # noqa: E402
+from lib.metrics import Catalog  # noqa: E402
 from lib.pyapi import Api, ApiError  # noqa: E402
 from lib.tfgraph import GraphError, Renderer, esc  # noqa: E402
 
@@ -269,7 +270,7 @@ fecolormatrix fecomposite feflood femerge femergenode fedropshadow feturbulence 
 # Tags the pages do write but texts also use as placeholders (<output>, <label>): a tag when it opens with attributes
 # (the sliders' <label class="sl-label"> and <output class="sl-value">, the tabs' <label for="__tabbed_1_1">) or
 # closes, a placeholder when it is bare.
-ATTR_TAGS = {"label", "output"}
+ATTR_TAGS = {"label", "output", "select", "option"}  # (select and option: the metrics index's filters)
 
 
 def _known_tag(name: str, attrs: str = "", closing: bool = False) -> bool:
@@ -877,6 +878,18 @@ def expand_includes(text: str, page: Page) -> str:
     return INCLUDE.sub(rep, text)
 
 
+def _api_url(path: str) -> str | None:
+    url = API.url_of(path)
+    if not url:
+        API.unresolved.append(path)
+    return url
+
+
+# the metrics catalog (tools/metrics_catalog.py makes data/metrics.json): `::: metrics <family>` and `::: metrics-index`
+METRICS = Catalog(DATA / "metrics.json", {
+    "md": doc_md, "md_inline": md_inline, "op_links": op_links, "highlight": highlight, "op_url": op_url,
+    "api_url": _api_url, "ops": OPS, "warn": warn})
+
 FIG = re.compile(r'<p>\s*<img alt="([^"]*)" src="([^"]+)"(?: title="([^"]*)")?\s*/?>\s*</p>')
 
 
@@ -941,10 +954,11 @@ def render_markdown(page: Page) -> None:
         cfg["toc"]["toc_depth"] = f"2-{int(page.meta['toc_depth'])}"
     md = markdown.Markdown(extensions=MD_EXT, extension_configs=cfg)
     body = expand_includes(page.body, page)
+    body = METRICS.expand(body, page.src)
     body = API.expand(body, page.src, render_api)
     body = API.autorefs(body)
     body = op_links(body)
-    out = API.fill(md.convert(body))
+    out = METRICS.fill(API.fill(md.convert(body)))
     out = figures(out)
     out = _wrap_code(out)
     out = tables(out)
@@ -1430,7 +1444,7 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
     for p in pages:
         render_markdown(p)
     cats = tutorial_tree(all_pages)
-    asset_v = hashlib.sha1(b"".join((STATIC / x).read_bytes() for x in ("css/site.css", "js/site.js") if (STATIC / x).exists())).hexdigest()[:8]
+    asset_v = hashlib.sha1(b"".join((STATIC / x).read_bytes() for x in ("css/site.css", "js/site.js", "js/metrics.js") if (STATIC / x).exists())).hexdigest()[:8]
     env.globals["asset_v"] = asset_v
     env.globals["calc_v"] = calc_version()
     dl = downloads()
@@ -1481,6 +1495,12 @@ def build(out: pathlib.Path, only: str | None = None, check=False, offline=False
         o = API.objects[canon]
         plain = re.sub(r"\[`?([^\]`]*)`?\]\[[^\]]*\]", r"\1", o["summary"]).replace("`", "")
         search.append({"u": url.lstrip("/") + "#" + anchor, "t": anchor, "s": "Python API", "h": "", "x": plain})
+    # every metric of the catalog (and each statistic that shares a card) is a search entry, at its card's anchor
+    page_urls = {p.url for p in all_pages}
+    search += METRICS.search_entries(search_entry, page_urls)
+    for fam in METRICS.families:
+        if f"/metrics/{fam['family']}/" not in page_urls:
+            warn(f"metrics: family {fam['family']} has no page content/metrics/{fam['family']}.md")
     opgroups = operators_pages()
     used_in, templates_of = operator_usage(all_pages, cats)
     cites = operator_citations(list(OPS))

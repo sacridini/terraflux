@@ -6,7 +6,8 @@
     python website/tools/check_python_blocks.py --python PATH --jobs 2 --timeout 900
     python website/tools/check_python_blocks.py --outputs tutorials/x/y.md   # the ```text blocks must match
 
-The pages: content/python/** and every page of content/tutorials/** with a runnable ```python block (the
+The pages: content/python/**, content/metrics/** (the metrics catalog's family pages, each with one example whose
+```text output is checked) and every page of content/tutorials/** with a runnable ```python block (the
 `### In Python` sections of the tutorials' parts, the `*-in-python.md` pages). Every fenced ```python block
 of a page runs in order, the blocks of one page sharing a namespace, in a temporary working directory (what the
 examples write goes there). For a tutorial's part (tutorials/<category>/<part>.md) that directory starts with the
@@ -126,7 +127,7 @@ def pages(args: list[str]) -> list[pathlib.Path]:
                 sys.exit(f"{a}: no such page (paths are relative to website/content)")
             out.append(p.resolve())
         return out
-    found = set(CONTENT.glob("python/**/*.md"))
+    found = set(CONTENT.glob("python/**/*.md")) | set(CONTENT.glob("metrics/**/*.md"))
     found |= {p for p in (CONTENT / "tutorials").rglob("*.md") if next(blocks(p.read_text(encoding="utf-8")), None)}
     return sorted(p for p in found if not p.name.startswith("_"))
 

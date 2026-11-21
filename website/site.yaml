@@ -50,6 +50,7 @@ nav:
   - { title: Parallel computing, url: /parallel/ }
   - { title: Python, url: /python/ }
   - { title: CLI, url: /cli/ }
+  - { title: Metrics, url: /metrics/ }
   - { title: Operators, url: /operators/ }
   - { title: Benchmarks, url: /benchmarks/ }
 
@@ -71,6 +72,7 @@ sections:
   parallel: { title: Parallel and distributed computing, dir: parallel }
   cli: { title: CLI reference, dir: cli }
   benchmarks: { title: Benchmarks, dir: benchmarks }
+  metrics: { title: Metrics, dir: metrics }
   about: { title: About, dir: about }
   glossary: { title: Glossary, dir: glossary }
 
