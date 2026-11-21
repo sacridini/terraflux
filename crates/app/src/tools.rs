@@ -74,7 +74,7 @@ ecology, connectivity and conservation planning. A model is a file (.toml or .js
 build and change it with these tools, not by writing the file.
 
 - Read the guide of the field first (guide with `topic`): land-change, connectivity, landscape-metrics, \
-conservation-planning, species-distribution, hydrology, objects, data-preparation give the method step by step, with its \
+conservation-planning, species-distribution, hydrology, objects, movement, multivariate, data-preparation give the method step by step, with its \
 operators and templates; nodes, calc, containers, record and results tell how a model is built.
 - Start from a template (list_templates with a `query`; new_model with `template`): a small model that runs as it \
 is, its data drawn by neutral landscape models (nlm.*), to be replaced by raster.read nodes of the user's files \
@@ -126,7 +126,7 @@ undo it (ctrl+Z). Answer in the user's language and briefly; say what you change
 or settings. To build a new model, start from list_templates (new_model with `template` puts one in place of the \
 model open, only when the user wants a new model).
 - guide gives the method of each field step by step, with its operators and templates (land-change, \
-connectivity, landscape-metrics, conservation-planning, species-distribution, hydrology, objects, data-preparation): read \
+connectivity, landscape-metrics, conservation-planning, species-distribution, hydrology, objects, movement, data-preparation): read \
 the field's \
 before building or reviewing a model of it. check_model advises on the method too: follow its warnings.
 - Every edit is checked: a connection of the wrong type, a port the operator does not have, a cycle, is refused \

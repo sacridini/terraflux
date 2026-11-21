@@ -5200,7 +5200,20 @@ Do amt 0.3.1 (fase 5), **entra**: `hr_mcp`, `hr_kde` com as larguras de banda `h
   segmentos de corredor. `emd` pelo Sinkhorn (`reg`, `max_iter`, `tol`, `mask_quantile`, o custo euclidiano ou o de
   grande círculo `gc`) como `move.ud_distance` (tabela por par de bandas); o método exato (o `emdist`, código de
   Rubner) só se a licença dele permitir portar, senão fica de fora.
-- **6. Do movimento para a paisagem (M).** `move.validate`: o UD (ou os pontos, ou os segmentos de corredor) contra
+- **6. Do movimento para a paisagem (M). Feito (2026-11-21):** 6a, `move.validate` (commits b5a96d9 e 6814e17; as
+  definições são nossas, porque só o resumo de Zeller et al. 2018 foi lido; as portas a jusante não precisaram de
+  mudança: as isopletas e os polígonos de `move.home_range` e `move.ud_volume` entram como vetor nas métricas e na
+  priorização como saem, e as linhas de `move.corridor` pedem `vector.buffer` antes do `metrics.sample`). 6b: três
+  templates novos no grupo *Movement* (`crates/app/src/templates.rs`, teste `the_movement_templates_run`): "Home range
+  of a track" (MCP, KDE e dBBMM com contornos de 0,5 e 0,95, as áreas em três gráficos de barras),
+  "Observed corridors against current" (dBBMM, `move.corridor`, `circuit.omniscape`, `move.validate` do UD e das
+  linhas; a resistência do `nlm.gaussian_field` marcada como dado do "Use my data") e "Cleaning a track" (GPS,
+  `move.flag_speed` com o limite de `move.max_speed`, `move.thin_time`; os fixes ruins entram por `table.calc`);
+  o tópico `movement` do guia do MCP (`crates/app/src/guide.rs`, também na lista das instruções, onde faltava o
+  `multivariate`); e os conselhos do `check_model` (`movement_advice` em `crates/app/src/advice.rs`: dBBMM e dBGB sem
+  `location_error`, janela par ou menor que 2 margens + 1, janela sem folga ou curta, grade com mais de 4e6 células,
+  amostragem que nada no modelo olha, `move.flag_speed` sem limite ou com dois e sem o filtro de qualidade do GPS).
+  O plano era: `move.validate`: o UD (ou os pontos, ou os segmentos de corredor) contra
   uma superfície de conectividade (a corrente do Circuitscape / Omniscape, a resistência, um corredor de menor
   custo): a correlação de postos de Spearman entre o uso e a superfície, a fração do UD dentro dos corredores e a
   razão de uso entre dentro e fora (Zeller et al. 2018), numa tabela e numa nota. As áreas de vida e as isopletas

@@ -420,6 +420,69 @@ ask for more samples where the model hesitates; then objects.sample and objects.
 the polygons are written beside the model.",
     },
     Guide {
+        name: "movement",
+        title: "Animal movement: from a Movebank file to home ranges, corridors and the validation of a connectivity surface",
+        text: "\
+1. Read: move.read_tracks reads a Movebank CSV (or a zip of them) as points with their time and track (the \
+individual); move.as_tracks takes any points or a table of x and y with a time, ordered by track and time, which \
+every move node needs. move.filter_movebank_visible drops what Movebank hides, move.filter_unique the duplicated \
+times of a track. move.simulate_brownian draws tracks to try a method on. Check the coordinate system: areas, \
+speeds and distances are in its units, so use a projected one in metres (vector.reproject, or move.aeqd_crs, the \
+local azimuthal equidistant projection centred on the tracks). Nodes that need metres (move.random_steps, \
+move.home_range) refuse degrees; the dBBMM and dBGB, move.corridor and the speeds project longitude / latitude \
+themselves.
+2. Clean, in this order: move.filter_gps_quality (satellites, dilution of precision, accuracy estimate: Movebank's \
+columns; a column the file lacks skips its criterion, so say which applied), then speeds that cannot be real: \
+move.max_speed gives the allometric ceiling of a body mass and locomotion mode (Hirt et al. 2017; a ceiling, not a \
+cruising speed) and move.flag_speed flags both ends of a step above it (v_max, or mass and mode; remove = true \
+drops them). Then thin to one sampling interval: move.thin_time (a chain of locations about an interval apart; a \
+longer gap splits the track), move.thin_distance, move.filter_per_interval (one per clock bucket), or \
+move.resample (bursts of regular fixes, which the later nodes take as tracks of their own) and \
+move.filter_min_n_burst. Template \"Cleaning a track\".
+3. Look at the sampling before anything else: move.time_lags, move.speed, move.track_summary, move.steps (length, \
+direction, turn of each step), move.nsd (net squared displacement: residents level off, migrants keep growing), \
+move.time_of_day. Most methods below suppose a regular interval: dBBMM, corridors and step selection each read \
+the lags in their own way.
+4. Steps and selection (SSF, iSSF): move.steps, move.fit_distribution (gamma or exponential for the lengths, von \
+Mises for the turns) and move.random_steps (n_control random steps for each observed one, case_ 1 and 0, \
+step_id_ the stratum), then move.extract_covariates from the rasters (where = end for the cells the steps end in; \
+where = along for the cells the step crosses, with the mean, min, max, ascent, descent and delta of each raster). \
+The conditional logistic regression itself is fitted outside Terraflux (amt's fit_issf). The covariates' grids \
+must be one grid, the steps in a projected system, and the covariates should be what the animal can sense at the \
+scale of a step.
+5. Home ranges: move.home_range, method mcp (the polygon of the share of the locations nearest the centre; \
+reported by most papers, so useful to compare), kde (amt's reference bandwidth by default; lscv or pi follow the \
+data closer; its UD sums to 1) or locoh (k, a or r hulls). `levels` 0.5 and 0.95 give the core and the home \
+range. Compare two tracks' overlap with move.home_range_overlap (hr, phr, vi, ba, udoi, hd), and the use inside \
+a polygon with move.intensity_use. The areas depend on the sample size, the method and the bandwidth: report \
+all three. Template \"Home range of a track\".
+6. Utilisation distributions that use time: move.dbbmm_variance and move.dbbmm_ud (the dynamic Brownian bridge), \
+move.dbgb_variance and move.dbgb_ud (directional, for persistent movement; they need long tracks). The \
+location_error (metres: a number, a column, or auto for Movebank's accuracy columns) is part of the method: leave \
+it out and the error is read as movement, and the distribution widens. window_size and margin are odd, \
+window_size at least 2 margin + 1 (the variance needs room around each location): move.suggest_window proposes \
+them from the sampling (about four hours of locations). The grid: dim_size (cells along the longest side) or res, \
+widened by ext_factor; the cost is the cells times the steps, so run a coarse grid first, and give `like` a \
+raster to compare UDs on one grid. move.mask_segments leaves out the bridges across long gaps; move.ud_volume \
+gives each cell's volume and the contours at `levels` (the 95 % contour of a UD that reaches the grid's edge is \
+an error: enlarge the grid, ext_factor). move.ud_outer_probability says how far outside the UD each location is.
+7. Corridors and how alike the UDs are: move.corridor marks the segments that are fast and go the same way as \
+their neighbours (LaPoint et al. 2013; give speed_threshold and circvar_threshold, or the quantiles of each \
+track make the flag relative to the data), and gives them as lines. move.ud_distance is the earth mover's \
+distance between UDs of one grid (Sinkhorn, or exact on small grids).
+8. Validate a connectivity surface with the movement: move.validate (Zeller et al. 2018) takes a surface (a \
+current from circuit.omniscape, circuit.pairwise or a cost-distance kernel; a resistance, with kind resistance; \
+a least-cost corridor, with kind binary) and the use (a UD, the tracks' points, or the corridor lines of \
+move.corridor) and gives, for each track and pooled, Spearman's rho between the use and the surface, the share \
+of the use inside the best cells (quantile, default 0.9) over the share of the area (use_ratio above 1: more use \
+than chance). There is no p-value (neighbouring cells are not independent): read it as an effect size, and \
+validate on tracks the surface was not made from. Template \"Observed corridors against current\".
+Pitfalls: degrees where metres are needed; a UD without location error; an irregular sampling interval taken as \
+regular (thin first); fixes with a bad geometry or speed left in; a grid too coarse to hold a bridge or so fine \
+that the run takes hours; areas compared between animals with a different number of fixes. check_model advises \
+on several of these.",
+    },
+    Guide {
         name: "hydrology",
         title: "Terrain hydrology and SWAT+: flow, streams, watersheds, a watershed model",
         text: "\

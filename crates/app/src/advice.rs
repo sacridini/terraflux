@@ -402,6 +402,9 @@ pub fn advise(m: &Model, r: &Registry, dir: &Path, inputs: Option<&BTreeMap<Stri
     // object-based classification: the training and the prediction objects, the validation samples, the rules' attributes
     out.extend(objects_advice(&nodes));
 
+    // movement: location error, windows, sampling, the UD's grid, the speed limit
+    out.extend(movement_advice(&nodes, inputs));
+
     // outputs that will not fit the disk
     out.extend(crate::disk::advice(m, r, dir));
 
@@ -577,6 +580,195 @@ const PRIORITIZATIONS: [&str; 4] =
 
 /// The operators that clean or thin the records of a species.
 const THINNING: [&str; 4] = ["sdm.thin", "sdm.one_per_cell", "sdm.prepare", "sdm.clean_occurrences"];
+
+/// The operators that make the sampling interval regular, or tell it (the answer to its irregularity).
+const SAMPLING: [&str; 6] = [
+    "move.thin_time",
+    "move.resample",
+    "move.filter_per_interval",
+    "move.suggest_window",
+    "move.time_lags",
+    "move.interpolate",
+];
+
+/// A literal setting of a node, as a number (none: not given, or not a plain number).
+fn number_of(n: &Node, name: &str) -> Option<f64> {
+    n.params.get(name).and_then(|v| v.as_f64())
+}
+
+/// Whether a setting is given: not missing, null, empty, `none` or 0 (a setting read from an input counts as given).
+fn given(n: &Node, name: &str) -> bool {
+    match n.params.get(name) {
+        None | Some(serde_json::Value::Null) => false,
+        Some(serde_json::Value::String(s)) => !(s.trim().is_empty() || s.trim().eq_ignore_ascii_case("none")),
+        Some(serde_json::Value::Number(x)) => x.as_f64().is_some_and(|x| x != 0.0),
+        Some(_) => true,
+    }
+}
+
+/// The advice on movement analysis, from the graph (and the tracks of the inputs, when loaded): the dynamic Brownian
+/// bridges without the location error or with a window the method cannot use well, a utilisation distribution
+/// on a grid of too many cells, a regular sampling nothing in the model secures, a speed limit not given or given
+/// twice, speeds flagged before the GPS quality is.
+fn movement_advice(nodes: &[&Node], inputs: Option<&BTreeMap<String, Value>>) -> Vec<Advice> {
+    let mut out = Vec::new();
+    let has = |ops: &[&str]| nodes.iter().any(|n| ops.contains(&n.op.as_str()));
+    let model_of = |op: &str| if op.starts_with("move.dbgb") { "dBGB" } else { "dBBMM" };
+    let is_bridge =
+        |op: &str| ["move.dbbmm_variance", "move.dbbmm_ud", "move.dbgb_variance", "move.dbgb_ud"].contains(&op);
+    for n in nodes.iter().copied().filter(|n| is_bridge(&n.op)) {
+        let is_ud = n.op.ends_with("_ud");
+        // (a UD reading the variance of another node uses its columns: the variance node is the one to check)
+        let variance_upstream = is_ud
+            && reads(n, "tracks")
+                .is_some_and(|r| upstream(nodes, r).iter().any(|u| u.op == n.op.replace("_ud", "_variance")));
+        let at = vec![n.id.clone()];
+        let what = model_of(&n.op);
+        if !variance_upstream {
+            if !given(n, "location_error") {
+                out.push(Advice {
+                    level: Level::Warning,
+                    at: at.clone(),
+                    message: format!(
+                        "no location_error: the {what} adds the error of each fix to the bridge's variance, and \
+                         without it the error of a GPS is read as movement, so the variance and the distribution \
+                         come out too large. Give the standard deviation of the error in metres (a number, a column \
+                         of the tracks, or auto for Movebank's accuracy columns)"
+                    ),
+                    guide: "movement",
+                });
+            }
+            let default_margin = if what == "dBGB" { 15 } else { 11 };
+            let (size, margin) = (
+                number_of(n, "window_size").map_or(31, |x| x as i64),
+                number_of(n, "margin").map_or(default_margin, |x| x as i64),
+            );
+            let explicit = n.params.contains_key("window_size") || n.params.contains_key("margin");
+            if size % 2 == 0 || margin % 2 == 0 || size < 2 * margin + 1 {
+                out.push(Advice {
+                    level: Level::Warning,
+                    at: at.clone(),
+                    message: format!(
+                        "window_size {size} and margin {margin}: both must be odd and window_size at least \
+                         2 * margin + 1 ({}), or the node is refused; move.suggest_window proposes them from the \
+                         sampling",
+                        2 * margin + 1
+                    ),
+                    guide: "movement",
+                });
+            } else if explicit && size - 2 * margin < 3 {
+                out.push(Advice {
+                    level: Level::Advice,
+                    at: at.clone(),
+                    message: format!(
+                        "window_size {size} with margin {margin} leaves {} location(s) of each window to the \
+                         estimate: the variance of the {what} is then close to the bridge's of one location. A \
+                         margin of about a quarter of the window is the usual (move.suggest_window)",
+                        size - 2 * margin
+                    ),
+                    guide: "movement",
+                });
+            } else if explicit && size < 11 {
+                out.push(Advice {
+                    level: Level::Advice,
+                    at: at.clone(),
+                    message: format!(
+                        "a window of {size} locations is short for a variance (move.suggest_window takes 11 at \
+                         least): the estimate follows the noise"
+                    ),
+                    guide: "movement",
+                });
+            }
+        }
+        if is_ud {
+            // the grid: cells along the longest side, or the cells' size over the tracks' extent
+            let cells = if let Some(d) = number_of(n, "dim_size") {
+                Some(d * d)
+            } else if let (Some(res), Some(Value::Vector(v))) = (
+                number_of(n, "res").filter(|r| *r > 0.0),
+                reads(n, "tracks").and_then(|r| inputs?.get(r.strip_prefix('$')?)),
+            ) {
+                v.bounds().map(|b| {
+                    let widen = 1.0 + 2.0 * number_of(n, "ext_factor").unwrap_or(0.5);
+                    ((b[2] - b[0]) * widen / res).ceil().max(1.0) * ((b[3] - b[1]) * widen / res).ceil().max(1.0)
+                })
+            } else {
+                None
+            };
+            if let Some(c) = cells.filter(|c| *c > 4.0e6) {
+                out.push(Advice {
+                    level: Level::Advice,
+                    at: at.clone(),
+                    message: format!(
+                        "the grid has about {c:.1e} cells: the cost of the distribution grows with the cells times \
+                         the steps of the bridges, and it is memory too. Run a coarse grid first (dim_size 100 or a \
+                         larger res), and a fine one only for the final figure; a cell much smaller than the \
+                         location error says nothing more"
+                    ),
+                    guide: "movement",
+                });
+            }
+        }
+    }
+    // the sampling interval: the bridges, the corridors and the steps read the lags as if they were regular
+    let needs_regular: Vec<&Node> = nodes
+        .iter()
+        .copied()
+        .filter(|n| is_bridge(&n.op) || n.op == "move.corridor" || n.op == "move.random_steps")
+        .collect();
+    if !needs_regular.is_empty() && !has(&SAMPLING) {
+        out.push(Advice {
+            level: Level::Advice,
+            at: ids(&needs_regular),
+            message: "nothing in the model looks at the sampling interval, and these read the lags between fixes as \
+                      if they were regular (a corridor's search radius, a step selection's steps, a bridge's \
+                      window): see the lags (move.time_lags, move.suggest_window), then thin to one interval \
+                      (move.thin_time) or cut at the gaps (move.resample, move.mask_segments)"
+                .into(),
+            guide: "movement",
+        });
+    }
+    for n in nodes.iter().copied().filter(|n| n.op == "move.flag_speed") {
+        let (v_max, mass, mode) = (given(n, "v_max"), given(n, "mass"), given(n, "mode"));
+        if !v_max && !(mass && mode) {
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: "no speed limit: give v_max (m/s, the species' own when it is known), or the body mass and \
+                          the locomotion mode (flying, running or swimming: move.max_speed says what limit they \
+                          make); the node is refused without one"
+                    .into(),
+                guide: "movement",
+            });
+        } else if v_max && (mass || mode) {
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: "v_max and mass or mode both given: give the limit one way, v_max or the body mass with its \
+                          mode; the node is refused with both"
+                    .into(),
+                guide: "movement",
+            });
+        }
+        // (tracks read from an input of the model may have been filtered before they came: not told)
+        let from_node = reads(n, "tracks").is_some_and(|r| !r.starts_with(['$', '@']));
+        let filtered =
+            reads(n, "tracks").is_some_and(|r| upstream(nodes, r).iter().any(|u| u.op == "move.filter_gps_quality"));
+        if from_node && !filtered {
+            out.push(Advice {
+                level: Level::Advice,
+                at: vec![n.id.clone()],
+                message: "the speeds are flagged on tracks whose GPS quality is not filtered first: poor fixes (few \
+                          satellites, a high dilution of precision) make the false jumps, and a limit tight enough \
+                          for them cuts real movement too. Put move.filter_gps_quality upstream (it also drops the \
+                          locations without a position, which move.flag_speed needs gone)"
+                    .into(),
+                guide: "movement",
+            });
+        }
+    }
+    out
+}
 
 /// The number of years of a step close to the one asked that divides the period (for the advice).
 fn divisor(years: i64, steps: i64) -> i64 {
@@ -999,6 +1191,157 @@ mod tests {
         // a texture column of a band
         let a = model(None, "above(glcm_contrast_b4, 0.1, 0.5)");
         assert!(a.iter().any(|a| a.message.contains("glcm_contrast_b4") && a.message.contains("add texture")), "{a:?}");
+    }
+
+    fn movement(nodes: Vec<Node>, inputs: Option<&BTreeMap<String, Value>>) -> Vec<Advice> {
+        let mut m = Model::new("move");
+        m.nodes.extend(nodes);
+        advise(&m, &registry(), Path::new("."), inputs)
+    }
+
+    fn said(a: &[Advice], level: Level, text: &str) -> bool {
+        a.iter().any(|a| a.level == level && a.message.contains(text))
+    }
+
+    #[test]
+    fn bridges_without_the_location_error() {
+        let ud = || Node::new("ud", "move.dbbmm_ud").input("tracks", "$tracks").param("dim_size", 60);
+        let a = movement(vec![ud()], None);
+        assert!(said(&a, Level::Warning, "no location_error"), "{a:?}");
+        assert_eq!(a.iter().find(|a| a.message.contains("no location_error")).unwrap().guide, "movement");
+        // (none, an empty text and 0 are none as well)
+        for none in [serde_json::json!("none"), serde_json::json!(0), serde_json::json!("")] {
+            let a = movement(vec![ud().param("location_error", none)], None);
+            assert!(said(&a, Level::Warning, "no location_error"), "{a:?}");
+        }
+        for given in [serde_json::json!(10), serde_json::json!("auto"), serde_json::json!("accuracy")] {
+            let a = movement(vec![ud().param("location_error", given)], None);
+            assert!(!said(&a, Level::Warning, "no location_error"), "{a:?}");
+        }
+        // the directional one too, and the variance alone
+        let a = movement(vec![Node::new("v", "move.dbgb_variance").input("tracks", "$tracks")], None);
+        assert!(said(&a, Level::Warning, "dBGB"), "{a:?}");
+        // a UD that reads the variance of another node has its columns: that node is the one told
+        let var = Node::new("var", "move.dbbmm_variance").input("tracks", "$tracks");
+        let a = movement(vec![var.clone(), ud().input("tracks", "var.tracks")], None);
+        assert_eq!(a.iter().filter(|a| a.message.contains("no location_error")).count(), 1, "{a:?}");
+        assert_eq!(a.iter().find(|a| a.message.contains("no location_error")).unwrap().at, ["var"]);
+        let a = movement(vec![var.param("location_error", 5), ud().input("tracks", "var.tracks")], None);
+        assert!(!said(&a, Level::Warning, "no location_error"), "{a:?}");
+    }
+
+    #[test]
+    fn windows_the_method_cannot_use() {
+        let var = |size: i64, margin: i64| {
+            Node::new("v", "move.dbbmm_variance")
+                .input("tracks", "$tracks")
+                .param("location_error", 10)
+                .param("window_size", size)
+                .param("margin", margin)
+        };
+        // refused: even, or too small for the margin
+        assert!(said(&movement(vec![var(30, 11)], None), Level::Warning, "both must be odd"));
+        assert!(said(&movement(vec![var(31, 10)], None), Level::Warning, "both must be odd"));
+        let a = movement(vec![var(21, 11)], None);
+        assert!(said(&a, Level::Warning, "at least 2 * margin + 1 (23)"), "{a:?}");
+        // accepted but with next to no room: a core of one location
+        let a = movement(vec![var(23, 11)], None);
+        assert!(said(&a, Level::Advice, "leaves 1 location(s)"), "{a:?}");
+        // a short window
+        let a = movement(vec![var(9, 3)], None);
+        assert!(said(&a, Level::Advice, "a window of 9 locations is short"), "{a:?}");
+        // the usual: none
+        let a = movement(vec![var(31, 11)], None);
+        assert!(!a.iter().any(|a| a.message.contains("window_size") || a.message.contains("location(s)")), "{a:?}");
+        // the defaults of the dBBMM are fine, the dBGB's say nothing unless they are given
+        let a = movement(
+            vec![Node::new("v", "move.dbgb_variance").input("tracks", "$tracks").param("location_error", 5)],
+            None,
+        );
+        assert!(!a.iter().any(|a| a.message.contains("window_size") || a.message.contains("location(s)")), "{a:?}");
+        // the margin's default of the dBGB (15) against a window given alone
+        let a = movement(
+            vec![
+                Node::new("v", "move.dbgb_variance")
+                    .input("tracks", "$tracks")
+                    .param("location_error", 5)
+                    .param("window_size", 31),
+            ],
+            None,
+        );
+        assert!(said(&a, Level::Advice, "leaves 1 location(s)"), "{a:?}");
+    }
+
+    #[test]
+    fn a_grid_of_too_many_cells() {
+        use terraflux_raster::vector::{Geometry, Vector};
+        let ud = |k: &str, v: serde_json::Value| {
+            Node::new("ud", "move.dbbmm_ud").input("tracks", "$tracks").param("location_error", 10).param(k, v)
+        };
+        let a = movement(vec![ud("dim_size", 3000.into())], None);
+        assert!(said(&a, Level::Advice, "cells"), "{a:?}");
+        assert!(!said(&movement(vec![ud("dim_size", 100.into())], None), Level::Advice, "cells"));
+        // a size of cell against the extent of the tracks, when they are loaded: 10 km by 10 km in cells of 1 m
+        let tracks = Value::Vector(Arc::new(Vector {
+            geometries: vec![Geometry::Point([0.0, 0.0]), Geometry::Point([10_000.0, 10_000.0])],
+            attributes: Vec::new(),
+            crs: None,
+        }));
+        let inputs = BTreeMap::from([("tracks".to_string(), tracks)]);
+        let a = movement(vec![ud("res", 1.into())], Some(&inputs));
+        assert!(said(&a, Level::Advice, "cells"), "{a:?}");
+        let a = movement(vec![ud("res", 100.into())], Some(&inputs));
+        assert!(!said(&a, Level::Advice, "cells"), "{a:?}");
+        // (not loaded: not told)
+        assert!(!said(&movement(vec![ud("res", 1.into())], None), Level::Advice, "cells"));
+    }
+
+    #[test]
+    fn a_sampling_nothing_looks_at() {
+        let ud = Node::new("ud", "move.dbbmm_ud").input("tracks", "$tracks").param("location_error", 10);
+        let a = movement(vec![ud.clone()], None);
+        assert!(said(&a, Level::Advice, "sampling interval") && a.iter().all(|a| a.level != Level::Warning), "{a:?}");
+        let thin = Node::new("thin", "move.thin_time").input("tracks", "$tracks").param("interval", "1 hours");
+        assert!(!said(&movement(vec![ud.clone(), thin], None), Level::Advice, "sampling interval"));
+        let lags = Node::new("window", "move.suggest_window").input("tracks", "$tracks");
+        assert!(!said(&movement(vec![ud, lags], None), Level::Advice, "sampling interval"));
+        let corridor = Node::new("c", "move.corridor").input("tracks", "$tracks");
+        assert!(said(&movement(vec![corridor], None), Level::Advice, "sampling interval"));
+    }
+
+    #[test]
+    fn a_speed_limit_not_given() {
+        let flag = || Node::new("speed", "move.flag_speed").input("tracks", "$tracks");
+        let a = movement(vec![flag()], None);
+        assert!(said(&a, Level::Warning, "no speed limit"), "{a:?}");
+        let a = movement(vec![flag().param("mass", 5)], None);
+        assert!(said(&a, Level::Warning, "no speed limit"), "{a:?}");
+        let a = movement(vec![flag().param("mode", "flying")], None);
+        assert!(said(&a, Level::Warning, "no speed limit"), "{a:?}");
+        for ok in [flag().param("v_max", 30), flag().param("mass", 5).param("mode", "flying")] {
+            let a = movement(vec![ok], None);
+            assert!(a.iter().all(|a| a.level != Level::Warning), "{a:?}");
+        }
+        let a = movement(vec![flag().param("v_max", 30).param("mass", 5)], None);
+        assert!(said(&a, Level::Warning, "both given"), "{a:?}");
+        // the GPS quality first, when the tracks come from a node of the model
+        let read = Node::new("read", "move.read_tracks").param("path", "tracks.csv");
+        let speed = || Node::new("speed", "move.flag_speed").input("tracks", "read.tracks").param("v_max", 30);
+        let a = movement(vec![read.clone(), speed()], None);
+        assert!(said(&a, Level::Advice, "GPS quality is not filtered"), "{a:?}");
+        let gps = Node::new("gps", "move.filter_gps_quality").input("tracks", "read.tracks");
+        let a = movement(vec![read, gps, speed().input("tracks", "gps.tracks")], None);
+        assert!(a.is_empty(), "{a:?}");
+    }
+
+    /// The movement templates follow the advice they give: nothing is told of them.
+    #[test]
+    fn the_movement_templates_are_told_nothing() {
+        let r = registry();
+        for t in crate::templates::TEMPLATES.iter().filter(|t| t.group == "Movement") {
+            let a = advise(&t.model(), &r, Path::new("."), None);
+            assert!(a.is_empty(), "{}: {a:?}", t.name);
+        }
     }
 
     /// The templates show good practice: none of them gets a warning.

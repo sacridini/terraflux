@@ -31,9 +31,11 @@ const SPECIES: &str = "Species";
 const LAND_CHANGE: &str = "Land change";
 const SURFACES: &str = "Surfaces and uncertainty";
 const OBJECTS: &str = "Objects (OBIA)";
+const MOVEMENT: &str = "Movement";
 
 /// The templates' groups, in the menu's order.
-pub const GROUPS: [&str; 8] = [PATTERNS, METRICS, CONNECTIVITY, CONSERVATION, SPECIES, LAND_CHANGE, SURFACES, OBJECTS];
+pub const GROUPS: [&str; 9] =
+    [PATTERNS, METRICS, CONNECTIVITY, CONSERVATION, SPECIES, LAND_CHANGE, SURFACES, OBJECTS, MOVEMENT];
 
 /// The classes of the land use drawn for the land change templates.
 const LAND_CLASSES: [(i64, &str); 3] = [(1, "forest"), (2, "farming"), (3, "water")];
@@ -474,7 +476,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 72] = [
+pub const TEMPLATES: [Template; 75] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -5524,7 +5526,346 @@ inputs = { table = "pca.loadings" }
 params = { title = "What each component reads (loadings)" }
 "#,
     },
+    Template {
+        name: "Home range of a track",
+        group: MOVEMENT,
+        toml: "",
+        build: Some(move_home_range),
+        about: "the area an animal uses, three ways: the minimum convex polygon, the kernel density (amt's bandwidths) \
+                and the dynamic Brownian bridge with its 50 % and 95 % contours, the areas side by side (the track is \
+                simulated, in its place move.read_tracks of your Movebank file)",
+    },
+    Template {
+        name: "Observed corridors against current",
+        group: MOVEMENT,
+        toml: "",
+        build: Some(move_validate),
+        about: "do the animals use the cells a connectivity model says they should: two tracks as a dynamic Brownian \
+                bridge and as LaPoint's corridor segments, checked against Omniscape's current (rank correlation, and \
+                the use inside the best 10 % of the cells); the resistance is drawn, in its place yours (Use my data)",
+    },
+    Template {
+        name: "Cleaning a track",
+        group: MOVEMENT,
+        toml: "",
+        build: Some(move_clean),
+        about: "a GPS track rid of its bad fixes before it is analysed: few satellites or a high dilution of precision \
+                (move.filter_gps_quality), steps faster than the animal can move (move.flag_speed, with the limit of \
+                its body mass), and thinned to a regular interval (move.thin_time)",
+    },
 ];
+
+/// The times of a simulated track, `n` of them `step` seconds apart, as a list for a setting.
+fn move_times(n: usize, step: usize) -> String {
+    (0..n).map(|i| (i * step).to_string()).collect::<Vec<_>>().join(", ")
+}
+
+/// The nodes that turn a simulated track into tracks in a projected coordinate system (what move.read_tracks gives):
+/// `sim` (move.simulate_brownian) draws the locations without a coordinate system, `points` makes their x and y
+/// columns, `track` points in `EPSG:32633`.
+const MOVE_TRACK: &str = r#"
+[[nodes]]
+id = "points"
+op = "vector.geometry"
+inputs = { vector = "sim.tracks" }
+note = "The locations as a table with their x and y beside the time and the track. A track you have as a table of x and y (a CSV) goes from here on: vector.from_table needs only that."
+
+[[nodes]]
+id = "track"
+op = "vector.from_table"
+inputs = { table = "points.table" }
+params = { crs = "EPSG:32633" }
+note = "The tracks as points in a projected coordinate system (metres), with the time and the track as columns: what every move node reads. In its place, move.read_tracks of your Movebank file (a track in degrees is projected first, vector.reproject, or left to the nodes that project it themselves)."
+why = "Areas, speeds and distances are measured in the coordinate system's units: metres, not degrees."
+"#;
+
+/// "Home range of a track".
+fn move_home_range() -> Model {
+    let text = r#"
+format = "terraflux/1"
+name = "Home range of a track"
+description = "The area an animal uses, estimated three ways from one track: the minimum convex polygon (MCP, the oldest and the one that grows with every outlying fix), the kernel density estimate (KDE, amt's reference bandwidth) and the dynamic Brownian bridge (dBBMM, Kranstauber et al. 2012: the track as bridges between consecutive locations, with the motion variance of each stretch and the location error). Each gives the area that holds half of the use (the core) and 95 % of it (the home range); the three areas are drawn side by side. The track is simulated (Brownian motion), so it has no real home range: replace it with your own (move.read_tracks of a Movebank file) and read the sampling interval, the location error and the window against what the animal does."
+
+[[nodes]]
+id = "sim"
+op = "move.simulate_brownian"
+params = { t = [TIMES], sigma = 0.5, tracks = 1, start = [500000, 5000000], seed = 3 }
+note = "One track of 150 locations half an hour apart (times in seconds), a Brownian motion from a start. In its place, move.read_tracks of your Movebank file."
+TRACK
+[[nodes]]
+id = "window"
+op = "move.suggest_window"
+inputs = { tracks = "track.vector" }
+note = "The window and the margin the sampling suggests for the dBBMM's variance: the window covers about four hours at the median time lag. The table also has the median lag of the track: if the lags vary much, thin it (Cleaning a track) or give move.resample bursts."
+why = "A window much shorter than the animal's changes of behaviour sees none of them; a longer one averages them. The UD below uses 31 and 11 (the defaults) because this track is long enough for them."
+
+[[nodes]]
+id = "mcp"
+op = "move.home_range"
+inputs = { tracks = "track.vector" }
+params = { method = "mcp", levels = [0.5, 0.95] }
+note = "The minimum convex polygon of the 50 % and the 95 % of the locations nearest the centre (amt's hr_mcp)."
+why = "The MCP is the estimate most papers report and so the one the others are compared with, but it is only the outline of the fixes: it does not say where the animal spent its time."
+
+[[nodes]]
+id = "kde"
+op = "move.home_range"
+inputs = { tracks = "track.vector" }
+params = { method = "kde", levels = [0.5, 0.95], bandwidth = "ref" }
+note = "The kernel density estimate with the reference bandwidth (hr_kde, amt's), its contours at 50 % and 95 %. The cells of 1/100 of the track's largest side."
+why = "The reference bandwidth oversmooths a track of several centres of activity: bandwidth = \"lscv\" or \"pi\" follow the data more closely (the density, and so the area, changes with it)."
+
+[[nodes]]
+id = "ud"
+op = "move.dbbmm_ud"
+inputs = { tracks = "track.vector" }
+params = { location_error = 10, dim_size = 60 }
+note = "The dynamic Brownian bridge utilisation distribution: the probability of the animal being in each cell, summing to 1. The location error (10 m, a GPS collar's) is the standard deviation of the fix's error: it is part of the method, a real error taken for movement widens the distribution."
+why = "Each pair of locations is a bridge whose variance is the motion variance of its stretch of the track plus the error at its ends: the time between fixes is used, not only the fixes. A grid of 60 cells along the longest side keeps the run short; a finer one (dim_size, or res) for a final figure."
+
+[[nodes]]
+id = "volume"
+op = "move.ud_volume"
+inputs = { ud = "ud.ud" }
+params = { levels = [0.5, 0.95] }
+note = "The contours that hold half and 95 % of the dBBMM's use: the cells added from the most used down (the volume), and the polygons of its 0.5 and 0.95."
+
+[[nodes]]
+id = "plot_track"
+op = "view.plot"
+inputs = { features = "track.vector" }
+params = { title = "The track" }
+
+[[nodes]]
+id = "plot_ud"
+op = "view.plot"
+inputs = { value = "ud.ud" }
+params = { title = "The dBBMM's utilisation distribution" }
+
+[[nodes]]
+id = "plot_contours"
+op = "view.plot"
+inputs = { features = "volume.polygons", under = "plot_ud.shown" }
+params = { title = "The dBBMM's 50 % and 95 % contours" }
+
+[[nodes]]
+id = "plot_mcp"
+op = "view.plot"
+inputs = { table = "mcp.table" }
+params = { title = "Area by MCP", chart = "bars", x = "level", y = "area" }
+
+[[nodes]]
+id = "plot_kde"
+op = "view.plot"
+inputs = { table = "kde.table" }
+params = { title = "Area by kernel density", chart = "bars", x = "level", y = "area" }
+
+[[nodes]]
+id = "plot_dbbmm"
+op = "view.plot"
+inputs = { table = "volume.table" }
+params = { title = "Area by dBBMM", chart = "bars", x = "level", y = "area" }
+"#
+    .replace("TRACK", MOVE_TRACK)
+    .replace("TIMES", &move_times(150, 1800));
+    Model::from_toml(&text).expect("a template is a model")
+}
+
+/// "Observed corridors against current".
+fn move_validate() -> Model {
+    let text = r#"
+format = "terraflux/1"
+name = "Observed corridors against current"
+description = "Do the animals use the cells a connectivity model says they should? Zeller et al. (2018) validate a connectivity surface with movement data: the resistance gives Omniscape's current, and the use of the animals (the dBBMM utilisation distribution and the corridor segments of LaPoint et al. 2013) is compared with it. move.validate gives, for each track and pooled, Spearman's correlation between the use and the current, the share of the use inside the best 10 % of the cells (the corridors of the surface) and the same over the share of the area they take (above 1: the animals use the corridors more than chance). The resistance is drawn by chance and the tracks are simulated, independent of it, so the numbers are near what no relation gives; replace the resistance (Use my data) with yours and the tracks with move.read_tracks of your Movebank file."
+
+[[nodes]]
+id = "quality"
+op = "nlm.gaussian_field"
+params = { rows = 100, columns = 100, range = 20, resolution = 10, crs = "EPSG:32633", seed = 31 }
+note = "A habitat's quality from 0 to 1 drawn by chance, on cells of 10 m in a projected coordinate system (in its place, a raster.read of a suitability map)."
+data = { what = "a habitat's quality, or a suitability map", kind = "values", expect = "0 to 1" }
+
+[[nodes]]
+id = "resistance"
+op = "raster.calc"
+inputs = { q = "quality.map" }
+params = { expression = "1 + 99 * (1 - q) ** 3" }
+note = "The resistance to movement: 1 in the best habitat, up to 100 where there is none (in its place, a raster.read of a resistance from the literature)."
+data = { what = "a resistance: the cost of crossing a cell", kind = "values", expect = "1 or more" }
+
+[[nodes]]
+id = "sim"
+op = "move.simulate_brownian"
+params = { t = [TIMES], sigma = 0.5, tracks = 2, start = [[300, 300], [700, 700]], seed = 5 }
+note = "Two tracks of 150 locations half an hour apart (times in seconds), a Brownian motion from the lower left and the upper right of the landscape. In its place, move.read_tracks of your Movebank file, in the coordinate system of the resistance (or reproject one to the other)."
+TRACK
+[[nodes]]
+id = "window"
+op = "move.suggest_window"
+inputs = { tracks = "track.vector" }
+note = "The sampling of each track (its median time lag) and the window the dBBMM's variance would take from it. The bridges and the corridors read the lags as if they were regular: look at this table, and thin a track that is not (Cleaning a track)."
+
+[[nodes]]
+id = "ud"
+op = "move.dbbmm_ud"
+inputs = { tracks = "track.vector" }
+params = { location_error = 10, dim_size = 60 }
+note = "The dynamic Brownian bridge utilisation distribution of each animal: a band each, the cells summing to 1."
+why = "The UD is the use of the landscape as the movement says it, with the time between fixes and the location error; the points alone count each fix once, wherever the animal passed between them."
+
+[[nodes]]
+id = "corridors"
+op = "move.corridor"
+inputs = { tracks = "track.vector" }
+params = { speed_threshold = 0.01, circvar_threshold = 0.8 }
+note = "The segments of the tracks that run along a corridor (LaPoint et al. 2013): fast (0.01 m/s or more: these animals are slow), with the directions of the segments around them agreeing, and more such neighbours than not. The lines are the segments."
+why = "The thresholds are given, not left to the quantiles of these tracks: a corridor found in one animal is then the corridor of the others. Give a speed of the species (move.speed shows the track's) and 0.25 or less for a circular variance that says a direction."
+
+[[nodes]]
+id = "current"
+op = "circuit.omniscape"
+inputs = { resistance = "resistance.map" }
+params = { radius = 12, block_size = 5 }
+note = "Omniscape: the current from every cell to those within 12 cells (a target every 5 cells), the sources from the resistance: where movement in every direction would flow."
+why = "The surface to check is the one the model made, not the animals' tracks: Zeller et al. used the current, the cost-distance kernels and the least-cost corridors of their models."
+
+[[nodes]]
+id = "use_ud"
+op = "move.validate"
+inputs = { use = "ud.ud", surface = "current.current" }
+params = { kind = "current", quantile = 0.9 }
+note = "The use (the UDs) against the current: Spearman's rho of the cells inside the 99 % volume contour, and the use in the cells of the best 10 % of the current. A row for each track and the two pooled."
+why = "rho above 0 says that the animals use the cells of higher current more; use_ratio above 1 that the corridors catch more of the use than their share of the area. There is no p-value: cells next to each other are not independent."
+
+[[nodes]]
+id = "use_corridors"
+op = "move.validate"
+inputs = { use = "corridors.lines", surface = "current.current" }
+params = { kind = "current", quantile = 0.9, track = "track" }
+note = "The same for the corridor segments: each segment counts its length in the cells it crosses."
+
+[[nodes]]
+id = "plot_current"
+op = "view.plot"
+inputs = { value = "current.current" }
+params = { title = "Current (Omniscape)" }
+
+[[nodes]]
+id = "plot_corridor"
+op = "view.plot"
+inputs = { value = "use_ud.corridor" }
+params = { title = "The best 10 % of the current (corridors of the surface)" }
+
+[[nodes]]
+id = "plot_lines"
+op = "view.plot"
+inputs = { features = "corridors.lines", under = "plot_current.shown" }
+params = { title = "The animals' corridor segments over the current" }
+
+[[nodes]]
+id = "plot_rho"
+op = "view.plot"
+inputs = { table = "use_ud.table" }
+params = { title = "Spearman's rho between the UD and the current", chart = "bars", x = "track", y = "rho" }
+"#
+    .replace("TRACK", MOVE_TRACK)
+    .replace("TIMES", &move_times(150, 1800));
+    Model::from_toml(&text).expect("a template is a model")
+}
+
+/// "Cleaning a track".
+fn move_clean() -> Model {
+    let text = r#"
+format = "terraflux/1"
+name = "Cleaning a track"
+description = "A GPS track rid of its bad fixes before it is analysed (the order of Zeller's and move2utils' pipelines): move.filter_gps_quality drops the fixes of few satellites or a high dilution of precision, move.flag_speed the locations next to a step faster than the animal can move (the limit comes from its body mass, Hirt et al. 2017: move.max_speed says it), and move.thin_time keeps locations about an hour apart, the sampling the later steps (a step selection, a dBBMM) need to be regular. The track is simulated with bad fixes put in it: some far away (60 km), some with three satellites, some with a dilution of precision of 14. Replace it with your own (move.read_tracks of a Movebank file keeps its gps:satellite-count, gps:dop and the like), and the body mass with your animal's."
+
+[[nodes]]
+id = "sim"
+op = "move.simulate_brownian"
+params = { t = [TIMES], sigma = 0.5, tracks = 2, start = [500000, 5000000], seed = 7 }
+note = "Two tracks of 200 locations ten minutes apart (times in seconds), a Brownian motion. In its place, move.read_tracks of your Movebank file."
+
+[[nodes]]
+id = "points"
+op = "vector.geometry"
+inputs = { vector = "sim.tracks" }
+note = "The locations as a table with their x and y beside the time and the track."
+
+[[nodes]]
+id = "jumps"
+op = "table.calc"
+inputs = { table = "points.table" }
+params = { column = "x", expression = "x + 60000 if (time > 0 and time % 12000 == 0) else x" }
+note = "The bad fixes put in the track: every 20th location 60 km east of where the animal is (a fix with a wrong position, as a GPS gives on a cold start). A real track needs none of the three calculators."
+
+[[nodes]]
+id = "satellites"
+op = "table.calc"
+inputs = { table = "jumps.table" }
+params = { column = "gps_satellite_count", expression = "3 if time % 18000 == 3000 else 9" }
+note = "The number of satellites of each fix: 9, and 3 where a fix is poor. Movebank's column gps:satellite-count (the nodes find it with a colon, a dash or an underscore)."
+
+[[nodes]]
+id = "dilution"
+op = "table.calc"
+inputs = { table = "satellites.table" }
+params = { column = "gps_dop", expression = "14 if time % 24000 == 6000 else 2" }
+note = "The dilution of precision of each fix: 2, and 14 where the geometry of the satellites is poor. Movebank's column gps:dop."
+
+[[nodes]]
+id = "track"
+op = "vector.from_table"
+inputs = { table = "dilution.table" }
+params = { crs = "EPSG:32633" }
+note = "The tracks as points in a projected coordinate system (metres), with the time, the track and the GPS columns. In its place, move.read_tracks of your Movebank file."
+
+[[nodes]]
+id = "quality"
+op = "move.filter_gps_quality"
+inputs = { tracks = "track.vector" }
+params = { sat_min = 5, dop_max = 10 }
+note = "The locations of at least 5 satellites and a dilution of precision of 10 at most (the defaults, and a common choice; hacc_max does the same for an accuracy estimate in metres)."
+why = "A fix needs four satellites; five is the usual floor. These fixes are bad whatever the speed they imply, so they go first: the speed filter should then find what is left."
+
+[[nodes]]
+id = "limit"
+op = "move.max_speed"
+params = { mass = 5, mode = "flying" }
+note = "The fastest a flying animal of 5 kg can go, from its body mass (Hirt et al. 2017), and the interval of the parameters' uncertainty. A ceiling, not a cruising speed: specialists can exceed it."
+why = "The limit of the speed filter comes from the animal, not from this track's own speeds: the fastest of a track is the one most likely to be wrong."
+
+[[nodes]]
+id = "speed"
+op = "move.flag_speed"
+inputs = { tracks = "quality.tracks" }
+params = { mass = 5, mode = "flying", remove = true }
+note = "The locations next to a step faster than that limit are left out: the data cannot tell which end of a fast step is wrong, so both are. The columns step_speed and is_outlier tell what was found (remove = false keeps all of them, flagged)."
+why = "The same mass and mode as the node above; v_max = a speed in m/s does without them."
+
+[[nodes]]
+id = "thin"
+op = "move.thin_time"
+inputs = { tracks = "speed.tracks" }
+params = { interval = "1 hours" }
+note = "The longest chain of locations about an hour apart (within 10 % of it); a gap longer than that splits the track and is not bridged."
+why = "Later steps, a dBBMM and a step selection, suppose one sampling interval: thin to the longest the movement can bear, not to the shortest the data allow."
+
+[[nodes]]
+id = "plot_raw"
+op = "view.plot"
+inputs = { features = "track.vector" }
+params = { title = "The track as recorded" }
+
+[[nodes]]
+id = "plot_clean"
+op = "view.plot"
+inputs = { features = "thin.tracks" }
+params = { title = "The track cleaned and thinned" }
+"#
+    .replace("TIMES", &move_times(200, 600));
+    Model::from_toml(&text).expect("a template is a model")
+}
 
 /// The scene of the object templates: a map of five classes drawn by chance (1 water, 2 forest, 3 grassland,
 /// 4 cropland, 5 urban) and the image of it, for each of the seeds.
@@ -6805,6 +7146,70 @@ mod tests {
         assert!(i.data.iter().any(|v| v.is_finite() && *v > 0.0));
         let Some(terraflux_ops::Value::Map(b)) = out.get("barriers.circles") else { panic!("no circles") };
         assert!(b.data.iter().any(|v| v.is_finite() && *v > 0.0));
+    }
+
+    /// The movement templates run and do what they say: the home range of 95 % is larger than the core by each
+    /// method, the validation has a row for each track and the pooled, the cleaning drops rows at each step.
+    #[test]
+    fn the_movement_templates_run() {
+        use terraflux_ops::Value;
+        struct Quiet;
+        impl terraflux_exec::Observer for Quiet {}
+        let run = |name: &str| {
+            let m = TEMPLATES.iter().find(|t| t.name == name).unwrap().model();
+            terraflux_exec::Engine::default()
+                .run(&m, &Default::default(), &mut Quiet)
+                .unwrap_or_else(|e| panic!("{name}: {e}"))
+        };
+        let table = |out: &terraflux_exec::Results, port: &str| match out.get(port) {
+            Some(Value::Table(t)) => t.clone(),
+            _ => panic!("no table {port}"),
+        };
+        let rows = |out: &terraflux_exec::Results, port: &str| match out.get(port) {
+            Some(Value::Vector(v)) => v.len(),
+            _ => panic!("no features {port}"),
+        };
+        // the area of a table's level
+        let area = |t: &terraflux_ops::Table, level: f64| {
+            let (l, a) = (
+                t.columns.iter().position(|c| c == "level").unwrap(),
+                t.columns.iter().position(|c| c == "area").unwrap(),
+            );
+            t.rows.iter().find(|r| (r[l] - level).abs() < 1e-9).unwrap_or_else(|| panic!("no level {level}"))[a]
+        };
+
+        let out = run("Home range of a track");
+        for port in ["mcp.table", "kde.table", "volume.table"] {
+            let t = table(&out, port);
+            let (core, home) = (area(&t, 0.5), area(&t, 0.95));
+            assert!(core > 0.0 && home > core, "{port}: {core} and {home}");
+        }
+        assert_eq!(table(&out, "window.table").rows.len(), 1);
+        let Some(Value::Stack(ud)) = out.get("ud.ud") else { panic!("no UD") };
+        assert_eq!(ud.layers.len(), 1);
+        let total: f64 = ud.layers[0].iter().filter(|v| v.is_finite()).sum();
+        assert!((total - 1.0).abs() < 1e-6, "the UD sums to {total}");
+
+        let out = run("Observed corridors against current");
+        let t = table(&out, "use_ud.table");
+        // (a row for each of the two tracks, and the pooled)
+        assert_eq!(t.rows.len(), 3, "{:?}", t.rows);
+        let rho = t.columns.iter().position(|c| c == "rho").unwrap();
+        assert!(t.rows.iter().all(|r| r[rho].is_finite() && r[rho].abs() <= 1.0), "{:?}", t.rows);
+        assert!(table(&out, "use_corridors.table").rows.len() >= 2);
+        assert!(rows(&out, "corridors.lines") > 0);
+
+        let out = run("Cleaning a track");
+        let (raw, quality, speed, thin) = (
+            rows(&out, "track.vector"),
+            rows(&out, "quality.tracks"),
+            rows(&out, "speed.tracks"),
+            rows(&out, "thin.tracks"),
+        );
+        assert_eq!(raw, 400);
+        assert!(quality < raw && speed < quality && thin < speed, "{raw} {quality} {speed} {thin}");
+        let Some(Value::Number(v)) = out.get("limit.v_max") else { panic!("no limit") };
+        assert!(*v > 1.0 && *v < 100.0, "{v}");
     }
 }
 
