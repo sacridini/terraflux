@@ -352,6 +352,161 @@ model, connect the stack to the model's drivers (see [Species distributions](../
 
     The table is written as `output/metrics.csv`.
 
+### In Python
+
+The whole of this part is in the library, as `tf.surface` (the metrics follow geodiv, value for value where it is
+right). The maps are the example data of the part: `orforest` is the greenness (`ndvi.tif`), `orelevation` the
+elevation (`elevation.tif`). [`tf.surface.remove_plane`][terraflux.surface.remove_plane] is node 2 of the first model: it
+fits polynomial surfaces of order 0 to 3 and subtracts the one with the smallest BIC (`z.attrs["order"]` says which);
+[`tf.surface.fit_plane`][terraflux.surface.fit_plane] gives the trend itself for an order you choose.
+[`tf.surface.metrics`][terraflux.surface.metrics] computes all 27 metrics, or the ones you name, as a Series:
+
+```python
+import numpy as np
+import pandas as pd
+import terraflux as tf
+
+ndvi = tf.load_raster(tf.surface.example_data("orforest"))
+elev = tf.load_raster(tf.surface.example_data("orelevation"))
+z = tf.surface.remove_plane(ndvi)                        # the residuals of the best trend
+print("order", z.attrs["order"], "; residuals", round(float(z.min()), 2), "to", round(float(z.max()), 2))
+print(len(tf.surface.list_metrics()), "metrics")
+
+both = pd.DataFrame({
+    "greenness": tf.surface.metrics(z),
+    "elevation (m)": tf.surface.metrics(tf.surface.remove_plane(elev)),
+})
+print(both.loc[["sa", "sq", "ssk", "sku", "sdq", "sds", "s10z", "sal", "std"]].round(3))
+```
+
+```text
+order 2 ; residuals -0.59 to 0.15
+27 metrics
+      greenness  elevation (m)
+sa        0.044         79.666
+sq        0.064         98.762
+ssk      -1.982         -0.118
+sku       6.826         -0.192
+sdq       0.044         10.504
+sds       0.048          0.004
+s10z      0.666        608.729
+sal     247.847        576.862
+std      90.000        135.000
+```
+
+These are the numbers of the table in "The numbers" below. Ask only for the metrics you need on large maps
+(`tf.surface.metrics(z, ["sa", "sku"])`): the spatial ones need Fourier transforms of the whole map, and metrics that
+share a computation are computed once. On a raster in longitude and latitude the spatial metrics are in metres, as in
+the application.
+
+The curves and maps behind the numbers are functions of their own:
+
+```python
+curve = tf.surface.bearing_area(z)                       # a table: bearing (share) and height
+print(curve.shape, "; heights at 0, 5, 50, 95 and 100 % bearing:",
+      tf.surface.height_ba(z, [0, 0.05, 0.5, 0.95, 1]).round(3))
+print(tf.surface.metrics(z, ["sk", "spk", "svk", "sbi", "sci", "svi"]).round(3).to_dict())
+
+peaks = tf.surface.find_peaks(z)                         # find_valleys for the valleys
+print(len(peaks), "peaks")
+acf = tf.surface.aacf(z)                                 # a map: the centre is the shift of zero
+print(acf.shape, round(float(acf[acf.shape[0] // 2, acf.shape[1] // 2]), 3))
+```
+
+```text
+(137641, 2) ; heights at 0, 5, 50, 95 and 100 % bearing: [ 0.149  0.08   0.011 -0.114 -0.587]
+{'sk': 0.104, 'spk': 0.086, 'svk': 0.545, 'sbi': 0.806, 'sci': 0.068, 'svi': 0.013}
+6566 peaks
+(371, 371) 1.0
+```
+
+[`tf.surface.bearing_area`][terraflux.surface.bearing_area] is [[surface.bearing]], the share of the surface at or
+above each height; [`tf.surface.find_peaks`][terraflux.surface.find_peaks] is [[surface.peaks]] (a table of the
+cells higher than their eight neighbours, with their coordinates and value); and
+[`tf.surface.aacf`][terraflux.surface.aacf] is [[surface.aacf]]. The Sk, Spk and Svk of the table are the ones the
+part reads from the curve: the valleys are six times deeper than the peaks are high.
+
+The spatial metrics of the table are functions too, with the other numbers each one gives:
+
+```python
+print(tf.surface.scl(z).round(1))        # distances of fastest and slowest decay to 0.2 and to 1/e (m)
+print(tf.surface.stxr(z).round(3))       # texture aspect ratio: 0 oriented, 1 isotropic
+print(tf.surface.std(z).round(3))        # texture direction (degrees) and its index
+print(tf.surface.srw(z).round(1))        # dominant radial wavelength, its index, half-power wavelength
+print(round(tf.surface.sfd(z), 4))       # fractal dimension
+```
+
+```text
+[ 247.8  164.8 6873.  6873. ]
+[0.036 0.024]
+[90.     0.197]
+[4.0970e+02 6.0000e-01 1.6387e+03]
+2.0001
+```
+
+Distances are in map units, metres on longitude and latitude rasters like this one. The correlation lengths say how
+far one must move for the surface to be unrelated to itself (`sal` is the first of them); their ratio, whether the
+texture is stretched in one direction.
+
+Texture maps are [`tf.surface.window_metrics`][terraflux.surface.window_metrics], [[surface.window]]: one layer per
+metric, in a `window` of cells and a `shape` of `square` or `circle`. The mean Sa of the slider, for four windows:
+
+```python
+tex = tf.surface.window_metrics(z, ["sa", "sku"], window=9)       # a Dataset: one layer per metric
+print(list(tex.data_vars), "; Sa from", round(float(tex["sa"].min()), 3), "to", round(float(tex["sa"].max()), 3))
+for w in (5, 9, 15, 25):
+    print(f"{w:2d} x {w:2d} cells: mean Sa {float(tf.surface.window_metrics(z, 'sa', window=w)['sa'].mean()):.3f}")
+tf.plot(tex)                                                      # one map per metric
+```
+
+```text
+['sa', 'sku'] ; Sa from 0.005 to 0.186
+ 5 x  5 cells: mean Sa 0.024
+ 9 x  9 cells: mean Sa 0.031
+15 x 15 cells: mean Sa 0.036
+25 x 25 cells: mean Sa 0.040
+```
+
+The two last settings of the part, in the same few lines. The trend: the metrics of the raw greenness against its
+residuals (the amplitude barely moves, the autocorrelation length and everything measured from zero change completely).
+The grain: Gaussian fields of [`tf.nlm.gaussian_field`][terraflux.nlm.gaussian_field] with the part's seed, whose
+autocorrelation range grows from 3 to 48 cells:
+
+```python
+raw = tf.surface.metrics(ndvi, ["sa", "ssk", "sal", "sph", "sbi"])
+res = tf.surface.metrics(z, ["sa", "ssk", "sal", "sph", "sbi"])
+print(pd.DataFrame({"residuals": res, "raw NDVI": raw}).round(3))
+
+for rng in (3, 6, 12, 24, 48):
+    field = tf.nlm.gaussian_field(200, 200, 30, rng, seed=4)         # 200 x 200 cells of 30 m
+    sal = tf.surface.metrics(tf.surface.remove_plane(field), ["sal"])["sal"]
+    print(f"range {rng * 30:4d} m: Sal {sal:6.1f} m")
+```
+
+```text
+     residuals  raw NDVI
+sa       0.044     0.045
+ssk     -1.982    -1.916
+sal    247.847  4783.520
+sph      0.149     0.836
+sbi      0.806     0.086
+range   90 m: Sal  120.0 m
+range  180 m: Sal  228.5 m
+range  360 m: Sal  381.8 m
+range  720 m: Sal  516.1 m
+range 1440 m: Sal  615.5 m
+```
+
+On the raw map, Sal is 4.8 km, more than half the map; Sph and Sbi measure heights from zero and mean nothing unless the
+surface is centred. The fields' Sal follows the grain and then levels off, as in the chart of the part. Always compute
+surface metrics on the residuals, and say which trend you removed.
+
+Every metric is checked in the test suite against R: against geodiv and spatialEco themselves where they are right, and
+where they err against their code with the error corrected (the root mean square height and the moments built on it,
+the seven-point slopes, the bearing area curve's areas, the centre of the Fourier images, the fractal dimension's
+prisms, the choice of trend surface). Each function's notes say what is corrected; see also the
+[benchmarks](/benchmarks/accuracy/).
+
 ## Read the results
 
 ### The numbers
@@ -570,5 +725,3 @@ how much the results depend on it.
 - Smith, A. C., Dahlin, K. M., Record, S., Costanza, J. K., Wilson, A. M., & Zarnetske, P. L. (2021). The geodiv R package: Tools for calculating gradient surface metrics. *Methods in Ecology and Evolution*, 12(11), 2094–2100. https://doi.org/10.1111/2041-210X.13677
 - Clarke, K. C. (1986). Computation of the fractal dimension of topographic surfaces using the triangular prism surface area method. *Computers & Geosciences*, 12(5), 713–722. https://doi.org/10.1016/0098-3004(86)90047-6
 - ISO 25178-2 (2012). *Geometrical product specifications (GPS) — Surface texture: Areal — Part 2: Terms, definitions and surface texture parameters*. International Organization for Standardization.
-
-In Python: [Surface texture in Python](/tutorials/surface-metrics/surface-texture-in-python/).

@@ -295,6 +295,98 @@ of landforms) you want a coefficient for. Most species distribution methods also
 a categorical predictor; then the coefficients are relative to a reference class (choose a common one, here the
 slope).
 
+### In Python
+
+[`tf.surface.geomorphons`][terraflux.surface.geomorphons] is [[surface.geomorphons]], with the same settings and
+outputs, and the same GRASS GIS values. The elevation is the one of the [first part](../terrain/#in-python), the
+library's `orelevation` put on the grid of node 2 of the model:
+
+```python
+import numpy as np
+import xarray as xr
+import terraflux as tf
+
+dem0 = tf.load_raster(tf.surface.example_data("orelevation"))
+grid = xr.DataArray(np.zeros((369, 270)), dims=("y", "x"),
+                    coords={"y": 4771920 - 15 - 30 * np.arange(369), "x": 500010 + 15 + 30 * np.arange(270)})
+dem = tf.reproject(dem0, like=grid.rio.write_crs("EPSG:32610"), resampling="bilinear")   # UTM 10N, 30 m
+
+gm = tf.surface.geomorphons(dem, search=20)           # eight lines of sight of 20 cells (600 m)
+print(gm)
+print(gm.share()[["name", "cells", "share"]].round(3).to_string())
+```
+
+```text
+Geomorphons(369 x 270; slope 36%, spur 22%, hollow 18%)
+           name  cells  share
+form                         
+1          flat      0  0.000
+2          peak   1363  0.014
+3         ridge  10855  0.110
+4      shoulder    184  0.002
+5          spur  21293  0.216
+6         slope  35607  0.362
+7        hollow  17997  0.183
+8     footslope    284  0.003
+9        valley   9692  0.099
+10          pit   1081  0.011
+```
+
+The result holds `forms` (the landform of each cell, 1 flat to 10 pit), `ternary`, `positive` and `negative` (the
+patterns of the table of outputs above) and, with `measures=True`, the eight measures; `share()` is the table of the
+`share` output, with the name of each landform. The cell counts differ from the part's table by a few cells (1,363
+peaks here, 1,360 there) because the elevation was warped by the library and not by GDAL's own program.
+`gm.forms` is an xarray raster, so the shares, the crests indicator of node 6 and a file are a line each:
+
+```python
+crests = ((gm.forms == 2) | (gm.forms == 3)).astype(float).where(gm.forms.notnull())
+print("peaks and ridges:", round(float(crests.mean()) * 100, 1), "% of the cells")
+print(len(np.unique(gm.ternary.values[~np.isnan(gm.ternary.values)])), "different geomorphons on the map")
+
+tf.write_table(gm.share(), "landforms.csv")        # the shares, as node 5 writes them
+tf.write_raster(gm.forms, "forms.tif")
+tf.plot(gm)                                           # the landforms in GRASS's colours, with the shares
+```
+
+```text
+peaks and ridges: 12.4 % of the cells
+64 different geomorphons on the map
+```
+
+The settings that matter are the operator's, by the same names. The sensitivity examples of "Settings that change
+the answer", in the order of the list above:
+
+```python
+a = gm.forms.values
+def changed(other):
+    return round(float((other.forms.values != a)[~np.isnan(a)].mean()) * 100, 1)
+
+in_map_units = tf.surface.geomorphons(dem, search=600, units="map")             # 600 m = 20 cells here
+print("units='map' changes", changed(in_map_units), "% of the cells")
+print("comparison='anglev2' changes", changed(tf.surface.geomorphons(dem, search=20, comparison="anglev2")), "%")
+print("skip=3 changes", changed(tf.surface.geomorphons(dem, search=20, skip=3)), "%")
+print("extended at 40 cells changes",
+      round(float((tf.surface.geomorphons(dem, search=40, extended=True).forms.values
+                   != tf.surface.geomorphons(dem, search=40).forms.values)[~np.isnan(a)].mean()) * 100, 1), "%")
+
+m = tf.surface.geomorphons(dem, search=20, measures=True)
+print([k for k in ("intensity", "exposition", "range", "variance", "elongation", "azimuth", "extend", "width")
+       if getattr(m, k) is not None])
+print("mean intensity", round(float(m.intensity.mean()), 2), "; exposition", round(float(m.exposition.mean()), 2))
+```
+
+```text
+units='map' changes 0.0 % of the cells
+comparison='anglev2' changes 1.2 %
+skip=3 changes 39.0 %
+extended at 40 cells changes 2.9 %
+['intensity', 'exposition', 'range', 'variance', 'elongation', 'azimuth', 'extend', 'width']
+mean intensity 2.61 ; exposition 6.32
+```
+
+`flat` (the flatness threshold in degrees) and `dist` (the flatness distance) complete the settings. The map must be
+in metres (a projected CRS): reproject first, as above.
+
 ## Read the results
 
 ### The landform map

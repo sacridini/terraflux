@@ -88,6 +88,7 @@ redirects:
   /tutorials/landscape-metrics/landscape-metrics-in-python/: /tutorials/landscape-metrics/what-are-landscape-metrics/#in-python
   /tutorials/circuit-connectivity/circuit-connectivity-in-python/: /tutorials/circuit-connectivity/circuitscape/#in-python
   /tutorials/habitat-networks/habitat-networks-in-python/: /tutorials/habitat-networks/connectivity-as-a-graph/#in-python
+  /tutorials/surface-metrics/surface-texture-in-python/: /tutorials/surface-metrics/surface-texture/#in-python
 
 # The tutorials' categories, in this order: a folder of content/tutorials/ each. `prefixes` are the operators
 # they cover (the subjects of the application's library); `cells` draws the category's small icon (3x3 cells:

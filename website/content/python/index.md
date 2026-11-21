@@ -57,7 +57,7 @@ Where to go:
   random-walk distances, randomised shortest paths and the overlap of dispersal routes.
 - **[Change detection](/tutorials/change-detection/)**: compare two dates: simple and
   morphological change, shifts between fragmentation classes and heat maps of landscape change.
-- **[Surface texture](/tutorials/surface-metrics/surface-texture-in-python/)**: roughness, height distribution and
+- **[Surface metrics](/tutorials/surface-metrics/)**: roughness, height distribution and
   texture of continuous rasters (ISO 25178) such as NDVI or elevation, terrain indices of DEMs and protected
   hilltops.
 - **[Neutral landscapes](/tutorials/neutral-landscapes/)**: simulated landscapes as

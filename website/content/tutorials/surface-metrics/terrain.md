@@ -568,6 +568,107 @@ images:
     terraflux run terrain.toml --out output
     ```
 
+### In Python
+
+Every index of the part is in `tf.surface`, with the example data the part reads: `orelevation` is the
+`elevation.tif` of node 1. [`tf.reproject`][terraflux.reproject] is [[raster.reproject]]; the part's **extent** is
+given as a grid to put the map on, with `like=` (its CRS, its cells and its extent), so that the edge of every index is
+the part's:
+
+```python
+import numpy as np
+import xarray as xr
+import terraflux as tf
+
+dem0 = tf.load_raster(tf.surface.example_data("orelevation"))      # EPSG:4326, 1 arc-second
+# the grid of node 2: UTM zone 10N, cells of 30 m, extent [500010, 4760850, 508110, 4771920]
+grid = xr.DataArray(np.zeros((369, 270)), dims=("y", "x"),
+                    coords={"y": 4771920 - 15 - 30 * np.arange(369), "x": 500010 + 15 + 30 * np.arange(270)})
+dem = tf.reproject(dem0, like=grid.rio.write_crs("EPSG:32610"), resampling="bilinear")
+print(dem.shape, round(float(dem.min()), 1), "to", round(float(dem.max()), 1), "m")
+```
+
+```text
+(369, 270) 439.6 to 1388.0 m
+```
+
+Without `like=`, `tf.reproject(dem0, "EPSG:32610", res=30)` gives the grid GDAL suggests, slightly larger than the
+data, with a line of empty cells at some edges; the values elsewhere are the same to a fraction of a cell's shift.
+The indices (each takes the DEM and returns a map on its grid):
+
+```python
+slope = tf.surface.terrain(dem, "slope")                 # degrees, Horn's method; "aspect" too
+aspect = tf.surface.terrain(dem, "aspect")
+tpi = tf.surface.tpi(dem, 15)                            # elevation minus the mean of 15 x 15 cells
+tri = tf.surface.tri(dem, 3)                             # Riley's TRI, 3 x 3 cells
+vrm = tf.surface.vrm(dem, 5)                             # Sappington's VRM, 5 x 5 cells
+profile = tf.surface.curvature(dem, "profile")           # "planform" is the other
+planform = tf.surface.curvature(dem, "planform")
+heat = tf.surface.hli(aspect, slope, scaled=True)        # McCune & Keon; latitude from the map's CRS
+
+print(f"slope  mean {float(slope.mean()):.1f}  max {float(slope.max()):.1f} degrees")
+print(f"TPI    {float(tpi.min()):.1f} to {float(tpi.max()):.1f} m, sd {float(tpi.std()):.1f}")
+print(f"TRI    mean {float(tri.mean()):.1f} m;  VRM mean {float(vrm.mean()):.4f}")
+print(f"heat   {float(heat.min()):.2f} to {float(heat.max()):.2f}, mean {float(heat.mean()):.2f}")
+```
+
+```text
+slope  mean 18.1  max 58.2 degrees
+TPI    -70.4 to 67.3 m, sd 17.8
+TRI    mean 25.8 m;  VRM mean 0.0122
+heat   0.19 to 1.07, mean 0.77
+```
+
+These are the numbers of "Read the results" (the TRI of 25.8 m, and the 0.98 and 0.09, as there). [`tf.surface.terrain`][terraflux.surface.terrain] takes `unit`
+(`degrees` or `radians`) and `neighbors` (8 for Horn, 4 for the direct neighbours);
+[`tf.surface.tpi`][terraflux.surface.tpi] takes the `scale` in cells, `win` (`rectangle` or `circle`) and `normalize`
+for the standardised TPI; [`tf.surface.hli`][terraflux.surface.hli] takes `latitude`, `hemisphere`, `equation` and
+`direct`, with the same meaning as the operator's settings. The hillshade of [[raster.terrain]] has no function in the
+library: `tf.plot(dem)` draws the elevation without it.
+
+The maps are xarray rasters: correlations, the slope positions of Weiss and the shares of the part are a few lines
+of numpy. The thresholds are the ones of the part, ±0.5 and ±1 standard deviation of this TPI (17.8 m):
+
+```python
+ok = slope.notnull() & tri.notnull() & vrm.notnull()
+print("correlation with slope: TRI", round(float(xr.corr(tri.where(ok), slope.where(ok))), 2),
+      ", VRM", round(float(xr.corr(vrm.where(ok), slope.where(ok))), 2))
+
+t, s = tpi.values, slope.values
+pos = np.select([t > 17.8, t > 8.9, (t >= -8.9) & (s > 5), t >= -8.9, t >= -17.8], [6, 5, 4, 3, 2], 1).astype(float)
+pos[np.isnan(t) | np.isnan(s)] = np.nan
+position = slope.copy(data=pos)            # 1 valley, 2 lower slope, 3 flat, 4 middle slope, 5 upper slope, 6 ridge
+names = ["valley", "lower slope", "flat", "middle slope", "upper slope", "ridge"]
+print({n: round(float((position == k).sum() / position.notnull().sum() * 100), 1) for k, n in enumerate(names, 1)})
+tf.write_raster(position, "positions.tif")
+```
+
+```text
+correlation with slope: TRI 0.98 , VRM 0.09
+{'valley': 15.0, 'lower slope': 14.1, 'flat': 1.7, 'middle slope': 38.3, 'upper slope': 15.2, 'ridge': 15.8}
+```
+
+The window is the setting that matters most, as the slider of "Settings that change the answer" shows. In Python it is
+the `scale` of [`tf.surface.tpi`][terraflux.surface.tpi]; [`tf.surface.hsp`][terraflux.surface.hsp] sums standardised
+TPIs over a range of scales (`min_scale`, `max_scale`, `inc`) into the hierarchical slope position of Murphy et al.
+(2010), and [`tf.surface.srr`][terraflux.surface.srr], [`tf.surface.dissection`][terraflux.surface.dissection], [`tf.surface.spherical_sd`][terraflux.surface.spherical_sd] and [`tf.surface.trasp`][terraflux.surface.trasp] complete the set:
+
+```python
+for scale in (3, 15, 41, 61):
+    w = tf.surface.tpi(dem, scale)
+    print(f"{scale:2d} cells ({scale * 30:4d} m): TPI sd {float(w.std()):5.1f} m")
+hsp = tf.surface.hsp(dem)
+print("hsp", round(float(hsp.min()), 1), "to", round(float(hsp.max()), 1))
+```
+
+```text
+ 3 cells (  90 m): TPI sd   2.0 m
+15 cells ( 450 m): TPI sd  17.8 m
+41 cells (1230 m): TPI sd  46.7 m
+61 cells (1830 m): TPI sd  64.2 m
+hsp -2659.3 to 2520.4
+```
+
 ## Read the results
 
 **Slope.** The study area is steep: the mean slope is 18.1° and the steepest cells reach 58.2°. The flat cells
@@ -723,5 +824,3 @@ The windows of TRI and VRM work the same way: at 3 × 3 cells they describe the 
 - Weiss, A. D. (2001). *Topographic position and landforms analysis*. Poster presentation, ESRI User Conference, San Diego, CA.
 - Wilson, M. F. J., O'Connell, B., Brown, C., Guinan, J. C., & Grehan, A. J. (2007). Multiscale terrain analysis of multibeam bathymetry data for habitat mapping on the continental slope. *Marine Geodesy*, 30(1–2), 3–35. https://doi.org/10.1080/01490410701295962
 - Zevenbergen, L. W., & Thorne, C. R. (1987). Quantitative analysis of land surface topography. *Earth Surface Processes and Landforms*, 12(1), 47–56. https://doi.org/10.1002/esp.3290120107
-
-In Python: [Surface texture in Python](/tutorials/surface-metrics/surface-texture-in-python/).

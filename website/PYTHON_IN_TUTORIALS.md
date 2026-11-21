@@ -439,10 +439,10 @@ No `*-in-python.md` page in this category.
 
 | part | operators without counterpart | coverage | in-python page | done |
 |---|---|---|---|---|
-| `geomorphons.md` | `raster.reproject` (downstream: `raster.calc`, `raster.terrain`, `surface.geomorphons`, `table.write`) | partial | `surface-texture-in-python.md` | |
-| `hilltops.md` | — | full | `surface-texture-in-python.md` | |
-| `surface-texture.md` | — | full | `surface-texture-in-python.md` | |
-| `terrain.md` | `raster.reproject` (downstream: `raster.calc`, `raster.terrain`, `surface.curvature`, `surface.hli`, `surface.terrain`, `surface.tpi`, `surface.tri`, `surface.vrm`) | partial | `surface-texture-in-python.md` | |
+| `geomorphons.md` | — (the script generator only: `tf.reproject`) | full | merged, redirected | done |
+| `hilltops.md` | — | full | merged, redirected | done |
+| `surface-texture.md` | — | full | merged, redirected | done |
+| `terrain.md` | `raster.terrain` hillshade (only to draw) | full | merged, redirected | done |
 
 `surface-texture-in-python.md`:
 - ## A surface and its trend → surface-texture
@@ -641,3 +641,4 @@ No `*-in-python.md` page in this category.
 - `circuit-connectivity/resistance-surfaces` suitability.png: its legend says "Forest within 500 m"; `nbmean(f, 5)` is an 11 x 11 window (1.1 km). Fix `unit=` in figures/circuit-connectivity/resistance-surfaces.py and make it again.
 - `linkage.pathways`, `linkage.pinchpoints`, `linkage.barriers` (habitat-networks/linkage-mapper): no function in terraflux-py (`cost.barriers` and `cost.path_inc` do something else); the part has no In Python section.
 - `habitat-networks/importance-of-each-patch`, table "Which forests matter most": it lists 10 patches but skips patches 10 (1,381 ha, dPC 5.9) and 45 (1,638 ha, dPC 5.3), above patches 100, 58 and 81 that it lists; check the figure script's selection.
+- `raster.terrain` with `measure = hillshade` (surface-metrics/terrain, geomorphons, hilltops): no function; the parts use it only to draw the relief, their In Python sections plot the elevation without it.

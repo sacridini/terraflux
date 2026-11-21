@@ -350,6 +350,122 @@ layers = [{ from = "shade.raster" }, { from = "hilltop.app", opacity = 0.6 }]
 For a separator that a Brazilian spreadsheet reads, set [[table.write]]'s **separator** to `;` and **decimal** to
 `,`.
 
+### In Python
+
+[`tf.surface.hilltop`][terraflux.surface.hilltop] is [[surface.hilltop]] with its settings by the same names (`min_height`,
+`min_slope`, `slope`, `fraction`, `plain`). The synthetic landscape is the part's `hills.tif` and `plain.tif`, which
+the checker and the reader have next to the page:
+
+```python
+import numpy as np
+import xarray as xr
+import terraflux as tf
+
+hills = tf.load_raster("hills.tif")          # metres, SIRGAS 2000 / UTM 23S, cells of 30 m
+plain = tf.load_raster("plain.tif")          # 1 on the valley floor and the river
+
+h0 = tf.surface.hilltop(hills)                # the law's settings, no plain
+h = tf.surface.hilltop(hills, plain=plain)    # the plain gives the hills their bases
+print(h0)
+print(h)
+cols = ["top", "base", "base_kind", "height", "mean_slope", "threshold", "app_cells"]
+print(h0.hills[h0.hills.qualifies][cols].round(1).to_string())
+print(h.hills[h.hills.qualifies][cols].round(1).to_string())
+```
+
+```text
+Hilltop(7 summits, 2 hills qualify, 96 APP cells)
+Hilltop(7 summits, 3 hills qualify, 292 APP cells)
+        top   base base_kind  height  mean_slope  threshold  app_cells
+hill                                                                  
+1     973.0  788.7    saddle   184.3        30.5      911.6         59
+3     813.7  647.9    saddle   165.8        31.5      758.5         37
+         top   base base_kind  height  mean_slope  threshold  app_cells
+hill                                                                   
+0     1063.2  691.3     plain   372.0        30.4      939.3        196
+1      973.0  788.7    saddle   184.3        30.5      911.6         59
+3      813.7  647.9    saddle   165.8        31.5      758.5         37
+```
+
+Without the plain, A (row 0, the highest summit) fails: its base is the lowest cell of the map. With it, A, B and C
+(rows 0, 1 and 3) qualify, as in the table of the part: 292 cells of 0.09 ha, the 17.6, 5.3 and 3.3 ha of its table.
+The result holds `app` (1 in the protected tops), `hill` (the row of `hills` whose top holds each cell) and `hills`, a
+table of one row per summit with `x`, `y`, `top`, `base`, `base_kind` (`saddle`, `plain` or `lowest`), `base_x`, `base_y`,
+`height`, `mean_slope`, `line_slope`, `area`, `area_ha`, `qualifies`, `threshold` and `app_cells`. Save them as nodes 3
+and 4 do, and look at them:
+
+```python
+tf.write_raster(h.app, "app.tif")
+tf.write_table(h.hills, "hills.csv", sep=";", decimal=",")    # what a Brazilian spreadsheet reads
+tf.plot([hills, h.app])
+print("protected:", int(h.app.sum()), "cells,", round(int(h.app.sum()) * 0.09, 1), "ha")
+```
+
+```text
+protected: 292 cells, 26.3 ha
+```
+
+The real mountains are the Oregon model of the [first part](../terrain/#in-python), put on its grid (UTM 10N, cells of
+30 m, no plain given):
+
+```python
+dem0 = tf.load_raster(tf.surface.example_data("orelevation"))
+grid = xr.DataArray(np.zeros((369, 270)), dims=("y", "x"),
+                    coords={"y": 4771920 - 15 - 30 * np.arange(369), "x": 500010 + 15 + 30 * np.arange(270)})
+dem = tf.reproject(dem0, like=grid.rio.write_crs("EPSG:32610"), resampling="bilinear")
+
+law = tf.surface.hilltop(dem)
+big = law.hills[law.hills.height >= 100]
+print(law)
+print(big[["top", "base", "base_kind", "height", "mean_slope", "line_slope", "area_ha", "qualifies"]].round(1).to_string())
+```
+
+```text
+Hilltop(290 summits, 1 hills qualify, 82 APP cells)
+         top   base base_kind  height  mean_slope  line_slope  area_ha  qualifies
+hill                                                                             
+0     1388.0  439.6    lowest   948.4        18.1         5.6   8966.6      False
+66    1151.1  992.2    saddle   158.8        15.7        22.9    175.5      False
+113   1065.3  908.2    saddle   157.1        25.1        29.0     52.9       True
+152    993.2  837.9    saddle   155.3        15.0        15.2    272.5      False
+253    742.9  610.6    saddle   132.3        23.2        25.6     34.7      False
+```
+
+These are the five summits of "Real mountains", and the one hill that qualifies, with its 82 cells (7.4 ha) as there.
+The elevation here is warped by the library, not by GDAL's program, so the numbers of a hill can differ in the last
+digit from the part's table, and the summits are 290 and not 292, the rows numbered one or two apart. The settings of "Settings that change the answer" are
+arguments of the call:
+
+```python
+for ms in (15, 17.5, 20, 25, 27.5):
+    r = tf.surface.hilltop(dem, min_slope=ms)
+    print(f"min_slope {ms:4}: {int(r.hills.qualifies.sum())} hills, {round(float(r.app.sum()) * 0.09, 1)} ha")
+
+line = tf.surface.hilltop(dem, slope="line")                       # the angle from the summit to its foot
+print("slope='line':", int(line.hills.qualifies.sum()), "hills")
+half = tf.surface.hilltop(dem, fraction=0.5)                       # the upper half of each hill
+print("fraction=0.5:", int(half.hills.qualifies.sum()), "hill,", round(float(half.app.sum()) * 0.09, 1), "ha")
+conama = tf.surface.hilltop(dem, min_height=50, min_slope=16.7, slope="line")   # CONAMA 303/2002's thresholds
+print("CONAMA thresholds:", int(conama.hills.qualifies.sum()), "hills,", round(float(conama.app.sum()) * 0.09, 1), "ha")
+```
+
+```text
+min_slope   15: 5 hills, 1952.2 ha
+min_slope 17.5: 3 hills, 1893.6 ha
+min_slope   20: 2 hills, 11.7 ha
+min_slope   25: 1 hills, 7.4 ha
+min_slope 27.5: 0 hills, 0.0 ha
+slope='line': 2 hills
+fraction=0.5: 1 hill, 15.8 ha
+CONAMA thresholds: 11 hills, 89.2 ha
+```
+
+The jump at 17.5 is the edge effect the part describes (the highest summit measured from the corner of the map). Give
+the plains as `plain=` (a raster on the same grid as the DEM, non-zero on plains and water) and read a margin around
+the area of interest wide enough to hold whole hills and their saddles. A DEM in longitude and latitude is accepted
+(the cells' sides are taken in metres at the centre of the map), but projected coordinates are better for the areas of the
+table; `area_ha` of `hills` is in hectares either way.
+
 ## Read the results
 
 ### The synthetic landscape
