@@ -5424,7 +5424,7 @@ params = { title = "The map's nodes (codebook)" }
         toml: r#"
 format = "terraflux/1"
 name = "Change between two dates by principal components"
-description = "Change detection by principal components (Byrne et al. 1980; Richards 1984): the same bands of two dates are taken as one set of variables and rotated by PCA. What the dates share (the brightness, the vegetation) is in the first components; what changed between them is in a minor one, which holds the little that the first do not. Here the red and near infrared bands of two dates are four variables: the first two components are what the dates share and the third, `minor` (its `layer`), is the change; the fourth is only noise. The map `change` is that component's absolute value (a cell that changed is far from zero, in either direction), and `loadings` says which bands of which date make it up (the change component has the two dates' loadings of opposite sign). Which component is the change depends on the image and the bands taken: look at the loadings and at the maps of every component. Replace the two images with yours (Use my data): the same bands, on one grid."
+description = "Change detection by principal components (Byrne et al. 1980; Richards 1984): the same bands of two dates are taken as one set of variables and rotated by PCA. What the dates share (the brightness, the vegetation) is in the first components; what changed between them is in a minor one, which holds the little that the first do not. Here the red and near infrared bands of two dates are four variables: the first two components are what the dates share and the third, `minor` (its `layer`), is the change; the fourth is only noise. The map `change` is that component's absolute value (a cell that changed is far from zero, in either direction), and `loadings` says which bands of which date make it up (the change component has the two dates' loadings of opposite sign). Which component is the change depends on the image and the bands taken: the `change` column of the explained table says how much each component is a difference of the dates, and the run names the most like a change; look at the loadings and at the maps of every component too. Replace the two images with yours (Use my data): the same bands, on one grid."
 
 [[nodes]]
 id = "land_2000"
@@ -5486,19 +5486,25 @@ inputs = { stack = "image_2020.image" }
 params = { layer = "nir" }
 
 [[nodes]]
-id = "dates"
+id = "dates_2000"
 op = "stack.of"
-inputs = { red_2000 = "red_2000.map", nir_2000 = "nir_2000.map", red_2020 = "red_2020.map", nir_2020 = "nir_2020.map" }
-note = "Two bands of each date as the variables of one analysis (add the others: the more bands, the more components). The same cells on both dates must be the same place: register the images first."
+inputs = { red = "red_2000.map", nir = "nir_2000.map" }
+note = "Two bands of the first date, a layer each (add the others: the more bands, the more components)."
+
+[[nodes]]
+id = "dates_2020"
+op = "stack.of"
+inputs = { red = "red_2020.map", nir = "nir_2020.map" }
+note = "The same bands of the second date, with the same names and on the same grid: register the images first."
 
 [[nodes]]
 id = "pca"
 op = "ml.pca"
-inputs = { predictors = "dates.stack" }
-params = { components = 4, standardise = true }
-note = "The four components of the two dates' bands. The first two hold what the dates share, the third where they differ, the fourth the noise."
-why = "No change would make the second date a copy of the first, and the bands of the two dates one set of correlated pairs: the first components take the pairs, the change is what is left."
-refs = ["Byrne et al. 1980", "Richards 1984"]
+inputs = { predictors = "dates_2000.stack", later = "dates_2020.stack" }
+params = { components = 4, standardise = true, change = "stacked" }
+note = "The four components of the two dates' bands stacked (red_1, nir_1 of the first date, red_2, nir_2 of the second). The `change` column of the explained table says how much each one is a difference of the dates (1) and not a sum (0): the run names the one most like a change."
+why = "No change would make the second date a copy of the first, and the bands of the two dates one set of correlated pairs: the first components take the pairs, the change is what is left. `change = selective` would instead take each band's pair apart (a PCA of red at both dates, one of nir), and give what stayed and what changed per band."
+refs = ["Byrne et al. 1980", "Fung and LeDrew 1987", "Chavez and Kwarteng 1989", "Richards 1984"]
 
 [[nodes]]
 id = "minor"
@@ -6896,9 +6902,17 @@ mod tests {
         // (the change component sets one date's bands against the other's)
         let loadings = table(&out, "pca.loadings");
         let third = loadings.rows[2].clone();
-        let (a, b) = (loadings.column("nir_2000").unwrap()[2], loadings.column("nir_2020").unwrap()[2]);
+        let (a, b) = (loadings.column("nir_1").unwrap()[2], loadings.column("nir_2").unwrap()[2]);
         println!("change: loadings of pc3 {third:.3?}");
-        assert!(a * b < 0.0, "nir_2000 {a}, nir_2020 {b}");
+        assert!(a * b < 0.0, "nir_1 {a}, nir_2 {b}");
+        // (and the explained table's change column agrees: pc3 is the component most like a change)
+        let ex = table(&out, "pca.explained");
+        let col = ex.column("change").unwrap();
+        println!("change: the change column {col:.3?}");
+        let ratio = ex.column("ratio").unwrap();
+        let most = (0..col.len()).filter(|&c| ratio[c] >= 0.01).max_by(|&a, &b| col[a].total_cmp(&col[b])).unwrap();
+        assert_eq!(most, 2, "{col:?} {ratio:?}");
+        assert!(col[2] > 0.8, "{col:?}");
         println!("change: the mean of the minor component {moved:.3} where the land changed, {kept:.3} where not");
         assert!(moved > 2.0 * kept, "{moved} against {kept}");
     }

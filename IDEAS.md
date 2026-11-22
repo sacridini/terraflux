@@ -5183,8 +5183,13 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   `pc4` é só ruído, 0,13 contra 0,11), com as cargas do nir das duas datas de sinais opostos (o teste confere os
   dois). O template usa `pc3` e diz no `note` e na descrição que o componente da mudança depende das imagens e das
   bandas, e que as cargas o mostram; a segunda data é a de "Land cover change by objects" (nlm.image da mesma
-  classificação com uma mudança sorteada: floresta para urbano e pasto para lavoura). O PCA de duas datas como opção
-  do `ml.pca` e a MNF continuam em aberto. O guia do MCP ganhou o tópico `multivariate` em `guide.rs` (quando usar
+  classificação com uma mudança sorteada: floresta para urbano e pasto para lavoura). **Feito (2026-11-22)**: o PCA de duas datas, como opções do `ml.pca` (entrada `later`, ajuste `change`):
+  `stacked` (Byrne et al. 1980; Fung e LeDrew 1987), o PCA das camadas das duas datas (`<banda>_1`, `<banda>_2`), com a coluna
+  `change` em `explained` (||a-b||^2 / (||a-b||^2 + ||a+b||^2) das cargas) e um aviso que nomeia o componente mais parecido com
+  mudança entre os de 1% da variância ou mais; `selective` (Chavez e Kwarteng 1989), um PCA por banda, `<banda>_pc1` (o que
+  ficou) e `<banda>_pc2` (o que mudou), sem `model` (um ajuste por banda; o `ml.predict` não tem o que aplicar). Testes contra o
+  scikit-learn (`tools/make_pca_reference.py`, `tests/data/reference/pca_dates.json`). O template usa `later`. A MNF continua
+  em aberto. O guia do MCP ganhou o tópico `multivariate` em `guide.rs` (quando usar
   cada um, padronizar, as escolhas automáticas, ler os resultados, a mudança entre datas, os objetos), com um
   ponteiro nos itens 7 a 9 do `data-preparation`. O `python_script`: os três ficam em "sem equivalente", com as razões
   de `python/models.rs` relidas (a ordem dos números, o modelo e o mapa que o script não tem): estão claras e ficam

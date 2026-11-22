@@ -437,6 +437,45 @@ pub const REFERENCES: &[Reference] = &[
         report: "",
     },
     Reference {
+        key: "byrne1980",
+        authors: &["Byrne, G. F.", "Crapper, P. F.", "Mayo, K. K."],
+        more: false,
+        year: 1980,
+        title: "Monitoring land-cover change by principal component analysis of multitemporal Landsat data",
+        journal: "Remote Sensing of Environment",
+        volume: "10",
+        issue: "3",
+        pages: "175-184",
+        doi: "10.1016/0034-4257(80)90021-8",
+        report: "",
+    },
+    Reference {
+        key: "fung1987",
+        authors: &["Fung, T.", "LeDrew, E."],
+        more: false,
+        year: 1987,
+        title: "Application of principal components analysis to change detection",
+        journal: "Photogrammetric Engineering and Remote Sensing",
+        volume: "53",
+        issue: "12",
+        pages: "1649-1658",
+        doi: "",
+        report: "",
+    },
+    Reference {
+        key: "chavez1989",
+        authors: &["Chavez, P. S.", "Kwarteng, A. Y."],
+        more: false,
+        year: 1989,
+        title: "Extracting spectral contrast in Landsat Thematic Mapper image data using selective principal component analysis",
+        journal: "Photogrammetric Engineering and Remote Sensing",
+        volume: "55",
+        issue: "3",
+        pages: "339-348",
+        doi: "",
+        report: "",
+    },
+    Reference {
         key: "lloyd1982",
         authors: &["Lloyd, S. P."],
         more: false,
@@ -1433,7 +1472,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["ml.pca"],
         name: "principal component analysis",
-        refs: &["pearson1901", "hotelling1933"],
+        refs: &["pearson1901", "hotelling1933", "byrne1980", "fung1987", "chavez1989"],
         software: "",
         software_refs: &[],
     },
@@ -2164,7 +2203,10 @@ mod tests {
         assert_eq!(method_of("objects.resize").unwrap().refs, &["serra1982", "soille2004", "felzenszwalb2012"]);
         assert_eq!(method_of("segment.scale").unwrap().refs, &["dragut2010", "dragut2014"]);
         assert_eq!(method_of("segment.optimize").unwrap().refs, &["espindola2006", "johnson2011"]);
-        assert_eq!(method_of("ml.pca").unwrap().refs, &["pearson1901", "hotelling1933"]);
+        assert_eq!(
+            method_of("ml.pca").unwrap().refs,
+            &["pearson1901", "hotelling1933", "byrne1980", "fung1987", "chavez1989"]
+        );
         assert_eq!(method_of("ml.kmeans").unwrap().refs, &["lloyd1982", "arthur2007", "rousseeuw1987"]);
         assert_eq!(method_of("ml.som").unwrap().refs, &["kohonen1982", "kohonen2001", "vesanto2000"]);
         assert_eq!(method_of("ml.fit").unwrap().refs, &["breiman2001"]);

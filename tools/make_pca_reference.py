@@ -54,7 +54,59 @@ def fit(x: np.ndarray, other: np.ndarray, standardise: bool) -> dict:
     }
 
 
+def z(x: np.ndarray) -> np.ndarray:
+    return (x - x.mean(axis=0)) / x.std(axis=0, ddof=1)
+
+
+def dates() -> dict:
+    """Three bands at two dates on 300 cells: the second date is the first with a change on a third of the cells.
+    The stacked PCA of the six columns (band_1 at the first date, band_2 at the later), its `change` of each component
+    (|a - b|^2 / (|a - b|^2 + |a + b|^2) of the loadings a of the first date and b of the later), and the selective PCA of
+    each band's pair, all of the correlation."""
+    rng = np.random.default_rng(20261122)
+    n = 300
+    f = rng.normal(size=(n, 2))
+    first = np.column_stack([
+        50.0 + 10.0 * f[:, 0] + rng.normal(scale=2.0, size=n),
+        0.4 * f[:, 0] + 0.3 * f[:, 1] + rng.normal(scale=0.1, size=n),
+        900.0 + 120.0 * f[:, 1] + rng.normal(scale=30.0, size=n),
+    ])
+    moved = rng.random(n) < 0.33
+    later = first + rng.normal(scale=[1.0, 0.05, 15.0], size=(n, 3))
+    later[moved] += np.array([25.0, -0.6, -300.0])
+    both = np.hstack([first, later])
+    pca = PCA().fit(z(both))
+    change = []
+    for v in pca.components_:
+        a, b = v[:3], v[3:]
+        d, s = np.sum((a - b) ** 2), np.sum((a + b) ** 2)
+        change.append(float(d / (d + s)))
+    selective = []
+    for j in range(3):
+        pair = z(np.column_stack([first[:, j], later[:, j]]))
+        p = PCA().fit(pair)
+        selective.append({
+            "components": p.components_.tolist(),
+            "variance": p.explained_variance_.tolist(),
+            "scores": p.transform(pair).tolist(),
+        })
+    return {
+        "bands": ["a", "b", "c"],
+        "first": first.tolist(),
+        "later": later.tolist(),
+        "stacked": {
+            "components": pca.components_.tolist(),
+            "variance": pca.explained_variance_.tolist(),
+            "scores": pca.transform(z(both)).tolist(),
+            "change": change,
+        },
+        "selective": selective,
+    }
+
+
 def main() -> None:
+    (REF / "pca_dates.json").write_text(json.dumps(dates()), encoding="utf-8")
+    print("wrote", REF / "pca_dates.json")
     rng = np.random.default_rng(20261119)
     x = records(rng, 400)
     other = records(rng, 60) + np.array([5.0, 0.2, -100.0, 1.0, 0.0])

@@ -119,6 +119,12 @@ pub(super) struct Records {
 
 /// The records of the node's `table` or `predictors` (and `cells`), and the sample of them to fit on.
 pub(super) fn records(ctx: &mut Ctx, args: &Args) -> Result<Records> {
+    records_of(ctx, args, None)
+}
+
+/// [`records`], the maps being `stack` when it is given (the layers of two dates side by side) instead of the node's
+/// `predictors`.
+fn records_of(ctx: &mut Ctx, args: &Args, stack: Option<&Stack>) -> Result<Records> {
     // the variables: their names and values
     let (names, columns): (Vec<String>, Vec<Arc<Vec<f64>>>) = match (args.get("table"), args.get("predictors")) {
         (Some(_), Some(_)) => return Err(fail(args, "a table or maps (predictors), not both")),
@@ -142,7 +148,10 @@ pub(super) fn records(ctx: &mut Ctx, args: &Args) -> Result<Records> {
         }
         (Some(v), None) => return Err(fail(args, format!("table: a table, not a {:?}", v.ty()))),
         (None, Some(_)) => {
-            let stack = args.stack("predictors")?;
+            let stack = match stack {
+                Some(s) => s,
+                None => args.stack("predictors")?,
+            };
             let (names, layers): (Vec<String>, Vec<Arc<Vec<f64>>>) = stack
                 .keys
                 .iter()
@@ -207,6 +216,144 @@ pub(super) fn records(ctx: &mut Ctx, args: &Args) -> Result<Records> {
     Ok(Records { names, columns, idx })
 }
 
+/// The maps of two dates of the same layers: `predictors` and `later`, and how they are analysed.
+struct Pair<'a> {
+    /// The layers' names (the same in both).
+    names: Vec<String>,
+    first: &'a Stack,
+    later: &'a Stack,
+    selective: bool,
+}
+
+impl Pair<'_> {
+    /// The layers of both dates side by side as a stack: `<name>_1` for each of the first, then `<name>_2` for each of
+    /// the later.
+    fn stacked(&self) -> Stack {
+        let mut keys = Vec::new();
+        let mut layers = Vec::new();
+        for (date, s) in [(1, self.first), (2, self.later)] {
+            for n in &self.names {
+                keys.push(Key::Name(format!("{n}_{date}")));
+                layers.push(s.by_name(n).expect("checked").clone());
+            }
+        }
+        Stack { grid: self.first.grid.clone(), keys, layers }
+    }
+}
+
+/// The two dates of the node (`later`, `change`), or none when it has only one: refused when `later` does not fit
+/// `predictors`.
+fn dates_of<'a>(args: &'a Args) -> Result<Option<Pair<'a>>> {
+    let change: Option<String> = args.opt_param("change")?;
+    let Some(later) = args.get("later") else {
+        return match change {
+            Some(_) => Err(fail(args, "change goes with two dates: connect the later maps (later)")),
+            None => Ok(None),
+        };
+    };
+    if args.get("table").is_some() {
+        return Err(fail(args, "later goes with maps (predictors), not with a table"));
+    }
+    if args.get("predictors").is_none() {
+        return Err(fail(args, "connect the maps of the first date (predictors) with the later ones"));
+    }
+    let selective = match change.as_deref() {
+        None | Some("stacked") => false,
+        Some("selective") => true,
+        Some(c) => return Err(fail(args, format!("change {c:?}: stacked or selective"))),
+    };
+    if args.get("cells").is_some() && selective {
+        return Err(fail(args, "cells goes with change stacked, not selective"));
+    }
+    let Value::Stack(later) = later else { return Err(fail(args, format!("later: a stack, not a {:?}", later.ty()))) };
+    let first = args.stack("predictors")?;
+    let names = first.names();
+    if names.is_empty() {
+        return Err(fail(args, "the predictors' stack has no layer named by a variable"));
+    }
+    let (had, has) = (names.clone(), later.names());
+    let lacking: Vec<&String> = had.iter().filter(|n| !has.contains(n)).collect();
+    let extra: Vec<&String> = has.iter().filter(|n| !had.contains(n)).collect();
+    if !lacking.is_empty() || !extra.is_empty() || first.layers.len() != later.layers.len() {
+        let list = |v: &[&String]| v.iter().map(|n| format!("{n:?}")).collect::<Vec<_>>().join(", ");
+        return Err(fail(
+            args,
+            format!(
+                "the later maps must have the layers of the first date, by name (the first: {}; the later: {}){}{}",
+                names.join(", "),
+                has.join(", "),
+                if lacking.is_empty() { String::new() } else { format!("; missing in later: {}", list(&lacking)) },
+                if extra.is_empty() { String::new() } else { format!("; not in the first: {}", list(&extra)) },
+            ),
+        ));
+    }
+    if later.grid != first.grid {
+        return Err(fail(args, "the later maps are on another grid than the first date's (raster.match them first)"));
+    }
+    Ok(Some(Pair { names, first, later, selective }))
+}
+
+/// How much a component of the two dates stacked (the first date's loadings, then the later's) is a change:
+/// |a - b|^2 / (|a - b|^2 + |a + b|^2), 1 for a pure difference of the dates and 0 for a pure sum.
+fn change_of(v: &[f64]) -> f64 {
+    let n = v.len() / 2;
+    let (mut diff, mut sum) = (0.0, 0.0);
+    for j in 0..n {
+        diff += (v[j] - v[n + j]).powi(2);
+        sum += (v[j] + v[n + j]).powi(2);
+    }
+    diff / (diff + sum)
+}
+
+/// Chavez and Kwarteng's selective PCA: for each layer, the PCA of the pair (the layer at the first date, at the later)
+/// and its two components, `<layer>_pc1` (what the dates share) and `<layer>_pc2` (what changed).
+fn selective(ctx: &mut Ctx, args: &Args, pr: &Pair, standardise: bool) -> Result<Outputs> {
+    let mut keys = Vec::new();
+    let mut layers = Vec::new();
+    let mut loadings = Table::new(["band", "component", "explained", "first", "later"].map(String::from).to_vec());
+    let mut explained = Table::new(["band", "component", "variance", "ratio", "cumulative"].map(String::from).to_vec());
+    for (b, name) in pr.names.iter().enumerate() {
+        let pair = [format!("{name}_1"), format!("{name}_2")];
+        let sub = Stack {
+            grid: pr.first.grid.clone(),
+            keys: pair.iter().cloned().map(Key::Name).collect(),
+            layers: vec![
+                pr.first.by_name(name).expect("checked").clone(),
+                pr.later.by_name(name).expect("checked").clone(),
+            ],
+        };
+        let Records { names, columns, idx } = records_of(ctx, args, Some(&sub))?;
+        let used: Vec<Vec<f64>> = columns.iter().map(|c| idx.iter().map(|&i| c[i]).collect()).collect();
+        let (p, constant) = pca::fit_noting(names.clone(), &used, standardise, Keep::Count(2))
+            .map_err(|e| fail(args, format!("{name}: {e}")))?;
+        warn_constant(ctx, args, &names, &constant);
+        let scores = stack_scores(args, &p, &sub)?;
+        for (c, layer) in scores.layers.into_iter().enumerate() {
+            keys.push(Key::Name(format!("{name}_pc{}", c + 1)));
+            layers.push(layer);
+        }
+        let mut cum = 0.0;
+        for c in 0..2 {
+            loadings.rows.push(vec![
+                (b + 1) as f64,
+                (c + 1) as f64,
+                p.explained[c],
+                p.components[c][0],
+                p.components[c][1],
+            ]);
+            cum += p.explained[c];
+            explained.rows.push(vec![(b + 1) as f64, (c + 1) as f64, p.variance[c], p.explained[c], cum]);
+        }
+    }
+    loadings.labels.insert("band".into(), pr.names.clone());
+    explained.labels.insert("band".into(), pr.names.clone());
+    let mut out = outputs([("scores", Value::Stack(Stack { grid: pr.first.grid.clone(), keys, layers }))]);
+    out.insert("loadings".into(), Value::Table(loadings));
+    out.insert("explained".into(), Value::Table(explained));
+    // (no model: a selective PCA is one fit per layer, which ml.predict has no model to hold)
+    Ok(out)
+}
+
 impl Operator for Components {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
@@ -217,12 +364,24 @@ impl Operator for Components {
              variable; `cells` the cells to use) that have every variable; above a million records the fit uses a \
              sample (said in a note). The scores are each record's coordinates on the components, from the mean \
              and scale of the fit: the model scores other data with ml.predict. Each component's largest loading is \
-             positive, as scikit-learn's and metrics.pca's. A record with a variable none has no scores.",
+             positive, as scikit-learn's and metrics.pca's. A record with a variable none has no scores. With maps \
+             of a later date (`later`, the same layers by name) it finds the change between two dates: stacked \
+             (Byrne, Crapper and Mayo 1980; Fung and LeDrew 1987) is the PCA of the layers of both dates \
+             (<layer>_1, <layer>_2), and the change column of the explained table tells how much each component is \
+             a difference of the dates; selective (Chavez and Kwarteng 1989) is a PCA of each layer's two dates, \
+             <layer>_pc1 the part that stayed and <layer>_pc2 the part that changed. A cell with a layer none at \
+             either date stays out.",
             Access::Global,
         )
         .input(PortSpec::optional("table", Type::Table, "the records: a column per variable"))
         .input(PortSpec::optional("predictors", Type::Stack, "or maps: a layer per variable (stack.of)"))
         .input(PortSpec::optional("cells", Type::Map, "with maps: the cells to fit on (non-zero; default all)"))
+        .input(PortSpec::optional(
+            "later",
+            Type::Stack,
+            "with maps: the same layers (by name) on the same grid at a later date: the two dates are analysed \
+             together, see `change`",
+        ))
         .output(PortSpec::optional("scores", Type::Stack, "with maps: a layer per component (pc1, pc2...)"))
         .output(PortSpec::optional("table", Type::Table, "with a table: its columns, then the scores (pc1, pc2...)"))
         .output(PortSpec::new(
@@ -236,7 +395,11 @@ impl Operator for Components {
             Type::Table,
             "per component, all of them: its variance, its share of the total and the cumulative share",
         ))
-        .output(PortSpec::new("model", Type::MlModel, "the PCA, for ml.predict on other data"))
+        .output(PortSpec::optional(
+            "model",
+            Type::MlModel,
+            "the PCA, for ml.predict on other data (not with change selective: a fit per layer)",
+        ))
         .param(PortSpec::optional(
             "components",
             Type::Number,
@@ -260,15 +423,59 @@ impl Operator for Components {
              million)",
         ))
         .param(PortSpec::optional("seed", Type::Integer, "the seed of the sample's draw (numpy's; default 1)"))
+        .param(
+            PortSpec::optional(
+                "change",
+                Type::Text,
+                "with later: stacked (default), one PCA of the layers of both dates (<layer>_1, <layer>_2), whose \
+                 explained table has a column change (1 a pure difference of the dates, 0 a pure sum); or \
+                 selective, a PCA of each layer's pair of dates, scores <layer>_pc1 (what stayed) and <layer>_pc2 \
+                 (what changed), and no model",
+            )
+            .choices(["stacked", "selective"]),
+        )
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let standardise: bool = args.param("standardise", true)?;
         let keep = keep_of(args)?;
-        let Records { names, columns, idx } = records(ctx, args)?;
+        let pair = dates_of(args)?;
+        if let Some(pr) = pair.as_ref().filter(|pr| pr.selective) {
+            return selective(ctx, args, pr, standardise);
+        }
+        // two dates stacked: the layers of the first, then those of the later, a variable each
+        let both = pair.as_ref().map(|pr| pr.stacked());
+        let Records { names, columns, idx } = records_of(ctx, args, both.as_ref())?;
         let used: Vec<Vec<f64>> = columns.iter().map(|c| idx.iter().map(|&i| c[i]).collect()).collect();
-        let (p, constant) = pca::fit_noting(names.clone(), &used, standardise, keep).map_err(|e| fail(args, e))?;
+        let (p, constant, change) = if both.is_some() {
+            // (every component is fitted to tell which one is the change, then those asked for are kept)
+            let (mut p, constant) = pca::fit_noting(names.clone(), &used, standardise, Keep::Count(names.len()))
+                .map_err(|e| fail(args, e))?;
+            let k = pca::kept(&p.explained, keep).map_err(|e| fail(args, e))?;
+            let change: Vec<f64> = p.components.iter().map(|v| change_of(v)).collect();
+            p.components.truncate(k);
+            (p, constant, Some(change))
+        } else {
+            let (p, constant) = pca::fit_noting(names.clone(), &used, standardise, keep).map_err(|e| fail(args, e))?;
+            (p, constant, None)
+        };
         warn_constant(ctx, args, &names, &constant);
+        if let Some(change) = &change {
+            // the component most like a change: the largest among those with a share of the variance worth the name
+            let best = (0..change.len())
+                .filter(|&c| p.explained[c] >= 0.01)
+                .max_by(|&a, &b| change[a].total_cmp(&change[b]).then(b.cmp(&a)));
+            if let Some(c) = best {
+                ctx.warn(format!(
+                    "node {:?}: pc{} is the component most like a change between the dates (change {:.3}, {:.1}% of \
+                     the variance; 1 is a pure difference of the dates, 0 a pure sum)",
+                    args.node,
+                    c + 1,
+                    change[c],
+                    100.0 * p.explained[c]
+                ));
+            }
+        }
         // the tables
         let mut cols = vec!["component".to_string(), "explained".to_string()];
         cols.extend(names);
@@ -276,16 +483,28 @@ impl Operator for Components {
         for (c, v) in p.components.iter().enumerate() {
             loadings.rows.push([(c + 1) as f64, p.explained[c]].into_iter().chain(v.iter().copied()).collect());
         }
-        let mut explained = Table::new(["component", "variance", "ratio", "cumulative"].map(String::from).to_vec());
+        let mut head = ["component", "variance", "ratio", "cumulative"].map(String::from).to_vec();
+        if change.is_some() {
+            head.push("change".into());
+        }
+        let mut explained = Table::new(head);
         let mut cum = 0.0;
         for c in 0..p.variance.len() {
             cum += p.explained[c];
-            explained.rows.push(vec![(c + 1) as f64, p.variance[c], p.explained[c], cum]);
+            let mut row = vec![(c + 1) as f64, p.variance[c], p.explained[c], cum];
+            row.extend(change.as_ref().map(|v| v[c]));
+            explained.rows.push(row);
         }
         // the scores of every record
         let mut out = match (args.get("table"), args.get("predictors")) {
             (Some(Value::Table(t)), _) => outputs([("table", Value::Table(table_scores(args, &p, t)?))]),
-            _ => outputs([("scores", Value::Stack(stack_scores(args, &p, args.stack("predictors")?)?))]),
+            _ => {
+                let maps = match &both {
+                    Some(b) => b,
+                    None => args.stack("predictors")?,
+                };
+                outputs([("scores", Value::Stack(stack_scores(args, &p, maps)?))])
+            }
         };
         out.insert("loadings".into(), Value::Table(loadings));
         out.insert("explained".into(), Value::Table(explained));

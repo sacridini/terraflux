@@ -77,6 +77,29 @@ impl Pca {
     }
 }
 
+/// How many components `keep` asks for, given the share of the variance of each (all of them, from the largest).
+pub fn kept(explained: &[f64], keep: Keep) -> Result<usize, String> {
+    let d = explained.len();
+    Ok(match keep {
+        Keep::Count(k) if k == 0 || k > d => {
+            return Err(format!("components {k}: 1 to {d} (the number of variables), or a share of the variance"));
+        }
+        Keep::Count(k) => k,
+        Keep::Share(s) => {
+            let mut cum = 0.0;
+            let mut k = d;
+            for (i, e) in explained.iter().enumerate() {
+                cum += e;
+                if cum >= s - 1e-12 {
+                    k = i + 1;
+                    break;
+                }
+            }
+            k
+        }
+    })
+}
+
 /// The PCA of the records (a vector of values per variable, none NaN, all the same length): of the correlation
 /// (`standardise`: each variable by its standard deviation) or of the covariance, keeping some components.
 pub fn fit(names: Vec<String>, columns: &[Vec<f64>], standardise: bool, keep: Keep) -> Result<Pca, String> {
@@ -111,24 +134,7 @@ pub fn fit_noting(
         return Err("the variables have no variance".into());
     }
     let explained: Vec<f64> = variance.iter().map(|v| v / total).collect();
-    let k = match keep {
-        Keep::Count(k) if k == 0 || k > d => {
-            return Err(format!("components {k}: 1 to {d} (the number of variables), or a share of the variance"));
-        }
-        Keep::Count(k) => k,
-        Keep::Share(s) => {
-            let mut cum = 0.0;
-            let mut k = d;
-            for (i, e) in explained.iter().enumerate() {
-                cum += e;
-                if cum >= s - 1e-12 {
-                    k = i + 1;
-                    break;
-                }
-            }
-            k
-        }
-    };
+    let k = kept(&explained, keep)?;
     let components = vectors[..k]
         .iter()
         .map(|v| {

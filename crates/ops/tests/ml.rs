@@ -425,6 +425,236 @@ fn a_share_of_the_variance_picks_the_components_as_scikit_learn() {
     assert_eq!(table(&fit["loadings"]).rows.len() as u64, z["correlation"]["k_share"]["0.95"].as_u64().unwrap());
 }
 
+// two dates (scikit-learn's PCA of the six layers stacked and of each band's pair, tools/make_pca_reference.py:
+// tests/data/reference/pca_dates.json)
+
+fn dates_reference() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/pca_dates.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The layers a, b, c of some rows (20 cells across), named so.
+fn dates_stack(rows: &[Vec<f64>], names: &[&str]) -> Stack {
+    Stack {
+        grid: Arc::new(if rows.len().is_multiple_of(20) {
+            Grid::new(20, rows.len() / 20)
+        } else {
+            Grid::new(rows.len(), 1)
+        }),
+        keys: names.iter().map(|n| Key::Name(n.to_string())).collect(),
+        layers: (0..names.len()).map(|j| Arc::new(rows.iter().map(|r| r[j]).collect())).collect(),
+    }
+}
+
+/// The layers of a stack value as columns.
+fn layers_of(v: &Value) -> Vec<Vec<f64>> {
+    let Value::Stack(s) = v else { panic!("{v:?}") };
+    s.layers.iter().map(|l| l.to_vec()).collect()
+}
+
+#[test]
+fn pca_of_two_dates_stacked_is_scikit_learns_and_tells_the_change() {
+    let z = dates_reference();
+    let (first, later) = (rows_of(&z["first"]), rows_of(&z["later"]));
+    let names = ["a", "b", "c"];
+    let mut ctx = Ctx::default();
+    let fit = try_run(
+        "ml.pca",
+        vec![
+            ("predictors", Value::Stack(dates_stack(&first, &names))),
+            ("later", Value::Stack(dates_stack(&later, &names))),
+        ],
+        serde_json::json!({"components": 6}),
+        &mut ctx,
+    )
+    .unwrap();
+    let m = &z["stacked"];
+    let loadings = table(&fit["loadings"]);
+    assert_eq!(loadings.columns, ["component", "explained", "a_1", "b_1", "c_1", "a_2", "b_2", "c_2"]);
+    let (comps, var, change) = (rows_of(&m["components"]), numbers(&m["variance"]), numbers(&m["change"]));
+    let want = rows_of(&m["scores"]);
+    let scores = layers_of(&fit["scores"]);
+    let ex = table(&fit["explained"]);
+    assert_eq!(ex.columns, ["component", "variance", "ratio", "cumulative", "change"]);
+    for c in 0..6 {
+        close_up_to_sign(&format!("component {c}"), &loadings.rows[c][2..], &comps[c], 1e-8);
+        assert!((ex.rows[c][1] - var[c]).abs() <= 1e-9 * var[0], "variance {c}");
+        assert!((ex.rows[c][4] - change[c]).abs() < 1e-9, "change {c}: {} {}", ex.rows[c][4], change[c]);
+        let w: Vec<f64> = want.iter().map(|r| r[c]).collect();
+        close_up_to_sign(&format!("scores {c}"), &scores[c], &w, 1e-8);
+    }
+    // the component most like a change among those with 1% of the variance: the third
+    assert_eq!(ctx.warnings.len(), 1, "{:?}", ctx.warnings);
+    assert!(ctx.warnings[0].contains("pc3 is the component most like a change"), "{:?}", ctx.warnings);
+    // a share of the variance keeps fewer components, the change column still tells all of them
+    let few = run(
+        "ml.pca",
+        vec![
+            ("predictors", Value::Stack(dates_stack(&first, &names))),
+            ("later", Value::Stack(dates_stack(&later, &names))),
+        ],
+        serde_json::json!({"components": 0.9}),
+    );
+    assert_eq!(table(&few["loadings"]).rows.len(), 3);
+    assert_eq!(table(&few["explained"]).rows.len(), 6);
+    // the model scores a stack of the six layers by their names
+    let both = Stack {
+        grid: Arc::new(Grid::new(20, 15)),
+        keys: ["a_1", "b_1", "c_1", "a_2", "b_2", "c_2"].iter().map(|n| Key::Name(n.to_string())).collect(),
+        layers: (0..6)
+            .map(|j| Arc::new((0..300).map(|i| if j < 3 { first[i][j] } else { later[i][j - 3] }).collect()))
+            .collect(),
+    };
+    let out = run(
+        "ml.predict",
+        vec![("model", few["model"].clone()), ("predictors", Value::Stack(both))],
+        serde_json::json!({}),
+    );
+    let applied = layers_of(&out["scores"]);
+    let kept = layers_of(&few["scores"]);
+    for c in 0..3 {
+        check(&format!("predict {c}"), &applied[c], &kept[c]);
+    }
+}
+
+#[test]
+fn pca_of_two_dates_selective_is_scikit_learns_for_each_pair() {
+    let z = dates_reference();
+    let (first, later) = (rows_of(&z["first"]), rows_of(&z["later"]));
+    let names = ["a", "b", "c"];
+    let fit = run(
+        "ml.pca",
+        vec![
+            ("predictors", Value::Stack(dates_stack(&first, &names))),
+            ("later", Value::Stack(dates_stack(&later, &names))),
+        ],
+        serde_json::json!({"change": "selective"}),
+    );
+    assert!(!fit.contains_key("model"));
+    let Value::Stack(s) = &fit["scores"] else { panic!() };
+    assert_eq!(s.names(), ["a_pc1", "a_pc2", "b_pc1", "b_pc2", "c_pc1", "c_pc2"]);
+    let (loadings, ex) = (table(&fit["loadings"]), table(&fit["explained"]));
+    assert_eq!(loadings.columns, ["band", "component", "explained", "first", "later"]);
+    assert_eq!(loadings.labels["band"], ["a", "b", "c"]);
+    assert_eq!(ex.columns, ["band", "component", "variance", "ratio", "cumulative"]);
+    for (b, per) in z["selective"].as_array().unwrap().iter().enumerate() {
+        let (comps, var, want) = (rows_of(&per["components"]), numbers(&per["variance"]), rows_of(&per["scores"]));
+        for c in 0..2 {
+            let row = &loadings.rows[2 * b + c];
+            assert_eq!((row[0], row[1]), ((b + 1) as f64, (c + 1) as f64));
+            close_up_to_sign(&format!("band {b} component {c}"), &row[3..], &comps[c], 1e-8);
+            assert!((ex.rows[2 * b + c][2] - var[c]).abs() <= 1e-9 * var[0], "variance {b} {c}");
+            let w: Vec<f64> = want.iter().map(|r| r[c]).collect();
+            close_up_to_sign(&format!("band {b} scores {c}"), &s.layers[2 * b + c], &w, 1e-8);
+        }
+    }
+}
+
+#[test]
+fn pca_of_two_dates_finds_a_pure_difference_and_leaves_out_missing_cells() {
+    // a layer and its negative: the one component is the difference, with all the variance; the same layer twice, the sum
+    let mut s = 12345u64;
+    let u: Vec<Vec<f64>> = (0..60)
+        .map(|_| {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            vec![(s >> 33) as f64 / 1e6]
+        })
+        .collect();
+    let minus: Vec<Vec<f64>> = u.iter().map(|r| vec![-r[0]]).collect();
+    let change_of = |later: &[Vec<f64>]| {
+        let fit = run(
+            "ml.pca",
+            vec![
+                ("predictors", Value::Stack(dates_stack(&u, &["x"]))),
+                ("later", Value::Stack(dates_stack(later, &["x"]))),
+            ],
+            serde_json::json!({"standardise": false}),
+        );
+        let ex = table(&fit["explained"]);
+        (ex.rows[0][4], ex.rows[0][2])
+    };
+    let (change, ratio) = change_of(&minus);
+    assert!((change - 1.0).abs() < 1e-12 && (ratio - 1.0).abs() < 1e-12, "{change} {ratio}");
+    let (change, _) = change_of(&u);
+    assert!(change.abs() < 1e-12, "{change}");
+
+    // a cell with none at either date has no scores and does not take part in the fit
+    let z = dates_reference();
+    let (first, later) = (rows_of(&z["first"]), rows_of(&z["later"]));
+    let names = ["a", "b", "c"];
+    let mut hole = dates_stack(&later, &names);
+    let mut l = hole.layers[1].to_vec();
+    l[7] = f64::NAN;
+    hole.layers[1] = Arc::new(l);
+    let fit = run(
+        "ml.pca",
+        vec![("predictors", Value::Stack(dates_stack(&first, &names))), ("later", Value::Stack(hole.clone()))],
+        serde_json::json!({"components": 6}),
+    );
+    let scores = layers_of(&fit["scores"]);
+    assert!(scores.iter().all(|l| l[7].is_nan() && l.iter().filter(|v| v.is_nan()).count() == 1));
+    let (kept_first, kept_later): (Vec<Vec<f64>>, Vec<Vec<f64>>) =
+        (0..300).filter(|&i| i != 7).map(|i| (first[i].clone(), later[i].clone())).unzip();
+    let mut ctx = Ctx::default();
+    let without = try_run(
+        "ml.pca",
+        vec![
+            ("predictors", Value::Stack(dates_stack(&kept_first, &names))),
+            ("later", Value::Stack(dates_stack(&kept_later, &names))),
+        ],
+        serde_json::json!({"components": 6}),
+        &mut ctx,
+    )
+    .unwrap();
+    check("loadings", &table(&fit["loadings"]).rows.concat(), &table(&without["loadings"]).rows.concat());
+    let selective = run(
+        "ml.pca",
+        vec![("predictors", Value::Stack(dates_stack(&first, &names))), ("later", Value::Stack(hole))],
+        serde_json::json!({"change": "selective"}),
+    );
+    // (only the band with the hole loses the cell)
+    let layers = layers_of(&selective["scores"]);
+    assert!(layers[2][7].is_nan() && layers[0][7].is_finite() && layers[4][7].is_finite());
+}
+
+#[test]
+fn pca_of_two_dates_refuses_what_does_not_fit() {
+    let z = dates_reference();
+    let (first, later) = (rows_of(&z["first"]), rows_of(&z["later"]));
+    let names = ["a", "b", "c"];
+    let refused = |inputs: Vec<(&str, Value)>, params: serde_json::Value| {
+        try_run("ml.pca", inputs, params, &mut Ctx::default()).map(|_| ()).expect_err("refused")
+    };
+    let one = Value::Stack(dates_stack(&first, &names));
+    // the names differ
+    let e = refused(
+        vec![("predictors", one.clone()), ("later", Value::Stack(dates_stack(&later, &["a", "b", "z"])))],
+        serde_json::json!({}),
+    );
+    assert!(e.contains("missing in later: \"c\"") && e.contains("not in the first: \"z\""), "{e}");
+    // the grids differ
+    let mut other = dates_stack(&later, &names);
+    other.grid = Arc::new(Grid::new(15, 20));
+    let e = refused(vec![("predictors", one.clone()), ("later", Value::Stack(other))], serde_json::json!({}));
+    assert!(e.contains("another grid"), "{e}");
+    // later goes with maps, not a table
+    let e = refused(
+        vec![("table", Value::Table(pca_table(&first))), ("later", Value::Stack(dates_stack(&later, &names)))],
+        serde_json::json!({}),
+    );
+    assert!(e.contains("not with a table"), "{e}");
+    // later without the first date, change without later, a change that is none
+    let e = refused(vec![("later", Value::Stack(dates_stack(&later, &names)))], serde_json::json!({}));
+    assert!(e.contains("first date"), "{e}");
+    let e = refused(vec![("predictors", one.clone())], serde_json::json!({"change": "selective"}));
+    assert!(e.contains("two dates"), "{e}");
+    let e = refused(
+        vec![("predictors", one), ("later", Value::Stack(dates_stack(&later, &names)))],
+        serde_json::json!({"change": "mixed"}),
+    );
+    assert!(e.contains("stacked or selective"), "{e}");
+}
+
 #[test]
 fn pca_of_maps_scores_other_maps_with_the_fits_mean() {
     let z = pca_reference();
