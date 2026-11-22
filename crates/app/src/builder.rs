@@ -5647,6 +5647,14 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             if som {
                 crate::charts::set_picked(ui.ctx(), id, crate::som_link::linked(ui.ctx(), &node));
             }
+            // an objects.accuracy's confusion matrix: its pick is the node's link with the objects on the map
+            let confusion = port == "matrix"
+                && crate::charts::is_confusion(t)
+                && crate::confusion_link::classified_by(s, &node).is_some();
+            if confusion {
+                crate::charts::set_confusion_picked(ui.ctx(), id, crate::confusion_link::linked(ui.ctx(), &node));
+                crate::confusion_link::panel(ui, s, &node);
+            }
             // a segment.optimize's scores: its best value and *Apply to...* above the chart
             let scores = port == "scores" && crate::charts::is_scores(t);
             // (the SOM view's way to the node's map: its groups when the view colours by them, else its nodes)
@@ -5676,6 +5684,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             });
             if som {
                 crate::som_link::set_linked(ui.ctx(), &node, crate::charts::picked(ui.ctx(), id));
+            }
+            if confusion {
+                crate::confusion_link::set_linked(ui.ctx(), &node, crate::charts::confusion_picked(ui.ctx(), id));
             }
             return None;
         }
@@ -5824,6 +5835,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     rasters.extend(crate::hypotheses::layers(ui.ctx(), s, &node, &port, salt));
     // (the node or group picked in an ml.som node's SOM view, lit on its map of nodes or groups)
     rasters.extend(crate::som_link::layers(ui.ctx(), s, &node, &port));
+    // (the cell picked in an objects.accuracy's confusion matrix, lit on the objects it judges)
+    rasters.extend(crate::confusion_link::layers(ui.ctx(), s, &node, &port));
     if let Some(e) = s.view_vectors.take_error() {
         s.editor.message = Some(e);
     }
@@ -6675,6 +6688,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             }
         }
         if let Some(e) = space_action.go.and_then(|id| crate::feature_space::extent_of_object(&a.o, id, 30.0)) {
+            sh.view.go_extent(e);
+        }
+        // an object chosen in the list under a confusion matrix
+        if let Some(e) = crate::confusion_link::take_go(ui.ctx(), &node)
+            .and_then(|id| crate::feature_space::extent_of_object(&a.o, id, 30.0))
+        {
             sh.view.go_extent(e);
         }
     }

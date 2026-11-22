@@ -4938,7 +4938,12 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     floresta de 10 árvores), o `training` do `objects.accuracy` (os objetos de referência que são de treino ou encostam
     num; entra no `overall` e avisa) e o template "Classify an image by clicking samples" (`objects.folds` mais duas
     `ml.fit`, uma por lugar e uma sorteada). O OOB da floresta ficou de fora: `forest::grow` não guarda as linhas de
-    cada bootstrap; seria uma mudança no `Forest`. Falta o gráfico da matriz de confusão e a ligação com o Viewer.
+    cada bootstrap; seria uma mudança no `Forest`. O gráfico da matriz de confusão e a ligação com o Viewer: **Feito (2026-11-22)**
+    (`Kind::Confusion` em `charts.rs`, reconhecido pela tabela `map` mais uma coluna por classe de referência, para a `matrix` do
+    `objects.accuracy` e a `cv_matrix` do `ml.fit`: as contagens com a cor pela parte da linha, a exatidão do usuário e do
+    produtor nas margens, a global no título; `confusion_link.rs`: a casa clicada acende no Viewer os objetos de referência
+    daquele par sobre os objetos classificados, e a lista leva a cada um. O `objects.accuracy` ganhou a saída `sampled`
+    (id, mapa, referência de todo objeto de referência) para a diagonal, que o `errors` não tem). O item 2 está pronto.
   - Template: o "Classify an image by clicking samples" ganha o `objects.folds` (`neighbours`) e a `cv` do `ml.fit`,
     com uma nota sobre a diferença entre a acurácia sorteada e a espacial. Testes: folds sem vizinhos separados;
     a `cv` igual à do `sklearn.model_selection.cross_val_score` com os mesmos folds para a árvore de decisão

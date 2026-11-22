@@ -9,6 +9,7 @@ mod charts;
 mod class_tree;
 mod cloud_public;
 mod cluster_run;
+mod confusion_view;
 mod my_nodes;
 mod objects_space;
 mod objects_live;

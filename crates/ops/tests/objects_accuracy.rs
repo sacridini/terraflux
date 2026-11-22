@@ -480,3 +480,17 @@ fn training_objects_and_their_neighbours_among_the_reference_are_counted_and_war
     );
     assert!(r.map(|_| ()).unwrap_err().to_string().contains("no object"));
 }
+
+#[test]
+fn every_reference_object_is_listed_with_its_mapped_and_reference_class() {
+    let out = accuracy(vec![("objects", Value::Objects(objects(MAPPED))), ("samples", points(&REFERENCE))]);
+    let s = table_of(&out, "sampled");
+    assert_eq!(s.columns, ["id", "mapped", "reference"]);
+    let texts: Vec<(f64, String, String)> = s.rows.iter().map(|r| (r[0], s.cell(1, r[1]), s.cell(2, r[2]))).collect();
+    let want = [(1.0, "A", "A"), (2.0, "A", "A"), (3.0, "A", "B"), (4.0, "B", "B"), (5.0, "B", "C"), (6.0, "C", "C")];
+    assert_eq!(texts, want.map(|(i, m, r)| (i, m.to_string(), r.to_string())));
+    // the errors are the rows of it that differ
+    let e = table_of(&out, "errors");
+    let wrong: Vec<f64> = s.rows.iter().filter(|r| r[1] != r[2]).map(|r| r[0]).collect();
+    assert_eq!(e.rows.iter().map(|r| r[0]).collect::<Vec<_>>(), wrong);
+}

@@ -46,6 +46,9 @@ pub enum Kind {
     /// segment.optimize's scores (a row per value): the objective, the variance and Moran's I scaled 0-1 against the
     /// value, the best marked, and the number of objects in a smaller panel.
     Scores,
+    /// objects.accuracy's matrix and ml.fit's cv_matrix (a row per mapped class, a column per reference class): the
+    /// counts coloured by the share of the row, the user's and producer's accuracy in the margins.
+    Confusion,
 }
 
 impl Kind {
@@ -64,6 +67,7 @@ impl Kind {
             Kind::Choice => "choice of k",
             Kind::Som => "SOM",
             Kind::Scores => "scores",
+            Kind::Confusion => "confusion matrix",
         }
     }
 
@@ -97,8 +101,49 @@ impl Kind {
         if is_scores(t) {
             v.push(Kind::Scores);
         }
+        if is_confusion(t) {
+            v.push(Kind::Confusion);
+        }
         v
     }
+}
+
+/// Whether a table is a confusion matrix, as objects.accuracy's `matrix` and ml.fit's `cv_matrix` are: the first column
+/// `map` (the class mapped, a row each), then a column per reference class, as many as the rows.
+pub fn is_confusion(t: &Table) -> bool {
+    t.columns.len() >= 3 && t.columns[0] == "map" && t.rows.len() == t.columns.len() - 1
+}
+
+/// A confusion matrix read from its table: the names of the classes mapped (rows) and of the reference (columns), the
+/// counts, and the user's accuracy of each row (the diagonal over the row), the producer's of each column (over the
+/// column) and the overall one (the diagonal over all), NaN where the row or column is empty.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Confusion {
+    pub map: Vec<String>,
+    pub reference: Vec<String>,
+    pub counts: Vec<Vec<f64>>,
+    pub user: Vec<f64>,
+    pub producer: Vec<f64>,
+    pub overall: f64,
+    pub total: f64,
+}
+
+/// The confusion matrix of a table that [`is_confusion`].
+pub fn confusion_of(t: &Table) -> Option<Confusion> {
+    if !is_confusion(t) {
+        return None;
+    }
+    let q = t.rows.len();
+    let counts: Vec<Vec<f64>> =
+        t.rows.iter().map(|r| r[1..].iter().map(|v| if v.is_nan() { 0.0 } else { *v }).collect()).collect();
+    let map: Vec<String> = t.rows.iter().map(|r| cell_of(t, 0, r[0])).collect();
+    let reference: Vec<String> = t.columns[1..].to_vec();
+    let total: f64 = counts.iter().flatten().sum();
+    let ratio = |a: f64, b: f64| if b > 0.0 { a / b } else { f64::NAN };
+    let user = (0..q).map(|i| ratio(counts[i][i], counts[i].iter().sum())).collect();
+    let producer = (0..q).map(|j| ratio(counts[j][j], counts.iter().map(|r| r[j]).sum())).collect();
+    let overall = ratio((0..q).map(|i| counts[i][i]).sum(), total);
+    Some(Confusion { map, reference, counts, user, producer, overall, total })
 }
 
 /// Whether a table is segment.optimize's scores: a row per value, the columns value, objects, variance, moran and
@@ -265,6 +310,8 @@ impl Chart {
             Chart::suggested(t, Kind::Som)
         } else if is_scores(t) {
             Chart::suggested(t, Kind::Scores)
+        } else if is_confusion(t) {
+            Chart::suggested(t, Kind::Confusion)
         } else {
             Chart::default()
         }
@@ -394,6 +441,7 @@ pub fn show(ui: &mut Ui, t: &Table, rows: &[usize], chart: &mut Chart, id: egui:
         Kind::Choice => choice(ui, t, rows, id),
         Kind::Som => som(ui, t, chart.som, id),
         Kind::Scores => scores(ui, t, rows, id),
+        Kind::Confusion => confusion(ui, t, id),
         Kind::Loadings => loadings(ui, t, chart.components, id),
     }
 }
@@ -951,6 +999,139 @@ fn matrix(ui: &mut Ui, t: &Table, id: egui::Id) {
         });
 }
 
+/// The cell of a confusion matrix picked in its chart: the class mapped and the reference class, by name.
+pub type ConfusionPick = (String, String);
+
+/// The id a confusion chart keeps its pick under, for the table drawn with `table`.
+fn confusion_key(table: egui::Id) -> egui::Id {
+    table.with("chart").with("confusion pick")
+}
+
+/// The cell picked in the confusion chart of the table drawn with `table`.
+pub fn confusion_picked(ctx: &egui::Context, table: egui::Id) -> Option<ConfusionPick> {
+    ctx.data(|d| d.get_temp::<Option<ConfusionPick>>(confusion_key(table))).flatten()
+}
+
+/// Pick a cell in the confusion chart of the table drawn with `table` (none: let go).
+pub fn set_confusion_picked(ctx: &egui::Context, table: egui::Id, pick: Option<ConfusionPick>) {
+    ctx.data_mut(|d| d.insert_temp(confusion_key(table), pick));
+}
+
+/// Where a cell (the class mapped and the reference class, by their places from 0) of the confusion chart of the table
+/// drawn with `table` was drawn, at the last frame.
+pub fn confusion_screen(ctx: &egui::Context, table: egui::Id, cell: (usize, usize)) -> Option<egui::Pos2> {
+    let v: Vec<((usize, usize), egui::Pos2)> = ctx.data(|d| d.get_temp(confusion_key(table).with("screen")))?;
+    v.iter().find(|(c, _)| *c == cell).map(|(_, p)| *p)
+}
+
+/// Black or white, whichever reads on a fill.
+fn on_fill(fill: Color32) -> Color32 {
+    let l = 0.299 * f32::from(fill.r()) + 0.587 * f32::from(fill.g()) + 0.114 * f32::from(fill.b());
+    if l > 140.0 { Color32::BLACK } else { Color32::WHITE }
+}
+
+/// A share or an accuracy to three decimals (a dash for none).
+fn fixed(v: f64) -> String {
+    if v.is_finite() { format!("{v:.3}") } else { "-".to_string() }
+}
+
+/// A confusion matrix: a row per class mapped, a column per reference class, each cell its count on a colour by its
+/// share of the row (the diagonal outlined), the user's accuracy at the end of each row, the producer's under each
+/// column and the overall accuracy in the corner and above. A click on a cell picks it (the same again lets go): the
+/// pick is kept in the context ([`confusion_picked`]).
+fn confusion(ui: &mut Ui, t: &Table, id: egui::Id) {
+    let Some(c) = confusion_of(t) else { return };
+    let ctx = ui.ctx().clone();
+    let key = id.with("confusion pick");
+    let mut pick: Option<ConfusionPick> = ctx.data(|d| d.get_temp::<Option<ConfusionPick>>(key)).flatten();
+    let q = c.map.len();
+    ui.label(RichText::new(format!("overall accuracy {} ({} objects)", fixed(c.overall), cell(c.total))).strong());
+    ui.label(RichText::new("rows: the class mapped; columns: the reference class").weak().size(11.0));
+    let (label_w, head_h) = (96.0, 26.0);
+    let side = ((ui.available_width() - label_w) / (q + 1) as f32).clamp(40.0, 84.0);
+    let size = Vec2::new(label_w + side * (q + 1) as f32, head_h + side * (q + 1) as f32);
+    let (resp, painter) = ui.allocate_painter(size, egui::Sense::click());
+    let at = |i: usize, j: usize| {
+        let min = resp.rect.min + Vec2::new(label_w + side * j as f32, head_h + side * i as f32);
+        egui::Rect::from_min_size(min, Vec2::splat(side))
+    };
+    let font = egui::FontId::proportional(12.0);
+    let (text, weak) = (ui.visuals().text_color(), ui.visuals().weak_text_color());
+    let fit = |s: &str, room: f32| {
+        let n = ((room / 6.5) as usize).max(4);
+        if s.chars().count() > n { format!("{}...", s.chars().take(n - 3).collect::<String>()) } else { s.to_string() }
+    };
+    let above = |j: usize| at(0, j).center_top() - Vec2::new(0.0, head_h / 2.0);
+    for (j, name) in c.reference.iter().enumerate() {
+        painter.text(above(j), egui::Align2::CENTER_CENTER, fit(name, side), font.clone(), text);
+    }
+    painter.text(above(q), egui::Align2::CENTER_CENTER, "user's", font.clone(), weak);
+    let mut centres = Vec::new();
+    let accent = egui::Stroke::new(3.0, crate::palette::seen(crate::theme::accent()));
+    for i in 0..q {
+        let left = at(i, 0).left_center() - Vec2::new(8.0, 0.0);
+        painter.text(left, egui::Align2::RIGHT_CENTER, fit(&c.map[i], label_w - 12.0), font.clone(), text);
+        let row: f64 = c.counts[i].iter().sum();
+        for j in 0..q {
+            let n = c.counts[i][j];
+            let share = if row > 0.0 { n / row } else { 0.0 };
+            let r = at(i, j).shrink(1.0);
+            let fill = if n > 0.0 { ramp(share, 0.0, 1.0) } else { ui.visuals().extreme_bg_color };
+            painter.rect_filled(r, 2.0, fill);
+            if i == j {
+                painter.rect_stroke(r, 2.0, egui::Stroke::new(1.5, text), egui::StrokeKind::Inside);
+            }
+            let ink = if n > 0.0 { on_fill(fill) } else { weak };
+            painter.text(r.center(), egui::Align2::CENTER_CENTER, cell(n), font.clone(), ink);
+            if pick.as_ref().is_some_and(|(m, rf)| *m == c.map[i] && *rf == c.reference[j]) {
+                painter.rect_stroke(r.shrink(1.5), 2.0, accent, egui::StrokeKind::Inside);
+            }
+            centres.push(((i, j), r.center()));
+        }
+        painter.text(at(i, q).center(), egui::Align2::CENTER_CENTER, fixed(c.user[i]), font.clone(), text);
+    }
+    for j in 0..q {
+        painter.text(at(q, j).center(), egui::Align2::CENTER_CENTER, fixed(c.producer[j]), font.clone(), text);
+    }
+    let left = at(q, 0).left_center() - Vec2::new(8.0, 0.0);
+    painter.text(left, egui::Align2::RIGHT_CENTER, "producer's", font.clone(), weak);
+    painter.text(at(q, q).center(), egui::Align2::CENTER_CENTER, fixed(c.overall), font.clone(), text);
+    let cell_at = |p: egui::Pos2| {
+        let (dx, dy) = (p.x - resp.rect.min.x - label_w, p.y - resp.rect.min.y - head_h);
+        (dx >= 0.0 && dy >= 0.0).then(|| ((dy / side) as usize, (dx / side) as usize)).filter(|&(i, j)| i < q && j < q)
+    };
+    if let Some((i, j)) = resp.hover_pos().and_then(cell_at) {
+        let row: f64 = c.counts[i].iter().sum();
+        let share = if row > 0.0 { c.counts[i][j] / row } else { 0.0 };
+        let _ = resp.clone().on_hover_text(format!(
+            "mapped {}, reference {}: {} objects, {} of those mapped {}",
+            c.map[i],
+            c.reference[j],
+            cell(c.counts[i][j]),
+            fixed(share),
+            c.map[i]
+        ));
+    }
+    if resp.clicked()
+        && let Some((i, j)) = resp.interact_pointer_pos().and_then(cell_at)
+    {
+        let new = (c.map[i].clone(), c.reference[j].clone());
+        pick = if pick.as_ref() == Some(&new) { None } else { Some(new) };
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(key, pick.clone());
+        d.insert_temp(key.with("screen"), centres);
+    });
+    let note = match &pick {
+        Some((m, r)) => {
+            let n = c.map.iter().position(|x| x == m).zip(c.reference.iter().position(|x| x == r));
+            format!("mapped {m}, reference {r}: {} objects", cell(n.map_or(0.0, |(i, j)| c.counts[i][j])))
+        }
+        None => "click a cell to see its objects".to_string(),
+    };
+    ui.label(RichText::new(note).size(11.5));
+}
+
 /// What the nodes of a SOM are coloured by.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SomView {
@@ -1353,6 +1534,34 @@ fn som(ui: &mut Ui, t: &Table, view: SomView, id: egui::Id) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_confusion_matrix_is_recognised_by_its_layout_and_read_with_its_margins() {
+        let mut t = Table::new(["map", "A", "B", "C"].map(String::from).to_vec());
+        t.rows = vec![vec![1.0, 2.0, 1.0, 0.0], vec![2.0, 0.0, 1.0, 1.0], vec![3.0, 0.0, 0.0, 1.0]];
+        t.labels.insert("map".into(), ["A", "B", "C"].map(String::from).to_vec());
+        assert!(is_confusion(&t) && Kind::of(&t).contains(&Kind::Confusion));
+        assert_eq!(Kind::Confusion.name(), "confusion matrix");
+        assert_eq!(Chart::first(&t).kind, Kind::Confusion);
+        let c = confusion_of(&t).unwrap();
+        assert_eq!(c.map, ["A", "B", "C"]);
+        assert_eq!(c.reference, ["A", "B", "C"]);
+        // the user's accuracy is the diagonal over the row, the producer's over the column
+        assert_eq!(c.user, [2.0 / 3.0, 0.5, 1.0]);
+        assert_eq!(c.producer, [1.0, 0.5, 0.5]);
+        assert_eq!((c.overall, c.total), (4.0 / 6.0, 6.0));
+        // an empty row has no user's accuracy
+        let mut e = t.clone();
+        e.rows[2] = vec![3.0, 0.0, 0.0, 0.0];
+        assert!(confusion_of(&e).unwrap().user[2].is_nan());
+        // not a confusion matrix: another first column, not square, one class
+        let mut other = t.clone();
+        other.columns[0] = "class".into();
+        assert!(!is_confusion(&other) && Chart::first(&other).kind == Kind::None);
+        assert!(!is_confusion(&Table { rows: t.rows[..2].to_vec(), ..t.clone() }));
+        assert!(!is_confusion(&Table::new(vec!["map".into(), "A".into()])));
+        assert!(confusion_of(&other).is_none());
+    }
 
     #[test]
     fn a_click_chooses_the_nearest_candidate_value() {

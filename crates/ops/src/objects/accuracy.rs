@@ -145,6 +145,11 @@ impl Operator for Accuracy {
             Type::Table,
             "the misclassified sample objects: id, mapped class, reference class",
         ))
+        .output(PortSpec::new(
+            "sampled",
+            Type::Table,
+            "every reference object: id, mapped class, reference class (errors are those that differ), for the Viewer to light a cell of the matrix",
+        ))
         .param(PortSpec::optional(
             "class",
             Type::Text,
@@ -380,11 +385,18 @@ impl Operator for Accuracy {
         }
         label(&mut errors, "mapped");
         label(&mut errors, "reference");
+        let mut sampled_rows = Table::new(["id", "mapped", "reference"].map(String::from).to_vec());
+        for &i in &sampled {
+            sampled_rows.rows.push(vec![(i + 1) as f64, map_code[i], ref_code[i]]);
+        }
+        label(&mut sampled_rows, "mapped");
+        label(&mut sampled_rows, "reference");
         Ok(outputs([
             ("table", Value::Table(t)),
             ("overall", Value::Table(overall)),
             ("matrix", Value::Table(matrix)),
             ("errors", Value::Table(errors)),
+            ("sampled", Value::Table(sampled_rows)),
         ]))
     }
 }

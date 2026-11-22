@@ -23,6 +23,7 @@ pub mod clean_view;
 pub mod class_tree;
 pub mod class_view;
 pub mod commands;
+pub mod confusion_link;
 pub mod computers;
 pub mod diagnose;
 pub mod difference;
