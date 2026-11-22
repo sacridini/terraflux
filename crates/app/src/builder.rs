@@ -5943,6 +5943,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     sh.objects.space_button(ui);
                     sh.objects.inspector(ui, s, &a.o, below.as_deref());
                     space_action = sh.objects.space_window(ui.ctx(), s, &a.o);
+                    let can = crate::sam_tool::can(s, &a.key.0, &sh.objects.sam);
+                    crate::sam_tool::panel(ui, &mut sh.objects, can, &a.key.0);
                 }
                 // the objects of a segment.multiresolution segmented live in the part in view
                 if crate::live_segment::is_target(s, &seg_node) {
@@ -6543,7 +6545,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             .default_size(190.0)
             .max_size((ui.available_height() * 0.6).max(120.0))
             .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(6)))
+            // (its own line, over its own width: the panel's ran across the side panel too, over what is in it)
+            .show_separator_line(false)
             .show(ui, |ui| {
+                let edge = ui.max_rect().expand(6.0);
+                let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+                ui.painter().with_clip_rect(edge.expand(2.0)).hline(edge.x_range(), edge.top(), stroke);
                 let table_id = egui::Id::new(("objects attributes", salt, &node, &port));
                 crate::objects_view::table_panel(ui, o, &output_name(&node, &port), table_id, &mut pick);
             });
@@ -6577,6 +6584,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         draws.extend(crate::live_segment::draw(&live.lock().unwrap_or_else(|e| e.into_inner()), &seg_node));
     }
     sh.view.objects = draws;
+    // (the SAM tool's masks, points and box, over the map; while it is on a click does not pick)
+    sh.view.sam = sh.objects.sam.on.then(|| sh.objects.sam.paint());
     egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::well())).show(ui, |ui| {
         let Some(l) = &look else {
             ui.centered_and_justified(|ui| ui.spinner());
@@ -6638,7 +6647,9 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     crate::som_link::clicked(ui.ctx(), s, salt, &node, &port, sh.view.picked, sh.view.clicks);
     // what the pointer did on the objects (selected, or gave samples), and the keys over them (a level to go to)
     let events = std::mem::take(&mut sh.view.object_events);
+    let sam_events = std::mem::take(&mut sh.view.sam_events);
     if let Some(a) = &active {
+        crate::sam_tool::frame(ui, s, r, &mut sh.objects, &sam_events, &a.key.0, sh.view.visible());
         let mut changed = sh.objects.pointer(&events, a.draw, &a.o);
         // (a layer made by a node that has a `below` output: its objects are the children's level)
         let below_out = (a.level == 0 && a.key.1 != "below" && sh.layers.iter().any(|l| l.is(&a.key.0, &a.key.1)))

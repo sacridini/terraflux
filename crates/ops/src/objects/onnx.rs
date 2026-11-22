@@ -342,6 +342,10 @@ pub struct Session {
     outputs: Vec<String>,
 }
 
+// (an ONNX Runtime session may be used from any thread, and run by several at once)
+unsafe impl Send for Session {}
+unsafe impl Sync for Session {}
+
 impl Drop for Session {
     fn drop(&mut self) {
         unsafe { (self.ort.f.release_session)(self.session) };

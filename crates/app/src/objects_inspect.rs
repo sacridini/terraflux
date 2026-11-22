@@ -88,6 +88,8 @@ pub struct ObjectsUi {
     pub finding: Finding,
     /// The samples are to be written now (*Label all as...* gave them): the Viewer applies them, as it does for *Apply*.
     pub write_now: bool,
+    /// The SAM tool: clicks on the map cut objects by Segment Anything (see [`crate::sam_tool`]).
+    pub sam: crate::sam_tool::SamTool,
 }
 
 /// What *Find similar* keeps: whether it is on, the metric and the threshold, and the similarity of every object to the

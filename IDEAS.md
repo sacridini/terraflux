@@ -5145,6 +5145,24 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     máscaras com IoU 1,0000 (as mesmas células); com um decodificador falso, os tensores dos cliques, um objeto por
     grupo, o ponto fora tirando as células, o codificador só nos 2 de 6 tiles tocados, os grupos sem objeto avisados e
     a leitura do vetor. Falta o passo C.
+  - **Feito (2026-11-23), passo C: a ferramenta SAM do Viewer** (`sam_tool.rs`). Na seção dos objetos, *SAM tool*
+    (desliga as amostras): o codificador roda uma vez na parte em vista com a margem de `live_segment::window_cells`, numa
+    thread (a barra de estado diz, e o painel mostra o spinner e *ready*); de novo só quando a vista sai da janela ou
+    entra tanto que a janela tem menos de um terço dela. Cada clique roda só o decodificador (outra thread; o último
+    pedido vale) e a máscara aparece ao vivo: esquerdo dentro, direito fora (pontos verdes e vermelhos), arrastar uma
+    caixa (a segunda substitui a primeira; o botão do meio move o mapa; nenhum clique escolhe célula ou objeto
+    enquanto a ferramenta está ligada). Enter (ou *Keep*) grava o grupo no modelo num passo de desfazer: um
+    GeoPackage em `drawn/` ao lado do modelo, com nome do conteúdo (o desfazer encontra o arquivo que tinha; sem
+    caminho do modelo, a pasta do cache), lido por um `vector.read` (`sam_prompts`) que alimenta o `prompts` de um
+    `segment.sam` (`sam`) da mesma imagem; os grupos seguintes entram no mesmo arquivo e no mesmo nó. Esc solta o
+    prompt. Com uma classe escolhida (a paleta das amostras) o grupo leva a `class`, e é por ela que o objeto é amostra
+    (o `segment.sam` do passo B dá as `classes` aos objetos). Os objetos do SAM ficam do nó dele: nada é impresso em
+    outra segmentação. Limites: a imagem é a `image` do nó dos objetos mostrados (os três primeiros layers, ou os
+    `bands` do nó) e o mapa mostrado tem de estar na grade dela; os pesos têm de estar no cache (senão a mensagem manda
+    rodar um `segment.sam` uma vez, que pergunta antes de baixar). `Session` do ONNX ganhou `Send + Sync` (a sessão do
+    ONNX Runtime serve a várias threads). Testes no `--test app` (`objects_sam.rs`) com um modelo falso: o codificador
+    uma vez e um decodificador por clique, ponto fora, caixa, Esc, Enter e o desfazer em dois passos; e, com `--ignored`,
+    o modelo de verdade pelo mesmo `Backend` (IoU 1,000 num quadrado) e as figuras nos temas Slate e Paper.
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 

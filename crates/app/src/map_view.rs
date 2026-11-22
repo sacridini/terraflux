@@ -639,6 +639,12 @@ pub struct MapView {
     object_outlines: HashMap<(usize, u32), Option<Arc<Outline>>>,
     /// What the pointer did on the objects drawn at the last frame (clicks, drags), for whoever shows the map to take.
     pub object_events: Vec<ObjectEvent>,
+    /// The SAM tool: what to draw for it over the map (set for every frame by whoever shows the map; while it is
+    /// set a click does not pick a cell or an object, a drag draws a box and the middle button moves the map), what
+    /// the pointer did at the last frame for that whoever to take, the cell a box was begun at.
+    pub sam: Option<crate::sam_tool::Paint>,
+    pub sam_events: Vec<crate::sam_tool::Event>,
+    sam_start: Option<Vec2>,
     /// The features selected in a table of attributes (layer, features), outlined in the accent; and the features
     /// (layer, feature) under the pointer at the last click, to select rows by (`feature_toggle`: with ctrl, to
     /// toggle them instead).
@@ -1516,6 +1522,101 @@ impl MapView {
         self.center + (p - rect.center()) / self.zoom
     }
 
+    /// The SAM tool over the map: its masks (a texture each, tinted), its points (green inside, red outside) and its
+    /// box; and what the pointer did, told as events (a click, a right click, a box dragged).
+    fn sam_tool(
+        &mut self,
+        ui: &Ui,
+        ctx: &egui::Context,
+        response: &egui::Response,
+        painter: &egui::Painter,
+        rect: Rect,
+        paint: &crate::sam_tool::Paint,
+    ) {
+        use crate::sam_tool::{Event, KEPT, MASK};
+        let (zoom, center) = (self.zoom, self.center);
+        let screen = |c: Vec2| rect.center() + (c - center) * zoom;
+        // (a mesh of one rectangle a run of cells, on the pixels: crisp, on the cell grid exactly, no texture to filter)
+        let ppp = ctx.pixels_per_point();
+        let snap = |v: f32| (v * ppp).round() / ppp;
+        let view = painter.clip_rect();
+        for (m, kept) in &paint.masks {
+            let tint = if *kept { KEPT.gamma_multiply(0.45) } else { MASK.gamma_multiply(0.55) };
+            let mut mesh = egui::Mesh::default();
+            for &[r, a, b] in &m.runs {
+                let (r, a, b) = ((m.r0 + r as usize) as f32, (m.c0 + a as usize) as f32, (m.c0 + b as usize) as f32);
+                let (p0, p1) = (screen(Vec2::new(a, r)), screen(Vec2::new(b, r + 1.0)));
+                let cell = Rect::from_min_max(
+                    Pos2::new(snap(p0.x), snap(p0.y)),
+                    Pos2::new(snap(p1.x).max(snap(p0.x) + 1.0 / ppp), snap(p1.y).max(snap(p0.y) + 1.0 / ppp)),
+                );
+                if cell.intersects(view) {
+                    mesh.add_colored_rect(cell, tint);
+                }
+            }
+            painter.add(egui::Shape::mesh(mesh));
+        }
+        let ink = |good: bool| if good { Color32::from_rgb(70, 220, 110) } else { Color32::from_rgb(245, 80, 80) };
+        for &(p, good) in &paint.points {
+            let at = screen(Vec2::new(p[0], p[1]));
+            painter.circle_filled(at, 5.0, ink(good));
+            painter.circle_stroke(at, 5.0, egui::Stroke::new(1.5, Color32::WHITE));
+        }
+        let boxed = |b: [f32; 4], dashed: bool| {
+            let r = Rect::from_two_pos(screen(Vec2::new(b[0], b[1])), screen(Vec2::new(b[2], b[3])));
+            painter.rect_stroke(
+                r,
+                0.0,
+                egui::Stroke::new(2.5, Color32::from_black_alpha(110)),
+                egui::StrokeKind::Outside,
+            );
+            painter.rect_stroke(
+                r,
+                0.0,
+                egui::Stroke::new(if dashed { 1.5 } else { 2.0 }, MASK),
+                egui::StrokeKind::Inside,
+            );
+        };
+        if let Some(b) = paint.boxed {
+            boxed(b, false);
+        }
+        // the pointer
+        let cell = move |p: Pos2| center + (p - rect.center()) / zoom;
+        if response.drag_started_by(egui::PointerButton::Primary)
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            self.sam_start = Some(cell(p));
+        }
+        if let (Some(a), Some(p)) = (self.sam_start, response.interact_pointer_pos())
+            && response.dragged_by(egui::PointerButton::Primary)
+        {
+            let b = cell(p);
+            boxed([a.x, a.y, b.x, b.y], true);
+        }
+        if response.drag_stopped_by(egui::PointerButton::Primary)
+            && let (Some(a), Some(p)) = (self.sam_start.take(), response.interact_pointer_pos())
+        {
+            let b = cell(p);
+            if (b - a).length() * zoom >= crate::sam_tool::BOX_LEAST {
+                self.sam_events.push(Event::Box { x0: a.x, y0: a.y, x1: b.x, y1: b.y });
+            }
+        }
+        let at = |response: &egui::Response| response.interact_pointer_pos().map(cell);
+        if response.clicked_by(egui::PointerButton::Primary)
+            && let Some(c) = at(response)
+        {
+            self.sam_events.push(Event::Point { x: c.x, y: c.y, positive: true });
+        }
+        if response.secondary_clicked()
+            && let Some(c) = at(response)
+        {
+            self.sam_events.push(Event::Point { x: c.x, y: c.y, positive: false });
+        }
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+    }
+
     /// Selecting by area: a drag with shift down begins a rectangle (with alt too: a lasso), the pointer shapes
     /// it, a release ends it (`area_done`: with ctrl held, to add), escape lets it go. `allowed`: no drawing or
     /// measuring, and vector layers to select from.
@@ -2163,7 +2264,8 @@ impl MapView {
         );
         // (a drag paints samples, in samples mode, and does not move the map)
         let sampling = objects.iter().any(|d| d.sampling);
-        if response.dragged() && !editing && !self.selecting && !sampling {
+        let moves = self.sam.is_none() || response.dragged_by(egui::PointerButton::Middle);
+        if response.dragged() && !editing && !self.selecting && !sampling && moves {
             self.center -= response.drag_delta() / self.zoom;
         }
         // B over the map: the satellite's imagery under it, or none
@@ -2708,6 +2810,10 @@ impl MapView {
             let (zoom, center) = (self.zoom, self.center);
             d.paint(&painter, |p| rect.center() + (Vec2::new(p[0] as f32, p[1] as f32) - center) * zoom);
         }
+        match self.sam.clone() {
+            Some(paint) => self.sam_tool(ui, &ctx, &response, &painter, rect, &paint),
+            None => self.sam_start = None,
+        }
         if let Some(mut sketch) = self.drawing.take() {
             let (zoom, center) = (self.zoom, self.center);
             crate::draw::interact(
@@ -2782,6 +2888,7 @@ impl MapView {
             && !blank
             && self.drawing.is_none()
             && self.measuring.is_none()
+            && self.sam.is_none()
         {
             let picked = inside.then_some((c.y as usize, c.x as usize));
             if picked != self.picked {
@@ -2816,7 +2923,7 @@ impl MapView {
             } else {
                 None
             };
-            if let Some(kind) = kind.filter(|_| show_data && inside) {
+            if let Some(kind) = kind.filter(|_| show_data && inside && self.sam.is_none()) {
                 for (layer, &id) in under.iter().enumerate() {
                     self.object_events.push(ObjectEvent { layer, id, kind, ctrl });
                 }

@@ -99,6 +99,7 @@ pub mod review;
 pub mod rgb;
 pub mod runner;
 pub mod runs_view;
+pub mod sam_tool;
 pub mod sam_view;
 pub mod search;
 pub mod sens_chart;
