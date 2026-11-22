@@ -11,6 +11,7 @@ mod cloud_public;
 mod cluster_run;
 mod confusion_view;
 mod my_nodes;
+mod objects_similar;
 mod objects_space;
 mod objects_live;
 mod objects_view;

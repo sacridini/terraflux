@@ -84,6 +84,34 @@ pub struct ObjectsUi {
     /// Whether the Viewer put the sketch of the cut line on the map (so that it takes it away when the cut ends).
     pub cut_sketch: bool,
     into_neighbour: bool,
+    /// *Find similar*: the objects like the selected ones, lit on the map as the threshold moves.
+    pub finding: Finding,
+    /// The samples are to be written now (*Label all as...* gave them): the Viewer applies them, as it does for *Apply*.
+    pub write_now: bool,
+}
+
+/// What *Find similar* keeps: whether it is on, the metric and the threshold, and the similarity of every object to the
+/// objects selected when it was made (kept while the selection, the objects and the metric stay).
+pub struct Finding {
+    pub on: bool,
+    pub cosine: bool,
+    pub threshold: f64,
+    made: Option<Made>,
+    error: Option<String>,
+}
+
+impl Default for Finding {
+    fn default() -> Finding {
+        Finding { on: false, cosine: true, threshold: 0.9, made: None, error: None }
+    }
+}
+
+struct Made {
+    labels: usize,
+    cosine: bool,
+    examples: Vec<u32>,
+    similarity: Vec<f64>,
+    used: String,
 }
 
 /// What a key pressed over the objects asks of what is drawn.
@@ -345,6 +373,121 @@ impl ObjectsUi {
             });
         });
         self.edit_block(ui);
+        self.similar_block(ui, s, o);
+    }
+
+    /// The objects the threshold of *Find similar* lights (not the selected ones): none while it is off, or the
+    /// selection is not the one it was made for.
+    pub fn lit(&self) -> Vec<u32> {
+        let f = &self.finding;
+        match &f.made {
+            Some(m) if f.on && m.examples.iter().copied().eq(self.selected.iter().copied()) => {
+                terraflux_ops::objects::similar::above(&m.similarity, &m.examples, f.threshold)
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// *Find similar*: the similarity of every object to the selected ones (the same function as objects.similar:
+    /// the embeddings when the objects have them, else the standardised attributes), a threshold that lights the
+    /// objects on the map as it moves, and *Label all as <class>*, which gives the lit objects and the selected ones the
+    /// class as samples and writes them in one step of undo (as *Apply* does).
+    fn similar_block(&mut self, ui: &mut Ui, s: &Session, o: &Objects) {
+        ui.add_space(4.0);
+        let was = self.finding.on;
+        ui.checkbox(&mut self.finding.on, "Find similar").on_hover_text(
+            "the objects whose attributes look like those of the selected ones, lit on the map above a threshold",
+        );
+        if !self.finding.on {
+            if was {
+                self.finding.made = None;
+            }
+            return;
+        }
+        let labels = Arc::as_ptr(&o.labels) as usize;
+        let examples: Vec<u32> = self.selected.iter().copied().filter(|&i| i != 0 && i as usize <= o.count).collect();
+        let stale = !matches!(&self.finding.made, Some(m)
+            if m.labels == labels && m.cosine == self.finding.cosine && m.examples == examples);
+        if stale && !examples.is_empty() {
+            let metric = if self.finding.cosine {
+                terraflux_ops::objects::similar::Metric::Cosine
+            } else {
+                terraflux_ops::objects::similar::Metric::Euclidean
+            };
+            match terraflux_ops::objects::similar::similarity(o, &examples, None, metric) {
+                Ok(f) => {
+                    self.finding.error = None;
+                    self.finding.made = Some(Made {
+                        labels,
+                        cosine: self.finding.cosine,
+                        examples: examples.clone(),
+                        similarity: f.similarity,
+                        used: f.used,
+                    });
+                }
+                Err(e) => {
+                    self.finding.made = None;
+                    self.finding.error = Some(e);
+                }
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.finding.cosine, true, "cosine");
+            ui.selectable_value(&mut self.finding.cosine, false, "euclidean");
+            ui.add(egui::Slider::new(&mut self.finding.threshold, 0.0..=1.0).text("threshold").fixed_decimals(2));
+        });
+        if let Some(e) = &self.finding.error {
+            ui.label(RichText::new(e).color(ui.visuals().warn_fg_color).size(11.0));
+        }
+        let lit = self.lit();
+        if let Some(m) = &self.finding.made {
+            ui.label(
+                RichText::new(format!("{} objects like the {} selected, on {}", lit.len(), m.examples.len(), m.used))
+                    .weak()
+                    .size(11.0),
+            );
+        }
+        ui.horizontal(|ui| {
+            let typed = self.new_class.trim().to_string();
+            ui.add(egui::TextEdit::singleline(&mut self.new_class).hint_text("class").desired_width(90.0));
+            let name = if typed.is_empty() { self.classes.get(self.active).cloned() } else { Some(typed.clone()) };
+            let text = format!("Label all as {}", name.as_deref().unwrap_or("..."));
+            let go = ui
+                .add_enabled(name.is_some() && !lit.is_empty(), egui::Button::new(text))
+                .on_hover_text(
+                    "the lit objects and the selected ones become samples of the class, written into the model",
+                )
+                .clicked();
+            if go && let Some(name) = name {
+                self.label_all(s, o, &name, &lit);
+            }
+        });
+    }
+
+    /// The class `name` (made when the palette lacks it) given as samples to the objects `lit` and the selected ones;
+    /// the samples are written at the next frame (one step of undo, as *Apply*).
+    pub fn label_all(&mut self, s: &Session, o: &Objects, name: &str, lit: &[u32]) {
+        if !self.sampling {
+            self.prefill(s, o);
+        }
+        self.active = match self.classes.iter().position(|c| c == name) {
+            Some(k) => k,
+            None => {
+                self.classes.push(name.to_string());
+                self.classes.len() - 1
+            }
+        };
+        self.new_class.clear();
+        let mut ids: Vec<u32> = self.selected.iter().copied().collect();
+        ids.extend_from_slice(lit);
+        ids.sort_unstable();
+        ids.dedup();
+        let mut given = 0;
+        for id in ids {
+            given += usize::from(self.give(o, id));
+        }
+        self.write_now = given > 0;
+        self.message = Some(format!("{given} objects given the class {name}"));
     }
 
     /// The *Edit* block: Merge (two objects selected or more) and Delete act on the selection, Cut asks for a line

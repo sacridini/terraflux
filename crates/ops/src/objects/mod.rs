@@ -40,6 +40,7 @@ mod rows;
 mod rules;
 mod segment;
 mod series;
+pub mod similar;
 mod skeleton;
 mod spectral;
 mod split;
@@ -80,6 +81,7 @@ pub fn register(r: &mut Registry) {
     resize::register(r);
     extrema::register(r);
     join::register(r);
+    similar::register(r);
     evaluate::register(r);
     folds::register(r);
     series::register(r);

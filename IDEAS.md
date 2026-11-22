@@ -5100,6 +5100,20 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     quantizados, uma vez, guardado em `tests/data/reference`); um prompt fora de um objeto não o inclui; os tiles só
     onde há prompts; o `objects.similar` cosseno igual ao do numpy; no `--test app`, um clique com o decodificador
     falso (sem os pesos) grava o prompt e o desfazer o tira.
+  - **Feito (2026-11-22), passo A: os objetos parecidos.** `objects.similar` (`objects/similar.rs`): a similaridade de
+    cada objeto ao exemplo mais próximo (o melhor deles), pelo cosseno ou por 1 / (1 + distância euclidiana); os
+    exemplos são os `examples` (ids), a tabela `samples` (coluna `id`) ou, sem nenhum, os objetos que já têm classe; as
+    colunas são as dadas, senão as `emb_*` quando há, senão os atributos numéricos padronizados (sem id, cells, area;
+    a saída `used` diz quais; uma coluna de um valor só sai); a seleção é os `top` (20 sem limiar) ou os acima do
+    `threshold`, sem os exemplos, do mais parecido para o menos. A função (`similarity`, `above`, `top`) é a que o app
+    usa. No inspetor (`objects_inspect.rs`), *Find similar*: o cosseno ou o euclidiano e o limiar, que acende ao vivo
+    no mapa os objetos parecidos com os selecionados (a seleção tem a união; o resultado fica guardado enquanto a
+    seleção, os objetos e a métrica não mudam, só o limiar roda a cada quadro) e *Label all as <classe>*, que dá a
+    classe como amostra aos acesos e aos selecionados e escreve no modelo num passo de desfazer pelo mesmo caminho do
+    *Apply* (`write_now`). Testes: o cosseno e o euclidiano iguais ao numpy nas embeddings e nos atributos
+    padronizados (`tools/make_similar_reference.py`, `tests/data/reference/similar.json`); `top` e `threshold`;
+    no `--test app` o clique seleciona, o limiar acende o mesmo que o operador acharia e *Label all* escreve N amostras
+    e um desfazer as tira. Faltam os passos B e C.
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 

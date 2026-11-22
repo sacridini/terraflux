@@ -6567,7 +6567,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     }
     // (the selection, the samples and the mode, drawn on the objects the pointer works on)
     if let Some(d) = active.as_ref().and_then(|a| draws.get_mut(a.draw)) {
-        d.selected = sh.objects.selected.iter().copied().collect();
+        d.selected = sh.objects.selected.iter().copied().chain(sh.objects.lit()).collect();
         d.sampling = sh.objects.sampling;
         d.marks = sh.objects.marks();
     }
@@ -6663,7 +6663,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         if changed {
             ui.ctx().request_repaint();
         }
-        if apply_samples {
+        if apply_samples || std::mem::take(&mut sh.objects.write_now) {
             sh.objects.changed = None;
             match crate::objects_inspect::apply(s, r, &sh.objects, &a.o) {
                 Ok(m) => s.notice = Some((m, std::time::Instant::now())),

@@ -848,6 +848,10 @@ pub const TIPS: &[(&str, &str)] = &[
          that class; for several classes add the borders (`border_to('a') + border_to('b') > 0.999`).",
     ),
     (
+        "objects.similar",
+        "The way to label many objects of a class from a few: give a few examples (`examples`, a table of ids in `samples`, or the objects objects.samples classed) and take the `top` most similar or those above a `threshold`. Without `columns` it compares the embeddings of objects.embed when the objects have them, else the numeric attributes standardised (the output `used` says which): an attribute that every object shares tells nothing and is left out. Cosine looks at the direction of the attributes, euclidean at the distance (1 / (1 + distance)); try both on a few objects you know. In the Viewer, *Find similar* in the inspector lights the same objects as its threshold moves, and *Label all as...* writes them as samples.",
+    ),
+    (
         "objects.join",
         "For attributes that come from a table, not from the image: ml.pca's table (the components `pc1`... of the objects' attributes), ml.predict's scores, a table of your own with a column `id`. Name the `columns` to join (the components only, not the attributes they came from); the rows can come in any order, but each object needs one. Run it before objects.samples, so the training table has the columns, and give objects.classify the joined objects. A name the objects already have is refused: `replace` overwrites it.",
     ),
