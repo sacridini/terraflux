@@ -2683,6 +2683,11 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
 /// A node's output shown in the Viewer (a node double-clicked; no tab of its own): selected, the Viewer brought to
 /// the front, and a top-level node that has not run yet run up to it, quietly, when it is ready.
 pub fn show_in_viewer(ui: &Ui, s: &mut Session, r: &Registry, id: &str) {
+    show_in_viewer_ctx(ui.ctx(), s, r, id);
+}
+
+/// [`show_in_viewer`] without a `Ui` (from a window).
+pub fn show_in_viewer_ctx(ctx: &egui::Context, s: &mut Session, r: &Registry, id: &str) {
     select(s, r, id);
     s.ask_viewer = true;
     if !s.editor.path.is_empty() {
@@ -2698,7 +2703,7 @@ pub fn show_in_viewer(ui: &Ui, s: &mut Session, r: &Registry, id: &str) {
         pin(&mut s.preview_layers, id, &port);
     }
     if s.value_of(id, &port).is_none() {
-        let ctx = ui.ctx().clone();
+        let ctx = ctx.clone();
         s.run_to_show(id, Box::new(move || ctx.request_repaint()));
     }
 }
@@ -5908,6 +5913,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     ui.separator();
                     crate::live_segment::panel(ui, s, &seg_node, &sh.view, salt);
                 }
+                // the comparisons opened from the layers' menus (no segmenter shown)
+                crate::segment_compare::layer_windows(ui.ctx(), s, &sh.view, salt);
                 // the hypotheses of the classes of an objects.resolve (or of the stack it reads)
                 crate::hypotheses::panel(ui, s, &node, &port, salt);
                 // the map as a figure for a paper (alone, with the one compared, or every layer of it), or as the

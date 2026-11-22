@@ -171,3 +171,48 @@ fn the_comparison_keeps_every_segmenter_to_the_zones_of_the_shown_one() {
         assert!(c.count(op).is_some_and(|n| n > 60 * 80 * 9 / 10), "{op}: {:?}", c.count(op));
     }
 }
+
+#[test]
+fn the_comparison_opens_from_an_image_with_no_segmenter_and_add_puts_the_node_in_the_model() {
+    // a model with an image and nothing that segments it
+    let mut m = Model::new("segment compare layer");
+    m.nodes.push(
+        Node::new("land", "nlm.mpd")
+            .param("rows", 60)
+            .param("columns", 80)
+            .param("seed", 3)
+            .param("nlmr_compat", false),
+    );
+    let mut h = harness_of("segment-compare-layer", m);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &Registry::standard(), "land");
+    }
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Enter);
+    until(&mut h, "the run", |h| h.state().session.as_ref().unwrap().outputs.contains_key("land"));
+    h.state_mut().session.as_mut().unwrap().preview = Some(("land".into(), "map".into()));
+    h.run_steps(4);
+    assert!(segment_compare::can_compare(h.state().session.as_ref().unwrap(), "land", "map"));
+    segment_compare::open_for_layer(&h.ctx, "viewer", "land", "map");
+    h.run_steps(3);
+    let st = segment_compare::state(&h.ctx, "viewer", "layer land.map");
+    until(&mut h, "the thumbnails", |_| st.lock().unwrap().ready() >= 4);
+    assert!(st.lock().unwrap().error.is_none());
+    until(&mut h, "its text", |h| has(h, " objects, "));
+    // no segmenter is shown: every thumbnail has Add, not Use
+    assert!(h.query_all_by_label("Use").next().is_none());
+    let before = h.state().session.as_ref().unwrap().source.clone();
+    h.get_all_by_label("Add").next().expect("an Add button").click();
+    h.run_steps(4);
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.source.nodes.len(), before.nodes.len() + 1);
+    let n = s.source.nodes.iter().find(|n| n.op.starts_with("segment.")).expect("a segmenter");
+    assert_eq!(n.inputs.get("image"), Some(&Source::Ref("land.map".into())));
+    assert_eq!(s.selected.as_deref(), Some(n.id.as_str()));
+    assert!(s.history.can_undo());
+    let s = h.state_mut().session.as_mut().unwrap();
+    terraflux_app::builder::undo_redo(s, false);
+    assert_eq!(s.source, before, "one undo takes it away");
+}

@@ -21,6 +21,8 @@ struct Asked {
     remove: Vec<usize>,
     /// A map whose legend and settings go to the right (it is the map shown).
     show: Option<(String, String)>,
+    /// A raster layer whose image the segmenters are compared on.
+    compare: Option<(String, String)>,
     zoom: Option<usize>,
     table: Option<usize>,
     /// A vector layer whose features are to be edited on the map.
@@ -426,6 +428,9 @@ pub(super) fn layers_section(
         properties(ui, s, sh, &vectors, (i, kind), (&node, &port), salt, &mut asked);
     }
     edit_panel(ui, s, r, sh, salt);
+    if let Some((n, p)) = &asked.compare {
+        crate::segment_compare::open_for_layer(ui.ctx(), salt, n, p);
+    }
     act(ui, s, r, sh, asked, (&node, &port), selected_id);
     tidy(&mut sh.layers, &mut sh.groups);
 }
@@ -1712,6 +1717,16 @@ fn layer_menu(
     }
     if kind == Kind::Map && !active && ui.button("Its legend and settings at the right").clicked() {
         asked.show = Some((l.node.clone(), l.port.clone()));
+        ui.close();
+    }
+    if kind == Kind::Map
+        && crate::segment_compare::can_compare(s, &l.node, &l.port)
+        && ui
+            .button("Compare segmenters...")
+            .on_hover_text("this image segmented by several segmenters side by side; one is added to the model from it")
+            .clicked()
+    {
+        asked.compare = Some((l.node.clone(), l.port.clone()));
         ui.close();
     }
     if kind == Kind::Features

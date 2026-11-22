@@ -462,17 +462,111 @@ pub(crate) fn section(ui: &mut Ui, s: &mut Session, node: &Node, image: &Image, 
     ui.toggle_value(&mut c.open, "Compare...")
         .on_hover_text("the same window of the image segmented by several segmenters, side by side");
     if c.open {
-        window(ui.ctx(), s, node, image, view, c);
+        let from = Origin {
+            key: node.id.clone(),
+            image_ref: node.inputs.get("image").cloned(),
+            bounds: bounds_of(s, node),
+            shown: Some(node.clone()),
+        };
+        window(ui.ctx(), s, &from, image, view, c);
     }
 }
 
-fn window(ctx: &egui::Context, s: &mut Session, node: &Node, image: &Image, view: &MapView, c: &mut Compare) {
-    let image_ref = node.inputs.get("image").cloned();
+/// What a comparison is of: the image (the reference the new nodes' `image` input gets), the thematic layer the
+/// segmenters keep to, and the segmenter shown, if any (without one the thumbnails are *Add*ed, not *Use*d).
+struct Origin {
+    /// Names the window and its state.
+    key: String,
+    image_ref: Option<Source>,
+    bounds: Option<Value>,
+    shown: Option<Node>,
+}
+
+/// The key of the comparison opened from the layer `node.port`.
+fn layer_key(node: &str, port: &str) -> String {
+    format!("layer {node}.{port}")
+}
+
+/// *Compare segmenters...* of a layer's menu: opens the comparison of the image of the layer `node.port` (a map or a
+/// stack), with no segmenter shown. Drawn by [`layer_windows`].
+pub fn open_for_layer(ctx: &egui::Context, salt: &str, node: &str, port: &str) {
+    let key = layer_key(node, port);
+    state(ctx, salt, &key).lock().unwrap_or_else(|e| e.into_inner()).open = true;
+    let id = egui::Id::new(("segment comparison layers", salt));
+    ctx.data_mut(|d| {
+        let list = d.get_temp_mut_or_insert_with::<Vec<(String, String)>>(id, Vec::new);
+        if !list.iter().any(|(n, p)| layer_key(n, p) == key) {
+            list.push((node.to_string(), port.to_string()));
+        }
+    });
+}
+
+/// Whether the layer `node.port` has an image to compare segmenters on (a map or a stack of a node of the top level).
+pub fn can_compare(s: &Session, node: &str, port: &str) -> bool {
+    s.source.nodes.iter().any(|n| n.id == node) && s.value_of(node, port).is_some_and(|v| Image::of(&v).is_some())
+}
+
+/// The windows opened from layers' menus (call at every frame of the Viewer's map, `view` being its view).
+pub fn layer_windows(ctx: &egui::Context, s: &mut Session, view: &MapView, salt: &str) {
+    let id = egui::Id::new(("segment comparison layers", salt));
+    let list: Vec<(String, String)> = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
+    for (node, port) in list {
+        let key = layer_key(&node, &port);
+        let st = state(ctx, salt, &key);
+        let mut c = st.lock().unwrap_or_else(|e| e.into_inner());
+        if !c.open {
+            continue;
+        }
+        let Some(image) = s.value_of(&node, &port).as_ref().and_then(Image::of) else {
+            c.open = false;
+            continue;
+        };
+        let from = Origin { key, image_ref: Some(Source::Ref(format!("{node}.{port}"))), bounds: None, shown: None };
+        window(ctx, s, &from, &image, view, &mut c);
+    }
+}
+
+/// *Add*: a node of the segmenter `op` reading the image `image` (a node's output, `node.port`), with `params`, beside
+/// the image's node. One step of undo; the model is put back on an error. The new node's id.
+pub fn add_op(s: &mut Session, r: &Registry, image: &str, op: &str, params: &Params) -> Result<String, String> {
+    let before = s.source.clone();
+    let made = (|| {
+        let top: &[String] = &[];
+        let from = image.split('.').next().unwrap_or(image);
+        if !s.source.nodes.iter().any(|n| n.id == from) {
+            return Err(format!("{from} is not a node of the model's top level"));
+        }
+        let at = crate::builder::beside(&s.source.nodes, Some(from));
+        let name = op.strip_prefix("segment.").unwrap_or(op);
+        let id = crate::editor::add_node_named(&mut s.source, r, top, op, Some(name), at)?;
+        crate::editor::connect(&mut s.source, r, top, image, &id, "image")?;
+        if let Some(n) = s.source.nodes.iter_mut().find(|n| n.id == id) {
+            for (k, v) in params {
+                n.params.insert(k.clone(), v.clone());
+            }
+        }
+        Ok(id)
+    })();
+    match made {
+        Ok(id) => {
+            s.history.name(&format!("Add {op} on {image}: {id}"));
+            s.edited();
+            Ok(id)
+        }
+        Err(e) => {
+            s.source = before;
+            Err(e)
+        }
+    }
+}
+
+fn window(ctx: &egui::Context, s: &mut Session, from: &Origin, image: &Image, view: &MapView, c: &mut Compare) {
+    let image_ref = from.image_ref.clone();
     // (every segmenter on the same window: the one the slowest does at once)
     let planned = live_segment::plan_for("segment.quickshift", view.visible(), &image.grid);
     match planned {
         Some((win, step)) => {
-            let bounds = bounds_of(s, node);
+            let bounds = from.bounds.clone();
             let sig = signature(s, &c.chosen, image_ref.as_ref(), image, win, step, bounds.as_ref());
             if sig != c.sig || c.items.is_empty() != c.chosen.is_empty() {
                 c.sig = sig;
@@ -485,7 +579,7 @@ fn window(ctx: &egui::Context, s: &mut Session, node: &Node, image: &Image, view
     let mut open = true;
     let mut chosen_now = None;
     egui::Window::new("Compare segmenters")
-        .id(egui::Id::new(("segment comparison window", &node.id)))
+        .id(egui::Id::new(("segment comparison window", &from.key)))
         .open(&mut open)
         .default_width(4.0 * (SIDE as f32 + 16.0))
         .show(ctx, |ui| {
@@ -530,17 +624,27 @@ fn window(ctx: &egui::Context, s: &mut Session, node: &Node, image: &Image, view
                                 let [w, h] = t.image.size;
                                 ui.image((tex.id(), egui::vec2(w as f32, h as f32)));
                                 ui.label(RichText::new(format!("{} objects, {:.2} s", t.count, t.secs)).size(11.0));
-                                if op == node.op {
-                                    ui.label(RichText::new("shown").weak().size(11.0));
-                                } else if ui
-                                    .button("Use")
-                                    .on_hover_text(format!(
-                                        "{name} in place of {}: what reads its objects reads this one's (one step of undo)",
-                                        node.id
-                                    ))
-                                    .clicked()
-                                {
-                                    chosen_now = Some(op.clone());
+                                match &from.shown {
+                                    Some(node) if op == node.op => {
+                                        ui.label(RichText::new("shown").weak().size(11.0));
+                                    }
+                                    Some(node) => {
+                                        let hint = format!(
+                                            "{name} in place of {}: what reads its objects reads this one's (one step of undo)",
+                                            node.id
+                                        );
+                                        if ui.button("Use").on_hover_text(hint).clicked() {
+                                            chosen_now = Some(op.clone());
+                                        }
+                                    }
+                                    None => {
+                                        let hint = format!(
+                                            "a {name} node that reads this image, with these settings, and its objects shown (one step of undo)"
+                                        );
+                                        if ui.button("Add").on_hover_text(hint).clicked() {
+                                            chosen_now = Some(op.clone());
+                                        }
+                                    }
                                 }
                             }
                             Some((k, Err(e))) if *k == key => {
@@ -560,7 +664,16 @@ fn window(ctx: &egui::Context, s: &mut Session, node: &Node, image: &Image, view
     c.open = open;
     if let Some(op) = chosen_now {
         let params = c.items.iter().find(|i| i.op == op).map(|i| i.params.clone()).unwrap_or_default();
-        match use_op(s, live_segment::registry(), &node.id, &op, &params) {
+        let r = live_segment::registry();
+        let result = match (&from.shown, &image_ref) {
+            (Some(node), _) => use_op(s, r, &node.id, &op, &params),
+            (None, Some(Source::Ref(image))) => add_op(s, r, image, &op, &params).map(|id| {
+                crate::builder::show_in_viewer_ctx(ctx, s, r, &id);
+                format!("{id}: a new {op} on {image}")
+            }),
+            (None, _) => Err("the image is not a node's output: no node can read it".to_string()),
+        };
+        match result {
             Ok(m) => {
                 c.error = None;
                 s.notice = Some((m, Instant::now()));
