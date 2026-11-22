@@ -4442,6 +4442,16 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    com 2 e 855 com 8, F contra o sem-tiles 0,868 -> 0,879/0,876; imagem suave: sem diferença nos objetos e -15 a -25%
    do tempo. O corte nas bordas fica abaixo do corte nas outras linhas em todos. Faixas finas ganham 2x mas
    fundem a mais em escalas pequenas; ainda não é o padrão.
+   Feito (2026-11-22, region growing): no `merge_all` do `segment.region_growing` o tempo não está na cauda de passadas
+   (2000², `threshold` 0,05: 1000 das 2689 passadas já levam 23,5 de 24,1 s; a cauda é 0,6 s) e sim nas primeiras: ~4M
+   fusões a ~2,6 us (127M entradas de listas, ~82 ns cada, a maior parte esperando memória) e as visitas. Depois da
+   passada 20 ficam ~40 mil regiões ativas e ~70 fusões por passada por ~2400 passadas (as vizinhas do gigante, que
+   esperam por ele estampado): ~100M visitas sem efeito, que não dá para pular com exatidão (a ordem embaralhada usa o
+   tamanho da lista). Exato: buscas antecipadas dos vizinhos que vão ter o vizinho mais próximo refeito na fusão (mesmos
+   hashes, ~10-20% em 1000² com 1 thread, ruído alto). Testado e descartado: deixar uma região fundir mais de uma vez
+   por passada (`chain`): na imagem do bench com `threshold` 0,05 deu 5277 objetos contra 1522 e 59 s contra 4,5 s (F
+   0,78 contra 0,90 de outra semente); com 0,02, +3% de objetos e F 1,000, 5,2 -> 3,4 s. Pior onde devia ajudar:
+   não entrou no código.
 9. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
 ### Qualidade de vida do OBIA (pedido de 2026-11-19)

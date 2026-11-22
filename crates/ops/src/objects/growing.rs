@@ -382,10 +382,21 @@ impl Regions {
         let mut least = Edge { nb: EMPTY, cost: f32::INFINITY };
         const AHEAD: usize = 8;
         for i in 0..merged.len() {
-            if let Some(&(y, _)) = merged.get(i + AHEAD) {
-                prefetch(self.mean.as_ptr().wrapping_add(y as usize * nb));
+            if let Some(&(y, _)) = merged.get(i + 2 * AHEAD) {
                 prefetch(&self.top[y as usize]);
                 prefetch(&self.adj[y as usize]);
+            }
+            if let Some(&(y, _)) = merged.get(i + AHEAD) {
+                let yu = y as usize;
+                prefetch(self.mean.as_ptr().wrapping_add(yu * nb));
+                // a neighbour whose nearest was `a` or `b` has its list read again (its nearest is worked out anew):
+                // the means of what it touches are fetched together
+                let t = self.top[yu].nb;
+                if t == a32 || t == b32 {
+                    for &z in &self.adj[yu] {
+                        prefetch(self.mean.as_ptr().wrapping_add(z as usize * nb));
+                    }
+                }
             }
             let (x, tag) = merged[i];
             let xu = x as usize;
