@@ -387,6 +387,7 @@ which gives the training table; ml.fit with column = class (a random forest work
 objects.classify gives the classes, the probability of each and the margin. Give at least 10 objects per class, \
 over their different looks; classes are numbered by their names in alphabetical order. objects.nearest is \
 eCognition's nearest neighbour on the same table, with a few spectral attributes chosen.
+   - by the principal components of the attributes: many attributes that repeat each other (the means of six bands, their deviations, NDVI, shape, texture) are reduced by ml.pca on the objects' table (`columns` naming the attributes, not id, cells or area; `components` a whole number), and objects.join puts its pc1... on the objects (by id), so objects.samples, ml.fit (`columns` the pc names) and objects.classify read them as any attribute.
    - by rules: objects.rules, a hierarchy of classes each with a fuzzy rule (objects.calc's script: above(ndwi, 0, \
 0.2), below, between, about; `and` is the smaller and `or` the larger), a class inheriting its parent's rule; an \
 object becomes the leaf of the largest membership. The thresholds come from the objects' attributes: read them in \
@@ -409,7 +410,7 @@ where the model hesitates: put samples there). A map of the objects' classes is 
 counted or measured), then vector.write.
 Templates: \"Classify an image by clicking samples\" (the main one), \"Classify an image by rules\", \
 \"Segment an image into polygons\", \"Land cover change by objects\", \
-\"Trees and buildings from a height model\", \"Classes by parcel\", \"Separate tree crowns\", \"Roads and rivers by the skeleton\", \"Unsupervised classes of objects\", \"Water by Otsu on the NDWI\", \
+\"Trees and buildings from a height model\", \"Classes by parcel\", \"Separate tree crowns\", \"Roads and rivers by the skeleton\", \"Unsupervised classes of objects\", \"Classify objects by principal components of their attributes\", \"Water by Otsu on the NDWI\", \
 \"The scale chosen by itself\". Each draws its image (nlm.image): put the user's in its place with \
 Use my data (the node marked as data).
 The prompt \"classify this image into water, forest and city\": new_model from the samples template; replace the \

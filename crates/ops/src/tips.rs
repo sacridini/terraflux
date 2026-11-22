@@ -808,6 +808,10 @@ pub const TIPS: &[(&str, &str)] = &[
          that class; for several classes add the borders (`border_to('a') + border_to('b') > 0.999`).",
     ),
     (
+        "objects.join",
+        "For attributes that come from a table, not from the image: ml.pca's table (the components `pc1`... of the objects' attributes), ml.predict's scores, a table of your own with a column `id`. Name the `columns` to join (the components only, not the attributes they came from); the rows can come in any order, but each object needs one. Run it before objects.samples, so the training table has the columns, and give objects.classify the joined objects. A name the objects already have is refused: `replace` overwrites it.",
+    ),
+    (
         "objects.nearest",
         "A few attributes, chosen with the feature space (objects.features), work better than many: every \
          attribute adds to the distance, and size and shape attributes can swamp the spectral ones, so name the \

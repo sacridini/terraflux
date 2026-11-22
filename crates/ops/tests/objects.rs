@@ -2287,6 +2287,97 @@ fn fit_table_clusters(fit: &Outputs, o: &Objects) -> Vec<f64> {
 }
 
 #[test]
+fn join_adds_the_columns_of_a_table_to_the_objects_by_id() {
+    let (o, truth) = obia_case("segment.slic", serde_json::json!({}));
+    let columns: Vec<String> = o.table.columns.iter().filter(|c| c.starts_with("mean_")).cloned().collect();
+    let fit = run(
+        "ml.pca",
+        vec![("table", Value::Table(o.table.clone()))],
+        serde_json::json!({ "columns": columns, "components": 2 }),
+    )
+    .unwrap();
+    let pcs = table_of(&fit);
+    let join = |objects: &Arc<Objects>, t: Table, params: serde_json::Value| {
+        run("objects.join", vec![("objects", Value::Objects(objects.clone())), ("table", Value::Table(t))], params)
+    };
+    // the rows in another order: the id decides, not the position
+    let mut shuffled = pcs.clone();
+    shuffled.rows.reverse();
+    let j = join(&o, shuffled, serde_json::json!({ "columns": ["pc1", "pc2"] })).unwrap();
+    let joined = objects_of(&j);
+    assert_eq!(joined.count, o.count);
+    assert_eq!(&joined.table.columns[..o.table.columns.len()], &o.table.columns[..]);
+    assert_eq!(&joined.table.columns[o.table.columns.len()..], ["pc1", "pc2"]);
+    let (own, want) = (joined.table.column("pc1").unwrap(), pcs.column("pc1").unwrap());
+    assert!(own.iter().zip(&want).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())));
+    // (the default: the numeric columns the objects lack, so not the pcs' copies of the attributes)
+    let d = objects_of(&join(&o, pcs.clone(), serde_json::json!({})).unwrap());
+    assert_eq!(&d.table.columns[o.table.columns.len()..], ["pc1", "pc2"]);
+
+    // downstream: the samples' table has the components, and a forest on them classifies the objects
+    let s = run(
+        "objects.samples",
+        vec![("objects", Value::Objects(joined.clone())), ("samples", truth_points(&o, &truth, 5, 7))],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    let train = table_of(&s);
+    assert!(train.columns.contains(&"pc1".to_string()) && train.columns.contains(&"pc2".to_string()));
+    let model = run(
+        "ml.fit",
+        vec![("table", Value::Table(train.clone()))],
+        serde_json::json!({ "column": "class", "columns": ["pc1", "pc2"], "seed": 1 }),
+    )
+    .unwrap();
+    let out = run(
+        "objects.classify",
+        vec![
+            ("objects", Value::Objects(joined.clone())),
+            ("model", model["model"].clone()),
+            ("samples", Value::Table(train)),
+        ],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    assert_eq!(objects_of(&out).class_of.len(), o.count);
+
+    // refusals name the ids
+    let refuse = |t: Table, params: serde_json::Value| join(&o, t, params).map(|_| ()).expect_err("refused").to_string();
+    let mut less = pcs.clone();
+    less.rows.remove(0);
+    let e = refuse(less, serde_json::json!({ "columns": ["pc1"] }));
+    assert!(e.contains("objects with no row: 1"), "{e}");
+    let mut twice = pcs.clone();
+    twice.rows[1][0] = 1.0;
+    let e = refuse(twice, serde_json::json!({ "columns": ["pc1"] }));
+    assert!(e.contains("ids twice: 1") && e.contains("objects with no row: 2"), "{e}");
+    let mut unknown = pcs.clone();
+    unknown.rows[0][0] = (o.count + 5) as f64;
+    let e = refuse(unknown, serde_json::json!({ "columns": ["pc1"] }));
+    assert!(e.contains(&format!("{}", o.count + 5)) && e.contains("no object's"), "{e}");
+    let e = refuse(pcs.clone(), serde_json::json!({ "columns": ["nothing"] }));
+    assert!(e.contains("no column \"nothing\""), "{e}");
+    let no_id = Table {
+        columns: vec!["pc1".into()],
+        rows: pcs.column("pc1").unwrap().into_iter().map(|v| vec![v]).collect(),
+        ..Default::default()
+    };
+    assert!(refuse(no_id, serde_json::json!({})).contains("no column id"));
+
+    // a column the objects have is refused unless replace is true
+    let e = join(&joined, joined.table.clone(), serde_json::json!({ "columns": ["pc1"] })).map(|_| ()).expect_err("refused");
+    assert!(e.to_string().contains("replace"), "{e}");
+    let mut changed = joined.table.clone();
+    let k = changed.columns.iter().position(|c| c == "pc1").unwrap();
+    for r in changed.rows.iter_mut() {
+        r[k] = 7.0;
+    }
+    let r = objects_of(&join(&joined, changed, serde_json::json!({ "columns": ["pc1"], "replace": true })).unwrap());
+    assert_eq!(r.table.columns.len(), joined.table.columns.len());
+    assert!(r.table.column("pc1").unwrap().iter().all(|&v| v == 7.0));
+}
+
+#[test]
 fn samples_table_fits_without_the_id_as_a_predictor() {
     let (o, truth) = obia_case("segment.slic", serde_json::json!({}));
     let s = run(

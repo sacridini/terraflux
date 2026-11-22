@@ -5202,8 +5202,11 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   (`classify_by_an_unsupervised_model_gives_the_objects_their_clusters`: k = 5 acerta 99,8% das células contra a
   verdade, o SOM de 4 x 4 com 5 grupos 81%, e sem grupos 16 classes) e o template "Unsupervised classes of objects" (k
   `auto` com os atributos `mean` e `ndvi`; o silhouette escolhe 9 grupos, mais que as cinco classes desenhadas, e o
-  teste exige entre 4 e 10 e pureza de 85%). O plano B (`ml.predict` mais uma junção) não foi preciso. Em aberto: o
-  `ml.pca` sobre os atributos antes do `ml.fit` funciona (os scores vão como preditores) mas não tem exemplo.
+  teste exige entre 4 e 10 e pureza de 85%). O plano B (`ml.predict` mais uma junção) não foi preciso. Feito (2026-11-22): o
+  template "Classify objects by principal components of their attributes" (`ml.pca` sobre 29 atributos, 4 componentes,
+  `objects.join` põe pc1..pc4 nos objetos por `id`, depois `objects.samples`, `ml.fit` com `columns` os pcN e
+  `objects.classify`; exatidão 90% contra a verdade). Faltava um operador que ponha uma tabela nos atributos dos objetos:
+  `objects.join` (por `id`, recusa id sem objeto, repetido ou objeto sem linha; `columns`, `replace`).
 
 **Decisões tomadas** (2026-11-19, as propostas):
 - `metrics.pca` e `metrics.cluster` ficam como estão, finos sobre o módulo comum.

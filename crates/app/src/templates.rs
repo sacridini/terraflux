@@ -476,7 +476,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 75] = [
+pub const TEMPLATES: [Template; 76] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -5112,6 +5112,13 @@ params = { title = "Rivers, lakes, roads and buildings" }
                 the map of the clusters)",
     },
     Template {
+        name: "Classify objects by principal components of their attributes",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_components),
+        about: "an image cut into objects, many attributes measured, reduced to four principal components, and a random forest trained on a few clicked samples classing the objects by those components alone (the polygons, and the map of the classes)",
+    },
+    Template {
         name: "Water by Otsu on the NDWI",
         group: OBJECTS,
         build: None,
@@ -5892,6 +5899,9 @@ note = "Objects by multiresolution segmentation. Without `scale` it takes the fi
 why = "shape 0.1 and compactness 0.5 are eCognition's usual start; the scale is in the image's units, so the one found for the image is the safest."
 "#;
 
+/// The attributes the template's `objects.features` gives (not the id or the cells): what ml.pca reads in "Classify objects by principal components".
+const OBIA_PCA_COLUMNS: &str = "[\"mean_blue\", \"mean_green\", \"mean_red\", \"mean_nir\", \"mean_swir1\", \"mean_swir2\", \"sd_blue\", \"sd_green\", \"sd_red\", \"sd_nir\", \"sd_swir1\", \"sd_swir2\", \"min_blue\", \"min_green\", \"min_red\", \"min_nir\", \"min_swir1\", \"min_swir2\", \"max_blue\", \"max_green\", \"max_red\", \"max_nir\", \"max_swir1\", \"max_swir2\", \"ndvi\", \"ndwi\", \"area\", \"compactness\", \"glcm_homogeneity\"]";
+
 /// The points of the samples' table, `x`, `y` and the class of each (SAMPLE_ROWS).
 const OBIA_SAMPLE_ROWS: &str = r#"[[9.5, 104.5, "water"], [85.5, 46.5, "water"], [5.5, 38.5, "water"], [9.5, 86.5, "water"], [68.5, 112.5, "water"], [84.5, 78.5, "water"], [10.5, 18.5, "water"], [83.5, 62.5, "water"], [10.5, 3.5, "forest"], [98.5, 30.5, "forest"], [29.5, 97.5, "forest"], [100.5, 19.5, "forest"], [89.5, 22.5, "forest"], [23.5, 110.5, "forest"], [39.5, 91.5, "forest"], [38.5, 103.5, "forest"], [65.5, 90.5, "grassland"], [92.5, 100.5, "grassland"], [87.5, 114.5, "grassland"], [29.5, 20.5, "grassland"], [106.5, 111.5, "grassland"], [94.5, 7.5, "grassland"], [115.5, 69.5, "cropland"], [96.5, 55.5, "cropland"], [114.5, 8.5, "cropland"], [114.5, 85.5, "cropland"], [104.5, 75.5, "cropland"], [74.5, 7.5, "cropland"], [76.5, 16.5, "cropland"], [49.5, 110.5, "cropland"], [71.5, 60.5, "urban"], [60.5, 70.5, "urban"], [26.5, 43.5, "urban"], [59.5, 44.5, "urban"], [55.5, 58.5, "urban"], [20.5, 35.5, "urban"], [64.5, 61.5, "urban"], [50.5, 31.5, "urban"]]"#;
 
@@ -6038,6 +6048,111 @@ params = { title = "The choice of k (inertia and silhouette)" }
 "#,
     );
     Model::from_toml(&text).expect("a template is a model")
+}
+
+/// "Classify objects by principal components of their attributes".
+fn obia_components() -> Model {
+    let mut text = String::from(
+        r#"
+format = "terraflux/1"
+name = "Classify objects by principal components of their attributes"
+description = "Objects classified by the principal components of their attributes: the image is cut into objects (multiresolution segmentation at the scale ESP suggests), many attributes are measured (the mean, the deviation, the minimum and the maximum of each band, NDVI and the shape and texture), ml.pca reduces them to four components that repeat nothing, objects.join puts the components on the objects, a few objects of each class are named by points, a random forest learns the classes from the components alone, and every object takes a class and the probability of each. Replace the image with yours (Use my data) and the points with yours: in the Viewer, click objects with the class's name."
+"#,
+    );
+    text.push_str(OBIA_SCENE);
+    text.push_str(
+        r#"
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "segments.objects", image = "image.image" }
+params = { features = ["mean", "sd", "min", "max", "ndvi", "ndwi", "area", "compactness", "homogeneity"] }
+note = "Many attributes of each object: for each band the mean, the standard deviation, the minimum and the maximum, NDVI and NDWI, the area, the compactness and the homogeneity of the texture."
+why = "Most of them say the same thing (the bands move together), which is what a reduction is for."
+
+[[nodes]]
+id = "pca"
+op = "ml.pca"
+inputs = { table = "features.table" }
+params = { columns = PCA_COLUMNS, components = 4 }
+note = "The principal components of the objects' attributes (`columns` names them: the table also has the id, the cells and the area, which are not attributes of the ground), each attribute divided by its standard deviation first. Four are kept: look at the explained output for the variance they hold, and raise `components` (a whole number) if it is too little, or give a share (0.95) to keep that much."
+why = "The classes of a land cover separate along a few directions of the attributes: the components are not correlated, so the forest does not split its choice among attributes that repeat each other. Four is fixed, not a share of the variance, so the columns the forest reads (pc1 to pc4) are the same in every run."
+refs = ["Pearson 1901", "Hotelling 1933"]
+
+[[nodes]]
+id = "components"
+op = "objects.join"
+inputs = { objects = "features.objects", table = "pca.table" }
+params = { columns = ["pc1", "pc2", "pc3", "pc4"] }
+note = "The four components added to the objects' attributes, matched by id: every operator that reads the attributes sees them now."
+why = "The model reads the objects' attributes by name; without this step the components would stay in a table the objects do not know."
+
+[[nodes]]
+id = "sample_table"
+op = "table.of"
+note = "The samples: a point (x and y in the image's coordinates) on an object of each class, with the class's name. Eight per class, over different objects. In its place, the points you clicked in the Viewer (or a vector.read of points with a `class` column)."
+why = "A point picks the object under it: the more different the objects of a class you name, the better the forest knows the class."
+
+[nodes.params]
+columns = ["x", "y", "class"]
+rows = SAMPLE_ROWS
+
+[[nodes]]
+id = "samples"
+op = "vector.from_table"
+inputs = { table = "sample_table.table" }
+note = "The points as features, with the class as an attribute."
+
+[[nodes]]
+id = "training"
+op = "objects.samples"
+inputs = { objects = "components.objects", samples = "samples.vector" }
+note = "The objects under the points, with their attributes and components: the table the forest learns from."
+why = "Classes are numbered by their names in alphabetical order, so the model's codes follow that order."
+
+[[nodes]]
+id = "model"
+op = "ml.fit"
+inputs = { table = "training.table" }
+params = { column = "class", columns = ["pc1", "pc2", "pc3", "pc4"], method = "random_forest", seed = 1 }
+note = "A random forest on the components only (`columns` names them: the table also has the attributes they came from)."
+why = "The forest works without tuning and says which components mattered (the importance output)."
+
+[[nodes]]
+id = "classify"
+op = "objects.classify"
+inputs = { objects = "components.objects", model = "model.model", samples = "training.table" }
+note = "Every object takes the class of the largest probability; the table has the probabilities and the margin (low where the forest hesitates: look there for more samples)."
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "classify.objects" }
+params = { smooth = 1 }
+note = "A polygon for each object with its class, its attributes and its components."
+
+[[nodes]]
+id = "write"
+op = "vector.write"
+inputs = { vector = "polygons.vector" }
+params = { path = "objects_components.gpkg" }
+note = "The classified polygons, in a file beside the model."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "classify.map" }
+params = { title = "The classes of the objects" }
+
+[[nodes]]
+id = "variance"
+op = "view.plot"
+inputs = { table = "pca.explained" }
+params = { title = "The variance of each component" }
+"#,
+    );
+    Model::from_toml(&text.replace("SAMPLE_ROWS", OBIA_SAMPLE_ROWS).replace("PCA_COLUMNS", OBIA_PCA_COLUMNS))
+        .expect("a template is a model")
 }
 
 /// The class hierarchy of the rules template: water, vegetation (forest, grassland) and the rest (cropland, urban),
@@ -6514,6 +6629,20 @@ mod tests {
         assert!(o.classes.iter().enumerate().all(|(k, c)| c.name == format!("cluster {}", k + 1)));
         assert!(o.class_of.iter().all(|&k| k > 0));
         assert!(purity >= 0.85, "purity {purity}");
+
+        // by the principal components of the attributes: the forest reads the four components and nothing else
+        let out = run("Classify objects by principal components of their attributes");
+        let (m, o, truth) = (map(&out, "classify.map"), objects(&out, "classify.objects"), map(&out, "land.map"));
+        let acc = agree(&m, &o, &truth, &names);
+        println!("components: {} objects, accuracy {acc:.4}", o.count);
+        assert!(acc >= 0.85, "accuracy {acc}");
+        assert_eq!(o.classes.len(), 5);
+        let Some(Value::MlModel(model)) = out.get("model.model") else { panic!("no model") };
+        assert_eq!(model.predictors(), ["pc1", "pc2", "pc3", "pc4"]);
+        let Some(Value::Table(train)) = out.get("training.table") else { panic!("no training table") };
+        assert!(["pc1", "pc2", "pc3", "pc4", "mean_nir"].iter().all(|c| train.columns.iter().any(|t| t == c)));
+        let Some(Value::Table(ex)) = out.get("pca.explained") else { panic!("no explained") };
+        assert!(ex.rows.len() >= 20, "{} components", ex.rows.len());
 
         // water by Otsu on the NDWI: the water class (1) is the drawn water (1)
         let out = run("Water by Otsu on the NDWI");

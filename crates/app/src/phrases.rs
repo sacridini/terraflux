@@ -1062,6 +1062,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The local extrema of {attribute} among the objects of <objects>[ of the classes {among}][ ({kind})][, within {radius} map units][, within {steps} steps of neighbours][, given the class {class}].",
     ),
     (
+        "objects.join",
+        "The attributes of <objects> joined by id to the columns of <table>[ ({columns})][, replacing those they have].",
+    ),
+    (
         "objects.nearest",
         "The objects of <objects> classed by their nearest samples in <samples>[, a class only above a membership of {min}].",
     ),

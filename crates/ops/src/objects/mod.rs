@@ -23,6 +23,7 @@ mod esp;
 mod features;
 mod fuse;
 mod growing;
+mod join;
 mod labels;
 mod levels;
 mod meanshift;
@@ -75,6 +76,7 @@ pub fn register(r: &mut Registry) {
     fuse::register(r);
     resize::register(r);
     extrema::register(r);
+    join::register(r);
     r.add(Arc::new(features::Features));
     resolve::register(r);
     temporal::register(r);
