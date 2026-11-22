@@ -4899,6 +4899,15 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     também por `segment.evaluate`, e a tabela `scores` ganha as colunas; sem `reference`, nada muda. O gráfico do
     optimize (`charts.rs::scores`, `optimize_view.rs`) mostra a medida escolhida e o clique escolhe o valor (a sobra
     do bloco de 2026-11-22).
+  - **Feito (2026-11-22), a parte dos operadores**: `segment.evaluate` (`objects/evaluate.rs`) e a `reference` do `segment.optimize`
+    (objetivos `d`, `ed2`, `f_overlap`; a tabela `scores` ganha `os`, `us`, `d`, `ed2`, `f_overlap`, a coluna `objective` é a medida
+    escolhida de 1, a melhor, a 0, e o gráfico acha as colunas pela posição das cinco primeiras). Igual ao `segmetric` 0.3.0 (R 4.4.2) a 1e-9
+    nas medidas e nos pares (`tools/make_segmetric_reference.R`, `tests/data/reference/segmetric/`: 5 casos, a referência e a segmentação
+    como polígonos de células inteiras e como rótulos). **O `segmetric` 0.3.0 não tem PSE, NSR nem ED2 de Liu et al. 2012** (só o ED3 de Yang
+    et al.): eles seguem o artigo como li (os objetos correspondentes a uma referência são os com mais da metade das células nela, ou o de maior
+    sobreposição; PSE as células deles fora da referência sobre as da referência; NSR |m - v| / m; ED2 a raiz da soma dos quadrados), sem
+    referência para conferir. O Weidner 2008 não tem DOI no Crossref (os dados do artigo vêm de memória). Nas propriedades, "cortar cada referência
+    em dois sobe o US e não o OS" vale quando o que se corta é a referência (cada objeto passa a ter duas); cortar a segmentação sobe o OS.
   - No aplicativo: na seção dos objetos, *Draw reference objects* desenha polígonos com a ferramenta de desenho do
     Viewer (os atributos do desenho já ficam no modelo) e liga ao `segment.evaluate` num passo de desfazer; a
     camada `os`/`us` com a rampa divergente (vermelho onde a referência foi cortada, azul onde foi engolida).

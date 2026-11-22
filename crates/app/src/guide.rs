@@ -377,7 +377,12 @@ whose means are close; segment.region_growing (the region growing of GRASS i.seg
 bounds optional) and segment.quickshift (modes of the density in colour and position); segment.from_map and \
 segment.from_vector bring objects made elsewhere (a map of classes or labels, polygons). segment.optimize \
 runs a segmenter at a range of values of one setting and keeps the best by the variance inside the objects and \
-Moran's I (USPO), the table of scores beside it.
+Moran's I (USPO), the table of scores beside it. To judge a segmentation by objects drawn by hand, give them \
+(polygons, or objects) to segment.evaluate: os (over-segmentation: a reference left in pieces), us \
+(under-segmentation: an object spanning several), d, qr, afi, precision, recall, f_overlap and ed2 (the numbers of \
+the R package segmetric, but pse, nsr and ed2, which are Liu et al. 2012's), a row per pair in `table` and the os \
+and us of each object in `objects`, to paint on the map; give the same reference to segment.optimize as \
+`reference` and its objective d, ed2 or f_overlap chooses the value that matches what was drawn.
    Touching objects (crowns, buildings, cells) are divided by objects.split: by the distance to the object's border (the cut is at the neck) or by a surface whose peaks are the centres (a height model); `h`, `min_size` and `max_neck` decide how many pieces it makes, `classes` which objects it works on. The pieces keep the class.
    Objects grown, shrunk and smoothed cell by cell (eCognition's pixel-based resizing, morphology and border optimization) are objects.resize: `mode` grow, shrink, open, close, fill, smooth or refine, by `distance` (map units) or `steps` (cells); a `mask` (from raster.calc) or `into` (classes whose cells may be taken) makes growth geodesic, `max_hole` limits fill, refine needs the `image`. An object cut in two by shrink or open becomes two objects of its class.
    Objects cut too finely (a building in pieces) are joined by objects.fuse (eCognition's image object fusion): a seed takes a neighbour only when the object they make is good by `fitting`, an expression over the joined object (compactness with goal min, shape_index, length_width, mean_<band> and sd_<band> with the `image`); `improve` asks it to be as good as the seed's own value, `threshold` that it reach a value, `seeds` and `candidates` are class names, mode best or all, and it repeats up to `max_passes`. The result has the seed's class; texture, skeleton and context features cannot be derived for the joined object and are refused.

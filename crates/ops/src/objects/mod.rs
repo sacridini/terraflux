@@ -20,6 +20,7 @@ mod each;
 mod edit;
 mod extrema;
 mod esp;
+mod evaluate;
 mod features;
 mod folds;
 mod fuse;
@@ -78,6 +79,7 @@ pub fn register(r: &mut Registry) {
     resize::register(r);
     extrema::register(r);
     join::register(r);
+    evaluate::register(r);
     folds::register(r);
     r.add(Arc::new(features::Features));
     resolve::register(r);

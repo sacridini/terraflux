@@ -19,6 +19,7 @@ use rayon::prelude::*;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
 use super::Objects;
+use super::evaluate::{Summary, evaluate, reference_of};
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
 /// The most values (runs) of one call.
@@ -190,6 +191,8 @@ struct Kept {
     at: usize,
     variance: f64,
     moran: f64,
+    /// With a measure against the reference as the objective: how good the run is by it (higher is better).
+    good: f64,
     out: Outputs,
 }
 
@@ -205,6 +208,18 @@ struct Run {
     moran: f64,
     objects: usize,
     notes: Vec<String>,
+    /// With a reference: the run's measures against it.
+    measures: Option<Summary>,
+}
+
+/// How good a run is by a measure against the reference, higher the better: the measures that are errors (d, ed2)
+/// negated, the F of the overlap as it is.
+fn goodness(name: &str, m: &Summary) -> f64 {
+    match name {
+        "d" => -m.d,
+        "ed2" => -m.ed2,
+        _ => m.f_overlap,
+    }
 }
 
 /// A number as the setting of an operator: a whole one is an integer (the settings that are counts read no other).
@@ -229,17 +244,25 @@ impl Operator for Optimize {
              the highest objective wins: too fine a segmentation is not different from its neighbours, too coarse \
              a one is not homogeneous. Its objects are the result. Read the table of scores as well as the winner: \
              it is a guide, as segment.scale is. Of the segmenter's other settings, `params` holds those that stay \
-             fixed.",
+             fixed. With a `reference` (polygons or objects drawn by hand) each result is also measured against it, as \
+             segment.evaluate does, and the table of scores gains the columns os, us, d, ed2 and f_overlap; the objective \
+             d, ed2 or f_overlap then chooses the value that the reference favours (the lowest d or ed2, the highest F), \
+             and the table's objective column is that measure scaled from 1 (the best) to 0.",
             Access::Global,
         )
         .input(PortSpec::new("image", Type::Any, "a map, or a stack of bands, the colour (given to every run)"))
+        .input(PortSpec::optional(
+            "reference",
+            Type::Any,
+            "reference objects, polygons or objects on the image's grid: each run is measured against them",
+        ))
         .output(PortSpec::new("objects", Type::Objects, "the objects of the best run"))
         .output(PortSpec::new("table", Type::Table, "the table of those objects, as the segmenter gives it"))
         .output(PortSpec::new(
             "scores",
             Type::Table,
             "a row per value: value, objects, variance, moran, objective (NaN where a run has no score, e.g. one \
-             object)",
+             object), and with a reference os, us, d, ed2 and f_overlap",
         ))
         .output(PortSpec::new("value", Type::Number, "the best value of the setting"))
         .param(PortSpec::optional(
@@ -268,9 +291,10 @@ impl Operator for Optimize {
                 "objective",
                 Type::Text,
                 "sum (default: the scaled variance plus the scaled Moran's I, Espindola) or f (their F-measure, \
-                 Johnson & Xie)",
+                 Johnson & Xie); with a reference also d, ed2 (the lowest wins) or f_overlap (the highest wins), by \
+                 the measures of segment.evaluate",
             )
-            .choices(["sum", "f"]),
+            .choices(["sum", "f", "d", "ed2", "f_overlap"]),
         )
         .param(PortSpec::optional(
             "alpha",
@@ -316,8 +340,10 @@ impl Operator for Optimize {
             return Err(bad(format!("params: {parameter:?} is the setting varied, it is not fixed too")));
         }
         let values = values_of(args).map_err(bad)?;
-        let alpha = match args.param("objective", "sum".to_string())?.as_str() {
-            "sum" => None,
+        let objective_name: String = args.param("objective", "sum".to_string())?;
+        let by_reference: Option<String> = ["d", "ed2", "f_overlap"].contains(&objective_name.as_str()).then(|| objective_name.clone());
+        let alpha = match objective_name.as_str() {
+            "sum" | "d" | "ed2" | "f_overlap" => None,
             "f" => {
                 let a: f64 = args.param("alpha", 1.0)?;
                 if !a.is_finite() || a <= 0.0 {
@@ -325,10 +351,14 @@ impl Operator for Optimize {
                 }
                 Some(a)
             }
-            o => return Err(bad(format!("objective {o:?}: sum or f"))),
+            o => return Err(bad(format!("objective {o:?}: sum, f, d, ed2 or f_overlap"))),
         };
         let image = args.get("image").ok_or_else(|| bad("no input \"image\"".into()))?;
         let l = super::big::layers(args, "image")?;
+        let reference = args.get("reference").map(|v| reference_of(node, v, &l.grid)).transpose()?;
+        if by_reference.is_some() && reference.is_none() {
+            return Err(bad(format!("objective {objective_name}: connect the reference it is measured against")));
+        }
         let cells = l.grid.cells() as u64;
         // as many runs at once as the memory of the runs allows, as the tiles of segment.multiresolution
         let per = cells.max(1) * (l.data.len() as u64 * 40 + 200);
@@ -351,16 +381,27 @@ impl Operator for Optimize {
             let table = out.get("table").cloned().unwrap_or_else(|| Value::Table(o.table.clone()));
             let (variance, moran) = score(o, &l.data);
             let objects = o.count;
-            if variance.is_finite() && moran.is_finite() {
+            let measures = reference.as_ref().map(|r| evaluate(r, o).summary);
+            if let (Some(name), Some(m)) = (&by_reference, &measures) {
+                // (the reference's measure is the objective: only the best run so far is kept)
+                let good = goodness(name, m);
+                if good.is_finite() {
+                    let out = outputs([("objects", Value::Objects(o.clone())), ("table", table)]);
+                    let mut front = kept.lock().unwrap();
+                    if front.first().is_none_or(|f| good > f.good || (good == f.good && k < f.at)) {
+                        *front = vec![Kept { at: k, variance, moran, good, out }];
+                    }
+                }
+            } else if variance.is_finite() && moran.is_finite() {
                 let out = outputs([("objects", Value::Objects(o.clone())), ("table", table)]);
-                let mine = Kept { at: k, variance, moran, out };
+                let mine = Kept { at: k, variance, moran, good: f64::NAN, out };
                 let mut front = kept.lock().unwrap();
                 if !front.iter().any(|f| beaten(&mine, f)) {
                     front.retain(|f| !beaten(f, &mine));
                     front.push(mine);
                 }
             }
-            Ok(Run { variance, moran, objects, notes: c.warnings })
+            Ok(Run { variance, moran, objects, notes: c.warnings, measures })
         };
         for wave in (0..values.len()).collect::<Vec<_>>().chunks(at_once) {
             if ctx.stopped() {
@@ -379,7 +420,15 @@ impl Operator for Optimize {
         }
         let variance: Vec<f64> = rows.iter().map(|r| r.variance).collect();
         let moran: Vec<f64> = rows.iter().map(|r| r.moran).collect();
-        let obj = objective(&variance, &moran, alpha);
+        let obj = match &by_reference {
+            Some(name) => {
+                // (the measure scaled so that 1 is the best of the values, as the other objectives)
+                let good: Vec<f64> =
+                    rows.iter().map(|r| r.measures.as_ref().map_or(f64::NAN, |m| goodness(name, m))).collect();
+                scaled(&good.iter().map(|g| -g).collect::<Vec<f64>>())
+            }
+            None => objective(&variance, &moran, alpha),
+        };
         let mut front = kept.into_inner().unwrap();
         // the best of those kept (the highest objective, the earliest value when tied)
         front.sort_by_key(|f| f.at);
@@ -390,7 +439,7 @@ impl Operator for Optimize {
         let Some(best) = best else {
             return Err(bad(format!(
                 "no value gave a score ({} runs with fewer than two objects, or objects that touch none or are all \
-                 alike)",
+                 alike, or none overlapping the reference)",
                 rows.len()
             )));
         };
@@ -398,6 +447,13 @@ impl Operator for Optimize {
         scores.rows = (0..rows.len())
             .map(|k| vec![values[k], rows[k].objects as f64, rows[k].variance, rows[k].moran, obj[k]])
             .collect();
+        if reference.is_some() {
+            scores.columns.extend(["os", "us", "d", "ed2", "f_overlap"].map(String::from));
+            for (row, r) in scores.rows.iter_mut().zip(&rows) {
+                let m = r.measures.as_ref();
+                row.extend(["os", "us", "d", "ed2", "f_overlap"].map(|n| m.map_or(f64::NAN, |m| m.get(n))));
+            }
+        }
         ctx.warn(format!(
             "node {node:?}: {segmenter} with {parameter} {} scored the highest of {} values (objective {}, {} objects)",
             values[best.at],

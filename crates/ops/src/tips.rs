@@ -690,7 +690,24 @@ pub const TIPS: &[(&str, &str)] = &[
          The segmenter is `segmenter` (multiresolution by default) and the setting varied is `parameter` (scale, \
          threshold, size... by segmenter); its other settings go in `params`, an object. Look at the table of \
          `scores` and at the objects, as for segment.scale: the score is a guide. The runs go in parallel, so \
-         try a range of 5 to 10 values on a part of a large image first.",
+         try a range of 5 to 10 values on a part of a large image first. With a `reference` (20 to 50 objects \
+         drawn by hand, as polygons, over the places that matter) every run is also measured against it and the \
+         scores gain os, us, d, ed2 and f_overlap; the objective d, ed2 or f_overlap then picks the value by them \
+         (the lowest error, the highest overlap F), which is better than the variance when the objects must match \
+         what you drew.",
+    ),
+    (
+        "segment.evaluate",
+        "Draw 20 to 50 reference objects over the places that matter (polygons, or objects made another way) \
+         and the segmentation is measured by how its objects cover them. os is the over-segmentation, how much of a \
+         reference its object leaves out (a reference split in pieces); us is the under-segmentation, how much of \
+         an object lies outside the reference (an object spanning several); d, qr and ed2 join the two in one \
+         number, 0 the best, and f_overlap (1 the best) is the F of the precision and the recall. They are averaged \
+         over the pairs of a reference and an object that match (those that share the centroid or more than half of \
+         one), so look at the `table` for the references that fare badly, and paint the `os` and `us` of the \
+         objects output on the map to see where the segmentation errs, by excess or by lack. The numbers are those \
+         of the R package segmetric (Costa et al.), except pse, nsr and ed2 (Liu et al. 2012), which it does not \
+         have. Do not tune the segmentation on the reference you will judge the classification with.",
     ),
     (
         "objects.features",

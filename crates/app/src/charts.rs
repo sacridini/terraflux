@@ -147,9 +147,11 @@ pub fn confusion_of(t: &Table) -> Option<Confusion> {
 }
 
 /// Whether a table is segment.optimize's scores: a row per value, the columns value, objects, variance, moran and
-/// objective.
+/// objective (and, with a reference, os, us, d, ed2 and f_overlap after them).
 pub fn is_scores(t: &Table) -> bool {
-    t.columns == ["value", "objects", "variance", "moran", "objective"] && !t.rows.is_empty()
+    t.columns.len() >= 5
+        && t.columns[..5] == ["value", "objects", "variance", "moran", "objective"]
+        && !t.rows.is_empty()
 }
 
 /// Whether a table is ml.pca's explained variance: a row per component, the columns component, variance, ratio and
@@ -746,7 +748,7 @@ fn choice(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
 /// The value of the best row of a scores table (the highest objective, the earliest when tied).
 pub fn best_value(t: &Table) -> Option<f64> {
     let mut best: Option<(f64, f64)> = None;
-    for r in t.rows.iter().filter(|r| r.len() == 5 && r[4].is_finite()) {
+    for r in t.rows.iter().filter(|r| r.len() >= 5 && r[4].is_finite()) {
         if best.is_none_or(|b| r[4] > b.1) {
             best = Some((r[0], r[4]));
         }
@@ -1692,6 +1694,13 @@ mod tests {
         assert_eq!(best_value(&t), Some(10.0));
         assert!(!is_scores(&Table { columns: vec!["value".into(), "objective".into()], ..Default::default() }));
         assert!(!is_scores(&Table { rows: vec![], ..t.clone() }));
+        // with a reference the table has os, us, d, ed2 and f_overlap after the five: still the scores, the best the same
+        let mut with = t.clone();
+        with.columns.extend(["os", "us", "d", "ed2", "f_overlap"].map(String::from));
+        with.rows.iter_mut().for_each(|r| r.extend([0.1, 0.2, 0.3, 0.4, 0.5]));
+        assert!(is_scores(&with) && Kind::of(&with).contains(&Kind::Scores));
+        assert_eq!(Chart::first(&with).kind, Kind::Scores);
+        assert_eq!(best_value(&with), Some(10.0));
         // (a NaN objective is never the best)
         let nan = Table { rows: vec![vec![1.0, 2.0, 1.0, 1.0, f64::NAN]], ..t };
         assert_eq!(best_value(&nan), None);

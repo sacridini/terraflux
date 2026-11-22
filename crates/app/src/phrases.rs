@@ -1012,7 +1012,11 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     (
         "segment.optimize",
-        "<image> segmented by {segmenter} at the values of {parameter} tried, the best by the intra-object variance and Moran's I[ ({objective} objective)].",
+        "<image> segmented by {segmenter} at the values of {parameter} tried, the best by the intra-object variance and Moran's I[ ({objective} objective)][, measured against the reference <reference>].",
+    ),
+    (
+        "segment.evaluate",
+        "The segmentation <objects> measured against the reference <reference>[ ({metrics})].",
     ),
     (
         "objects.features",
