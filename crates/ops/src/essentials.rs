@@ -94,6 +94,8 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("ml.potential", &["landscape", "later", "drivers", "target", "classes", "method", "sample", "n_estimators"]),
     ("ml.som", &["table", "predictors", "cells", "rows", "cols", "topology", "training", "clusters"]),
     // objects
+    ("segment.multiresolution", &["image", "scale", "shape", "compactness", "weights", "tile"]),
+    ("objects.series", &["objects", "series", "variable", "dates", "groups", "smooth", "season_threshold"]),
     ("segment.sam", &["image", "weights", "bands", "points", "iou", "min_size", "fill"]),
     ("objects.split", &["surface", "by", "classes", "h", "min_size", "max_neck"]),
     ("objects.extrema", &["attribute", "kind", "radius", "steps", "among", "class", "strict"]),
