@@ -39,6 +39,7 @@ mod resolve;
 mod rows;
 mod rules;
 mod segment;
+mod series;
 mod skeleton;
 mod spectral;
 mod split;
@@ -81,6 +82,7 @@ pub fn register(r: &mut Registry) {
     join::register(r);
     evaluate::register(r);
     folds::register(r);
+    series::register(r);
     r.add(Arc::new(features::Features));
     resolve::register(r);
     temporal::register(r);

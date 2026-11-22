@@ -5044,6 +5044,17 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     harmônico e o RMSE; poucos valores (menos de `2n + 2`) dão NaN.
   - Os mesmos núcleos para mapas (um `raster.phenology` por célula, em paralelo por linhas) se não custar mais que
     expor as funções: os objetos e as células com as mesmas contas.
+  - **Feito (2026-11-22), a parte dos operadores**: `objects.series` (`objects/series.rs`; grupos `values`, `phenology`, `harmonics`,
+    a tabela longa `series` com `id`, `date`, `doy`, `value`, `smoothed`) e o `raster.phenology` (os mesmos núcleos por célula, em `phenology.rs`:
+    custou pouco). As datas pelos nomes das camadas (`YYYY-MM-DD`, `YYYY_MM_DD`, `YYYY.MM.DD` ou `YYYYMMDD` em qualquer parte) ou pelo `dates`; a pilha
+    não carrega datas e o `data.stac` dá compostos (uma camada por ativo), não séries; recusa nomes sem data, datas que não crescem, menos de 4 datas.
+    Fenologia como o método da amplitude do TIMESAT: cada lado do pico parte do seu próprio mínimo (Jönsson e Eklundh 2004): o nível do início é `esq + t (max - esq)` e o do fim
+    `dir + t (max - dir)`; o início e o fim são onde a série cruza o seu nível andando do pico, por interpolação linear (sem cruzamento, NaN); a integral por
+    trapézios em dias; taxas (max - nível do lado) sobre os dias do início ao pico e do pico ao fim. Sem colunas `base_left`/`base_right`. Savitzky-Golay igual ao `scipy.signal.savgol_filter(mode="interp")` a 1e-9 numa série de
+    datas regulares, sobre a série de todas as datas com os buracos preenchidos por retas no tempo; com datas irregulares ele as lê como regulares e um
+    aviso diz (a janela é de datas, não de dias). Harmônicos iguais ao `numpy.linalg.lstsq` a 1e-9 (`tools/make_phenology_reference.py`,
+    `tests/data/reference/phenology.json`); o tempo é em dias desde 1 de janeiro do ano da primeira data, a fase em [0, 2 pi), a tendência por ano, o RMSE sobre
+    os valores. Várias pilhas por variável não: uma pilha por chamada, o `variable` dá o prefixo das colunas, e `objects.join` junta as de outras chamadas.
   - No aplicativo: o inspetor ganha o perfil do objeto escolhido (a série da tabela longa, os pontos de nuvem como
     buracos) com a faixa das amostras da classe (mediana e intervalo interquartil por data) e um segundo objeto
     para comparar (Ctrl+clique); no espaço dos atributos, as colunas da fenologia como quaisquer outras.

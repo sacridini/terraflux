@@ -48,6 +48,7 @@ mod objects_edit;
 mod objects_fuse;
 mod objects_extrema;
 mod objects_evaluate;
+mod objects_series;
 mod objects_levels;
 mod objects_resize;
 mod objects_resolve;

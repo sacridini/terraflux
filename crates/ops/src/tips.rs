@@ -896,6 +896,25 @@ pub const TIPS: &[(&str, &str)] = &[
          warns: their accuracy is borrowed from the neighbours the model learned from.",
     ),
     (
+        "objects.series",
+        "Give it the stack of a vegetation index (NDVI of every scene), a layer per date named by it (2024-03-05 or \
+         20240305 in the name) or the `dates`, over the objects of a field map. Take `phenology` for the season \
+         (the peak, the start and the end where the series crosses half of the way from its base to its top, the \
+         integral) and `harmonics` for a fit of the year's curve (the mean, the amplitude and phase of each \
+         harmonic): both are columns the classifier can learn from, as any attribute. A cloud is a missing value: \
+         a date with fewer than `min_share` of an object's cells is missing, and the measures are made without \
+         it, so a series with few dates left gives NaN (the harmonics need 2n + 2 values). Smooth a noisy series \
+         with `savgol` (a window of dates, odd, and an order below it) or `harmonic` before the season is \
+         measured: the Savitzky-Golay filter reads the dates as evenly spaced, so use it on regular composites. \
+         The long table `series` is what a chart of an object's profile reads.",
+    ),
+    (
+        "raster.phenology",
+        "The same measures as objects.series, for every cell: use it on the cells of a map to see where the seasons \
+         differ, and objects.series on the objects of a segmentation to classify them. A stack of 30 dates over a \
+         large map is large: read it in pieces or clip it.",
+    ),
+    (
         "objects.folds",
         "Neighbouring objects are nearly alike, so a cross-validation with folds drawn at random lends every test \
          object a twin in the training and reports an accuracy that is too high (Ploton et al. 2020; Meyer and \

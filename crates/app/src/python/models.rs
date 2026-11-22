@@ -61,6 +61,9 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
              (each value takes the reference's with the same cumulative share), but the script has no stack of \
              bands with a mask of the common area to give it yet: no equivalent"
             .into()),
+        "raster.phenology" => Err("the seasons of a time series per cell (the amplitude method of TIMESAT, Savitzky-Golay, \
+             harmonics) are not in the Python library: no equivalent in the script"
+            .into()),
         "crafty.allocate" => Err("CRAFTY's competition between agent functional types is not in the Python library".into()),
         "segment.from_map" | "segment.chessboard" | "segment.quadtree" | "segment.from_vector" | "objects.to_map"
         | "objects.to_vector" | "segment.multiresolution" | "segment.slic" | "segment.snic" | "segment.felzenszwalb"
@@ -70,7 +73,7 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
         | "objects.rules" | "objects.nearest" | "objects.resolve" | "objects.temporal" | "objects.transition_matrix"
         | "segment.sam" | "objects.embed" | "objects.accuracy" | "objects.sample" | "objects.merge" | "objects.grow"
         | "objects.remove_small" | "objects.reclassify" | "objects.edit"
-        | "objects.split" | "objects.resize" | "objects.fuse" | "objects.extrema" | "objects.join" | "objects.folds" | "segment.evaluate" => Err("objects (object-based image analysis: an image divided into objects with their \
+        | "objects.split" | "objects.resize" | "objects.fuse" | "objects.extrema" | "objects.join" | "objects.folds" | "segment.evaluate" | "objects.series" => Err("objects (object-based image analysis: an image divided into objects with their \
              attributes, classes and levels) are a Terraflux type the Python library has no counterpart for: no \
              equivalent in the script"
             .into()),

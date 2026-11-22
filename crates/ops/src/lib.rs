@@ -73,6 +73,7 @@ pub mod multivar;
 pub mod nlm;
 pub mod objects;
 pub mod npmath;
+pub mod phenology;
 pub mod planner;
 pub mod plugin;
 pub mod plus;
@@ -507,6 +508,7 @@ impl Registry {
         table_ops::register(&mut r);
         raster_stats::register(&mut r);
         raster_match::register(&mut r);
+        phenology::register(&mut r);
         raster_neighbours::register(&mut r);
         vector_tools::register(&mut r);
         values::register(&mut r);

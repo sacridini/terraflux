@@ -1108,6 +1108,14 @@ const PHRASES: &[(&str, &str)] = &[
         "The accuracy of the classes of <objects> against <samples> or <reference>[ (the class in {class})], by objects and by area[, counting the reference objects of the training <training>].",
     ),
     (
+        "objects.series",
+        "The time series of the objects of <objects> from the layers of <series>[ ({variable})][, the groups {groups}][, smoothed by {smooth}][; the season from {season_threshold} of the amplitude].",
+    ),
+    (
+        "raster.phenology",
+        "The seasons of the time series of each cell of <series>[, the groups {groups}][, smoothed by {smooth}][; the season from {season_threshold} of the amplitude].",
+    ),
+    (
         "objects.folds",
         "The training objects of <samples> (of <objects>) dealt into {k} folds[ by {method}][, objects within {steps} steps together][; seed {seed}].",
     ),
