@@ -1,0 +1,5 @@
+calendar,parcels,area_share,peak_doy,amplitude,max,amp1,amp2,length
+cluster 1,13,12.9,190,0.24,0.84,0.068,0.033,52
+cluster 2,8,2.1,236,0.5,0.64,0.181,0.106,90
+cluster 3,33,68.9,126,0.69,0.86,0.228,0.177,86
+cluster 4,11,16.1,363,0.68,0.89,0.314,0.129,206

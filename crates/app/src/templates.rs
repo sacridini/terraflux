@@ -476,7 +476,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 78] = [
+pub const TEMPLATES: [Template; 79] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -5133,6 +5133,13 @@ params = { title = "Rivers, lakes, roads and buildings" }
         about: "the model of a first scene (a forest on a few clicked samples) carried to a second one that is brighter and has a class the first lacks: objects.classify warns that the scene is brighter and that objects lie outside what the model saw, marks them (novel, hatched in the Viewer), and raster.match_histogram brings the second scene to the first's light before the objects are classed again; the model is written to a file and read back",
     },
     Template {
+        name: "Crops by their seasons",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_crops),
+        about: "parcels classed by the season of their NDVI: a year of scenes (24 dates, clouds and noise drawn) over parcels of soybean, maize, pasture and forest, each with its own curve; objects.series measures the season and a harmonic fit of every parcel, a random forest learns the crops from a few named parcels on those columns, and the parcels are classed (their profiles are in the Viewer's inspector)",
+    },
+    Template {
         name: "Water by Otsu on the NDWI",
         group: OBJECTS,
         build: None,
@@ -6450,6 +6457,170 @@ params = { title = "The scales: the objective (ED2 scaled), the variance and Mor
     Model::from_toml(text).expect("a template is a model")
 }
 
+/// The days of year of the scenes of "Crops by their seasons": every 15 days from the 5th.
+const CROP_DOYS: [u32; 24] =
+    [5, 20, 35, 50, 65, 80, 95, 110, 125, 140, 155, 170, 185, 200, 215, 230, 245, 260, 275, 290, 305, 320, 335, 350];
+
+/// The name of the layer of a day of the year of 2023: `ndvi_YYYYMMDD`.
+fn crop_layer(doy: u32) -> String {
+    use terraflux_ops::swat_weather::{civil_from_days, days_from_civil};
+    let (y, m, d) = civil_from_days(days_from_civil(2023, 1, 1) + i64::from(doy) - 1);
+    format!("ndvi_{y:04}{m:02}{d:02}")
+}
+
+/// The points of the samples of "Crops by their seasons": `x`, `y` and the crop of each (SAMPLE_ROWS).
+const CROP_SAMPLE_ROWS: &str = r#"[[11.5, 91.5, "soybean"], [94.5, 95.5, "soybean"], [82.5, 87.5, "soybean"], [90.5, 57.5, "soybean"], [16.5, 54.5, "soybean"], [17.5, 43.5, "soybean"], [59.5, 29.5, "soybean"], [57.5, 92.5, "maize"], [13.5, 81.5, "maize"], [35.5, 74.5, "maize"], [65.5, 58.5, "maize"], [69.5, 42.5, "maize"], [81.5, 39.5, "maize"], [68.5, 24.5, "maize"], [25.5, 77.5, "pasture"], [4.5, 91.5, "pasture"], [74.5, 75.5, "pasture"], [97.5, 68.5, "pasture"], [82.5, 53.5, "pasture"], [2.5, 40.5, "pasture"], [20.5, 18.5, "pasture"], [5.5, 98.5, "forest"], [88.5, 96.5, "forest"], [95.5, 78.5, "forest"], [43.5, 66.5, "forest"], [93.5, 51.5, "forest"], [75.5, 39.5, "forest"], [93.5, 19.5, "forest"]]"#;
+
+/// The nodes of "Crops by their seasons" that draw the year: the crops of the parcels, a field that shifts their
+/// season, noise, and the clouds, and a layer of NDVI for each date.
+fn crop_scene() -> String {
+    let mut script = String::from(
+        "base = 0.2 if c == 1 else (0.2 if c == 2 else (0.45 if c == 3 else 0.78))\n\
+         amp = 0.65 if c == 1 else (0.6 if c == 2 else (0.15 if c == 3 else 0.06))\n\
+         peak = 55 if c == 1 else (115 if c == 2 else (90 if c == 3 else 200))\n\
+         width = 40 if c == 1 else (45 if c == 2 else (110 if c == 3 else 120))\n\
+         shift = 24 * (f - 0.5)\n",
+    );
+    for (k, &doy) in CROP_DOYS.iter().enumerate() {
+        script.push_str(&format!(
+            "out {} = None if ((cf * 3 + {:.3}) % 1) > 0.8 else base + amp * exp(-(({doy} - peak - shift) / width) ** 2) + 0.05 * (((r * {:.2}) % 1) - 0.5)\n",
+            crop_layer(doy),
+            0.618 * k as f64,
+            37.0 + 11.3 * k as f64
+        ));
+    }
+    let mut text = format!(
+        r#"
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = {{ rows = 100, columns = 100, germs = 300, r = 5, patch_classes = 4, nlmr_compat = false, rescale = false, seed = 6 }}
+note = "The parcels of four crops drawn by chance (1 soybean, 2 maize, 3 pasture, 4 forest): the truth of the scene below, only to draw the NDVI and to check the result."
+
+[[nodes]]
+id = "shift_field"
+op = "nlm.gaussian_field"
+params = {{ rows = 100, columns = 100, range = 20, seed = 8 }}
+note = "A smooth field that moves the season of a place by up to 12 days either way: the same crop is not sown on the same day everywhere."
+
+[[nodes]]
+id = "noise"
+op = "nlm.random"
+params = {{ rows = 100, columns = 100, seed = 3 }}
+note = "The noise of each cell, turned into a different noise on each date."
+
+[[nodes]]
+id = "cloud_field"
+op = "nlm.gaussian_field"
+params = {{ rows = 100, columns = 100, range = 12, seed = 11 }}
+note = "A smooth field the clouds are cut from: on each date the places where it is high, shifted by the date, are under cloud (20 % of the cells)."
+
+[[nodes]]
+id = "year"
+op = "raster.calc"
+inputs = {{ c = "land.map", f = "shift_field.map", r = "noise.map", cf = "cloud_field.map" }}
+params = {{ expression = """
+{script}""" }}
+note = "A layer of NDVI for each of 24 dates of a year, named by its date (ndvi_20230105...): a base, an amplitude, a peak day and a width for each crop (soybean peaks early and high, maize later, pasture is low and broad, forest high and flat), the season shifted by the field, noise, and None (a missing value) where a cloud is."
+why = "The curves are made up, with the seasons of a crop in the south of Brazil: they stand for a real series, which comes from data.stac one date at a time (the tutorial)."
+
+[[nodes]]
+id = "series"
+op = "stack.of"
+inputs = {{ "#
+    );
+    for (k, &doy) in CROP_DOYS.iter().enumerate() {
+        let name = crop_layer(doy);
+        text.push_str(&format!("{}{name} = \"year.{name}\"", if k == 0 { "" } else { ", " }));
+    }
+    text.push_str(
+        r#" }
+note = "The year as a stack, a layer a date: what objects.series reads. In its place, a stack of your own index (NDVI of every scene of a year) with the date in the name of each layer (2023-01-05 or 20230105)."
+data = { what = "a series of an index (NDVI), a layer per date, the date in each layer's name (YYYY-MM-DD or YYYYMMDD)", kind = "stack" }
+"#,
+    );
+    text
+}
+
+/// "Crops by their seasons".
+fn obia_crops() -> Model {
+    let mut text = String::from(
+        r#"
+format = "terraflux/1"
+name = "Crops by their seasons"
+description = "Parcels classed by the season of their vegetation. A year of NDVI, a layer every 15 days (clouds and noise drawn), is made over parcels of four crops, each with its own curve: soybean peaks early and high, maize later, pasture is low and broad, forest is high and flat. objects.series gives each parcel its profile (the mean of its cells with a value on each date: a cloud leaves the cells it covers out), and from it its season (the peak, the amplitude, the integral...) and a fit of two harmonics of the year; a few parcels are named by points, a random forest learns the crops from those columns, and objects.classify gives every parcel a crop and the probability of each. In the Viewer, select a parcel and the inspector draws its profile (the points are its dates, the gaps clouds), with the band of the samples of its class; ctrl+click another to compare. Replace the series with yours (Use my data): a stack of an index with the date in the name of each layer, over parcels of your own (segment.from_vector of the lots)."
+"#,
+    );
+    text.push_str(&crop_scene());
+    text.push_str(
+        r#"
+[[nodes]]
+id = "parcels"
+op = "segment.from_map"
+inputs = { map = "land.map" }
+note = "The parcels as objects: a connected area of one crop each. In their place, the lots of your area (segment.from_vector of polygons) or a segmentation of an image."
+
+[[nodes]]
+id = "seasons"
+op = "objects.series"
+inputs = { objects = "parcels.objects", series = "series.stack" }
+params = { variable = "ndvi", groups = ["phenology", "harmonics"], n = 2, smooth = "savgol", window = 5, order = 2, season_threshold = 0.5 }
+note = "The season of every parcel: the mean of its NDVI on each date, smoothed (Savitzky-Golay, 5 dates), then the maximum, the amplitude, the day of the peak, the integral, the start and the end of the season, and a fit of two harmonics of the year (their mean, amplitude and phase). A date with fewer than half of the cells with a value is a cloud for the parcel."
+why = "A crop is told by when its vegetation grows, not by how green it is on one day: the season and the harmonics are the same whatever the date of the scene, and clouds on some dates do not matter."
+refs = ["Jonsson and Eklundh 2004", "Savitzky and Golay 1964", "Jakubauskas et al. 2001"]
+
+[[nodes]]
+id = "sample_table"
+op = "table.of"
+note = "The samples: a point (x and y in the image's coordinates) on a parcel of each crop, with the crop's name. Eight a crop, on different parcels. In its place, the points you clicked in the Viewer."
+why = "A point picks the parcel under it: name parcels of different looks, and enough of them."
+
+[nodes.params]
+columns = ["x", "y", "class"]
+rows = SAMPLE_ROWS
+
+[[nodes]]
+id = "samples"
+op = "vector.from_table"
+inputs = { table = "sample_table.table" }
+note = "The points as features, with the crop as an attribute."
+
+[[nodes]]
+id = "training"
+op = "objects.samples"
+inputs = { objects = "seasons.objects", samples = "samples.vector" }
+note = "The parcels under the points, with their columns: the table the forest learns from."
+
+[[nodes]]
+id = "model"
+op = "ml.fit"
+inputs = { table = "training.table" }
+params = { column = "class", columns = ["ndvi_max", "ndvi_min", "ndvi_amplitude", "ndvi_peak_doy", "ndvi_integral", "ndvi_hmean", "ndvi_amp1", "ndvi_phase1", "ndvi_amp2", "ndvi_phase2", "ndvi_rmse", "cells"], method = "random_forest", seed = 1 }
+note = "A random forest on the season and the harmonics (`columns` names them; the parcel's size is there to show it matters little). The start and the end of a season are left out: a flat series, the forest's, has none."
+why = "Columns with a missing value drop the parcel from the fit: the ones named have a value for every parcel. The importance output tells which columns the crops differ by."
+
+[[nodes]]
+id = "classify"
+op = "objects.classify"
+inputs = { objects = "seasons.objects", model = "model.model", samples = "training.table" }
+note = "Every parcel takes the crop of the largest probability; the table has the probabilities and the margin."
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "classify.objects" }
+note = "A polygon for each parcel with its crop and its season."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "classify.map" }
+params = { title = "The crop of each parcel" }
+"#,
+    );
+    Model::from_toml(&text.replace("SAMPLE_ROWS", CROP_SAMPLE_ROWS)).expect("a template is a model")
+}
+
 /// The class hierarchy of the rules template: water, vegetation (forest, grassland) and the rest (cropland, urban),
 /// from the signatures of nlm.image's classes.
 const OBIA_HIERARCHY: &str = r##"[
@@ -7079,6 +7250,26 @@ mod tests {
         assert!((sm.column("ed2").unwrap()[0] - ed2[k]).abs() < 1e-12);
         let Some(Value::Objects(marked)) = out.get("best.objects") else { panic!("no objects") };
         assert!(marked.table.column("os").is_some() && marked.table.column("us").is_some());
+
+        // crops by their seasons: parcels classed by the season of their NDVI, the forest learning from the season's
+        // columns (the parcels' size is among them and does not lead)
+        let out = run("Crops by their seasons");
+        let (m, o, truth) = (map(&out, "classify.map"), objects(&out, "classify.objects"), map(&out, "land.map"));
+        let crops = ["soybean", "maize", "pasture", "forest"];
+        let acc = agree(&m, &o, &truth, &crops);
+        println!("crops: {} parcels, purity {acc:.4}", o.count);
+        assert!(acc >= 0.85, "purity {acc}");
+        assert_eq!(o.classes.len(), 4);
+        let Some(Value::Table(imp)) = out.get("model.importance") else { panic!("no importance") };
+        let mut by: Vec<(f64, &String)> = imp.rows[0].iter().copied().zip(imp.columns.iter()).collect();
+        by.sort_by(|a, b| b.0.total_cmp(&a.0));
+        println!("crops: importance {:?}", by.iter().take(4).collect::<Vec<_>>());
+        assert!(by.iter().take(3).all(|(_, c)| c.starts_with("ndvi_")), "{by:?}");
+        assert!(by.iter().position(|(_, c)| *c == "cells").unwrap() >= 5, "{by:?}");
+        // the series: a column for each of the 24 dates is not asked for, the long table has the profiles
+        let Some(Value::Table(long)) = out.get("seasons.series") else { panic!("no long table") };
+        assert_eq!(long.rows.len(), 24 * o.count);
+        assert!(long.column("value").unwrap().iter().any(|v| v.is_nan()), "the clouds are gaps");
 
         // water by Otsu on the NDWI: the water class (1) is the drawn water (1)
         let out = run("Water by Otsu on the NDWI");

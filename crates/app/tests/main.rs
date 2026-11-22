@@ -20,6 +20,7 @@ mod optimize_view;
 mod prepare;
 mod reference_view;
 mod sam_first_time;
+mod series_profile;
 mod segment_compare;
 mod som_view;
 mod time_estimate;

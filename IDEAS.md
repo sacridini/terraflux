@@ -5075,6 +5075,13 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
   - No aplicativo: o inspetor ganha o perfil do objeto escolhido (a série da tabela longa, os pontos de nuvem como
     buracos) com a faixa das amostras da classe (mediana e intervalo interquartil por data) e um segundo objeto
     para comparar (Ctrl+clique); no espaço dos atributos, as colunas da fenologia como quaisquer outras.
+  - **Feito (2026-11-22), a parte do aplicativo**: `series_view.rs`. O inspetor desenha o perfil do objeto escolhido quando um `objects.series` fez os
+    objetos (acha o nó pelos rótulos compartilhados e lê a tabela longa `series`): os valores por data como pontos (a nuvem é buraco), a linha
+    suavizada, a faixa das amostras da classe do objeto (mediana e quartis por data, dos objetos marcados do `objects.samples`) e, com Ctrl+clique, um
+    segundo objeto para comparar. Template "Crops by their seasons" (parcelas de `nlm.mosaic_gibbs` em quatro culturas, 24 datas de NDVI por classe
+    com campo que desloca a estação, ruído e nuvens; `objects.series` com fenologia e harmônicos, floresta aleatória sobre essas colunas e `cells`:
+    pureza 1,00 e as três maiores importâncias são colunas da estação). Parte 21 da série de tutoriais, "Seasons of objects", com 23 janelas de 16 dias do Sentinel-2
+    sobre lavouras de Sorriso, MT (uma `data.stac` por janela com `mask = auto`, a `data.stac` só compõe, não dá séries).
   - Template "Crops by their seasons" (objetos de lotes por `nlm.*`, cada classe com a sua curva de NDVI, ruído e
     datas de nuvem sorteadas; amostras, floresta aleatória sobre a fenologia e os harmônicos; o teste exige a pureza)
     e uma parte nova da série de tutoriais com uma série real do Sentinel-2 pelo `data.stac`.

@@ -318,6 +318,7 @@ impl ObjectsUi {
                     .weak()
                     .size(11.0),
             );
+            crate::series_view::clear(ui.ctx());
             self.edit_block(ui);
             return;
         };
@@ -361,6 +362,9 @@ impl ObjectsUi {
             }
         }
         self.decided(ui, s, o, id);
+        // the profile of the object (and of a second one, ctrl+click) when the objects carry a time series
+        let second = self.selected.iter().rev().nth(1).copied().filter(|&i| i != 0 && i as usize <= o.count);
+        crate::series_view::profile(ui, s, o, id, second);
         // the attributes (the table's row)
         ui.add_space(4.0);
         egui::CollapsingHeader::new(RichText::new("Attributes").size(11.5)).default_open(true).show(ui, |ui| {

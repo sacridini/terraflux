@@ -1060,6 +1060,16 @@
       "/data/tutorials/object-based-image-analysis/measuring-against-reference-objects/pairs_best.csv",
       "/data/tutorials/object-based-image-analysis/measuring-against-reference-objects/scores.csv"
      ]
+    },
+    {
+     "slug": "seasons-of-objects",
+     "title": "Seasons of objects: a year of Sentinel-2 over farmland",
+     "template": "Crops by their seasons",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/seasons-of-objects/calendars.csv",
+      "/data/tutorials/object-based-image-analysis/seasons-of-objects/parcels.csv"
+     ]
     }
    ]
   },
