@@ -5121,6 +5121,23 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     padronizados (`tools/make_similar_reference.py`, `tests/data/reference/similar.json`); `top` e `threshold`;
     no `--test app` o clique seleciona, o limiar acende o mesmo que o operador acharia e *Label all* escreve N amostras
     e um desfazer as tira. Faltam os passos B e C.
+  - **Feito (2026-11-22), passo B: os prompts do `segment.sam`.** A entrada `prompts` (um vetor, em qualquer sistema de
+    coordenadas): um ponto com `label` 1 (o padrão) é dentro do objeto e com 0 fora; um polígono é uma caixa (o seu
+    retângulo); `group` diz de que objeto cada feição é (sem a coluna, cada feição é um objeto) e `class` dá a classe
+    do objeto. Um objeto por grupo: o decodificador recebe os pontos (1 e 0) mais o ponto de preenchimento (-1), ou,
+    com caixa, os dois cantos como rótulos 2 e 3 e sem o preenchimento; vale a máscara de melhor IoU, cortada nas
+    células com valor e reduzida à área conexa que tem o primeiro ponto (ou o meio da caixa; senão a maior). O
+    codificador roda uma vez nos tiles de 1024 onde um grupo tem o primeiro ponto, e só neles; onde dois objetos se
+    cobrem fica o menor; `fill` faz do resto o objeto do grupo 0; um grupo sem máscara (só pontos fora, fora da
+    imagem, máscara vazia) sai num aviso. A tabela ganha a coluna `group`, e as classes dos grupos viram as `classes`
+    dos objetos (e dão as amostras de `objects.features`). Sem `prompts`, a grade de hoje. Peças públicas que o passo
+    C usa: `Prompt`, `Group`, `Embedded`, `encode_tile` (o codificador de um tile, guardado) e `decode_group` (só o
+    decodificador). Testes: as máscaras de pontos dentro, de ponto fora, de caixa e de caixa com ponto no ONNX Runtime
+    do Python com os pesos quantizados (`tools/make_sam_prompts_reference.py`, `tests/data/reference/sam_prompts.json`;
+    o teste `prompts_match_onnxruntime_in_python` é `#[ignore]` e pula sem o `ORT_DYLIB_PATH` e os pesos): as quatro
+    máscaras com IoU 1,0000 (as mesmas células); com um decodificador falso, os tensores dos cliques, um objeto por
+    grupo, o ponto fora tirando as células, o codificador só nos 2 de 6 tiles tocados, os grupos sem objeto avisados e
+    a leitura do vetor. Falta o passo C.
 
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 

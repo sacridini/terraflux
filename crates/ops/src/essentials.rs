@@ -96,7 +96,7 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     // objects
     ("segment.multiresolution", &["image", "scale", "shape", "compactness", "weights", "tile"]),
     ("objects.series", &["objects", "series", "variable", "dates", "groups", "smooth", "season_threshold"]),
-    ("segment.sam", &["image", "weights", "bands", "points", "iou", "min_size", "fill"]),
+    ("segment.sam", &["image", "prompts", "weights", "bands", "points", "iou", "min_size", "fill"]),
     ("objects.split", &["surface", "by", "classes", "h", "min_size", "max_neck"]),
     ("objects.extrema", &["attribute", "kind", "radius", "steps", "among", "class", "strict"]),
     ("objects.resize", &["mask", "image", "mode", "classes", "distance", "steps", "into"]),

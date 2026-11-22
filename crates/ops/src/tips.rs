@@ -739,7 +739,10 @@ pub const TIPS: &[(&str, &str)] = &[
          huggingface.co) download on first use to the cache folder, 75 MB, or 348 MB with `weights` full; or give \
          the ONNX files of SAM's encoder and decoder. It is slow on a CPU: \
          one encoder run per 1024 x 1024 tile and one decoder run per prompt point, so start with `points` 8 on a \
-         small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks.",
+         small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks. To cut chosen \
+         objects instead of every one, give `prompts`: a vector of points (label 1 inside the object, 0 outside it) \
+         and polygons (a box), with `group` saying which object each is for and `class` naming its class; the \
+         encoder runs only on the tiles the prompts touch, and no grid of points is run.",
     ),
     (
         "objects.embed",

@@ -8,13 +8,14 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use terraflux_ops::objects::deep::{
-    Mask, SAM_SIZE, SamParams, Tile, embed_objects, paint, patch_tensor, pool, resolve, sam_image, sam_image_hwc,
-    sam_regions, standardize, stretch_range, suppress, tiles, to_byte, with_embeddings,
+    Group, Mask, Prompt, SAM_SIZE, SamParams, Tile, embed_objects, paint, patch_tensor, pool, resolve, sam_image,
+    sam_image_hwc, sam_prompted, sam_regions, standardize, stretch_range, suppress, tiles, to_byte, with_embeddings,
 };
 use terraflux_ops::objects::onnx::{Infer, Ort, Tensor};
 use terraflux_ops::objects::{NO_REGION, Objects};
 use terraflux_ops::{Args, Ctx, Outputs, Registry, Result, Table, Value};
 use terraflux_raster::Grid;
+use terraflux_raster::vector::{Column, Geometry, Vector};
 
 fn run(op: &str, inputs: Vec<(&str, Value)>, params: serde_json::Value) -> Result<Outputs> {
     let r = Registry::standard();
@@ -697,4 +698,270 @@ fn quant_weights_download_once_and_reuse() {
     assert_eq!(again, (enc, dec));
     assert_eq!(calls, 0);
     let _ = std::fs::remove_dir_all(&cache);
+}
+
+// ---- segment.sam with prompts
+
+/// A decoder that gives one mask: a square of cells (half side 3) around the first point inside (label 1), less the
+/// squares around the points outside (label 0), or, for a box (labels 2 and 3), the box. It keeps what it was asked.
+struct Clicks {
+    asked: std::cell::RefCell<Vec<(Vec<f32>, Vec<f32>)>>,
+}
+
+impl Infer for Clicks {
+    fn input_names(&self) -> Vec<String> {
+        ["image_embeddings", "point_coords", "point_labels", "mask_input", "has_mask_input", "orig_im_size"]
+            .map(String::from)
+            .to_vec()
+    }
+
+    fn output_names(&self) -> Vec<String> {
+        ["masks", "iou_predictions", "low_res_masks"].map(String::from).to_vec()
+    }
+
+    fn run(&self, inputs: &[(&str, &Tensor)], outputs: &[&str]) -> Result<Vec<Tensor>> {
+        assert_eq!(outputs, ["masks", "iou_predictions"]);
+        let get = |n: &str| inputs.iter().find(|(k, _)| *k == n).unwrap().1;
+        let size = get("orig_im_size");
+        let (h, w) = (size.data[0] as usize, size.data[1] as usize);
+        let scale = SAM_SIZE as f32 / w.max(h) as f32;
+        let (coords, labels) = (get("point_coords").data.clone(), get("point_labels").data.clone());
+        self.asked.borrow_mut().push((coords.clone(), labels.clone()));
+        let at = |k: usize| (coords[2 * k] / scale, coords[2 * k + 1] / scale);
+        let near = |k: usize, x: usize, y: usize| {
+            let (px, py) = at(k);
+            (x as f32 + 0.5 - px).abs() <= 3.1 && (y as f32 + 0.5 - py).abs() <= 3.1
+        };
+        let masks = (0..h * w)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let inside = if labels.contains(&2.0) {
+                    let (a, b) = (
+                        labels.iter().position(|&l| l == 2.0).unwrap(),
+                        labels.iter().position(|&l| l == 3.0).unwrap(),
+                    );
+                    let ((x0, y0), (x1, y1)) = (at(a), at(b));
+                    (x as f32 + 0.5) >= x0 && (x as f32 + 0.5) <= x1 && (y as f32 + 0.5) >= y0 && (y as f32 + 0.5) <= y1
+                } else {
+                    let first = labels.iter().position(|&l| l == 1.0);
+                    first.is_some_and(|k| near(k, x, y))
+                        && !labels.iter().enumerate().any(|(k, &l)| l == 0.0 && near(k, x, y))
+                };
+                if inside { 10.0 } else { -10.0 }
+            })
+            .collect();
+        Ok(vec![Tensor::new(vec![1, 1, h as i64, w as i64], masks), Tensor::new(vec![1, 1], vec![0.9])])
+    }
+}
+
+fn clicks() -> Clicks {
+    Clicks { asked: Default::default() }
+}
+
+fn point(x: f64, y: f64, positive: bool) -> Prompt {
+    Prompt::Point { x, y, positive }
+}
+
+fn group(prompts: Vec<Prompt>) -> Group {
+    Group { prompts, class: None }
+}
+
+#[test]
+fn prompts_make_one_object_a_group_and_give_the_decoder_the_clicks() {
+    let (w, h) = (40, 30);
+    let band: Vec<f64> = (0..w * h).map(|i| (i % w) as f64).collect();
+    let dec = clicks();
+    let groups =
+        vec![group(vec![point(10.5, 10.5, true)]), group(vec![point(30.5, 20.5, true), point(34.5, 20.5, false)])];
+    let (region, empty) = sam_prompted(&Encoder, &dec, [&band, &band, &band], (w, h), &groups, false).unwrap();
+    assert!(empty.is_empty());
+    let count = |g: u64| region.iter().filter(|&&r| r == g).count();
+    assert_eq!(count(0), 49, "a square of 7 x 7 cells");
+    // (the other: the same square less the cells within 3 of the point outside, 4 columns to the right)
+    assert_eq!(count(1), 7 * 4);
+    assert_eq!(region[10 * w + 10], 0);
+    assert_eq!(region[20 * w + 30], 1);
+    assert_eq!(region[20 * w + 31], NO_REGION);
+    assert_eq!(region[20 * w + 30], 1);
+    assert_eq!(count(NO_REGION), w * h - 49 - 28);
+    // the prompts as the decoder takes them: the points in the resized frame (1024 / 40 = 25.6), 1 inside and 0
+    // outside, then the padding point
+    let asked = dec.asked.borrow();
+    assert_eq!(asked.len(), 2);
+    assert_eq!(asked[0].1, vec![1.0, -1.0]);
+    assert_eq!(asked[0].0, vec![(10.5 * 25.6) as f32, (10.5 * 25.6) as f32, 0.0, 0.0]);
+    assert_eq!(asked[1].1, vec![1.0, 0.0, -1.0]);
+}
+
+#[test]
+fn prompts_leftover_cells_are_the_leftover_object_with_fill() {
+    let (w, h) = (40, 30);
+    let band: Vec<f64> = (0..w * h).map(|i| (i % w) as f64).collect();
+    let groups = vec![group(vec![point(10.5, 10.5, true)])];
+    let (region, _) = sam_prompted(&Encoder, &clicks(), [&band, &band, &band], (w, h), &groups, true).unwrap();
+    assert_eq!(region.iter().filter(|&&r| r == 0).count(), 49);
+    assert_eq!(region.iter().filter(|&&r| r == u64::MAX - 1).count(), w * h - 49);
+}
+
+#[test]
+fn prompts_a_box_is_given_by_its_corners_with_no_padding_point() {
+    let (w, h) = (40, 30);
+    let band: Vec<f64> = (0..w * h).map(|i| (i % w) as f64).collect();
+    let dec = clicks();
+    let groups = vec![group(vec![Prompt::Box { x0: 5.0, y0: 5.0, x1: 15.0, y1: 12.0 }])];
+    let (region, empty) = sam_prompted(&Encoder, &dec, [&band, &band, &band], (w, h), &groups, false).unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(region.iter().filter(|&&r| r == 0).count(), 10 * 7);
+    let asked = dec.asked.borrow();
+    assert_eq!(asked[0].1, vec![2.0, 3.0]);
+    assert_eq!(
+        asked[0].0,
+        vec![5.0 * 25.6, 5.0 * 25.6, 15.0 * 25.6, 12.0 * 25.6].into_iter().map(|v| v as f32).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn prompts_that_give_nothing_are_told() {
+    let (w, h) = (40, 30);
+    let band: Vec<f64> = (0..w * h).map(|i| (i % w) as f64).collect();
+    let groups = vec![
+        // only a point outside: nothing to cut
+        group(vec![point(10.5, 10.5, false)]),
+        // outside the image
+        group(vec![point(400.5, 10.5, true)]),
+        group(vec![point(20.5, 20.5, true)]),
+    ];
+    let (region, empty) = sam_prompted(&Encoder, &clicks(), [&band, &band, &band], (w, h), &groups, false).unwrap();
+    assert_eq!(empty, vec![0, 1]);
+    assert_eq!(region.iter().filter(|&&r| r == 2).count(), 49);
+}
+
+/// An encoder that counts its runs.
+struct Counting(Cell<usize>);
+
+impl Infer for Counting {
+    fn input_names(&self) -> Vec<String> {
+        vec!["input_image".into()]
+    }
+
+    fn output_names(&self) -> Vec<String> {
+        vec!["image_embeddings".into()]
+    }
+
+    fn input_rank(&self, _: &str) -> Option<usize> {
+        Some(4)
+    }
+
+    fn run(&self, _: &[(&str, &Tensor)], _: &[&str]) -> Result<Vec<Tensor>> {
+        self.0.set(self.0.get() + 1);
+        Ok(vec![Tensor::new(vec![1, 1, 1, 1], vec![0.0])])
+    }
+}
+
+#[test]
+fn prompts_run_the_encoder_only_on_the_tiles_they_touch() {
+    // 3 x 2 tiles of 1024
+    let (w, h) = (2100, 1100);
+    let band: Vec<f64> = (0..w * h).map(|i| (i % 7) as f64).collect();
+    let enc = Counting(Cell::new(0));
+    let dec = clicks();
+    let groups = vec![
+        group(vec![point(100.5, 100.5, true)]),
+        group(vec![point(120.5, 130.5, true)]),
+        // a box across the tiles' edge is run in the tile of its middle
+        group(vec![Prompt::Box { x0: 2000.0, y0: 1050.0, x1: 2040.0, y1: 1090.0 }]),
+    ];
+    let (region, empty) = sam_prompted(&enc, &dec, [&band, &band, &band], (w, h), &groups, false).unwrap();
+    assert!(empty.is_empty(), "{empty:?}");
+    assert_eq!(enc.0.get(), 2, "two tiles touched of six");
+    assert_eq!(region[100 * w + 100], 0);
+    assert_eq!(region[130 * w + 120], 1);
+    // (the box's tile starts at column 1024 and row 1024)
+    assert!(region.iter().filter(|&&r| r == 2).count() > 0);
+}
+
+#[test]
+fn prompts_are_read_from_a_vector() {
+    let grid = Grid::new(100, 50);
+    let v = Vector {
+        geometries: vec![
+            Geometry::Point([10.5, 20.5]),
+            Geometry::Point([12.5, 22.5]),
+            Geometry::Polygon(vec![vec![[40.0, 10.0], [60.0, 10.0], [60.0, 30.0], [40.0, 30.0], [40.0, 10.0]]]),
+            Geometry::Point([70.5, 5.5]),
+        ],
+        attributes: vec![
+            ("label".to_string(), Column::Numbers(vec![1.0, 0.0, 1.0, 1.0])),
+            ("group".to_string(), Column::Texts(vec!["a".into(), "a".into(), "b".into(), String::new()])),
+            ("class".to_string(), Column::Texts(vec!["tree".into(), String::new(), "roof".into(), String::new()])),
+        ],
+        ..Default::default()
+    };
+    let groups = terraflux_ops::objects::deep::read_prompts("n", &v, &grid).unwrap();
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].prompts.len(), 2);
+    assert!(matches!(groups[0].prompts[0], Prompt::Point { positive: true, .. }));
+    assert!(matches!(groups[0].prompts[1], Prompt::Point { positive: false, .. }));
+    assert_eq!(groups[0].class.as_deref(), Some("tree"));
+    assert!(matches!(groups[1].prompts[0], Prompt::Box { .. }));
+    assert_eq!(groups[1].class.as_deref(), Some("roof"));
+    // (a feature with no group is an object of its own)
+    assert_eq!(groups[2].prompts.len(), 1);
+    assert_eq!(groups[2].class, None);
+}
+
+/// The prompts against onnxruntime's masks of the same weights (tools/make_sam_prompts_reference.py): the cells of
+/// each object agree to an IoU of 0.97. Needs ONNX Runtime and the weights (TF_TEST_SAM_ENCODER and
+/// TF_TEST_SAM_DECODER, or the quantised ones in Terraflux's cache); skipped without them.
+#[test]
+#[ignore = "needs ONNX Runtime (ORT_DYLIB_PATH) and the SAM weights (TF_TEST_SAM_ENCODER, TF_TEST_SAM_DECODER or the cache)"]
+fn prompts_match_onnxruntime_in_python() {
+    let var = |n: &str| std::env::var(n).ok().filter(|v| !v.is_empty());
+    let cache = terraflux_ops::sdm::refdata::cache_dir().join("sam").join("vit_b_quant");
+    let (enc, dec) = match (var("TF_TEST_SAM_ENCODER"), var("TF_TEST_SAM_DECODER")) {
+        (Some(e), Some(d)) => (std::path::PathBuf::from(e), std::path::PathBuf::from(d)),
+        _ => (cache.join("encoder.onnx"), cache.join("decoder.onnx")),
+    };
+    if var("ORT_DYLIB_PATH").is_none() || !enc.exists() || !dec.exists() {
+        eprintln!("skipped: ORT_DYLIB_PATH or the SAM weights are not there");
+        return;
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
+    let r: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("sam_prompts.json")).unwrap()).unwrap();
+    let (w, h) = (r["width"].as_u64().unwrap() as usize, r["height"].as_u64().unwrap() as usize);
+    let (bands, _) = scene(w, h);
+    let ort = Ort::load().unwrap();
+    let (e, d) = (ort.session(&enc).unwrap(), ort.session(&dec).unwrap());
+    for case in r["cases"].as_array().unwrap() {
+        let f = |p: &serde_json::Value, k: &str| p[k].as_f64().unwrap();
+        let prompts: Vec<Prompt> = case["prompts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| match p["kind"].as_str().unwrap() {
+                "point" => Prompt::Point { x: f(p, "x"), y: f(p, "y"), positive: p["positive"].as_bool().unwrap() },
+                _ => Prompt::Box { x0: f(p, "x0"), y0: f(p, "y0"), x1: f(p, "x1"), y1: f(p, "y1") },
+            })
+            .collect();
+        let (region, empty) =
+            sam_prompted(&e, &d, [&bands[0], &bands[1], &bands[2]], (w, h), &[Group { prompts, class: None }], false)
+                .unwrap();
+        assert!(empty.is_empty());
+        let mut want = vec![false; w * h];
+        for run in case["runs"].as_array().unwrap() {
+            let (s, n) = (run[0].as_u64().unwrap() as usize, run[1].as_u64().unwrap() as usize);
+            want[s..s + n].iter_mut().for_each(|c| *c = true);
+        }
+        let got: Vec<bool> = region.iter().map(|&r| r == 0).collect();
+        let inter = (0..w * h).filter(|&i| got[i] && want[i]).count();
+        let union = (0..w * h).filter(|&i| got[i] || want[i]).count();
+        let iou = inter as f64 / union as f64;
+        eprintln!(
+            "{}: IoU with onnxruntime's mask {iou:.4} ({} cells against {})",
+            case["name"],
+            got.iter().filter(|&&c| c).count(),
+            want.iter().filter(|&&c| c).count()
+        );
+        assert!(iou >= 0.97, "{}: IoU {iou}", case["name"]);
+    }
 }
