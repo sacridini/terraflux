@@ -123,14 +123,23 @@ pub fn lit(ctx: &egui::Context, node: &str, port: &str) -> Option<Map> {
 }
 
 /// A cell clicked on the map shown (`picked`: the view's last click, which is the same cell whichever output is
-/// shown): when the map is the nodes or groups of an `ml.som` node, its node (or group) is the pick of the node's SOM
-/// view. Called at every frame of a map, `salt` naming the view: the cell it already had when it was first called, or
-/// had at the last frame (another output shown meanwhile), is not a click.
-pub fn clicked(ctx: &egui::Context, s: &Session, salt: &str, node: &str, port: &str, picked: Option<(usize, usize)>) {
+/// shown; `clicks`: how many clicks the view has had): when the map is the nodes or groups of an `ml.som` node, its
+/// node (or group) is the pick of the node's SOM view. Called at every frame of a map, `salt` naming the view: the
+/// clicks it already had when it was first called, or at the last frame (another output shown meanwhile), are not a
+/// click; a new one is, even on the cell the last one picked.
+pub fn clicked(
+    ctx: &egui::Context,
+    s: &Session,
+    salt: &str,
+    node: &str,
+    port: &str,
+    picked: Option<(usize, usize)>,
+    clicks: u64,
+) {
     let id = egui::Id::new(("som cell", salt));
-    let was: Option<Option<(usize, usize)>> = ctx.data_mut(|d| d.get_temp(id));
-    ctx.data_mut(|d| d.insert_temp(id, picked));
-    let Some((row, col)) = picked.filter(|_| was.is_some_and(|w| w != picked)) else { return };
+    let was: Option<u64> = ctx.data_mut(|d| d.get_temp(id));
+    ctx.data_mut(|d| d.insert_temp(id, clicks));
+    let Some((row, col)) = picked.filter(|_| was.is_some_and(|w| w != clicks)) else { return };
     let Some(groups) = is_map_of(s, node, port) else { return };
     let Some(Value::Map(map)) = s.value_of(node, port) else { return };
     let v = map.data.get(row * map.grid.width + col).copied().unwrap_or(f64::NAN);

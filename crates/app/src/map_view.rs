@@ -627,6 +627,8 @@ pub struct MapView {
     world: Option<(u64, Option<f64>)>,
     /// The cell clicked (row, column): its values along a stack's layers are shown beside the map.
     pub picked: Option<(usize, usize)>,
+    /// How many clicks have picked a cell (or none): a click on the cell already picked counts too.
+    pub clicks: u64,
     /// The patch of the cell traced drawn around it (a trace's card of a patch's operator selected); let go when
     /// another cell is picked.
     pub patch: Option<Outline>,
@@ -2786,6 +2788,7 @@ impl MapView {
                 self.patch = None;
             }
             self.picked = picked;
+            self.clicks += 1;
         }
         // the object of each layer of objects under the pointer (0: none); the topmost outlined in the accent
         let under: Vec<u32> = objects

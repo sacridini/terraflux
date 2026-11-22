@@ -200,6 +200,43 @@ fn a_node_clicked_in_the_som_view_lights_its_cells_and_a_cell_clicked_picks_its_
 }
 
 #[test]
+fn a_cell_clicked_again_after_another_node_was_picked_in_the_view_picks_its_node_again() {
+    let mut h = harness("som-view-reclick", "rectangular");
+    run_and_show(&mut h, "som");
+    let nodes = map_of(value(&h, "som", "nodes"));
+    let book = table_of(value(&h, "som", "codebook"));
+    let col = |n: &str| book.columns.iter().position(|c| c == n).unwrap();
+    let (c_node, c_count) = (col("node"), col("count"));
+    let full: Vec<usize> = book.rows.iter().filter(|r| r[c_count] > 0.0).map(|r| r[c_node] as usize).collect();
+    let (a, b) = (full[0], full[1]);
+    show(&mut h, "som", "nodes");
+    let (r, c) = cell_with(&nodes, a as f64);
+    click_cell(&mut h, r, c);
+    assert_eq!(som_link::linked(&h.ctx, "som"), Some(SomPick::Node(a)));
+    // another node picked in the view, then the same cell clicked again
+    show(&mut h, "som", "codebook");
+    until(&mut h, "the SOM view", |h| charts::som_screen(&h.ctx, table_id("codebook"), b).is_some());
+    let at = charts::som_screen(&h.ctx, table_id("codebook"), b).unwrap();
+    click_at(&mut h, at);
+    assert_eq!(som_link::linked(&h.ctx, "som"), Some(SomPick::Node(b)));
+    show(&mut h, "som", "nodes");
+    click_cell(&mut h, r, c);
+    assert_eq!(som_link::linked(&h.ctx, "som"), Some(SomPick::Node(a)));
+}
+
+#[test]
+fn the_som_view_has_a_button_to_the_map_of_nodes() {
+    let mut h = harness("som-view-button", "rectangular");
+    run_and_show(&mut h, "som");
+    show(&mut h, "som", "codebook");
+    until(&mut h, "the button", |h| h.query_by_label("Show the map of nodes").is_some());
+    h.get_by_label("Show the map of nodes").click();
+    h.run_steps(3);
+    let shown = h.state().session.as_ref().unwrap().preview.clone();
+    assert_eq!(shown, Some(("som".to_string(), "nodes".to_string())));
+}
+
+#[test]
 fn the_scores_of_a_pca_are_one_click_from_a_colour_composite() {
     use terraflux_app::builder::Layer;
     let mut h = harness("som-view-pca-rgb", "rectangular");

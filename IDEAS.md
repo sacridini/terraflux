@@ -5150,8 +5150,10 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   nó (ou grupo) na vista. A tabela e o mapa são saídas diferentes, e o Viewer mostra uma por vez: a escolha vale na
   outra. O composto dos scores do PCA: `rgb::presets` ganhou "principal components (PC1 PC2 PC3)" (pelos nomes pc1, pc2,
   pc3 onde estiverem) e `Rgb::first` o toma, então a caixa RGB das Camadas, de uma pilha de scores, já liga pc1 pc2 pc3,
-  cada banda de 2% a 98%. Em aberto: o mapa clicado de novo na mesma célula depois de escolher outro nó na vista não
-  repete a escolha (o Viewer só guarda a última célula); um botão para ir da vista ao mapa de nós numa só ação.
+  cada banda de 2% a 98%. Feito (2026-11-22): cada clique no mapa conta (`MapView::clicks`, que
+  `som_link::clicked` compara em vez da célula), então clicar de novo na mesma célula depois de escolher outro nó na
+  vista repete a escolha; a vista tem o botão "Show the map of nodes" (ou "of groups", com a vista por grupos) que põe
+  a saída `nodes` (ou `groups`) do `ml.som` no Viewer numa só ação.
 - **F. Para quem está começando.** Templates (com a `nlm.image` ou pilhas `nlm.*`, rodando como estão, com `data`
   para o *Use my data*): "Principal components of an image", "Unsupervised classification of an image (k-means)",
   "Types of landscape by a self-organizing map" (uma pilha de variáveis ambientais, os grupos como mapa) e "Change

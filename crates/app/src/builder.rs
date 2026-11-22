@@ -5644,6 +5644,25 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             }
             // a segment.optimize's scores: its best value and *Apply to...* above the chart
             let scores = port == "scores" && crate::charts::is_scores(t);
+            // (the SOM view's way to the node's map: its groups when the view colours by them, else its nodes)
+            if som {
+                let by_group = ui
+                    .data(|d| d.get_temp::<crate::table_view::TableState>(id))
+                    .is_some_and(|st| st.chart.som == crate::charts::SomView::Groups);
+                let (out, label) = if by_group && s.value_of(&node, "groups").is_some() {
+                    ("groups", "Show the map of groups")
+                } else {
+                    ("nodes", "Show the map of nodes")
+                };
+                if s.value_of(&node, out).is_some() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(8.0);
+                        if ui.button(label).clicked() {
+                            s.preview = Some((node.clone(), out.to_string()));
+                        }
+                    });
+                }
+            }
             egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
                 if scores {
                     crate::optimize_view::panel(ui, s, r, &node, salt);
@@ -6568,7 +6587,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     }
     crate::hypotheses::set_cursor(ui.ctx(), salt, &node, &port, hover.map(|h| (h.row, h.col)));
     // (a cell clicked on an ml.som node's map of nodes or groups picks its node or group in the SOM view)
-    crate::som_link::clicked(ui.ctx(), s, salt, &node, &port, sh.view.picked);
+    crate::som_link::clicked(ui.ctx(), s, salt, &node, &port, sh.view.picked, sh.view.clicks);
     // what the pointer did on the objects (selected, or gave samples), and the keys over them (a level to go to)
     let events = std::mem::take(&mut sh.view.object_events);
     if let Some(a) = &active {
