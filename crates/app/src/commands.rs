@@ -209,8 +209,18 @@ pub fn show(ctx: &egui::Context, open: &mut Option<Commands>, all: &[Command]) -
                     for (k, c) in found.iter().enumerate().take(300) {
                         let on = k == at;
                         let detail = if c.kind == "operator" { String::new() } else { c.detail.clone() };
+                        // (an operator's: the icon of its family before its name)
+                        let text: egui::WidgetText = match &c.act {
+                            Do::Add(op) if c.kind == "operator" => {
+                                let v = ui.visuals();
+                                let size = egui::TextStyle::Button.resolve(ui.style()).size;
+                                let ink = if on { v.selection.stroke.color } else { v.text_color() };
+                                crate::family::titled(ui.ctx(), crate::family::of(op), &c.label, size, ink, v.dark_mode).into()
+                            }
+                            _ => RichText::new(&c.label).into(),
+                        };
                         let resp = ui.add(
-                            egui::Button::selectable(on, RichText::new(&c.label))
+                            egui::Button::selectable(on, text)
                                 .right_text(RichText::new(format!("{detail}   {}", c.kind)).size(11.0).color(weak))
                                 .min_size(Vec2::new(ui.available_width(), 22.0)),
                         );

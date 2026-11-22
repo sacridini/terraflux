@@ -14,6 +14,8 @@ bytemuck = { version = "1", features = ["derive"] }
 egui_dock = { version = "0.21", features = ["serde"] }
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "accesskit", "x11", "wayland"] }
 egui = "0.36"
+# the icons of the operators' families (regular weight), a fallback font of the text
+egui-phosphor = "0.14"
 egui_plot = "0.37"
 rfd = "0.17"
 serde.workspace = true
@@ -89,3 +91,7 @@ path = "tests/vision.rs"
 [[test]]
 name = "readme_images"
 path = "tests/readme_images.rs"
+
+[[test]]
+name = "canvas_shots"
+path = "tests/canvas_shots.rs"

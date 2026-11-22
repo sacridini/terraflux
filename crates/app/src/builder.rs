@@ -109,6 +109,17 @@ pub(crate) const SUBJECTS: [(&str, &[&str]); 33] = [
 pub(crate) const IO: [&str; 6] =
     ["raster.read", "raster.write", "vector.read", "vector.write", "table.read", "table.write"];
 
+/// The subject of an operator: IO for what reads and writes files, else the subject that names it, else the one
+/// that has its prefix; "Other" for none.
+pub(crate) fn subject_of(op: &str) -> &'static str {
+    if IO.contains(&op) {
+        return "IO";
+    }
+    let prefix = op.split('.').next().unwrap_or("");
+    let named = SUBJECTS.iter().find(|(_, p)| p.contains(&op));
+    named.or_else(|| SUBJECTS.iter().find(|(_, p)| p.contains(&prefix))).map_or("Other", |(s, _)| s)
+}
+
 /// The subjects open when the library is first shown (the others closed until opened).
 const OPEN: [&str; 2] = ["IO", "Plot"];
 
@@ -133,6 +144,13 @@ pub struct Entry {
     pub group: Option<&'static str>,
 }
 
+impl Entry {
+    /// The family of its subject (its icon and colour).
+    pub fn family(&self) -> crate::family::Family {
+        crate::family::Family::of_subject(self.subject).unwrap_or(crate::family::Family::ModelFlow)
+    }
+}
+
 /// The operators by subject, made once.
 pub struct Library {
     pub entries: Vec<Entry>,
@@ -147,12 +165,7 @@ impl Library {
             .filter(|g| g.name != terraflux_graph::PLOT_OP)
             .map(|g| {
                 let prefix = g.name.split('.').next().unwrap_or("");
-                let subject = if IO.contains(&g.name.as_str()) {
-                    "IO"
-                } else {
-                    let named = SUBJECTS.iter().find(|(_, p)| p.contains(&g.name.as_str()));
-                    named.or_else(|| SUBJECTS.iter().find(|(_, p)| p.contains(&prefix))).map_or("Other", |(s, _)| s)
-                };
+                let subject = subject_of(&g.name);
                 Entry { group: group(prefix), name: g.name, doc: g.doc, subject }
             })
             .collect();
@@ -475,7 +488,7 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
                 egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
                     for (k, e) in found.iter().enumerate() {
                         let resp = ui.add(
-                            egui::Button::selectable(k == at, op_name(ui, &e.name, k == at))
+                            egui::Button::selectable(k == at, op_name(ui, &e.name, e.family(), k == at))
                                 .min_size(Vec2::new(ui.available_width(), 22.0)),
                         );
                         if k == at && (up || down) {
@@ -2057,9 +2070,9 @@ pub fn feed(s: &mut Session, r: &Registry, path: &[String], id: &str, from: &Nod
 /// The files of vector features the dialogs offer (GDAL reads others too).
 pub const VECTOR_EXTENSIONS: [&str; 8] = terraflux_ops::files::VECTOR_EXTENSIONS;
 
-/// An operator's whole name as the lists write it: its subject (`stack.`) in a weaker colour than the rest (`of`);
-/// on the colour of a row `selected`, both in the selection's.
-pub fn op_name(ui: &Ui, name: &str, selected: bool) -> egui::text::LayoutJob {
+/// An operator's whole name as the lists write it: the icon of its `family`, its subject (`stack.`) in a weaker
+/// colour than the rest (`of`); on the colour of a row `selected`, both in the selection's.
+pub fn op_name(ui: &Ui, name: &str, family: crate::family::Family, selected: bool) -> egui::text::LayoutJob {
     let at = name.find('.').map_or(0, |k| k + 1);
     let font = egui::TextStyle::Button.resolve(ui.style());
     let v = ui.visuals();
@@ -2069,7 +2082,14 @@ pub fn op_name(ui: &Ui, name: &str, selected: bool) -> egui::text::LayoutJob {
         (v.weak_text_color(), v.strong_text_color())
     };
     let mut job = egui::text::LayoutJob::default();
-    job.append(&name[..at], 0.0, egui::TextFormat::simple(font.clone(), weak));
+    // (the family's icon before it, in the family's colour: the selection's on a row selected)
+    let ink = if selected { v.selection.stroke.color } else { family.colour(v.dark_mode) };
+    let icon = egui::TextFormat {
+        valign: egui::Align::Center,
+        ..egui::TextFormat::simple(crate::family::icon_font(ui.ctx(), font.size), ink)
+    };
+    job.append(family.icon(), 0.0, icon);
+    job.append(&name[..at], 6.0, egui::TextFormat::simple(font.clone(), weak));
     job.append(&name[at..], 0.0, egui::TextFormat::simple(font, strong));
     job
 }
@@ -2092,7 +2112,7 @@ pub fn operators_menu(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library)
     let item = |ui: &mut Ui, e: &Entry, chosen: &mut Option<String>| {
         let colls = crate::settings::collections_of(&e.name);
         let resp = ui
-            .add(egui::Button::new(op_name(ui, &e.name, false)).right_text(RichText::new(" ".repeat(3 * colls.len()))));
+            .add(egui::Button::new(op_name(ui, &e.name, e.family(), false)).right_text(RichText::new(" ".repeat(3 * colls.len()))));
         for (i, c) in colls.iter().rev().enumerate() {
             let x = resp.rect.right() - 6.0 - i as f32 * 10.0;
             let sq = egui::Rect::from_center_size(egui::pos2(x - 3.5, resp.rect.center().y), Vec2::splat(7.0));
@@ -2593,7 +2613,7 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
             let colls = crate::settings::collections_of(&e.name);
             let room = " ".repeat(3 * colls.len());
             let resp = ui.add(
-                egui::Button::selectable(false, op_name(ui, &e.name, false))
+                egui::Button::selectable(false, op_name(ui, &e.name, e.family(), false))
                     .wrap_mode(egui::TextWrapMode::Truncate)
                     .right_text(RichText::new(room).size(10.5))
                     .min_size(Vec2::new(ui.available_width(), 20.0)),
@@ -2650,7 +2670,10 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
                     continue;
                 }
                 let id = ui.make_persistent_id(*subject);
-                theme::fold(ui, id, RichText::new(*subject).strong(), OPEN.contains(subject), |ui| {
+                let family = crate::family::Family::of_subject(subject).unwrap_or(crate::family::Family::ModelFlow);
+                let size = egui::TextStyle::Body.resolve(ui.style()).size;
+                let title = crate::family::titled(ui.ctx(), family, subject, size, ui.visuals().strong_text_color(), ui.visuals().dark_mode);
+                theme::fold(ui, id, title, OPEN.contains(subject), |ui| {
                     // the operators of no group, then each group a level below, closed until opened
                     for e in in_it.iter().filter(|e| e.group.is_none()) {
                         entry(ui, e, &mut chosen);

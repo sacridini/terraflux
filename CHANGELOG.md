@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **The operators' families on the canvas** (`crates/app/src/family.rs`, `crates/app/src/editor_view.rs`, `crates/app/src/canvas_gpu.rs`, `crates/app/src/theme.rs`): every operator belongs to one of 13 families (data, raster, vector, landscape metrics, connectivity, conservation...), shown by a Phosphor icon in its box's header and a thin band of the family's colour along the box's left edge (muted hues, one set for dark themes and one for light). The same icons mark the operators in the library, the "/" search and the commands.
+
 ## [1.62.0] - 2026-11-23
 
 ### Added

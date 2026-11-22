@@ -11,7 +11,9 @@
 //! given, the run's error) has a mark that tells them on hover; a check (`check.*`) a badge of how it fared
 //! (passed, warned, failed, not run), a container the worst of its checks'; a node whose result is frozen a ❄ at its
 //! top left. A box that reads or writes a file names it at
-//! its bottom; the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
+//! its bottom; an operator's box wears its family's icon (data, raster, connectivity, conservation...: the library's
+//! subjects gathered into thirteen, `family`) before its name, tinted in the family's colour, and a thin band of that
+//! colour along its left edge (the name of the family on the icon's hover); the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
 //! colour of the type they give (a map's blue, vectors' pink...), an option of the settings.
 //!
 //! A box shows the inputs its node needs and those given; its optional others are folded in a row ("+ 9
@@ -76,6 +78,10 @@ const STAGES_UNDER: f32 = 0.35;
 /// The smallest size a node's name is written at, and the narrowest box on the screen it is written in.
 const NAME_MIN: f32 = 11.0;
 const NAME_ROOM: f32 = 40.0;
+/// What the family's icon takes at the left of an operator's name (the icon and the space after it), graph units.
+const ICON_W: f32 = 20.0;
+/// The width of the band of the family's colour along an operator box's left edge, graph units.
+const BAND: f32 = 3.0;
 
 /// The fonts of a box's texts at zoom 1: its name; its operator and its ports' names; its file.
 fn name_font() -> FontId {
@@ -97,7 +103,8 @@ pub fn estimate(text: &str, font: &FontId) -> f32 {
     text.chars().count() as f32 * per * font.size
 }
 
-/// The width a box needs for its texts: its name (the light of its state after it), its operator, and on every
+/// The width a box needs for its texts: its name (the family's icon before it when `icon`, the light of its state
+/// after it), its operator, and on every
 /// row the name of an input and that of the output across from it, a gap between them; on a row of settings its
 /// name and the first [`VALUE_FIT`] characters of its value (the rest is cut on the box); never under [`WIDTH`],
 /// rounded up to 10.
@@ -107,9 +114,10 @@ fn fitted(
     inputs: &[&str],
     outputs: &[&str],
     settings: &[(&str, &str)],
+    icon: bool,
     measure: &mut dyn FnMut(&str, &FontId) -> f32,
 ) -> f32 {
-    let mut w = 8.0 + measure(name, &name_font()) + 24.0;
+    let mut w = 8.0 + if icon { ICON_W } else { 0.0 } + measure(name, &name_font()) + 24.0;
     if !op.is_empty() {
         w = w.max(8.0 + measure(op, &port_font()) + 8.0 + GEAR);
     }
@@ -480,7 +488,7 @@ pub fn node_width(n: &Node, r: &Registry) -> f32 {
     let (i, o): (Vec<&str>, Vec<&str>) =
         (inputs.iter().map(String::as_str).collect(), outputs.iter().map(String::as_str).collect());
     let set = node_settings(n, r, false, crate::settings::node_settings());
-    let w = fitted(&n.id, &op_label(n), &i, &o, &setting_texts(&set), &mut estimate);
+    let w = fitted(&n.id, &op_label(n), &i, &o, &setting_texts(&set), true, &mut estimate);
     n.width.map_or(w, |u| u.max(w))
 }
 
@@ -1542,6 +1550,8 @@ struct Port {
 struct BoxAt {
     key: String,
     op: String,
+    /// What its operator is of (its icon and the colour of its band).
+    family: crate::family::Family,
     /// What it names under its id ([`op_label`]).
     label: String,
     /// graph units
@@ -1608,6 +1618,11 @@ impl BoxAt {
 
     fn head(&self) -> Rect {
         Rect::from_min_size(self.rect.min, Vec2::new(self.rect.width(), HEAD))
+    }
+
+    /// The icon of its family before its name (by arithmetic: no search).
+    fn icon(&self) -> Rect {
+        Rect::from_min_size(self.rect.min + Vec2::new(4.0, 2.0), Vec2::new(ICON_W, 22.0))
     }
 
     /// The gear at the right end of the line of its operator (by arithmetic: no search).
@@ -1907,6 +1922,14 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
         let head = b.head().shrink(2.0);
         let r = radius - 1.0;
         rects.push(RectInstance::new(head.min.into(), head.size().into(), r, tint, Color32::TRANSPARENT, 0.0));
+    }
+    // an operator's family: a band of its colour inside the left edge, clear of the box's rounded corners
+    if !b.source {
+        let c = b.family.colour(v.dark_mode);
+        let c = if b.bypass { c.gamma_multiply(0.45) } else { c };
+        let (x, inset) = (b.rect.left() + 1.5, radius * 0.6);
+        let (top, bottom) = (b.rect.top() + inset, b.rect.bottom() - inset);
+        rects.push(RectInstance::new([x, top], [BAND, (bottom - top).max(BAND)], BAND / 2.0, c, Color32::TRANSPARENT, 0.0));
     }
     // the line over the row naming its file
     if let Some(f) = b.foot() {
@@ -2265,7 +2288,7 @@ impl Scene {
         }
         let mut boxes: Vec<BoxAt> = Vec::with_capacity(sources.len() + nodes.len());
         // a column as wide as the longest name of what the scope reads
-        let sources_w = sources.iter().map(|(s, _)| fitted(s, "", &[], &[], &[], measure)).fold(WIDTH, f32::max);
+        let sources_w = sources.iter().map(|(s, _)| fitted(s, "", &[], &[], &[], false, measure)).fold(WIDTH, f32::max);
         let sources_x = -(sources_w + 80.0);
         let mut y = 0.0;
         for (s, t) in &sources {
@@ -2290,6 +2313,7 @@ impl Scene {
                 boxes.push(BoxAt {
                     key,
                     op: String::new(),
+                    family: crate::family::Family::ModelFlow,
                     label: String::new(),
                     rect,
                     fitted: sources_w,
@@ -2338,7 +2362,7 @@ impl Scene {
             names.extend(fold.as_deref());
             let outs: Vec<&str> = outputs.iter().map(|(p, _)| p.as_str()).collect();
             let label = op_label(n);
-            let need = fitted(&n.id, &label, &names, &outs, &setting_texts(&set), measure);
+            let need = fitted(&n.id, &label, &names, &outs, &setting_texts(&set), true, measure);
             let width = n.width.map_or(need, |w| w.max(need));
             // the file it reads or writes
             let file = file_of(n).map(String::from);
@@ -2349,6 +2373,7 @@ impl Scene {
             boxes.push(BoxAt {
                 key: n.id.clone(),
                 op: n.op.clone(),
+                family: crate::family::of(&n.op),
                 label,
                 rect,
                 fitted: need,
@@ -4571,10 +4596,15 @@ pub fn show(
                 continue;
             }
             let font = FontId::proportional(size(14.0).max(NAME_MIN));
-            let room = on_screen.width() - 16.0 * cam.zoom.max(0.5) - if ports { 14.0 * cam.zoom } else { 0.0 };
+            // (the family's icon before an operator's name, when the box has room for it too)
+            let icon_w = font.size * ICON_W / 14.0;
+            let icon = !b.source
+                && on_screen.width() - 16.0 * cam.zoom.max(0.5) - icon_w >= if ports { 0.0 } else { NAME_ROOM * 0.6 };
+            let shift = if icon { icon_w } else { 0.0 };
+            let room = on_screen.width() - 16.0 * cam.zoom.max(0.5) - if ports { 14.0 * cam.zoom } else { 0.0 } - shift;
             // (a copy of an input's box is named as the input)
             let name = if b.source { editor::base_ref(&b.key) } else { b.key.as_str() };
-            let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), font, v.strong_text_color());
+            let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), font.clone(), v.strong_text_color());
             job.wrap = egui::text::TextWrapping {
                 max_width: room.max(8.0),
                 max_rows: 1,
@@ -4583,10 +4613,25 @@ pub fn show(
             };
             let galley = painter.layout_job(job);
             let at = if ports {
-                screen(b.rect.min) + Vec2::new(8.0, 5.0) * cam.zoom
+                screen(b.rect.min) + Vec2::new(8.0, 5.0) * cam.zoom + Vec2::new(shift, 0.0)
             } else {
-                Pos2::new(on_screen.left() + 8.0 * cam.zoom.max(0.5), on_screen.center().y - galley.size().y / 2.0)
+                Pos2::new(
+                    on_screen.left() + 8.0 * cam.zoom.max(0.5) + shift,
+                    on_screen.center().y - galley.size().y / 2.0,
+                )
             };
+            if icon {
+                let clip = on_screen.expand(2.0).intersect(rect);
+                let ink = b.family.colour(v.dark_mode);
+                let ink = if b.bypass { ink.gamma_multiply(0.5) } else { ink };
+                painter.with_clip_rect(clip).text(
+                    Pos2::new(at.x - shift + 1.0 * cam.zoom.max(0.5), at.y + galley.size().y / 2.0),
+                    Align2::LEFT_CENTER,
+                    b.family.icon(),
+                    crate::family::icon_font(ui.ctx(), font.size * 0.95),
+                    ink,
+                );
+            }
             painter.with_clip_rect(on_screen.expand(2.0).intersect(rect)).galley(at, galley, v.strong_text_color());
             if let (Some(f), Some(file), true) = (b.foot(), &b.file, ports || cam.zoom >= 0.35) {
                 painter.text(
@@ -5201,6 +5246,9 @@ pub fn show(
                 let b = &scene.boxes[i];
                 let mut text: Vec<String> =
                     problems.get(&b.key).into_iter().flatten().map(|(_, m)| format!("⚠ {m}")).collect();
+                if ports && !b.source && b.icon().contains(to_world(p, &cam)) {
+                    text.insert(0, b.family.name().into());
+                }
                 if ports && !b.source && b.gear().contains(to_world(p, &cam)) {
                     text.insert(0, "the node's settings (shift+Enter)".into());
                 }

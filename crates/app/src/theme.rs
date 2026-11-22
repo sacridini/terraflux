@@ -552,21 +552,29 @@ pub fn apply_with(ctx: &egui::Context, text: f32) {
     });
 }
 
-/// egui's fonts, the theme's first for the text (egui's for the signs it lacks).
+/// egui's fonts, the theme's first for the text (egui's for the signs it lacks), and Phosphor's icons of the
+/// operators' families (a fallback of the text, and a family of their own: [`crate::family::icon_family`]).
 fn fonts(sans: Sans) -> egui::FontDefinitions {
     let mut f = egui::FontDefinitions::default();
-    let (name, data) = match sans {
-        Sans::Egui => return f,
-        Sans::Inter => ("Inter", egui::FontData::from_static(include_bytes!("../assets/fonts/Inter-Regular.ttf"))),
+    let theme = match sans {
+        Sans::Egui => None,
+        Sans::Inter => {
+            Some(("Inter", egui::FontData::from_static(include_bytes!("../assets/fonts/Inter-Regular.ttf"))))
+        }
         // (its letters smaller than Inter's at a size: scaled to read alike)
-        Sans::SourceSans => (
+        Sans::SourceSans => Some((
             "Source Sans 3",
             egui::FontData::from_static(include_bytes!("../assets/fonts/SourceSans3-Regular.ttf"))
                 .tweak(egui::FontTweak { scale: 1.12, ..Default::default() }),
-        ),
+        )),
     };
-    f.font_data.insert(name.into(), std::sync::Arc::new(data));
-    f.families.entry(egui::FontFamily::Proportional).or_default().insert(0, name.into());
+    if let Some((name, data)) = theme {
+        f.font_data.insert(name.into(), std::sync::Arc::new(data));
+        f.families.entry(egui::FontFamily::Proportional).or_default().insert(0, name.into());
+    }
+    egui_phosphor::add_to_fonts(&mut f, egui_phosphor::Variant::Regular);
+    // (a family of its own, the icons alone: the text font may have glyphs at their codepoints too, Inter does)
+    f.families.insert(crate::family::icon_family(), vec!["phosphor".into()]);
     f
 }
 
