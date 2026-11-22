@@ -52,6 +52,7 @@ pub mod histogram;
 pub mod hypotheses;
 pub mod keymap;
 pub mod labels;
+pub mod layout;
 pub mod legend_view;
 pub mod live_segment;
 pub mod segment_compare;

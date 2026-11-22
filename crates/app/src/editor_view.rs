@@ -481,10 +481,16 @@ fn box_height(ports: usize, settings: usize, file: bool) -> f32 {
 }
 
 /// The height of a node's box, its optional inputs and its settings folded (for laying nodes out).
-fn node_height(n: &Node, r: &Registry) -> f32 {
+pub(crate) fn node_height(n: &Node, r: &Registry) -> f32 {
     let (shown, folded) = shown_inputs(n, r, false);
     let ports = (shown.len() + usize::from(!folded.is_empty())).max(editor::output_ports(n, r).len()).max(1);
     box_height(ports, node_settings(n, r, false, crate::settings::node_settings()).count(), file_of(n).is_some())
+}
+
+/// The names of the input rows of a node's box, top down, its optional inputs folded (for laying nodes out: the
+/// row a connection enters by).
+pub(crate) fn input_rows(n: &Node, r: &Registry) -> Vec<String> {
+    shown_inputs(n, r, false).0.into_iter().map(|p| p.name).collect()
 }
 
 /// The width of a node's box (its texts measured without the fonts at hand: for laying nodes out), the width
@@ -2349,7 +2355,7 @@ fn cells_of(r: Rect) -> impl Iterator<Item = (i32, i32)> {
 }
 
 /// The node ids of a scope that a node reads (its body's references to its own nodes left out).
-fn reads(n: &Node, ids: &HashMap<&str, usize>) -> Vec<usize> {
+pub(crate) fn reads(n: &Node, ids: &HashMap<&str, usize>) -> Vec<usize> {
     let own: HashSet<&str> =
         n.body.as_ref().map(|b| b.nodes.iter().map(|m| m.id.as_str()).collect()).unwrap_or_default();
     let mut out = Vec::new();
@@ -2367,7 +2373,7 @@ fn reads(n: &Node, ids: &HashMap<&str, usize>) -> Vec<usize> {
 
 /// The depth of every node of a scope: the longest chain of nodes it reads (a cycle counts once), in time
 /// proportional to the nodes and connections.
-fn depths(nodes: &[Node], deps: &[Vec<usize>]) -> Vec<usize> {
+pub(crate) fn depths(nodes: &[Node], deps: &[Vec<usize>]) -> Vec<usize> {
     let mut depth: Vec<Option<usize>> = vec![None; nodes.len()];
     let mut on_path = vec![false; nodes.len()];
     for start in 0..nodes.len() {
@@ -2395,7 +2401,7 @@ fn depths(nodes: &[Node], deps: &[Vec<usize>]) -> Vec<usize> {
 }
 
 /// Where the columns of depths begin: each after the widest box of the one before and a space.
-fn columns_x(nodes: &[Node], depth: &[usize], r: &Registry, space: f32) -> Vec<f32> {
+pub(crate) fn columns_x(nodes: &[Node], depth: &[usize], r: &Registry, space: f32) -> Vec<f32> {
     let columns = depth.iter().max().map_or(0, |d| d + 1);
     let mut widest = vec![WIDTH; columns];
     for (n, &d) in nodes.iter().zip(depth) {
@@ -2432,55 +2438,10 @@ pub fn auto_positions(nodes: &[Node]) -> HashMap<String, [f32; 2]> {
 }
 
 /// A tidy place for every node of a scope: a column per depth (the longest chain of nodes it reads), each
-/// column ordered by where the nodes it reads are (the mean of their rows, twice over), so that connections
-/// cross little; the boxes stacked by their heights.
+/// column ordered so that connections cross little and the boxes placed so that they run straight (see
+/// [`crate::layout`]).
 pub fn arrange(nodes: &[Node], r: &Registry) -> HashMap<String, [f32; 2]> {
-    let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
-    let deps: Vec<Vec<usize>> = nodes.iter().map(|n| reads(n, &ids)).collect();
-    let depth = depths(nodes, &deps);
-    let xs = columns_x(nodes, &depth, r, 90.0);
-    let columns = xs.len();
-    let mut column: Vec<Vec<usize>> = vec![Vec::new(); columns];
-    // a first order: as they are on the canvas
-    let mut order: Vec<usize> = (0..nodes.len()).collect();
-    order.sort_by(|&a, &b| {
-        let (pa, pb) = (nodes[a].pos.unwrap_or([0.0, 0.0]), nodes[b].pos.unwrap_or([0.0, 0.0]));
-        pa[1].total_cmp(&pb[1]).then(a.cmp(&b))
-    });
-    for i in order {
-        column[depth[i]].push(i);
-    }
-    let mut rank = vec![0.0f32; nodes.len()];
-    let set_ranks = |column: &Vec<Vec<usize>>, rank: &mut Vec<f32>| {
-        for c in column {
-            for (k, &i) in c.iter().enumerate() {
-                rank[i] = k as f32;
-            }
-        }
-    };
-    set_ranks(&column, &mut rank);
-    for _ in 0..2 {
-        for c in column.iter_mut().skip(1) {
-            let key = |i: usize| {
-                let up: Vec<f32> = deps[i].iter().map(|&d| rank[d]).collect();
-                if up.is_empty() { rank[i] } else { up.iter().sum::<f32>() / up.len() as f32 }
-            };
-            c.sort_by(|&a, &b| key(a).total_cmp(&key(b)));
-            for (k, &i) in c.iter().enumerate() {
-                rank[i] = k as f32;
-            }
-        }
-    }
-    let mut out = HashMap::new();
-    for (d, c) in column.iter().enumerate() {
-        let mut y = 0.0;
-        for &i in c {
-            let n = &nodes[i];
-            out.insert(n.id.clone(), [xs[d], y]);
-            y += node_height(n, r) + 30.0;
-        }
-    }
-    out
+    crate::layout::arrange(nodes, r)
 }
 
 impl Scene {
