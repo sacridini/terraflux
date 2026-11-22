@@ -100,8 +100,8 @@ come next.
 
 ### Step 1: the image
 
-The first three nodes are those of the previous tutorials: [[data.stac]] reads the scene of 9 August 2024, [[raster.reproject]]
-puts it on 10 m cells in UTM zone 23S, and [[raster.calc]] makes reflectance. They are in the full model below; the fragment
+The first two nodes are those of the previous tutorials: [[data.stac]] reads the scene of 9 August 2024 onto 10 m
+cells in UTM zone 23S, and [[raster.calc]] makes reflectance. They are in the full model below; the fragment
 shows the nodes of this page.
 
 ### Step 2: the index
@@ -123,7 +123,7 @@ Add [[segment.threshold]], connect `ndwi.map` to `image`, and give it `classes =
 
 The outputs are `objects` (the connected pieces of the classes), `table` (a row per object: `id`, `cells`, `area` in map
 units squared, `class` from 1, and the mean and standard deviation of the band cut, here `mean_image` and `sd_image`) and
-`thresholds` (a row per cut: here 0.0646). **Class 1 is the values below the first threshold, class 2 those above it.**
+`thresholds` (a row per cut: here 0.0607). **Class 1 is the values below the first threshold, class 2 those above it.**
 With Otsu the threshold is also written in the run's warnings.
 
 ### Step 4: name the classes
@@ -152,19 +152,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -180,7 +174,7 @@ id = "split"
 op = "segment.threshold"
 inputs = { image = "ndwi.map" }
 params = { classes = 2 }
-note = "Two classes by Otsu: 12 objects, cut at 0.065."
+note = "Two classes by Otsu: 15 objects, cut at 0.061."
 
 [[nodes]]
 id = "water"
@@ -228,23 +222,23 @@ params = { title = "Water (1) and land (2)" }
 === "Without a network"
 
     Download [sentinel2_brasilia.tif](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif) beside the model
-    and replace the nodes `s2` and `utm` with a [[raster.read]] of it. The download is rounded to whole numbers, so the
+    and replace the node `s2` with a [[raster.read]] of it. The download is rounded to whole numbers, so the
     numbers of this page can differ in the last decimals.
 
     ```toml
     [[nodes]]
-    id = "utm"
+    id = "s2"
     op = "raster.read"
     params = { path = "sentinel2_brasilia.tif" }
     ```
 
 ## Read the results
 
-Otsu's cut on this clip is an NDWI of **0.065**. It gives **12 objects**: one of land, which is all the ground that touches
-(314,438 cells, 3,144 ha, 93.5 % of the clip), and eleven of water. The lake itself is the largest water object, **20,779
-cells, 207.8 ha**; the others are a second arm of the lake cut by the clip's edge (734 cells, 7.3 ha) and small ponds and
-wet hollows along the stream below the lake (from 221 cells down to a single cell). Together the water covers 21,962 cells,
-**219.6 ha**, 6.5 % of the clip.
+Otsu's cut on this clip is an NDWI of **0.061**. It gives **15 objects**: four of land, the largest all the ground that touches
+(314,288 cells, 3,143 ha, 93.4 % of the clip), and eleven of water. The lake itself is the largest water object, **20,887
+cells, 208.9 ha**; the others are a second arm of the lake cut by the clip's edge (739 cells, 7.4 ha) and small ponds and
+wet hollows along the stream below the lake (from 229 cells down to a single cell). Together the water covers 22,108 cells,
+**221.1 ha**, 6.6 % of the clip.
 
 ![The water of the clip](/img/tutorials/object-based-image-analysis/water-by-thresholds/water_clip.png "The water found by Otsu on the NDWI (blue) over the clip. The yellow box is the part drawn in the next figures, the white one the part of the polygons figure.")
 
@@ -256,33 +250,33 @@ The polygons come out of [[objects.to_vector]]. Look at a part where the lake na
 
 ![The polygons of the shore](/img/tutorials/object-based-image-analysis/water-by-thresholds/polygons.png "The water polygons over a detail of the clip (white box above): the cell edges (smooth = 0, left) and the corners cut once (smooth = 1, right).")
 
-With `smooth = 0` the polygons follow the cell edges exactly, so their area is the area of the cells (219.62 ha); with
-`smooth = 1` the outline looks like a shore and the area is 218.94 ha, 0.3 % smaller. Keep `smooth = 0` for areas you will
+With `smooth = 0` the polygons follow the cell edges exactly, so their area is the area of the cells (221.08 ha); with
+`smooth = 1` the outline looks like a shore and the area is 220.32 ha, 0.3 % smaller. Keep `smooth = 0` for areas you will
 report and use `smooth` for maps.
 
 **To report it:** the image (sensor, scene, date, cloud cover), the index and its formula, the method and the threshold
-(Otsu on the NDWI, 0.065), the area of water and how many water bodies there are, and a map with the polygons over the
+(Otsu on the NDWI, 0.061), the area of water and how many water bodies there are, and a map with the polygons over the
 image. A single figure of the area has no error with it; the next section shows how far it moves.
 
 ## When the threshold moves
 
 Move the slider. It shows the water for ten given thresholds (`thresholds = [t]`) over the part of the clip around the
-lake, with the water area of each and, in the chart, how the area changes. The 0.065 frame is Otsu's own.
+lake, with the water area of each and, in the chart, how the area changes. The 0.061 frame is Otsu's own.
 
 ```tfslider
 label: NDWI threshold
 caption: "The water (blue, with a cyan edge) for ten given thresholds of the NDWI, over the lake and the town below it. The chart is the area of the water in the whole clip."
 frames:
-  - { value: -0.3, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_tn0_3.png, caption: "NDWI above -0.3", stats: { "Water area": "455.5 ha", "Water objects": "1,482" } }
-  - { value: -0.2, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_tn0_2.png, caption: "NDWI above -0.2", stats: { "Water area": "283.8 ha", "Water objects": "899" } }
-  - { value: -0.1, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_tn0_1.png, caption: "NDWI above -0.1", stats: { "Water area": "230.5 ha", "Water objects": "217" } }
-  - { value: 0, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0.png, caption: "NDWI above 0", stats: { "Water area": "221.5 ha", "Water objects": "17" } }
-  - { value: 0.065, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_otsu.png, caption: "NDWI above 0.065 (Otsu)", stats: { "Water area": "219.6 ha", "Water objects": "11" } }
-  - { value: 0.2, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_2.png, caption: "NDWI above 0.2", stats: { "Water area": "215.7 ha", "Water objects": "7" } }
-  - { value: 0.3, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_3.png, caption: "NDWI above 0.3", stats: { "Water area": "212.4 ha", "Water objects": "6" } }
-  - { value: 0.4, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_4.png, caption: "NDWI above 0.4", stats: { "Water area": "207.5 ha", "Water objects": "4" } }
-  - { value: 0.5, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_5.png, caption: "NDWI above 0.5", stats: { "Water area": "198.8 ha", "Water objects": "8" } }
-  - { value: 0.6, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_6.png, caption: "NDWI above 0.6", stats: { "Water area": "175.4 ha", "Water objects": "27" } }
+  - { value: -0.3, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_tn0_3.png, caption: "NDWI above -0.3", stats: { "Water area": "472.4 ha", "Water objects": "1,913" } }
+  - { value: -0.2, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_tn0_2.png, caption: "NDWI above -0.2", stats: { "Water area": "294.1 ha", "Water objects": "1,219" } }
+  - { value: -0.1, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_tn0_1.png, caption: "NDWI above -0.1", stats: { "Water area": "234.7 ha", "Water objects": "350" } }
+  - { value: 0, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0.png, caption: "NDWI above 0", stats: { "Water area": "223.1 ha", "Water objects": "26" } }
+  - { value: 0.061, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_otsu.png, caption: "NDWI above 0.061 (Otsu)", stats: { "Water area": "221.1 ha", "Water objects": "11" } }
+  - { value: 0.2, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_2.png, caption: "NDWI above 0.2", stats: { "Water area": "217.3 ha", "Water objects": "10" } }
+  - { value: 0.3, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_3.png, caption: "NDWI above 0.3", stats: { "Water area": "213.9 ha", "Water objects": "11" } }
+  - { value: 0.4, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_4.png, caption: "NDWI above 0.4", stats: { "Water area": "208.8 ha", "Water objects": "4" } }
+  - { value: 0.5, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_5.png, caption: "NDWI above 0.5", stats: { "Water area": "199.7 ha", "Water objects": "10" } }
+  - { value: 0.6, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/thr_t0_6.png, caption: "NDWI above 0.6", stats: { "Water area": "175.3 ha", "Water objects": "40" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/water-by-thresholds/sweep.csv
@@ -295,15 +289,15 @@ chart:
 
 Read the slider from left to right.
 
-- **Below about −0.1** the threshold lets in what is not water: at −0.3 the "water" is 455 ha, twice the lake, and the picture
+- **Below about −0.1** the threshold lets in what is not water: at −0.3 the "water" is 472 ha, twice the lake, and the picture
   shows why: the roofs and the shaded ground of the town (the NDWI of a building is not as low as that of a leaf) and the
-  dark stream corridor join the water. The count of objects, 1,482, is a sign: real water bodies are few and large.
-- **From −0.1 to 0.5** the area hardly moves: 230 to 199 ha, within 10 % of Otsu's 219.6 ha, and the number of objects
-  falls from 217 to a handful. This is the plateau of the valley in the histogram, where few cells lie, and any cut in it
-  gives about the same lake. It is why a fixed cut of 0 (221.5 ha, 17 objects) works here, and why Otsu's 0.065 is a safe
+  dark stream corridor join the water. The count of objects, 1,913, is a sign: real water bodies are few and large.
+- **From −0.1 to 0.5** the area hardly moves: 235 to 200 ha, within 10 % of Otsu's 221.0 ha, and the number of objects
+  falls from 350 to a handful. This is the plateau of the valley in the histogram, where few cells lie, and any cut in it
+  gives about the same lake. It is why a fixed cut of 0 (223.1 ha, 26 objects) works here, and why Otsu's 0.061 is a safe
   middle.
 - **Above 0.5** the lake starts to shrink from its edges: the cells along the shore, where water is shallow or mixed with
-  the bank, have a lower NDWI than the open water and are cut off (175 ha at 0.6, with 27 pieces as the edge breaks up).
+  the bank, have a lower NDWI than the open water and are cut off (175 ha at 0.6, with 40 pieces as the edge breaks up).
 
 So the area is stable across a range of thresholds, which is the sign of a good index on this image. Where the plateau is
 narrow, or the valley is full of cells (turbid water, mixed pixels), the threshold you choose is the answer you get.
@@ -316,7 +310,7 @@ first part: it takes objects you already have, a superpixel layer or a multireso
 objects whose mean values differ by less than `max_difference` (in the units of the image), recalculating the mean of
 the merged object each time. It merges the pair with the smallest difference first, so the result is always the same.
 
-The model below cuts the NDWI into small superpixels with [[segment.slic]] (`size = 6`: 9,398 objects), merges them
+The model below cuts the NDWI into small superpixels with [[segment.slic]] (`size = 6`: 9,401 objects), merges them
 with a limit, and then names the classes with [[objects.rules]] on the mean NDWI of each object, with a ramp around the
 Otsu cut instead of a step.
 
@@ -337,7 +331,7 @@ id = "sd"
 op = "segment.spectral_difference"
 inputs = { objects = "sl.objects", image = "ndwi.map" }
 params = { max_difference = 0.1 }
-note = "556 objects."
+note = "554 objects."
 
 [[nodes]]
 id = "owater"
@@ -355,10 +349,10 @@ of mixed water and land gets a membership between the two classes instead of a h
 label: Largest difference allowed
 caption: "SLIC superpixels of the NDWI (size 6, 9,398 objects) merged by spectral difference, over the same part of the clip. The chart counts the objects of the whole clip."
 frames:
-  - { value: 0.02, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_02.png, caption: "max_difference 0.02", stats: { Objects: "3,982" } }
-  - { value: 0.05, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_05.png, caption: "max_difference 0.05", stats: { Objects: "1,712" } }
-  - { value: 0.1, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_1.png, caption: "max_difference 0.1", stats: { Objects: "556" } }
-  - { value: 0.2, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_2.png, caption: "max_difference 0.2", stats: { Objects: "157" } }
+  - { value: 0.02, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_02.png, caption: "max_difference 0.02", stats: { Objects: "4,125" } }
+  - { value: 0.05, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_05.png, caption: "max_difference 0.05", stats: { Objects: "1,859" } }
+  - { value: 0.1, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_1.png, caption: "max_difference 0.1", stats: { Objects: "554" } }
+  - { value: 0.2, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_2.png, caption: "max_difference 0.2", stats: { Objects: "169" } }
   - { value: 0.4, src: /img/tutorials/object-based-image-analysis/water-by-thresholds/sd_0_4.png, caption: "max_difference 0.4", stats: { Objects: "25" } }
 chart:
   type: line
@@ -376,7 +370,7 @@ limit large against the contrast you want to keep joins things that are far apar
 the limit small against the gap between your classes (here the gap is above 1, so 0.1 is safe), and use a segmenter that
 keeps edges for the objects it starts from, not single cells.
 
-With the limit at 0.1 the objects classed as water cover **220.7 ha** in 63 objects, against 219.6 ha in 11 for the
+With the limit at 0.1 the objects classed as water cover **222.4 ha** in 58 objects, against 221.1 ha in 11 for the
 pixels. The two maps differ in 346 of the 336,400 cells (0.1 %), at the shore. For the lake itself the second way gives
 nothing more than the first. What it adds is that every object, water or land, has a mean, a size and a shape, and
 that the rule can ask for more than a threshold, as the next tutorials do.
@@ -390,30 +384,30 @@ caption: "Four ways to the water of the clip. The first three cut pixels (segmen
 csv: |
   method,cut,water_ha,water_objects
   "NDWI above 0 (given)",0,221.5,17
-  "NDWI, Otsu",0.065,219.6,11
-  "MNDWI, Otsu",-0.011,213.0,70
-  "NDWI of SLIC + spectral difference 0.1, ramp 0 to 0.13",0.065,220.7,63
+  "NDWI, Otsu",0.061,221.1,11
+  "MNDWI, Otsu",-0.014,215.0,147
+  "NDWI of SLIC + spectral difference 0.1, ramp 0 to 0.13",0.065,222.4,58
 ```
 
 ## Other classes and other indices
 
-`classes = 3` asks Otsu for two thresholds. On the NDWI of this clip they are **−0.472 and 0.149**, which gives three groups:
-the lowest NDWI (65 % of the cells, where the near infrared is far above the green: the gallery forest and the trees and
-gardens among the houses), the middle (28 %, the roofs, the streets and the bare ground) and the highest (the water, 21,719
-cells, 217 ha, a little less than with two classes because its cut is higher). It is not a land cover map (the NDWI was made
+`classes = 3` asks Otsu for two thresholds. On the NDWI of this clip they are **−0.467 and 0.152**, which gives three groups:
+the lowest NDWI (66 % of the cells, where the near infrared is far above the green: the gallery forest and the trees and
+gardens among the houses), the middle (27 %, the roofs, the streets and the bare ground) and the highest (the water, 21,865
+cells, 219 ha, a little less than with two classes because its cut is higher). It is not a land cover map (the NDWI was made
 for water), but it shows what the multi-level version does.
 
 ![Three classes by Otsu](/img/tutorials/object-based-image-analysis/water-by-thresholds/three_classes.png "Three classes by multi-level Otsu on the NDWI: the lowest NDWI in green, the middle in tan, the highest (water) in blue, over the same part of the clip as the slider.")
 
 The index is a choice, too. The **MNDWI** of Xu (2006) uses the short-wave infrared in the place of the near infrared, which the
-clip has as `swir16`; on this clip Otsu puts its cut at −0.011 and finds 213.0 ha, 3 % less than the NDWI, in 70 pieces.
+clip has as `swir16`; on this clip Otsu puts its cut at −0.014 and finds 215.0 ha, 3 % less than the NDWI, in 147 pieces.
 Neither is "right" without a reference: compare them with a map you trust, with a few points you checked on the image, or with
 the accuracy methods of part 5.
 
 ## Common pitfalls
 
 - **There is no water in the scene.** Otsu always splits the histogram in two, so it will split dry ground. In the 100 × 100
-  window of the cerrado of part 3, where the NDWI runs only from −0.74 to −0.41, the cut falls at −0.566 and 61.5 % of the
+  window of the cerrado of part 3, where the NDWI runs only from −0.75 to −0.40, the cut falls at −0.567 and 61.7 % of the
   window becomes "water". The figure shows it. Check that the scene has water (the histogram has two modes), or give the
   `thresholds` yourself.
 

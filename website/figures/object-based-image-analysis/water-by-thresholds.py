@@ -33,7 +33,7 @@ R0, R1, C0, C1 = 0, 290, 120, 410
 D = (150, 260, 150, 290)
 # the window of dry cerrado with no water (as in choosing-the-scale)
 CERRADO = (440, 540, 250, 350)
-THRESHOLDS = [-0.3, -0.2, -0.1, 0, 0.065, 0.2, 0.3, 0.4, 0.5, 0.6]
+THRESHOLDS = [-0.3, -0.2, -0.1, 0, 0.061, 0.2, 0.3, 0.4, 0.5, 0.6]
 LIMITS = [0.02, 0.05, 0.1, 0.2, 0.4]
 BLUE = np.array([0.10, 0.50, 1.0])
 

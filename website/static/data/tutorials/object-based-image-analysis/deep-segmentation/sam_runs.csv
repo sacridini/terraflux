@@ -1,10 +1,10 @@
 run,clip,points,prompts,fill,objects,seconds,peak_mb
-naip_sam8,NAIP clip,8,64,True,7,63.0,3620
-naip_sam16,NAIP clip,16,256,True,38,188.1,3623
-naipw_sam8,NAIP window,8,64,True,17,68.0,3566
-naipw_sam16,NAIP window,16,256,True,128,155.1,3566
-naipw_sam24,NAIP window,24,576,True,171,333.7,3566
-s2_sam4,Sentinel-2 clip,4,16,True,3,32.7,3600
-s2_sam8,Sentinel-2 clip,8,64,True,11,62.6,3599
-s2_sam16,Sentinel-2 clip,16,256,True,155,177.1,3598
-s2_sam16_nofill,Sentinel-2 clip,16,256,False,137,171.2,3599
+naip_sam8,NAIP clip,8,64,True,7,13.5,3597
+naip_sam16,NAIP clip,16,256,True,38,25.4,3600
+naipw_sam8,NAIP window,8,64,True,17,14.6,3542
+naipw_sam16,NAIP window,16,256,True,128,35.4,3543
+naipw_sam24,NAIP window,24,576,True,171,77.4,3544
+s2_sam4,Sentinel-2 clip,4,16,True,3,9.9,3570
+s2_sam8,Sentinel-2 clip,8,64,True,7,12.9,3571
+s2_sam16,Sentinel-2 clip,16,256,True,58,24.2,3571
+s2_sam16_nofill,Sentinel-2 clip,16,256,False,54,24.5,3571

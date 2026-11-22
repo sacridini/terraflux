@@ -75,7 +75,7 @@ operators are eCognition's *watershed transformation*, *image object fusion* and
 
 - The NAIP clip of the series: a 600 m window of Plano, Texas (0.6 m cells, bands red, green, blue and nir, 9 November 2024, USDA
   NAIP through the Planetary Computer). The [clip to download](/data/tutorials/object-based-image-analysis/naip_plano.tif) is
-  the file the model reads, so the page runs without a network. Its attribution is in the
+  the file the model reads, so the page runs without a network: that scene of 9 November 2024 is no longer in the Planetary Computer (its NAIP items over Plano now end in 2022). With a scene that is, [[data.stac]] reads NAIP straight onto a UTM grid with `bands` and `crs`, as in [part 14](/tutorials/object-based-image-analysis/case-urban-cover-naip/). Its attribution is in the
   [ATTRIBUTION.txt](/data/tutorials/object-based-image-analysis/ATTRIBUTION.txt) beside it.
 - A surface. Here the NDVI, \( (nir - red) / (nir + red) \) (Tucker, 1979), made by the model. If you have a **canopy height model**
   (a normalised digital surface model, in metres), use it instead: replace the first three nodes by a [[raster.read]] of it,

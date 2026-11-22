@@ -108,19 +108,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -185,9 +179,9 @@ note = "The same four cells, ring by ring (8 neighbours)."
 
 ### Step 2: exact growth, and shrinking
 
-Exact growth by 40 m takes the lake from **20,779 to 23,752 cells** (207.8 to 237.5 ha): a band of 29.7 ha along the
+Exact growth by 40 m takes the lake from **20,882 to 23,875 cells** (208.8 to 238.8 ha): a band of 29.9 ha along the
 shore. The ten small waters grow far more in proportion, because a buffer is the same width around a big thing and a small
-thing: the one-cell speck becomes 49 cells, the 26-cell pond 141. `shrink` is the other way: a cell of the object goes if it
+thing: the one-cell speck becomes 49 cells, the 26-cell pond 155. `shrink` is the other way: a cell of the object goes if it
 is within `distance` of a cell that is not the object's. With `distance = 20` the lake loses **1,419 cells**, the band
 of its edge, and the ten small waters lose nearly all of theirs (five go to nothing).
 
@@ -202,7 +196,7 @@ images:
 
 Look at the third image. The mask is the NDWI above -0.3, a condition a wet cell meets and a dry roof or street does not.
 The growth runs ring by ring, eight rings, and **stops where the condition fails**: along the lake's southern edge, where
-the ground is dry, it adds almost nothing, and the lake gains 710 cells (to 21,489) where the exact 40 m buffer gives it
+the ground is dry, it adds almost nothing, and the lake gains 644 cells (to 21,526) where the exact 40 m buffer gives it
 2,973. The rule "grow while the cell still looks like water" is how you make an object follow a boundary that has a
 spectral meaning.
 
@@ -229,7 +223,7 @@ is 4,058 cells grown with 8 neighbours and 2,973 exact, a third larger.
 
 ```tftable
 data: /data/tutorials/object-based-image-analysis/shaping-objects/grow_ways.csv
-labels: { way: "Way of growing", setting: "Settings", speck_cells: "The one cell, after", lake_cells: "The lake, after (from 20,779)" }
+labels: { way: "Way of growing", setting: "Settings", speck_cells: "The one cell, after", lake_cells: "The lake, after (from 20,882)" }
 digits: 0
 caption: "Four cells of growth, five ways: the cells the one-cell water and the lake hold afterwards, from the node's report. A `steps` with no mask or `into` is exact too (it is `distance` = steps × the cell)."
 ```
@@ -252,16 +246,16 @@ caption: "The report of three nodes for the eleven waters: the cells each has af
 ```
 
 Five of the eleven waters are one to twenty cells (a pool, a roof's glare, a pond too small for a 10 m pixel): after `open`
-with 20 m they are gone, the larger ones lose a few cells, and the lake, 20,779 cells, loses 41. The `report` has a row per
+with 20 m they are gone, the larger ones lose a few cells, and the lake, 20,882 cells, loses 53. The `report` has a row per
 chosen object, so you can see this at once: `before`, `after` and `pieces`, the number of objects the cells ended in.
 
 ## Build the model: built-up patches, open, close, fill, smooth
 
 The lake is a clean shape, because water is easy to separate. A harder outline is **urban**: houses, streets, trees in the
 gardens and bare plots make a patch with fingers, necks and holes. The second set of objects is the one of parts 6 and 8:
-multiresolution objects of scale 2 (3,035), their attributes, a class tree (water, forest, built-up, cerrado), and
-[[objects.merge]] (by class, the default) joining neighbours of the same class into **patches**. There are 43 built-up
-patches, 1,007.7 ha in all.
+multiresolution objects of scale 2 (2,973), their attributes, a class tree (water, forest, built-up, cerrado), and
+[[objects.merge]] (by class, the default) joining neighbours of the same class into **patches**. There are 44 built-up
+patches, 1,010.0 ha in all.
 
 ```tfgraph
 #! caption: The patches: multiresolution objects classed by rules and merged into one object per connected piece of each class.
@@ -273,7 +267,7 @@ id = "seg"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects."
+note = "2,973 objects."
 
 [[nodes]]
 id = "feat"
@@ -307,7 +301,7 @@ note = "Water, forest, built-up and cerrado by fuzzy rules in a class tree."
 id = "patches"
 op = "objects.merge"
 inputs = { objects = "rules.objects" }
-note = "Neighbours of the same class become one object: 301 patches, 43 of them built-up."
+note = "Neighbours of the same class become one object: 323 patches, 44 of them built-up."
 ```
 
 ![Where the figures of this page are](/img/tutorials/object-based-image-analysis/shaping-objects/where.png "The clip (true colour). The boxes are the two places zoomed in this tutorial: the south shore of the lake and a block of the town.")
@@ -381,10 +375,10 @@ digits: { cells: 0, area_ha: 1, patches: 0, edge_km: 1, change_cells: 0 }
 caption: "The built-up class after each mode on its own and after the chain. Patches: built-up objects. Edge: the length of the boundary of the class (a cell edge between a built-up cell and any other, times 10 m), computed by the figure's script from the map."
 ```
 
-- **shrink** takes 28% of the built-up cells (28,288) and cuts the patches in pieces: the 43 become 61, because many are joined by thin necks. It is the building block of `open`, rarely what you want alone.
-- **open 30 m** removes only 5.6% of the cells (5,664) and cuts the 43 patches into 56. The patch of the report below, the largest, was in one piece and is in six after: the parts narrower than six cells were what held it together.
-- **close 30 m** *adds* 17,070 cells (+17%) and cuts the length of edge by 31%, from 182.8 to 125.9 km: the gaps between houses, trees and plots become built-up. It also takes cells of the cerrado and the forest next to the town, which may or may not be what you mean: see the pitfalls.
-- **fill** adds only 284 cells: a hole enclosed by one patch and of 40 cells or fewer is rare at 10 m; the real gaps in the town are open to a street, which is what `close` is for.
+- **shrink** takes 29% of the built-up cells (28,825) and cuts the patches in pieces: the 44 become 58, because many are joined by thin necks. It is the building block of `open`, rarely what you want alone.
+- **open 30 m** removes only 5.7% of the cells (5,758) and cuts the 44 patches into 48. The patch of the report below, the largest, was in one piece and is in six after: the parts narrower than six cells were what held it together.
+- **close 30 m** *adds* 18,184 cells (+18%) and cuts the length of edge by 33%, from 187.8 to 125.1 km: the gaps between houses, trees and plots become built-up. It also takes cells of the cerrado and the forest next to the town, which may or may not be what you mean: see the pitfalls.
+- **fill** adds only 262 cells: a hole enclosed by one patch and of 40 cells or fewer is rare at 10 m; the real gaps in the town are open to a street, which is what `close` is for.
 - **smooth 30 m** changes the area by -2.3% and keeps the number of patches: it rounds, it does not cut or join.
 
 ```tftable
@@ -398,7 +392,7 @@ caption: "The report of the open node for the five largest built-up patches: a r
 
 The chain of the page's model is open, then close, then fill, then smooth: **take out the specks and necks first, close the
 gaps, fill what is left, and round at the end**. The order matters: a `close` before an `open` would join a speck to a patch
-and the `open` would not find it. The chain gives 110,729 built-up cells (+9.9%), 56 patches and 125.4 km of edge, and the
+and the `open` would not find it. The chain gives 111,257 built-up cells (+10.2%), 48 patches and 124.1 km of edge, and the
 block of the figure is the last of the gallery above.
 
 Two things to know when you read the result.
@@ -406,8 +400,8 @@ Two things to know when you read the result.
 - The objects the chain gives have **no attributes**: `objects.resize` makes new objects out of old cells, so the table of
   means is not the old one, and the level above, if there was one, is dropped (with a warning). The page's script ends the chain with
   [[objects.features]] on the shaped objects, to rebuild the attributes. The area-weighted *compactness* of the built-up
-  patches (length times width over area, 1 for a rectangle) goes from **2.31 to 1.90**.
-- A shaped class **is not the class the rules gave**. The chain added 9,958 built-up cells (99.6 ha): read it as an
+  patches (length times width over area, 1 for a rectangle) goes from **2.15 to 1.76**.
+- A shaped class **is not the class the rules gave**. The chain added 10,260 built-up cells (102.6 ha): read it as an
   outline for shape analysis, not as the urban area. If the number you report is an area, report it from the objects before
   shaping, or from a shaping tested against a reference.
 
@@ -419,7 +413,7 @@ no band outweighs another). It does this in `steps` passes, and each pass reads 
 makes the result the same on any number of threads. `refine` is the only mode that needs the **image**.
 
 It acts on any objects, not only the patches. It is most useful on the fine ones of a segmentation, whose borders are
-cell-wide off, and it is run here on the 3,035 multiresolution objects of scale 2.
+cell-wide off, and it is run here on the 2,973 multiresolution objects of scale 2.
 
 ```tfgraph
 #! caption: The objects of the multiresolution segmentation, refined in three passes (node 5), and the pieces of fewer than four cells joined back into the neighbour that shares the longest border (node 6).
@@ -430,19 +424,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -451,7 +439,7 @@ id = "seg"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects."
+note = "2,973 objects."
 
 [[nodes]]
 id = "refine"
@@ -476,27 +464,27 @@ every cell's bands (as z-scores) from its object's mean. A smaller sum means obj
 data: /data/tutorials/object-based-image-analysis/shaping-objects/refine.csv
 labels: { passes: "Passes", objects: "Objects", within_ss: "Within-object sum of squares", share_of_start: "% of the start", cells_moved: "Cells moved (net, at least)" }
 digits: { passes: 0, objects: 0, within_ss: 0, share_of_start: 1, cells_moved: 0 }
-caption: "Border optimization of the 3,035 objects of scale 2, for 1 to 10 passes, computed from the maps of each run (the sum of squares, over the five bands in z-scores, is the script's own measure, not an output of the operator)."
+caption: "Border optimization of the 2,973 objects of scale 2, for 1 to 10 passes, computed from the maps of each run (the sum of squares, over the five bands in z-scores, is the script's own measure, not an output of the operator)."
 ```
 
-One pass moves at least 14,803 cells (4.4% of the clip; the count is the net change of each object's cells) and lowers
-the sum to 79% of the start; three passes, to 60%; ten, to 37%. The objects are more uniform inside, which is what the
-operator was asked to do, and the count of objects goes **up**: 3,035, then 3,989, 5,413 and 9,251 after 1, 3 and 10 passes. A cell that leaves an object can cut it in two, and every piece of an object is an object of
+One pass moves at least 14,573 cells (4.3% of the clip; the count is the net change of each object's cells) and lowers
+the sum to 81% of the start; three passes, to 62%; ten, to 38%. The objects are more uniform inside, which is what the
+operator was asked to do, and the count of objects goes **up**: 2,973, then 4,119, 5,711 and 10,187 after 1, 3 and 10 passes. A cell that leaves an object can cut it in two, and every piece of an object is an object of
 its own. Ten passes triple the number of objects, and no one wants thousands of one- and two-cell fragments.
 
 ```tfgallery
 columns: 3
 caption: "A part of the town and the bare ground beside it (60 by 70 cells). Left, the objects of scale 2. Middle, after three passes of refine. Right, the outlines together: white on both, cyan only before, yellow only after."
 images:
-  - { src: /img/tutorials/object-based-image-analysis/shaping-objects/refine_before.png, caption: "scale 2: 3,035 objects" }
-  - { src: /img/tutorials/object-based-image-analysis/shaping-objects/refine_after.png, caption: "refine, 3 passes: 5,413 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/shaping-objects/refine_before.png, caption: "scale 2: 2,973 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/shaping-objects/refine_after.png, caption: "refine, 3 passes: 5,711 objects" }
   - { src: /img/tutorials/object-based-image-analysis/shaping-objects/refine_diff.png, caption: "the outlines: before, after, both" }
 ```
 
 In the figure the outlines of the bright bare ground in the middle and of the houses to its left change shape, and more
 small objects appear. Node 6, [[objects.remove_small]], joins the pieces of
-fewer than four cells to their neighbour: with it, three passes end at **4,220 objects and 60.8%** of the sum of squares
-(208,472), nearly the sum without the cleaning (205,156) with 1,193 objects fewer. `refine` and `remove_small` come as a pair.
+fewer than four cells to their neighbour: with it, three passes end at **4,223 objects and 63.3%** of the sum of squares
+(238,826), nearly the sum without the cleaning (234,465) with 1,488 objects fewer. `refine` and `remove_small` come as a pair.
 
 ## Read the results
 
@@ -506,9 +494,9 @@ What to look at when you shape objects:
    the operation cut objects in two (a thin neck gone, a field split by a hole). A `before` equal to `after` for every
    row says nothing happened: the usual cause is nothing to take (a `grow` with no free cell and no `into`).
 2. **The count and the cells, class by class.** The first thing to report is how much the shaping moved: the share of
-   cells, and of objects. Here: 5.6% of the built-up cells for the opening, 17% for the closing.
-3. **A shape measure before and after.** The compactness fell from 2.31 to 1.90 and the length of edge from 182.8 to
-   125.4 km: the outlines are simpler, which is what shaping is for.
+   cells, and of objects. Here: 5.7% of the built-up cells for the opening, 18% for the closing.
+3. **A shape measure before and after.** The compactness fell from 2.15 to 1.76 and the length of edge from 187.8 to
+   124.1 km: the outlines are simpler, which is what shaping is for.
 4. **The picture.** Overlay the new outline on the image (the yellow and cyan cells of the figures). A shaping that is
    right looks like a better-drawn version of the same thing. One that is wrong adds cells where the image says no (the
    edge of the forest next to the town in the `close` figure).
@@ -524,15 +512,15 @@ The slider is the opening distance on the same block, from 0 (the patch as it is
 
 ```tfslider
 label: Opening distance (m)
-caption: "open on the built-up patches. Yellow: cells added to the class, cyan: cells lost. From 30 m a patch is cut in pieces where a part narrower than six cells joins two others, and the 43 patches become 56. The chart is the length of the boundary of the class."
+caption: "open on the built-up patches. Yellow: cells added to the class, cyan: cells lost. From 30 m a patch is cut in pieces where a part narrower than six cells joins two others, and the 44 patches become 48. The chart is the length of the boundary of the class."
 frames:
-  - { value: 0, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_0.png, caption: "0: the patches as they are", stats: { Cells: "100,771", Patches: "43", "Edge (km)": "182.8" } }
-  - { value: 10, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_10.png, caption: "10 m: one cell", stats: { Cells: "99,435", Patches: "43", "Edge (km)": "181.8" } }
-  - { value: 20, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_20.png, caption: "20 m", stats: { Cells: "97,567", Patches: "44", "Edge (km)": "179.3" } }
-  - { value: 30, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_30.png, caption: "30 m (the page's)", stats: { Cells: "95,107", Patches: "56", "Edge (km)": "171.8" } }
-  - { value: 40, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_40.png, caption: "40 m", stats: { Cells: "90,107", Patches: "56", "Edge (km)": "159.2" } }
-  - { value: 50, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_50.png, caption: "50 m", stats: { Cells: "82,948", Patches: "58", "Edge (km)": "139.4" } }
-  - { value: 60, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_60.png, caption: "60 m: six cells", stats: { Cells: "74,307", Patches: "53", "Edge (km)": "117.6" } }
+  - { value: 0, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_0.png, caption: "0: the patches as they are", stats: { Cells: "100,997", Patches: "44", "Edge (km)": "187.8" } }
+  - { value: 10, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_10.png, caption: "10 m: one cell", stats: { Cells: "99,652", Patches: "46", "Edge (km)": "186.5" } }
+  - { value: 20, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_20.png, caption: "20 m", stats: { Cells: "97,698", Patches: "44", "Edge (km)": "181.9" } }
+  - { value: 30, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_30.png, caption: "30 m (the page's)", stats: { Cells: "95,239", Patches: "48", "Edge (km)": "173.2" } }
+  - { value: 40, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_40.png, caption: "40 m", stats: { Cells: "90,389", Patches: "52", "Edge (km)": "161.8" } }
+  - { value: 50, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_50.png, caption: "50 m", stats: { Cells: "81,853", Patches: "56", "Edge (km)": "140.0" } }
+  - { value: 60, src: /img/tutorials/object-based-image-analysis/shaping-objects/open_60.png, caption: "60 m: six cells", stats: { Cells: "72,460", Patches: "51", "Edge (km)": "115.8" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/shaping-objects/open_sweep.csv
@@ -554,12 +542,12 @@ one half of the width of the *thinnest thing you want to keep* is a safe start; 
 label: Smoothing radius (m)
 caption: "smooth on the built-up patches. The area and the number of patches hardly move until a radius of 40 m or more: a smoothing rounds the outline and does not cut or join. The chart is the edge."
 frames:
-  - { value: 0, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_0.png, caption: "0: the patches as they are", stats: { Cells: "100,771", Patches: "43", "Edge (km)": "182.8" } }
-  - { value: 10, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_10.png, caption: "10 m: less than a cell and a half", stats: { Cells: "100,745", Patches: "43", "Edge (km)": "182.3" } }
-  - { value: 20, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_20.png, caption: "20 m", stats: { Cells: "99,506", Patches: "43", "Edge (km)": "179.9" } }
-  - { value: 30, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_30.png, caption: "30 m (the page's)", stats: { Cells: "98,416", Patches: "43", "Edge (km)": "176.3" } }
-  - { value: 40, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_40.png, caption: "40 m", stats: { Cells: "97,511", Patches: "43", "Edge (km)": "173.7" } }
-  - { value: 60, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_60.png, caption: "60 m: the smallest patches go", stats: { Cells: "95,775", Patches: "39", "Edge (km)": "168.5" } }
+  - { value: 0, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_0.png, caption: "0: the patches as they are", stats: { Cells: "100,997", Patches: "44", "Edge (km)": "187.8" } }
+  - { value: 10, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_10.png, caption: "10 m: less than a cell and a half", stats: { Cells: "100,949", Patches: "44", "Edge (km)": "186.8" } }
+  - { value: 20, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_20.png, caption: "20 m", stats: { Cells: "99,680", Patches: "44", "Edge (km)": "183.5" } }
+  - { value: 30, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_30.png, caption: "30 m (the page's)", stats: { Cells: "98,625", Patches: "45", "Edge (km)": "180.1" } }
+  - { value: 40, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_40.png, caption: "40 m", stats: { Cells: "97,671", Patches: "42", "Edge (km)": "176.5" } }
+  - { value: 60, src: /img/tutorials/object-based-image-analysis/shaping-objects/smooth_60.png, caption: "60 m: the smallest patches go", stats: { Cells: "96,187", Patches: "35", "Edge (km)": "171.7" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/shaping-objects/smooth_sweep.csv
@@ -571,8 +559,8 @@ chart:
   ylabel: Edge of the built-up class (km)
 ```
 
-A radius of 10 m (a disc of one cell and its neighbours) changes 26 cells in 100,000: below a cell and a half the
-filter does almost nothing on a 10 m image. At 60 m the 4 smallest patches vanish (43 to 39): a patch smaller than the disc
+A radius of 10 m (a disc of one cell and its neighbours) changes 48 cells in 100,000: below a cell and a half the
+filter does almost nothing on a 10 m image. At 60 m the 9 smallest patches vanish (44 to 35): a patch smaller than the disc
 loses the vote to everything around it.
 
 ### The other settings

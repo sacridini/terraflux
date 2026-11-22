@@ -48,8 +48,8 @@ COLORS = sm.COLORS
 # The three edits, as places of the clip (row, column of a cell; the file has their map coordinates).
 # merge: eight objects of the lake, the first one's the survivor; cut: a line across the object that holds the bare
 # ground and the first roofs of the town; delete: one white roof the forest called bare soil, taken by its neighbour.
-MERGE = [(146, 251), (128, 228), (124, 256), (132, 273), (169, 256), (160, 277), (157, 232), (168, 294)]
-CUT = [(196, 258), (196, 285)]
+MERGE = [(142, 243), (124, 256), (132, 273), (165, 257), (165, 282), (169, 231), (116, 248), (114, 229)]
+CUT = [(196, 254), (196, 294)]
 DELETE = (299, 244)
 
 

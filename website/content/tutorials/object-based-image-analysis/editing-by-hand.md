@@ -59,7 +59,7 @@ Edit by hand when:
   map for a report, where one wrong object is seen by everyone;
 - an object **is wrong for a reason the segmenter cannot know** (a boundary that a road, a fence or a property line
   makes and that has no colour);
-- you have **a few** such objects. Three edits of 739 objects is a clean-up. Three hundred edits is a different
+- you have **a few** such objects. Three edits of 725 objects is a clean-up. Three hundred edits is a different
   segmentation, and you should look for it.
 
 Do not edit when:
@@ -80,7 +80,7 @@ Reviews of object-based classification put the errors of the segmentation among 
   [part 2](/tutorials/object-based-image-analysis/what-is-an-object/)). The model below reads it with [[data.stac]]; for
   no network, the [clip to download](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif) has the same
   five bands.
-- A segmentation: [[segment.multiresolution]], here at the **scale 4**, which gives 739 objects. It is the coarser
+- A segmentation: [[segment.multiresolution]], here at the **scale 4**, which gives 725 objects. It is the coarser
   scale that suits the fields and the lake, and it is where a few objects reach over two things.
 - Points to train a classifier and points to check it, to see what an edit does to a map. A figure cannot be clicked, so
   the 87 training and 67 reference points of this page are drawn by a script from labelled places of the image, as in
@@ -133,23 +133,23 @@ it: the attributes, a random forest from the training points and the accuracy ag
 ### Step 1: the objects
 
 ```tfgraph
-#! caption: The first nodes: the clip, its reflectance, and the objects at the scale 4 (739 of them, as in part 2 but with a larger scale).
+#! caption: The first nodes: the clip, its reflectance, and the objects at the scale 4 (725 of them, as in part 2 but with a larger scale).
 #! highlight: segments
 #! numbered: true
 #! fragment: true
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
-note = "Reflectance, 0 to 1 (nodes data.stac and raster.reproject before it, as in part 2)."
+note = "Reflectance, 0 to 1 (the node data.stac before it, as in part 2)."
 
 [[nodes]]
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 4 }
-note = "739 objects: the scale 4 of part 3."
+note = "725 objects: the scale 4 of part 3."
 ```
 
 ### Step 2: the edits
@@ -180,13 +180,13 @@ The coordinates are in the coordinate system of the objects, here SIRGAS 2000 / 
 id = "edit"
 op = "objects.edit"
 inputs = { objects = "segments.objects", image = "refl.image" }
-params = { edits = [{ merge = [[193035.0, 8245615.0], [192805.0, 8245795.0], [193085.0, 8245835.0], [193255.0, 8245755.0], [193085.0, 8245385.0], [193295.0, 8245475.0], [192845.0, 8245505.0], [193465.0, 8245395.0]] }, { cut = [[193105.0, 8245115.0], [193375.0, 8245115.0]] }, { delete = [192965.0, 8244085.0], into = "neighbour" }] }
-note = "Eight lake objects become one; a line cuts the object between the lake and the town; a white roof is taken by its neighbour."
+params = { edits = [{ merge = [[192955.0, 8245655.0], [193085.0, 8245835.0], [193255.0, 8245755.0], [193095.0, 8245425.0], [193345.0, 8245425.0], [192835.0, 8245385.0], [193005.0, 8245915.0], [192815.0, 8245935.0]] }, { cut = [[193065.0, 8245115.0], [193465.0, 8245115.0]] }, { delete = [192965.0, 8244085.0], into = "neighbour" }] }
+note = "Eight lake objects become one; a line cuts the object at the south edge of the lake; a small stray object is taken by its neighbour."
 ```
 
 The three entries are the three of the figure. The **merge** has eight points, one in each of eight lake objects (the
 first is the survivor, and they are chained: each touches another). The **cut** is a line of two points, along a row
-of cells, from the left edge of the object to its right edge. The **delete** is one point on the white roof.
+of cells, from the left edge of the object to its right edge. The **delete** is one point on the small stray object.
 
 !!! tip "How to find the coordinates"
     In the application you do not: the click gives them. Writing them by hand, read them off the Viewer (it reads out the row, the column
@@ -205,19 +205,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -226,14 +220,14 @@ id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 4 }
-note = "739 objects."
+note = "725 objects."
 
 [[nodes]]
 id = "edit"
 op = "objects.edit"
 inputs = { objects = "segments.objects", image = "refl.image" }
-params = { edits = [{ merge = [[193035.0, 8245615.0], [192805.0, 8245795.0], [193085.0, 8245835.0], [193255.0, 8245755.0], [193085.0, 8245385.0], [193295.0, 8245475.0], [192845.0, 8245505.0], [193465.0, 8245395.0]] }, { cut = [[193105.0, 8245115.0], [193375.0, 8245115.0]] }, { delete = [192965.0, 8244085.0], into = "neighbour" }] }
-note = "Three edits: 733 objects."
+params = { edits = [{ merge = [[192955.0, 8245655.0], [193085.0, 8245835.0], [193255.0, 8245755.0], [193095.0, 8245425.0], [193345.0, 8245425.0], [192835.0, 8245385.0], [193005.0, 8245915.0], [192815.0, 8245935.0]] }, { cut = [[193065.0, 8245115.0], [193465.0, 8245115.0]] }, { delete = [192965.0, 8244085.0], into = "neighbour" }] }
+note = "Three edits: 718 objects."
 
 [[nodes]]
 id = "feat"
@@ -317,7 +311,7 @@ has none). Every status but `done` also gives a warning when the model runs.
 ### The merge: one lake
 
 Eight objects of the lake became one. The classes do not change, since the pieces were all water, but the object does:
-it is 2,962 cells larger than the survivor was (29.6 ha), and its area, its perimeter and its texture are those of a
+it is 2,866 cells larger than the survivor was (28.7 ha), and its area, its perimeter and its texture are those of a
 lake and not of a piece of one.
 
 ```tfcompare
@@ -328,23 +322,23 @@ after: { src: /img/tutorials/object-based-image-analysis/editing-by-hand/merge_a
 
 ### The cut: two things, two objects
 
-The object at the bottom of the lake held the bare ground of the shore and the first roofs of the town, 895 cells
-(8.95 ha). The forest of the objects before the edit called all of it **bare soil**. The line along one row of cells
-splits it into the ground above and the roofs below, and the same forest calls the lower piece **urban**.
+The object at the south edge of the lake held the first blocks of the town, 2,751 cells
+(27.5 ha). The forest of the objects before the edit called all of it **urban**. The line along one row of cells
+splits it into a piece above (738 cells) and a piece below (2,013 cells), and the same forest calls the upper piece **bare soil**, the lower one staying **urban**.
 
 ```tfcompare
-caption: Drag the handle. The pink line (left) is the cut; the object has a ground piece above and a piece of roofs below (right). The classes are those of the same forest on both.
+caption: Drag the handle. The pink line (left) is the cut; the object has a piece above, now bare soil, and a piece below, still urban (right). The classes are those of the same forest on both.
 before: { src: /img/tutorials/object-based-image-analysis/editing-by-hand/cut_before.png, label: Before }
 after: { src: /img/tutorials/object-based-image-analysis/editing-by-hand/cut_after.png, label: After the cut }
 ```
 
-The cut gave three objects, not two: 712 cells of ground, 180 of roofs, and a piece of **3 cells** at the end of the
-line that the cut left apart. A cut by a straight line along a crooked edge leaves such slivers. Look for them, and delete
+The cut gave two objects, with no sliver this time: 738 cells above and 2,013 below. On another object it can give three, with a piece of a few cells at the end of the
+line that the cut left apart: a cut by a straight line along a crooked edge leaves such slivers. Look for them, and delete
 them into a neighbour as in the next edit.
 
-### The delete: a roof the forest could not place
+### The delete: a stray object the forest could not place
 
-The object on the white roof, 35 cells, had no neighbour like it, and the forest called it bare soil in the middle of
+The small object under the cross, 20 cells, had no neighbour like it, and the forest called it cerrado in the middle of
 the town. With `into = "neighbour"` it is taken by the neighbour with the nearest band means, an urban object, and it is
 urban now.
 
@@ -360,7 +354,7 @@ belongs to a neighbour, use the neighbour.
 
 ### What the edits do to the map
 
-The three edits turn 739 objects into 733. What they do to the classes is told by two numbers, and the second is not the
+The three edits turn 725 objects into 718. What they do to the classes is told by two numbers, and the second is not the
 one you would expect.
 
 ```tftable
@@ -369,15 +363,15 @@ labels: { what: "The forest", cells_changed_class: "Cells that changed class", o
 align: { what: left }
 digits: { cells_changed_class: 0, overall_objects: 3 }
 format: { overall_objects: "{v}" }
-caption: "The map after the edits against the map before, in two ways. Of 336,400 cells, the same forest changes 930 on the edited objects; a forest trained again on the edited objects changes 12,237. The accuracy is that of the 67 reference points."
+caption: "The map after the edits against the map before, in two ways. Of 336,400 cells, the same forest changes 758 on the edited objects; a forest trained again on the edited objects changes 4,053. The accuracy is that of the 67 reference points."
 ```
 
 The first row is the effect of the edits alone: the forest, trained on the objects as they were, is applied to the
-edited objects. 930 cells (0.3 %) change class, and the accuracy is the same as before. The second row is what you get
+edited objects. 758 cells (0.2 %) change class, and the accuracy is the same as before. The second row is what you get
 if you **run the model again**, as you would: the training points are resolved to objects again, and one of
-them has changed. The water of the training set was 11 objects of 8,827 cells, and is now 10 objects of 11,427, because two
+them has changed. The water of the training set was 13 objects of 7,140 cells, and is now 11 objects of 9,968, because two
 training points were on lake objects that are one now. The forest is trained on a slightly different table, a forest
-of 87 samples is sensitive to that, and 12,237 cells (3.6 %) change class, well away from the edits.
+of 87 samples is sensitive to that, and 4,053 cells (1.2 %) change class, well away from the edits.
 
 ```tftable
 data: /data/tutorials/object-based-image-analysis/editing-by-hand/training_counts.csv
@@ -387,10 +381,10 @@ digits: 0
 caption: "What objects.samples picked before and after the edits. The merge put two water points on one object."
 ```
 
-The accuracy against the 67 reference points goes from 85.1 % (57 objects) to 80.6 % (54). That is three objects, and the
-interval is of about plus or minus 9 to 10 points, so **it says nothing about whether the edits helped**; the matrix
-shows where they went: the forest called no reference object bare soil after the second training (the class has
-8 training objects). The lesson is not about these edits. It is that **anything you change upstream of the training
+The accuracy against the 67 reference points goes from 76.1 % (51 objects) to 74.6 % (50). That is one object, and the
+interval is of about plus or minus 12 points, so **it says nothing about whether the edits helped**; the matrix
+shows where it went: after the second training the forest calls one more urban reference object forest (the bare soil class has
+7 training objects). The lesson is not about these edits. It is that **anything you change upstream of the training
 changes the training**, and a classifier of a few dozen samples needs to be looked at again when it does. Look at the
 training counts after an edit that merges objects, and at the classes, not only at the edited objects.
 
@@ -411,11 +405,11 @@ are written above, on the scales 3, 4, 6 and 8 of the multiresolution and on SLI
 label: Segmentation
 caption: "The same three edits on five segmentations of the same part of the clip (outlines in yellow). White dots with a magenta ring: the merge; the pink line: the cut; the cross: the delete. The numbers are objects before and after the edits, and the cells each edit moved."
 frames:
-  - { value: 1, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_scale3.png, caption: "Multiresolution, scale 3", stats: { Objects: "1,338 to 1,337", Merge: "partly (972 cells)", Cut: "done (19)", Delete: "done (35)" } }
-  - { value: 2, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_scale4.png, caption: "Multiresolution, scale 4", stats: { Objects: "739 to 733", Merge: "done (2,962)", Cut: "done (183)", Delete: "done (35)" } }
-  - { value: 3, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_scale6.png, caption: "Multiresolution, scale 6", stats: { Objects: "313 to 309", Merge: "done (3,113)", Cut: "done (3)", Delete: "done (153)" } }
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_scale8.png, caption: "Multiresolution, scale 8", stats: { Objects: "187 to 184", Merge: "done (3,291)", Cut: "done (3)", Delete: "done (153)" } }
-  - { value: 5, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_SLIC.png, caption: "SLIC, size 25", stats: { Objects: "508 to 502", Merge: "done (3,570)", Cut: "done (493)", Delete: "done (999)" } }
+  - { value: 1, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_scale3.png, caption: "Multiresolution, scale 3", stats: { Objects: "1,338 to 1,334", Merge: "partly (1,846 cells)", Cut: "done (443)", Delete: "done (20)" } }
+  - { value: 2, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_scale4.png, caption: "Multiresolution, scale 4", stats: { Objects: "725 to 718", Merge: "done (2,866)", Cut: "done (2,013)", Delete: "done (20)" } }
+  - { value: 3, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_scale6.png, caption: "Multiresolution, scale 6", stats: { Objects: "308 to 304", Merge: "done (3,154)", Cut: "done (368)", Delete: "done (147)" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_scale8.png, caption: "Multiresolution, scale 8", stats: { Objects: "175 to 172", Merge: "done (1,473)", Cut: "no split (0)", Delete: "done (147)" } }
+  - { value: 5, src: /img/tutorials/object-based-image-analysis/editing-by-hand/on_SLIC.png, caption: "SLIC, size 25", stats: { Objects: "491 to 485", Merge: "done (3,864)", Cut: "done (439)", Delete: "done (988)" } }
 ```
 
 ```tftable
@@ -426,7 +420,7 @@ align: { segmentation: left, merge_status: left, cut_status: left, delete_status
 digits: 0
 badge:
   merge_status: { done: good, partly: warning }
-  cut_status: { done: good, partly: warning }
+  cut_status: { done: good, partly: warning, "no split": warning }
   delete_status: { done: good, partly: warning }
 caption: "The report of the node edit on each segmentation: the edits found their objects every time, but what they did is not the same."
 ```
@@ -435,11 +429,11 @@ All the edits found an object on every segmentation, which is what the design is
 
 - **The merge** joined the lake at every scale, but at the scale 3 it is `partly`: some of the objects at the eight points
   do not touch the first one at that scale, where the objects are smaller, so Terraflux left them apart and warned. It
-  moved 972 cells and not 2,962.
-- **The cut** is a line of 28 cells along a row, drawn for one object of the scale 4. At the scale 3 it moved 19 cells, at
-  the scales 6 and 8 only 3: the edit is `done` and does almost nothing there. With SLIC it moved 493.
-- **The delete** is the dangerous one. A point on a 35-cell roof is on a 153-cell object at the scales 6 and 8, and on a
-  999-cell object with SLIC: the same edit deleted **a whole object** each time, taken by its neighbour. It said `done`.
+  moved 1,846 cells and not 2,866.
+- **The cut** is a line of 41 cells along a row, drawn for one object of the scale 4. At the scale 3 it moved 443 cells, at
+  the scale 6 368, and at the scale 8 nothing: the line separates no object there (`no split`). With SLIC it moved 439.
+- **The delete** is the dangerous one. A point on a 20-cell object is on a 147-cell object at the scales 6 and 8, and on a
+  988-cell object with SLIC: the same edit deleted **a whole object** each time, taken by its neighbour. It said `done`.
 
 An edit that says `done` has done what it was told, not what you meant. After a change of the segmentation, **look at
 every edit again** on the Viewer, or remove the ones that no longer fit: edit the setting of the node (the list is
@@ -465,10 +459,10 @@ data: /data/tutorials/object-based-image-analysis/editing-by-hand/alternatives.c
 labels: { choice: "Segmentation", objects: Objects, sampled: "Reference objects", overall_objects: "Overall accuracy", overall_adjusted: "Area-adjusted", kappa: Kappa }
 align: { choice: left }
 digits: { objects: 0, sampled: 0, overall_objects: 3, overall_adjusted: 3, kappa: 3 }
-caption: "The accuracy of the same random forest on the same reference points with other objects. The scale 3 and 2 have more objects (1,338 and 3,035) and the same reference points land on fewer distinct objects (61 and 60)."
+caption: "The accuracy of the same random forest on the same reference points with other objects. The scale 3 and 2 have more objects (1,338 and 2,973) and the same reference points land on fewer distinct objects (62 and 60)."
 ```
 
-A smaller scale makes the objects smaller everywhere: 3,035 objects at the scale 2, four times as many as at 4, and it
+A smaller scale makes the objects smaller everywhere: 2,973 objects at the scale 2, four times as many as at 4, and it
 would also cut the object between the lake and the town. It would **also** break the lake into more pieces, and the
 accuracy of 67 or 60 points cannot tell the four apart. Three edits cost three objects' worth of attention. A smaller
 scale costs everything.

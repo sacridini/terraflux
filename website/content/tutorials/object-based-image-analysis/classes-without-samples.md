@@ -12,7 +12,7 @@ part: 9
 ---
 
 In part 5 you told Terraflux what a few objects were and it classified the rest. Here you do the opposite: you give
-it no samples at all. You ask it to **group** the 3,035 objects of the Sentinel-2 image of Brasília by how alike their
+it no samples at all. You ask it to **group** the 2,973 objects of the Sentinel-2 image of Brasília by how alike their
 attributes are, and only afterwards, by looking at what each group is made of, you give the groups names. You will use two
 tools for it, [[ml.kmeans]] and [[ml.som]] (a self-organizing map), apply them to the objects with
 [[objects.classify]], and compare the result with part 5's random forest. At the end you will know when grouping is
@@ -34,7 +34,7 @@ the texture...). Objects of the same cover lie close together; clustering finds 
 **k-means** is the oldest and the most used. You say how many groups you want, \( k \). The method puts \( k \)
 **centres** in the feature space, gives each object to its nearest centre, moves each centre to the mean of its objects, and
 repeats until nothing moves (Lloyd, 1982). The first centres are chosen with the *k-means++* rule, which spreads them
-out (Arthur & Vassilvitskii, 2007), and the whole is run `n_init` = 10 times from different starts, keeping the
+out (Arthur & Vassilvitskii, 1919), and the whole is run `n_init` = 10 times from different starts, keeping the
 run with the smallest total distance from each object to its centre (the **inertia**).
 
 Two practical points matter more than the algorithm.
@@ -109,7 +109,7 @@ another (a dark forest and the cerrado) may have no cluster of its own. Then use
 ## What you need
 
 - **The objects and their attributes**: the Sentinel-2 clip of Lago Paranoá, cut by [[segment.multiresolution]] at the scale 2
-  into 3,035 objects and described by [[objects.features]] (parts 2 to 4). No samples.
+  into 2,973 objects and described by [[objects.features]] (parts 2 to 4). No samples.
 - **The attributes you want to group by, named**: the `columns` of the two operators. This is the most
   important setting of the page and it has its own section.
 - **A reference, only to check**: the 80 reference objects of part 5
@@ -124,7 +124,7 @@ another (a dark forest and the cerrado) may have no cluster of its own. Then use
 
 ### Steps 1 to 5: the objects and their attributes
 
-The same five nodes as in part 5: [[data.stac]], [[raster.reproject]] and [[raster.calc]] (the reflectance) read the scene,
+The same four nodes as in part 5: [[data.stac]] and [[raster.calc]] (the reflectance) read the scene,
 [[segment.multiresolution]] cuts it at the scale 2, and [[objects.features]] describes the objects. The attributes
 are the colour (the mean of each band), the three indices, the texture of the brightness and the compactness. Their
 table, the `table` output of [[objects.features]], is what the grouping reads: a row per object, a column per attribute.
@@ -179,7 +179,7 @@ the `centres` table and looking at the map (see *Read the results*).
 [[ml.som]] has the same inputs as [[ml.kmeans]] and the same `columns`. Its own settings:
 
 - **`rows` and `cols`** are the size of the grid. Without them the grid has about \( 5\sqrt{n} \) nodes for \( n \)
-  objects (Vesanto's rule), here 20 by 14 = 280 nodes for 3,035 objects, a note says so. We will see that
+  objects (Vesanto's rule), here 20 by 14 = 280 nodes for 2,973 objects, a note says so. We will see that
   this is too many, and use 8 by 8.
 - **`clusters`** is the number of groups of nodes (0, the default, gives none), and **`grouping`** is `ward` (default) or `kmeans`.
 - `training` is `batch` (default: all the objects, then the weights) or `online` (one object at a time, in random order); `topology`
@@ -204,19 +204,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -225,7 +219,7 @@ id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects."
+note = "2,973 objects."
 
 [[nodes]]
 id = "feat"
@@ -314,7 +308,7 @@ params = { design = "objects" }
     [reference_samples.csv](/data/tutorials/object-based-image-analysis/classes-without-samples/reference_samples.csv)
     (80 rows, the columns `x`, `y` and `class`) and run
     `terraflux run groups.toml --threads 4 --out output`. The model reads the scene from Earth Search; without a
-    network, replace the `s2` and `utm` nodes by a [[raster.read]] of the clip
+    network, replace the `s2` node by a [[raster.read]] of the clip
     ([sentinel2_brasilia.tif](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif), the same grid, Int16: the `refl`
     node divides it by 10,000). The script that made this page's figures is `classes-without-samples.py`, in
     `website/figures/object-based-image-analysis/`.
@@ -329,7 +323,7 @@ Run [[ml.kmeans]] with `k = "auto"`. Its `choice` table, one row per k:
 data: /data/tutorials/object-based-image-analysis/classes-without-samples/choice.csv
 labels: { k: "k", inertia: "Inertia", silhouette: "Silhouette", calinski_harabasz: "Calinski-Harabasz" }
 digits: { k: 0, inertia: 0, silhouette: 3, calinski_harabasz: 0 }
-caption: "ml.kmeans with k = auto on the 3,035 objects: what each k from 2 to 10 gives. The best silhouette, at k = 3, is the one that the operator keeps (and says so in a note)."
+caption: "ml.kmeans with k = auto on the 2,973 objects: what each k from 2 to 10 gives. The best silhouette, at k = 3, is the one that the operator keeps (and says so in a note)."
 ```
 
 ```tfchart
@@ -342,10 +336,10 @@ colors: { silhouette: "#3b8a5a" }
 xlabel: "Number of clusters k"
 ylabel: "Mean silhouette"
 height: 260
-caption: "The silhouette of k = 2 to 10. It peaks at k = 3 (0.337) and then stays between 0.27 and 0.30."
+caption: "The silhouette of k = 2 to 10. It peaks at k = 3 (0.336) and then stays between 0.27 and 0.31."
 ```
 
-The inertia falls steadily (from 25,535 to 8,553) and has no elbow to speak of. The silhouette is highest at k = 3 and **low everywhere**
+The inertia falls steadily (from 25,485 to 8,460) and has no elbow to speak of. The silhouette is highest at k = 3 and **low everywhere**
 (0.27 to 0.34), and the operator's advice says to be careful when it is below 0.25. These objects are a continuum, not
 a few clean clouds: the town grades into the garden trees, the garden trees into the gallery forest. k = 3 is the cut with
 the clearest gap, and here is what it is:
@@ -365,13 +359,13 @@ reference, the share of the 80 reference objects that fall in the cluster where 
 label: Number of clusters k
 caption: "ml.kmeans with k from 2 to 8 on the same twelve attributes. The numbers (and the colours) of the clusters follow their position along the first principal component of their centres, so they change little as k grows."
 frames:
-  - { value: 2, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_2.png, caption: "k = 2", stats: { Silhouette: "0.293", "Purity against the reference": "42.5 %" } }
-  - { value: 3, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_3.png, caption: "k = 3 (the best silhouette)", stats: { Silhouette: "0.337", "Purity against the reference": "57.5 %" } }
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_4.png, caption: "k = 4", stats: { Silhouette: "0.297", "Purity against the reference": "68.8 %" } }
-  - { value: 5, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_5.png, caption: "k = 5", stats: { Silhouette: "0.301", "Purity against the reference": "78.7 %" } }
-  - { value: 6, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_6.png, caption: "k = 6", stats: { Silhouette: "0.302", "Purity against the reference": "81.2 %" } }
-  - { value: 7, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_7.png, caption: "k = 7", stats: { Silhouette: "0.282", "Purity against the reference": "80.0 %" } }
-  - { value: 8, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_8.png, caption: "k = 8", stats: { Silhouette: "0.285", "Purity against the reference": "80.0 %" } }
+  - { value: 2, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_2.png, caption: "k = 2", stats: { Silhouette: "0.286", "Purity against the reference": "42.5 %" } }
+  - { value: 3, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_3.png, caption: "k = 3 (the best silhouette)", stats: { Silhouette: "0.336", "Purity against the reference": "60.0 %" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_4.png, caption: "k = 4", stats: { Silhouette: "0.302", "Purity against the reference": "71.3 %" } }
+  - { value: 5, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_5.png, caption: "k = 5", stats: { Silhouette: "0.300", "Purity against the reference": "85.0 %" } }
+  - { value: 6, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_6.png, caption: "k = 6", stats: { Silhouette: "0.305", "Purity against the reference": "85.0 %" } }
+  - { value: 7, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_7.png, caption: "k = 7", stats: { Silhouette: "0.284", "Purity against the reference": "86.3 %" } }
+  - { value: 8, src: /img/tutorials/object-based-image-analysis/classes-without-samples/k_8.png, caption: "k = 8", stats: { Silhouette: "0.286", "Purity against the reference": "87.5 %" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/classes-without-samples/k_slider.csv
@@ -396,15 +390,15 @@ caption: "The five clusters of k-means: how many objects each holds and the valu
 
 Read it as you would read a field description.
 
-- **Cluster 1**, 144 objects, NDWI 0.53 and NIR 0.01: nothing reflects in the near infrared. **Water.**
-- **Cluster 2**, 728 objects, NDVI 0.45, smooth texture (contrast 0.5, homogeneity 0.82), a red of 0.07: green but
+- **Cluster 1**, 132 objects, NDWI 0.54 and NIR 0.01: nothing reflects in the near infrared. **Water.**
+- **Cluster 2**, 728 objects, NDVI 0.45, smooth texture (contrast 0.6, homogeneity 0.81), a red of 0.07: green but
   dry and uniform. **Cerrado.**
-- **Cluster 3**, 500 objects, the highest NDVI of the five (0.67), the darkest red of the land clusters (0.04) and a
-  rougher texture than the cerrado (contrast 1.7): **forest**, the dark canopy with its own shadows.
-- **Cluster 4**, 1,129 objects, NDVI 0.38, texture contrast 4.9, homogeneity 0.46: a mix of roofs, gardens and streets in
+- **Cluster 3**, 557 objects, the highest NDVI of the five (0.67), the darkest red of the land clusters (0.04) and a
+  rougher texture than the cerrado (contrast 2.4): **forest**, the dark canopy with its own shadows.
+- **Cluster 4**, 1,159 objects, NDVI 0.36, texture contrast 6.3, homogeneity 0.43: a mix of roofs, gardens and streets in
   one object. **Urban**, the common kind.
-- **Cluster 5**, 534 objects, the brightest (red 0.17), the lowest NDVI of the land clusters (0.21) and the roughest texture
-  (contrast 9.6): bright roofs and bare ground. I could call it *bare soil*; the map says it is mostly sunlit roofs among the
+- **Cluster 5**, 397 objects, the brightest (red 0.18), the lowest NDVI of the land clusters (0.19) and the roughest texture
+  (contrast 11.6): bright roofs and bare ground. I could call it *bare soil*; the map says it is mostly sunlit roofs among the
   gardens, spread all over the town. So I name it **urban** too.
 
 ![The five clusters](/img/tutorials/object-based-image-analysis/classes-without-samples/clusters5.png "The same part of the clip as in the other tutorials, with the objects outlined (left) and their five k-means clusters (right). Cluster 1 is the lake, cluster 2 the cerrado in the lower right, cluster 3 the gallery forest along the streams, clusters 4 and 5 the town.")
@@ -415,7 +409,7 @@ give it a class. Three choices came up in this table, and they are yours, not th
 1. a name may be given to **two clusters**: both urban here. [[objects.reclassify]] joins them into one class;
 2. a class may have **no cluster**: bare soil is 74 ha of this image, 2 % of the objects, and k = 5 spends its clusters on
    the town's variety instead;
-3. a cluster may be **mixed**: cluster 2 is mostly cerrado, but 7 of the 16 reference forest objects fall in it (dark, smooth
+3. a cluster may be **mixed**: cluster 2 is mostly cerrado, but 3 of the 16 reference forest objects fall in it (dark, smooth
    forest looks like cerrado to the attributes).
 
 ### Named and checked
@@ -428,12 +422,12 @@ data: /data/tutorials/object-based-image-analysis/classes-without-samples/mat_na
 heat: true
 digits: 0
 align: { "Map \\ reference": left }
-caption: "Named k-means (k = 5): the 80 reference objects by the class the map gave (rows) and their true class (columns). 63 are on the diagonal. Bare soil has no row of its own: no cluster was named after it."
+caption: "Named k-means (k = 5): the 80 reference objects by the class the map gave (rows) and their true class (columns). 68 are on the diagonal. Bare soil has no row of its own: no cluster was named after it."
 ```
 
-The overall accuracy by objects is **78.8 %** (63 of 80), kappa 0.72, and 80.9 % after the area adjustment of
-part 5 (`design = "objects"`: the reference has one object per point, each weighted by its area). Water is right in all 16 objects, cerrado in 18 of 25 (the 7 forest objects that went to cerrado), and the 6 reference
-bare soil objects are all called urban, since no cluster is named after them.
+The overall accuracy by objects is **85.0 %** (68 of 80), kappa 0.80, and 84.6 % after the area adjustment of
+part 5 (`design = "objects"`: the reference has one object per point, each weighted by its area). Water is right in all 16 objects, cerrado in 18 of 21 (the 3 forest objects that went to cerrado), and 5 of the 6 reference
+bare soil objects are called urban (the sixth, forest), since no cluster is named after them.
 
 Now the same with the self-organizing map and for part 5's forest, on the same reference:
 
@@ -447,7 +441,7 @@ caption: "The three maps against the same 80 reference objects. The random fores
 
 ![The three maps side by side](/img/tutorials/object-based-image-analysis/classes-without-samples/compare.png "The part of the clip of the other tutorials: the true colours with the objects, part 5's random forest, the named k-means and the named SOM (8 x 8 nodes, 5 groups). The three agree on the lake, the cerrado and the town, and differ in the forest and in the bare soil.")
 
-**On this image the two unsupervised maps are as accurate as the supervised one**: 78.8 % and 80.0 % against 80.0 %. Do not
+**On this image the two unsupervised maps are as accurate as the supervised one**: 85.0 % and 78.8 % against 82.5 %. Do not
 read that as "samples are not needed". It says three things instead.
 
 - This landscape has a few well-separated covers (water, the dry cerrado, the town) and the five classes are the ones
@@ -468,26 +462,26 @@ columns: [cluster, "bare soil", cerrado, forest, urban, water]
 align: { cluster: left }
 digits: 0
 heat: true
-caption: "Hectares of each k-means cluster (rows) in each class of part 5's random forest (columns). 78.8 % of the cells have the same class on both maps."
+caption: "Hectares of each k-means cluster (rows) in each class of part 5's random forest (columns). 81.1 % of the cells have the same class on both maps."
 ```
 
-The two maps agree on 78.8 % of the cells. The water is nearly the same (191 ha of cluster 1 are water in the forest
-map; the other 31 ha the forest map calls forest). The big difference is in cluster 2: 705 ha of cerrado and
-**334 ha that the forest map calls forest**, dark and smooth stands that the unsupervised method cannot tell from dry grass without
+The two maps agree on 81.1 % of the cells. The water is nearly the same (199 ha of cluster 1 are water in the forest
+map; the other 21 ha the forest map calls forest). The big difference is in cluster 2: 691 ha of cerrado and
+**367 ha that the forest map calls forest**, dark and smooth stands that the unsupervised method cannot tell from dry grass without
 the samples that told the forest about them.
 
 ### The self-organizing map
 
-The same attributes through [[ml.som]]. With the default grid (Vesanto's rule) the map has 20 by 14 = 280 nodes for 3,035 objects, about 11
-per node, and 21 of the nodes are empty:
+The same attributes through [[ml.som]]. With the default grid (Vesanto's rule) the map has 20 by 14 = 280 nodes for 2,973 objects, about 11
+per node, and 22 of the nodes are empty:
 
 ![The default map](/img/tutorials/object-based-image-analysis/classes-without-samples/som-default.png "The 20 x 14 map: U-matrix, objects on each node and the five groups of nodes (Ward's method). The yellow corners of the U-matrix and the count are the nodes that hold the lake (top left), at the end of the map.")
 
-The four corner nodes hold 145, 174, 126 and 82 objects (the lake is the one at the top left) and the rest are spread thin.
+The four corner nodes hold 134, 179, 114 and 113 objects (the lake is the one at the top left) and the rest are spread thin.
 Look at the groups: one of them joins the water and **a type of cerrado** (the reference says 16 water and 18
 cerrado objects are in the same group). The probable reason is that Ward's method groups the *nodes*, each one counting once whatever it holds,
-so the many thinly filled nodes between the lake and the vegetation weigh as much as the node with the lake's 145 objects. With 280 nodes the map
-is too big for 3,035 objects. A smaller grid, 8 by 8:
+so the many thinly filled nodes between the lake and the vegetation weigh as much as the node with the lake's 134 objects. With 280 nodes the map
+is too big for 2,973 objects. A smaller grid, 8 by 8:
 
 ![The 8 x 8 map](/img/tutorials/object-based-image-analysis/classes-without-samples/som-codebook.png "The 8 x 8 map: U-matrix, objects on each node and the five groups (top); NDVI, NDWI and texture contrast of the nodes' weights (bottom). The lake is the top-left corner, the U-matrix is high around it, NDVI grows to the right, texture contrast down.")
 
@@ -504,12 +498,12 @@ The grid size is a setting that changes the answer, so it has a slider:
 label: Grid of the map
 caption: "ml.som with clusters = 5 on grids from 3 x 3 to the default 20 x 14. The groups of each map are painted in the same colours as for k-means. Purity is the share of the reference objects that are in the group where their own class is the most frequent."
 frames:
-  - { value: 9, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_3x3.png, caption: "3 x 3 nodes", stats: { "Objects per node": "337", "Quantisation error": "1.73", "Empty nodes": "0", Purity: "71.3 %" } }
-  - { value: 16, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_4x4.png, caption: "4 x 4 nodes", stats: { "Objects per node": "190", "Quantisation error": "1.63", "Empty nodes": "0", Purity: "83.8 %" } }
-  - { value: 36, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_6x6.png, caption: "6 x 6 nodes", stats: { "Objects per node": "84", "Quantisation error": "1.49", "Empty nodes": "1", Purity: "83.8 %" } }
-  - { value: 64, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_8x8.png, caption: "8 x 8 nodes (the page's)", stats: { "Objects per node": "47", "Quantisation error": "1.43", "Empty nodes": "2", Purity: "80.0 %" } }
-  - { value: 120, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_12x10.png, caption: "12 x 10 nodes", stats: { "Objects per node": "25", "Quantisation error": "1.45", "Empty nodes": "6", Purity: "85.0 %" } }
-  - { value: 280, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_20x14.png, caption: "20 x 14 nodes (Vesanto's rule, the default)", stats: { "Objects per node": "11", "Quantisation error": "1.50", "Empty nodes": "21", Purity: "66.2 %" } }
+  - { value: 9, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_3x3.png, caption: "3 x 3 nodes", stats: { "Objects per node": "337", "Quantisation error": "1.71", "Empty nodes": "0", Purity: "72.5 %" } }
+  - { value: 16, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_4x4.png, caption: "4 x 4 nodes", stats: { "Objects per node": "190", "Quantisation error": "1.62", "Empty nodes": "0", Purity: "86.3 %" } }
+  - { value: 36, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_6x6.png, caption: "6 x 6 nodes", stats: { "Objects per node": "84", "Quantisation error": "1.46", "Empty nodes": "1", Purity: "71.3 %" } }
+  - { value: 64, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_8x8.png, caption: "8 x 8 nodes (the page's)", stats: { "Objects per node": "47", "Quantisation error": "1.41", "Empty nodes": "2", Purity: "78.7 %" } }
+  - { value: 120, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_12x10.png, caption: "12 x 10 nodes", stats: { "Objects per node": "25", "Quantisation error": "1.43", "Empty nodes": "6", Purity: "71.3 %" } }
+  - { value: 280, src: /img/tutorials/object-based-image-analysis/classes-without-samples/grid_20x14.png, caption: "20 x 14 nodes (Vesanto's rule, the default)", stats: { "Objects per node": "11", "Quantisation error": "1.47", "Empty nodes": "22", Purity: "65.0 %" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/classes-without-samples/grids.csv
@@ -519,13 +513,13 @@ chart:
   ylabel: "Purity"
 ```
 
-From 16 to 120 nodes the groups are much the same (purity 80 to 85 %) and the water is a group of its own. At 3 by 3 the
+From 16 to 120 nodes the purity moves between 71 and 86 %, and the water is a group of its own in the 4 by 4 and the 8 by 8 maps but not in the 6 by 6 or the 12 by 10: the grid changes which classes get a group. At 3 by 3 the
 map is too coarse to separate the cerrado from the forest; at 20 by 14 the water joins another group. The quantisation error
-fell from 1.73 (3 by 3) to 1.43 (8 by 8) and rose again for the bigger grids (1.45, 1.50): it is **not** the way to choose, because
-it measures how close the nodes are to the objects, not whether the groups are classes. The topographic error stays at 0.6 % or less
+fell from 1.71 (3 by 3) to 1.41 (8 by 8) and rose again for the bigger grids (1.43, 1.47): it is **not** the way to choose, because
+it measures how close the nodes are to the objects, not whether the groups are classes. The topographic error stays at 0.8 % or less
 in all of them, so none of the maps is folded.
 
-The named SOM (8 by 8) gives 80.0 % by objects, kappa 0.74, 84.6 % adjusted: the same by objects as the forest, and a few points higher than the k-means (80.9 %) and the forest (81.1 %) once each object counts by its area; with only 80 reference objects it is not a difference to rely on. What
+The named SOM (8 by 8) gives 78.8 % by objects, kappa 0.72, 78.2 % adjusted: a little lower by objects than the forest (82.5 %) and the k-means (85.0 %), and lower than both (85.5 % and 84.6 %) once each object counts by its area; with only 80 reference objects it is not a difference to rely on. What
 the SOM adds is the *picture*: the map of the feature space, in which you see how the classes lie to each other, the gaps
 between them and the nodes between two types, which k-means does not show.
 
@@ -546,8 +540,8 @@ digits: { count: 0, silhouette: 3, same_as_first: 3 }
 caption: "k-means with k = 5 with the attributes named and with no columns."
 ```
 
-The two maps look alike, and 92 % of the cells land in the same cluster, so you could miss it. But the silhouette falls from 0.30 to 0.25,
-and the clusters now differ in their *object number* (the mean `id` runs from 406 in the lake cluster to 2,427 in the
+The two maps look alike, and 91 % of the cells land in the same cluster, so you could miss it. But the silhouette falls from 0.30 to 0.25,
+and the clusters now differ in their *object number* (the mean `id` runs from 406 in the lake cluster to 2,365 in the
 cerrado one) and in their *size* (the mean area from 8,100 to 15,500 m2). An object's number is an accident of the segmentation and means nothing for the
 cover, and its size is already told by the texture and the shape. The rule: **always name `columns`**, and never
 include id, cells, area or the coordinates of the centroid.
@@ -563,7 +557,7 @@ it off only for variables in the same unit (all bands, as reflectances).
 Both operators have a `seed`. For k-means it sets the starting centres (and the sample drawn, above a million records, which does not
 happen with objects); the SOM starts from the principal components by default (`init = "pca"`), so its seed matters only with
 `init = "random"`, with `training = "online"` or with a sample. We ran k-means and the 8 by 8 SOM with five seeds: the cluster
-of each cell is the same in all the runs but for 0.1 % of the cells in one run of k-means. The groups are steady because the best of 10 starts is kept, and the numbering by
+of each cell is the same in all the runs but for 0.2 % of the cells in some runs of k-means. The groups are steady because the best of 10 starts is kept, and the numbering by
 the first principal component makes them comparable. With a bigger k or with noisier data the seed matters more: check with
 two or three seeds before you trust a map.
 
@@ -604,7 +598,7 @@ uses the means and scales of the fit, the new data must have the same attributes
 
 ## References
 
-- Arthur, D., & Vassilvitskii, S. (2007). k-means++: the advantages of careful seeding. *Proceedings of the Eighteenth Annual
+- Arthur, D., & Vassilvitskii, S. (1919). k-means++: the advantages of careful seeding. *Proceedings of the Eighteenth Annual
   ACM-SIAM Symposium on Discrete Algorithms (SODA '07)*, 1027-1035.
 - Kohonen, T. (1982). Self-organized formation of topologically correct feature maps. *Biological Cybernetics*, 43(1), 59-69.
   https://doi.org/10.1007/BF00337288

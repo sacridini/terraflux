@@ -82,7 +82,7 @@ Use SAM when:
   (roofs, trees, cars, ponds) are tens of cells wide and have **clear outlines**;
 - you want **the outline of each thing** more than you want objects homogeneous in colour: a roof with two slopes of different tone is one
   object for SAM and two for a colour-based method;
-- you can afford the time (about half a second per prompt on two cores, and about half a minute before the first) and about 3.6 GB of memory.
+- you can afford the time (about 0.12 s per prompt on two cores, and about 4 s before the first) and about 3.6 GB of memory.
 
 Do **not** use SAM when:
 
@@ -109,7 +109,7 @@ a bad segmentation, and do not use a model of RGB photographs on a multispectral
   [naip_plano.tif](/data/tutorials/object-based-image-analysis/naip_plano.tif) (2.9 MB, 1,000 by 1,000 cells);
   [ATTRIBUTION.txt](/data/tutorials/object-based-image-analysis/ATTRIBUTION.txt) has their credits.
 - **Memory and patience.** Every SAM run below peaked at **3.6 GB** whatever the image, and took
-  from half a minute to several minutes on two cores. Try it on a small window first.
+  from 10 seconds to a minute and a half on two cores. Try it on a small window first.
 
 ## Build the model
 
@@ -148,19 +148,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "The scene of 9 August 2024, five bands."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1 (SAM stretches the bands itself)."
 
@@ -241,16 +235,16 @@ The same Sentinel-2 clip, with 4, 8 and 16 prompts per side. Move the slider.
 label: Prompts per side
 caption: "SAM on the Sentinel-2 clip (580 by 580 cells of 10 m) with a grid of 4, 8 and 16 prompts per side: the outlines over the same part of the clip as in part 2. Objects are counted over the whole clip."
 frames:
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/deep-segmentation/s2_sam4.png, caption: "4 by 4 prompts", stats: { Objects: "3", Prompts: "16", Seconds: "33" } }
-  - { value: 8, src: /img/tutorials/object-based-image-analysis/deep-segmentation/s2_sam8.png, caption: "8 by 8 prompts", stats: { Objects: "11", Prompts: "64", Seconds: "63" } }
-  - { value: 16, src: /img/tutorials/object-based-image-analysis/deep-segmentation/s2_sam16.png, caption: "16 by 16 prompts", stats: { Objects: "155", Prompts: "256", Seconds: "177" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/deep-segmentation/s2_sam4.png, caption: "4 by 4 prompts", stats: { Objects: "3", Prompts: "16", Seconds: "10" } }
+  - { value: 8, src: /img/tutorials/object-based-image-analysis/deep-segmentation/s2_sam8.png, caption: "8 by 8 prompts", stats: { Objects: "7", Prompts: "64", Seconds: "13" } }
+  - { value: 16, src: /img/tutorials/object-based-image-analysis/deep-segmentation/s2_sam16.png, caption: "16 by 16 prompts", stats: { Objects: "58", Prompts: "256", Seconds: "24" } }
 ```
 
 What SAM finds in this window, at every grid, is **the lake**, with an outline that follows the shore well. The town, the roads and the cerrado are
-left in one huge "leftover" object (`fill`): with 16 by 16 prompts it holds 91 % of the window's cells, the lake is the second
-largest (7 %), and the 62 others are small. The masks that would cover a block of houses, a ten-metre road or a
+left in one huge "leftover" object (`fill`): with 16 by 16 prompts it holds 92 % of the window's cells, the lake is the second
+largest (6 %), and the 56 others are small. The masks that would cover a block of houses, a ten-metre road or a
 patch of grass are not things the model draws at this resolution: a house is one or two cells. With 16 by 16 prompts the
-clip has 155 objects, against 2,599 for the multiresolution method at the scale of part 3, a mean of 21.7 ha per object (about 217
+clip has 58 objects, against 1,911 for the multiresolution method at the scale 2.5 of part 3, a mean of 58.0 ha per object (about 5,800
 cells). The 4 by 4 grid gives **3 objects** for the whole clip, and no grid we tried gave the town.
 
 At about the same number of objects, SAM is compared with the classical methods on three measures: the share of the image's variance that stays
@@ -265,8 +259,8 @@ data: /data/tutorials/object-based-image-analysis/deep-segmentation/compare_s2.c
 caption: "SAM (16 by 16 prompts) against the multiresolution method and SLIC at about the same number of objects, on the whole 580 by 580 clip. The variance inside is the mean over the five bands."
 ```
 
-SAM is **far less homogeneous** (0.74 of the variance left inside its objects, against 0.44 and 0.39) and **a little better at the shore**
-(0.35 % against 0.52 % and 0.49 %). Both are expected: SAM does not look at the values within an object, and a sharp outline of a
+SAM is **far less homogeneous** (0.75 of the variance left inside its objects, against 0.48 and 0.46) and **a little better at the shore**
+(0.38 % against 0.50 % and 0.47 %). Both are expected: SAM does not look at the values within an object, and a sharp outline of a
 lake is exactly what it is good at.
 
 ### NAIP: where it works
@@ -279,9 +273,9 @@ Now the NAIP image, 0.6 m, a window of 300 by 300 cells (a block of houses, a st
 label: Prompts per side
 caption: "SAM on the NAIP window with 8, 16 and 24 prompts per side. The window is enlarged to SAM's 1024 cells, so 24 prompts fall every 12 cells of the original."
 frames:
-  - { value: 8, src: /img/tutorials/object-based-image-analysis/deep-segmentation/naip_sam8.png, caption: "8 by 8 prompts", stats: { Objects: "17", Prompts: "64", Seconds: "68" } }
-  - { value: 16, src: /img/tutorials/object-based-image-analysis/deep-segmentation/naip_sam16.png, caption: "16 by 16 prompts", stats: { Objects: "128", Prompts: "256", Seconds: "155" } }
-  - { value: 24, src: /img/tutorials/object-based-image-analysis/deep-segmentation/naip_sam24.png, caption: "24 by 24 prompts", stats: { Objects: "171", Prompts: "576", Seconds: "334" } }
+  - { value: 8, src: /img/tutorials/object-based-image-analysis/deep-segmentation/naip_sam8.png, caption: "8 by 8 prompts", stats: { Objects: "17", Prompts: "64", Seconds: "15" } }
+  - { value: 16, src: /img/tutorials/object-based-image-analysis/deep-segmentation/naip_sam16.png, caption: "16 by 16 prompts", stats: { Objects: "128", Prompts: "256", Seconds: "35" } }
+  - { value: 24, src: /img/tutorials/object-based-image-analysis/deep-segmentation/naip_sam24.png, caption: "24 by 24 prompts", stats: { Objects: "171", Prompts: "576", Seconds: "77" } }
 ```
 
 Here SAM does what it was built for. With 24 by 24 prompts the **roofs** are single objects with the shape of the roof (a roof of two
@@ -336,9 +330,9 @@ data: /data/tutorials/object-based-image-analysis/deep-segmentation/sam_runs.csv
 caption: "Every SAM run of this page (quantised weights, on two logical cores). The Sentinel-2 row with 16 prompts and the cells without objects (fill false) is also in the file."
 ```
 
-Across these nine runs the time follows **about 31 s + 0.54 s for each prompt** (a fit to the runs, on two cores, with the quantised weights); the 31 s are
-the encoder and the start of the run. A grid of 24 by 24 took five and a half minutes; the default 16 by 16 about three; 32 by 32 would
-take about ten minutes per tile, by the fit (we did not run it). An image is cut in tiles of 1024 cells and **each tile pays both**, so the cost of a large image is
+Across these nine runs the time follows ***about 4 s + 0.12 s for each prompt** (a fit to the runs, on two cores, with the quantised weights); the 4 s are
+the encoder and the start of the run. A grid of 24 by 24 took a minute and a quarter; the default 16 by 16 between 25 and 35 seconds; 32 by 32 would
+take about two minutes per tile, by the fit (we did not run it). An image is cut in tiles of 1024 cells and **each tile pays both**, so the cost of a large image is
 the number of its tiles times these numbers. The peak memory was **3.6 GB in every run**, from the smallest to the largest grid: it is the encoder's, not
 the image's.
 
@@ -413,7 +407,7 @@ earlier version of Terraflux stopped instead, with `"emb_1" is constant`, and th
 
 ### What the embeddings do
 
-The same 2,599 objects, grouped by k-means into five groups by their **mean bands** (the five numbers of part 9) and by their
+The same 2,599 objects (made at the scale 2.14, on the clip as it was resampled before the series read it straight onto its UTM grid; this section was not run again: the encoder needs `torchgeo` and `onnx`), grouped by k-means into five groups by their **mean bands** (the five numbers of part 9) and by their
 **embeddings** with patches of 8, 16, 32 and 64 cells. Each grouping is scored against the 80 reference points of part 9 (their class
 is known; each group takes the majority class of the points in it, and the score is the share of points that agree): that is a
 guide, not an accuracy (the points are not a probability sample, 80 is few, and one point is 1.25 percentage points).
@@ -467,7 +461,7 @@ of `points`. Start low and a small window; raise it until the things you care ab
 (the operator's advice says so), and lowering `max_area` below 0.9 drops the masks that cover most of a tile. We did not vary them: use
 the defaults first and change one at a time.
 
-**`fill`.** The objects of the clip with and without it: 155 against 137 on the Sentinel-2 clip with 16 prompts. The difference is the
+**`fill`.** The objects of the clip with and without it: 58 against 54 on the Sentinel-2 clip with 16 prompts. The difference is the
 leftover areas between the masks. With `fill` false the cells with no mask have **no object**, which is what you want when the output is
 a set of things (trees, roofs) over a background you do not care about.
 

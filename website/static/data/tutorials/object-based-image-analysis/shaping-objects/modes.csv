@@ -1,8 +1,8 @@
 step,cells,area_ha,patches,edge_km,change_cells
-Before,100771,1007.7,43,182.8,0
-shrink 20 m,72483,724.8,61,179.0,-28288
-open 30 m,95107,951.1,56,171.8,-5664
-"close 30 m (into cerrado, forest)",117841,1178.4,45,125.9,17070
-"fill, holes up to 40 cells",101055,1010.6,43,180.4,284
-"smooth, radius 30 m",98416,984.2,43,176.3,-2355
-"open, close, fill, smooth",110729,1107.3,56,125.4,9958
+Before,100997,1010.0,44,187.8,0
+shrink 20 m,72172,721.7,58,183.0,-28825
+open 30 m,95239,952.4,48,173.2,-5758
+"close 30 m (into cerrado, forest)",119181,1191.8,44,125.1,18184
+"fill, holes up to 40 cells",101259,1012.6,44,185.5,262
+"smooth, radius 30 m",98625,986.2,45,180.1,-2372
+"open, close, fill, smooth",111257,1112.6,48,124.1,10260

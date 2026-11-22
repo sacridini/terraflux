@@ -318,15 +318,14 @@ def large_clip():
         return
     raw = LARGE / "big_raw.tif"
     if not raw.exists():
-        # the box is larger than the clip needs (degrees); the extent is the 30 km square, EPSG:31983
+        # the 30 km square, EPSG:31983, 10 m cells
         m = (
             'format = "terraflux/1"\n\n[[nodes]]\nid = "s2"\nop = "data.stac"\n'
             f'params = {{ url = "{od.S2_URL}", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], '
-            f'datetime = "{od.S2_DATE}", extent = [-48.02, -16.02, -47.705, -15.705], cellsize = {od.S2_CELL} }}\n\n'
-            '[[nodes]]\nid = "utm"\nop = "raster.reproject"\ninputs = { raster = "s2.raster" }\n'
-            'params = { crs = "EPSG:31983", resolution = 10, extent = [178420, 8229180, 208420, 8259180] }\n'
+            f'datetime = "{od.S2_DATE}", extent = [178420, 8229180, 208420, 8259180], cellsize = {od.S2_CELL}, '
+            f'crs = "{od.S2_CRS}" }}\n'
         )
-        run(figs.add_writes(m, {"utm.raster": "big_raw.tif"}), LARGE, 2)
+        run(figs.add_writes(m, {"s2.raster": "big_raw.tif"}), LARGE, 2)
     from rasterio.windows import Window
 
     order = od.S2_BANDS

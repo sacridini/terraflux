@@ -5,7 +5,7 @@ description: "Measure every object of a Sentinel-2 image of Brasilia: its colour
 order: 40
 level: intermediate
 time: 60 min
-ops: [data.stac, raster.reproject, raster.calc, segment.multiresolution, objects.features, objects.to_map, raster.write, table.write, objects.classify]
+ops: [data.stac, raster.calc, segment.multiresolution, objects.features, objects.to_map, raster.write, table.write, objects.classify]
 series: Object-based image analysis
 part: 4
 ---
@@ -15,7 +15,7 @@ take the objects of the [previous parts](/tutorials/object-based-image-analysis/
 a row of numbers: its mean colour in every band, the vegetation and water indices, its size and shape, how rough or
 smooth its surface is, and what lies around it. Then you look at where those numbers put the lake, the gallery
 forest, the cerrado and the town, and learn which of them are worth keeping for a classification. At the end you
-will have a table of 90 columns for 3,035 objects, a map of any of them, and a short list of the ones that
+will have a table of 90 columns for 2,973 objects, a map of any of them, and a short list of the ones that
 separate your classes.
 
 ## The idea
@@ -101,9 +101,9 @@ add what a figure or a test tells you to add.
 
 ### Steps 1 to 4: the image and the objects
 
-The first four nodes are the ones of the previous tutorial: [[data.stac]] reads the scene of 9 August 2024,
-[[raster.reproject]] puts it in UTM at 10 m, [[raster.calc]] makes the reflectance from 0 to 1 and
-[[segment.multiresolution]] cuts it at the scale 2, giving 3,035 objects.
+The first three nodes are the ones of the previous tutorial: [[data.stac]] reads the scene of 9 August 2024 in UTM
+at 10 m, [[raster.calc]] makes the reflectance from 0 to 1 and
+[[segment.multiresolution]] cuts it at the scale 2, giving 2,973 objects.
 
 ### Step 5: the attributes
 
@@ -130,7 +130,7 @@ The model asks for `all`, to see everything once.
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1 (nodes 1 to 3 as in part 2)."
 
@@ -139,7 +139,7 @@ id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects."
+note = "2,973 objects."
 
 [[nodes]]
 id = "feat"
@@ -164,19 +164,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -185,7 +179,7 @@ id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects."
+note = "2,973 objects."
 
 [[nodes]]
 id = "feat"
@@ -234,7 +228,7 @@ note = "A row per object."
 
 === "Without a network"
 
-    Replace the nodes `s2` and `utm` with a read of the downloaded clip, which is already in UTM:
+    Replace the node `s2` with a read of the downloaded clip, which is already in UTM:
 
     ```toml
     [[nodes]]
@@ -243,10 +237,10 @@ note = "A row per object."
     params = { path = "sentinel2_brasilia.tif" }
     ```
 
-    and make the reflectance node read `s2.raster`. The counts of the page can differ by a few objects (2,992 objects
-    from the file at the scale 2, 3,035 from the server).
+    and make the reflectance node read `s2.raster`. The counts of the page can differ by a few objects (2,987 objects
+    from the file at the scale 2, 2,973 from the server).
 
-The run is quick: the attributes of 3,035 objects, with all the texture, take well under a second here. That changes on a large image
+The run is quick: the attributes of 2,973 objects, with all the texture, take well under a second here. That changes on a large image
 with a fine segmentation, as the pitfalls below say.
 
 ## Read the results
@@ -270,7 +264,7 @@ Read the three panels one at a time.
 
 - **NDVI** separates water (below zero) from everything else at once and lights up the gallery forest along the
   streams, but it is a weak guide among the land classes: the dry cerrado (a mean of about 0.47) is not far from the
-  forest (0.51), and the neighbourhoods (0.32) have a lot of green in their gardens. The class means are in the table
+  forest (0.53), and the neighbourhoods (0.34) have a lot of green in their gardens. The class means are in the table
   below.
 - **NDWI** is the cleanest of all: one object type has a high value, and it is the lake. Nothing else comes close.
   That is why part 7 of the series maps water with this index alone.
@@ -287,7 +281,7 @@ caption: "The mean of some attributes over the objects of each class that the tu
 
 The table shows what the maps hinted at. The five classes are in different places in colour, but not by the same
 attributes: water is apart from the rest in every one; forest has the highest NDVI; cerrado is darker and
-more uniform (its `sd_nir`, 0.009, is a third of the town's); the town is brightest, with the highest spread
+more uniform (its `sd_nir`, 0.008, is a quarter of the town's); the town is brightest, with the highest spread
 between its cells. Bare soil falls in the middle of everything, which tells you it will be the hardest class.
 
 ### Form: the shape attributes
@@ -299,8 +293,8 @@ images:
   - { src: /img/tutorials/object-based-image-analysis/describing-objects/shape.png, caption: "Area, compactness and shape index, object by object" }
 ```
 
-- **`area`** is in map units (m² here); divide by 10 000 for hectares. The objects here range from 0.09 to 6.9 ha, with
-  a median of 0.89 ha. They are larger where the image is flat (the cerrado, the lake) and smaller in the town.
+- **`area`** is in map units (m² here); divide by 10 000 for hectares. The objects here range from 0.06 to 8.4 ha, with
+  a median of 0.92 ha. They are larger where the image is flat (the cerrado, the lake) and smaller in the town.
 - **`compactness`** is `length x width / area` of the smallest rectangle around the object: 1 for a rectangle,
   more for an object with arms or bays (eCognition's definition).
 - **`shape_index`** is `perimeter / (4 sqrt(area))`: 1 for a square, larger for a ragged outline. The perimeter here
@@ -308,7 +302,7 @@ images:
 
 Look at the colours in the figure: there is no pattern in them that a person could name. The objects come from a
 segmentation that cuts along colour, and their outline is as ragged in the town as in the cerrado. In the table of class means above, the
-compactness of every class is between 1.41 and 1.46. **Shape attributes tell you nothing about these classes**, and
+compactness of every class is between 1.41 and 1.47. **Shape attributes tell you nothing about these classes**, and
 the separability table below confirms it with numbers. They would tell you something about other things: roads
 (long, thin, with a large `length_width`), buildings in a very fine image (rectangular), fields (rectangular,
 too), forest edges. Here, at 10 m and with objects found by colour, they do not help. Report that, rather than leaving the
@@ -410,7 +404,7 @@ In the Viewer, select the objects layer and open **Feature space...** in its sid
 
 ```tfgallery
 columns: 1
-caption: "Left: the objects in the plane of the mean red and the mean near infrared; right: NDVI against the GLCM contrast of the brightness. Grey: the 3,035 objects; coloured: the 93 sampled."
+caption: "Left: the objects in the plane of the mean red and the mean near infrared; right: NDVI against the GLCM contrast of the brightness. Grey: the 2,973 objects; coloured: the 93 sampled."
 images:
   - { src: /img/tutorials/object-based-image-analysis/describing-objects/space.png, caption: "Two views of the feature space, with the sampled objects coloured by class" }
 ```
@@ -458,15 +452,15 @@ caption: "The Jeffries-Matusita distance (0 the same, 2 apart) of five pairs of 
 
 - **Water against the rest** (`forest / water`) is 2.0 in the spectral attributes: every one of them separates it, and
   the NDWI and the NIR most of all. It is the easy class.
-- **Urban against cerrado** is best told by the **texture**: homogeneity 1.81 and contrast 1.42, then the near-infrared mean
-  (1.27) and brightness (0.97). The NDVI (0.38) is worse than all of them.
-- **Forest against cerrado** is told by the homogeneity (1.06), the near-infrared (0.92) and the contrast (0.86), and by the
-  difference to the neighbours (0.57).
-- **Urban against forest** is **hard for every attribute**: the best is NDMI with 0.48, and NDVI and NDWI get 0.42 and
-  0.43.
-- **Shape does not help**: compactness is at 0.00 to 0.07 in the pairs shown and the area at 0.05 to 0.31.
-- **No attribute separates all ten pairs**: the highest *smallest* distance is 0.12 (NDWI), because
-  of the pairs of classes that are alike in every way (bare soil and cerrado, in the NDMI: 0.00). One attribute is not enough; a
+- **Urban against cerrado** is best told by the **texture**: homogeneity 1.93, the spread of the near infrared 1.64 and contrast 1.60, then the near-infrared mean
+  (1.51) and brightness (0.97). The NDVI (0.30) is worse than all of them.
+- **Forest against cerrado** is told by the contrast (1.26), the spread of the near infrared (1.22) and the homogeneity (1.18), then the near infrared (0.92) and by the
+  difference to the neighbours (0.75).
+- **Urban against forest** is **hard for every attribute**: the best is NDVI with 0.40, and NDMI and NDWI get 0.37 and
+  0.36.
+- **Shape does not help**: compactness is at 0.03 to 0.16 in the pairs shown and the area at 0.00 to 0.52 (0.75 for water against forest).
+- **No attribute separates all ten pairs**: the highest *smallest* distance is 0.08 (the GLCM contrast), because
+  of the pairs of classes that are alike in every way (bare soil and cerrado, in the NDMI: 0.02). One attribute is not enough; a
   classifier that reads many is.
 
 !!! warning "A distance from a few objects"
@@ -481,19 +475,19 @@ caption: "The Jeffries-Matusita distance (0 the same, 2 apart) of five pairs of 
 `levels` (2 to 256, 32 by default) is the number of grey levels the brightness is cut into before the matrix is made.
 Fewer levels give a smaller matrix and a coarser measure; more levels give a finer one that needs more cells in an
 object to be reliable. The slider shows the GLCM contrast of the same objects with 4 to 128 levels. Each frame has its own colour
-range (the contrast grows with the square of the number of levels: the median is 0.14 with 4 and 39.7 with 128, so
+range (the contrast grows with the square of the number of levels: the median is 0.15 with 4 and 49.8 with 128, so
 only the *pattern* can be compared), and the numbers beside it are the JM distances of the contrast between the pairs of classes.
 
 ```tfslider
 label: Grey levels
 caption: "The GLCM contrast of the brightness with from 4 to 128 grey levels. Each frame is stretched to its own range. The chart shows how well the contrast separates urban objects from cerrado and from forest."
 frames:
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_4.png, caption: "4 levels", stats: { "Median contrast": "0.14", "Urban / cerrado": "0.63", "Urban / forest": "0.20" } }
-  - { value: 8, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_8.png, caption: "8 levels", stats: { "Median contrast": "0.31", "Urban / cerrado": "1.26", "Urban / forest": "0.26" } }
-  - { value: 16, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_16.png, caption: "16 levels", stats: { "Median contrast": "0.79", "Urban / cerrado": "1.44", "Urban / forest": "0.27" } }
-  - { value: 32, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_32.png, caption: "32 levels (the default)", stats: { "Median contrast": "2.65", "Urban / cerrado": "1.42", "Urban / forest": "0.28" } }
-  - { value: 64, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_64.png, caption: "64 levels", stats: { "Median contrast": "10.12", "Urban / cerrado": "1.44", "Urban / forest": "0.28" } }
-  - { value: 128, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_128.png, caption: "128 levels", stats: { "Median contrast": "39.74", "Urban / cerrado": "1.43", "Urban / forest": "0.29" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_4.png, caption: "4 levels", stats: { "Median contrast": "0.15", "Urban / cerrado": "0.99", "Urban / forest": "0.45" } }
+  - { value: 8, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_8.png, caption: "8 levels", stats: { "Median contrast": "0.34", "Urban / cerrado": "1.32", "Urban / forest": "0.25" } }
+  - { value: 16, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_16.png, caption: "16 levels", stats: { "Median contrast": "0.90", "Urban / cerrado": "1.51", "Urban / forest": "0.29" } }
+  - { value: 32, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_32.png, caption: "32 levels (the default)", stats: { "Median contrast": "3.27", "Urban / cerrado": "1.60", "Urban / forest": "0.32" } }
+  - { value: 64, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_64.png, caption: "64 levels", stats: { "Median contrast": "12.61", "Urban / cerrado": "1.61", "Urban / forest": "0.33" } }
+  - { value: 128, src: /img/tutorials/object-based-image-analysis/describing-objects/levels_128.png, caption: "128 levels", stats: { "Median contrast": "49.82", "Urban / cerrado": "1.62", "Urban / forest": "0.33" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/describing-objects/levels.csv
@@ -506,7 +500,7 @@ chart:
 
 Two things come out. **The values of the contrast depend on `levels`**: do not compare a contrast made with 32
 levels with one made with 64, or put a threshold on it in a rule and later change the levels. And **the separation does
-not improve past 16 levels** (and drops with 4 or 8): the default of 32 is a safe choice for objects of this size, and a
+improve much past 16 levels** (1.51 at 16, 1.60 at 32; it drops with 4 or 8): the default of 32 is a safe choice for objects of this size, and a
 small number of levels loses the detail that told urban from cerrado.
 
 ### Which bands the texture reads

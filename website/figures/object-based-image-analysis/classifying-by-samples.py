@@ -160,7 +160,7 @@ def main():
     run(page, "page", {"acc_rf.overall": "overall.csv"})
     chk = overall(WORK / "page" / "output" / "overall.csv")
     print("page model from the CSVs:", chk["overall_objects"], chk["kappa"])
-    assert abs(chk["overall_objects"] - 0.8) < 1e-9
+    assert abs(chk["overall_objects"] - 0.825) < 1e-9
 
     # ---------------------------------------------------------------- the model of the page (data.stac)
     m = head(True) + sm.table_nodes("train", train) + sm.table_nodes("ref", ref)

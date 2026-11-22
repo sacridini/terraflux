@@ -1,6 +1,6 @@
 map,bare soil,cerrado,forest,urban,water
-bare soil,1,0,0,0,0
-cerrado,0,17,2,0,0
-forest,1,0,14,3,1
-urban,3,0,0,17,0
+bare soil,0,0,0,0,0
+cerrado,0,14,4,0,0
+forest,0,1,10,5,0
+urban,6,0,0,19,0
 water,0,0,0,0,8

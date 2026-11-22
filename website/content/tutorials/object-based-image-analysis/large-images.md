@@ -5,7 +5,7 @@ description: "Cut a big image into tiles that are segmented in parallel and stit
 order: 120
 level: advanced
 time: 75 min
-ops: [data.stac, raster.reproject, raster.calc, segment.multiresolution, segment.region_growing, objects.to_map, raster.write]
+ops: [data.stac, raster.calc, segment.multiresolution, segment.region_growing, objects.to_map, raster.write]
 series: Object-based image analysis
 part: 12
 ---
@@ -31,7 +31,7 @@ regions in a pseudo-random order. That order is the method (part 2), and it has 
 
 - **Time.** One run is **one thread**: the merges of a region depend on those of its neighbours. A bigger image is not only
   more work, it is more than proportionally more work. Along our clips the time of the whole-image run grows as the number of
-  cells raised to about 1.3 (see below); the application's estimate assumes 1.17 for this method.
+  cells raised to about 1.2 (see below); the application's estimate assumes 1.17 for this method.
 - **Memory.** The run holds the image as numbers of 8 bytes a cell and band, a label for every cell and a record for every
   region it has not merged yet. We measured the peak working set of the process: 3.5 GB for a clip of 9 million cells and five
   bands. A scene of 120 million cells does not fit in most computers.
@@ -93,8 +93,8 @@ Use tiles when:
 
 Do not use them:
 
-- on a **small image**. We measured the multiresolution method on a clip of 1 million cells, one thread: 1.8 s whole and
-  5.0 s with tiles of 512, nearly three times as long, for no gain in memory worth having;
+- on a **small image**. We measured the multiresolution method on a clip of 1 million cells, one thread: 1.7 s whole and
+  3.9 s with tiles of 512, more than twice as long, for no gain in memory worth having;
 - when you need **exactly the objects the whole image gives**, for example to compare with a run made earlier without tiles
   (the borders no longer show, but the objects are not the same);
 - as the first thing to try. To choose a scale or a threshold, work on a **window** of the image: [[raster.clip]] in the model,
@@ -117,8 +117,8 @@ Do not use them:
 
 ### Step 1: the image
 
-The first three nodes are those of the earlier parts: [[data.stac]] reads the scene, [[raster.reproject]] puts it on square 10 m
-cells in UTM zone 23 S, and [[raster.calc]] turns the integers into reflectance from 0 to 1. Only the extent changes, from the
+The first two nodes are those of the earlier parts: [[data.stac]] reads the scene onto square 10 m cells in UTM zone 23 S,
+and [[raster.calc]] turns the integers into reflectance from 0 to 1. Only the extent changes, from the
 5.8 km of the clip to 30 km.
 
 ### Step 2: the segmentation by tiles
@@ -136,20 +136,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-48.02, -16.02, -47.705, -15.705], cellsize = 0.00009 }
-note = "A box in degrees a little larger than the 30 km window (about two minutes)."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [178420, 8229180, 208420, 8259180] }
-note = "The 3,000 by 3,000 cell window."
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [178420, 8229180, 208420, 8259180], cellsize = 10, crs = "EPSG:31983" }
+note = "The 30 km window as a UTM grid of 10 m cells, in one resampling (about two minutes)."
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -223,8 +216,8 @@ lines drawn only for reference.
 ![Objects at the tile borders](/img/tutorials/object-based-image-analysis/large-images/seams_mr.png "Multiresolution, scale 2.14. Magenta: along the lines where the tiles meet (every 200 cells), the pairs of neighbouring cells in different objects. The whole-image run (left) has some, as every line of an image has; the tiled runs have about as many: the borders show no seam.")
 
 There is no seam to see. In numbers, 10 % of the pairs of neighbouring cells along any line of the image are in different objects,
-and that is also the share on those lines in the whole-image run. Across the tile borders it is **6.8 %** with a margin of 64 and
-**9.1 %** with a margin of 1: the same as anywhere else. In earlier versions of Terraflux, which merged the border pieces instead of growing them again, 71 % and 88 % of those pairs
+and that is also the share on those lines in the whole-image run. Across the tile borders it is **11.2 %** with a margin of 64 and
+***10.0 %** with a margin of 1: about the same as anywhere else. In earlier versions of Terraflux, which merged the border pieces instead of growing them again, 71 % and 88 % of those pairs
 were cut; the repair of step 4 is what removed them.
 
 A window around the crossing of two borders, in the town of the clip (the tile borders are faint dashed lines, magenta where objects are cut):
@@ -246,7 +239,7 @@ criterion and the same scale as everywhere else. An object that crosses a border
 
 The region growing method gets the same repair:
 
-![Region growing: the borders](/img/tutorials/object-based-image-analysis/large-images/seams_rg.png "Region growing, threshold 0.05, tiles of 200, same drawing. Along the borders 7 % of the pairs are in different objects with a margin of 64 and 9 % with a margin of 1, against 7 % along any other line.")
+![Region growing: the borders](/img/tutorials/object-based-image-analysis/large-images/seams_rg.png "Region growing, threshold 0.05, tiles of 200, same drawing. Along the borders 8 % of the pairs are in different objects with a margin of 64 and 7 % with a margin of 1, against 5 to 6 % along any other line.")
 
 ### Different, but how different?
 
@@ -263,8 +256,8 @@ data: /data/tutorials/object-based-image-analysis/large-images/seams_mr.csv
 caption: "Multiresolution, scale 2.14, on the 580 by 580 clip. The seed-1 and seed-2 whole runs are the reference for how much two runs of the same method differ; the tiles of 200 are 3 by 3."
 ```
 
-The F of the tiled run against the whole one (0.61) is the **same as that of another seed against the whole one** (0.62, 0.61): a
-run by tiles is as far from the whole-image run as a second whole-image run is, and the border column (7 % against 10 %) shows no
+The F of the tiled run against the whole one (0.61) is the **same as that of another seed against the whole one** (0.62, 0.62): a
+run by tiles is as far from the whole-image run as a second whole-image run is, and the border column (11 % against 10 %) shows no
 cut. The same table for region growing says the same:
 
 ```tftable
@@ -275,8 +268,8 @@ data: /data/tutorials/object-based-image-analysis/large-images/seams_rg.csv
 caption: "Region growing, threshold 0.05, on the same clip. With minsize 20 the F of the rows is taken against the whole run with minsize 20."
 ```
 
-The number of objects changes little with the multiresolution method: on the larger clips the tiled run has 0.5 to 1.7 % fewer objects.
-With region growing and `minsize` 20 it has **5 % more on 1000 by 1000 cells and 10 % more on 2000 by 2000**, so the count is not
+The number of objects changes little with the multiresolution method: on the larger clips the tiled run has 0.7 to 2.4 % fewer objects.
+With region growing and `minsize` 20 it has ***7 % fewer on 1000 by 1000 cells and 14 % fewer on 2000 by 2000**, so the count is not
 the same as the whole run's: if you compare counts or mean areas with a whole-image run, expect that difference.
 
 ```tftable
@@ -287,8 +280,8 @@ data: /data/tutorials/object-based-image-analysis/large-images/counts.csv
 caption: "Objects found on windows of the 30 km clip, whole and by tiles of 512 (multiresolution at scale 2.14; region growing at threshold 0.05, minsize 20), on two threads."
 ```
 
-What remains of the difference is mostly at the coarse scales: on the small clip at the scales 4 and 8 the tiled run has 643 and 151 objects
-against 739 and 187 (13 and 19 % fewer), while the share of pairs in different objects across the borders stays equal to that elsewhere (7.0 against 5.3 % at the scale 4; 2.5 against 2.6 % at the scale 8).
+What remains of the difference is mostly at the coarse scales: on the small clip at the scales 4 and 8 the tiled run has 667 and 169 objects
+against 725 and 175 (8 and 3 % fewer), while the share of pairs in different objects across the borders stays equal to that elsewhere (5.3 against 5.5 % at the scale 4; 3.2 against 2.8 % at the scale 8).
 
 ### The same objects on any number of threads
 
@@ -326,14 +319,14 @@ caption: "The same runs, as numbers. The 500 by 500 window (0.4 s whole) is left
 
 What it says:
 
-- **The whole-image run does not use the second thread**: 12.7 s and 10.8 s on 2,000 by 2,000 cells (the difference is noise).
-- **With tiles, two threads take 1.6 to 1.8 times less than one** (5.0 → 2.7 s, 29.5 → 17.0 s, 71.8 → 44.4 s). The ideal is 2: the repair
+- ***The whole-image run does not use the second thread**: 8.2 s and 7.5 s on 2,000 by 2,000 cells (the difference is noise).
+- ***With tiles, two threads take 1.4 to 1.7 times less than one** (3.9 → 2.4 s, 26.0 → 14.9 s, 47.7 → 33.1 s). The ideal is 2: the repair
   pass over the borders is one thread, which pulls the speed-up down, and single timings on a busy machine are noisy.
-- **Tiles took more total work than the whole image**, so on two threads they were not faster than the whole run: 17.0 s against 10.8 s on
-  4 million cells, 44 s against 28 s on 9 million. The windows overlap by their margins (a tile of 512 with a margin of 64 is
+- **Tiles took more total work than the whole image**, so on two threads they were not faster than the whole run: 14.9 s against 7.5 s on
+  4 million cells, 33 s against 25 s on 9 million. The windows overlap by their margins (a tile of 512 with a margin of 64 is
   a window of 640, 56 % more cells), and the pass that repairs the borders goes over them once more.
-- **The time grows faster than the cells**: the whole run takes 1.8 s on 1 million cells and 31.4 s on 9 million, which is 17.6
-  times as long for 9 times the cells, an exponent of 1.30. The application's estimate uses 1.17, from the project's benchmark
+- **The time grows faster than the cells**: the whole run takes 1.7 s on 1 million cells and 22.4 s on 9 million, which is 13.4
+  times as long for 9 times the cells, an exponent of 1.18. The application's estimate uses 1.17, from the project's benchmark
   between 1 and 4 million cells.
 
 So **on two threads, tiles do not make the multiresolution method faster here**. The project's own benchmark (a synthetic
@@ -359,7 +352,7 @@ height: 320
 caption: "segment.region_growing (threshold 0.05, minsize 20) on 1 and 4 million cells, with and without tiles. We did not run it on the 9 million cell window."
 ```
 
-On 4 million cells it takes 8.5 s whole on two threads and **13.9 s by tiles**; 10.4 s whole and 18.7 s by tiles on one. (Before the repair of the borders we had measured 7.5 s by tiles on two threads: the repair is not free for this method.)
+On 4 million cells it takes 10.0 s whole on two threads and **12.8 s by tiles**; 11.8 s whole and 19.0 s by tiles on one. (Before the repair of the borders we had measured 7.5 s by tiles on two threads: the repair is not free for this method.)
 
 ### Memory
 
@@ -400,8 +393,8 @@ data: /data/tutorials/object-based-image-analysis/large-images/layouts.csv
 caption: "segment.multiresolution with tiles of 512 on a 2,000 by 2,000 window, five bands, by where the image is read from."
 ```
 
-From a file the run took **2.1 to 2.5 times** as long as from memory (26 s against 12 s on one thread) and a tiled GeoTIFF was not faster than a
-striped one. It also used **less than half the memory** (242 MB against 552 MB). We did not look for the reason: the
+From a file the run took **1.8 to 2.3 times** as long as from memory (18 s against 10 s on one thread) and a tiled GeoTIFF was not faster than a
+striped one. It also used **less than half the memory** (241 MB against 550 MB). We did not look for the reason: the
 windows of the tiles overlap, and the compressed file is read and decoded again for each. If the image fits in memory with room
 to spare, read it into the model (a [[raster.calc]] after the [[raster.read]], or the map of a `data.stac`) and use tiles for the threads; use the file when it does not fit.
 
@@ -452,13 +445,13 @@ of neighbouring pairs in different objects, along the tile borders and along any
 label: Tile side (cells)
 caption: "Tile side from 580 (the whole image: one tile) to 64. Magenta would mark the tile borders where the objects are cut: there is almost none at any size."
 frames:
-  - { value: 580, src: /img/tutorials/object-based-image-analysis/large-images/tile_whole.png, caption: "Whole image (lines of 200 imagined)", stats: { Objects: "2,599", "On the borders": "9.9 %", Elsewhere: "10.3 %" } }
-  - { value: 400, src: /img/tutorials/object-based-image-analysis/large-images/tile_400.png, caption: "Tiles of 400", stats: { Objects: "2,608", "On the borders": "9.1 %", Elsewhere: "10.3 %" } }
-  - { value: 300, src: /img/tutorials/object-based-image-analysis/large-images/tile_300.png, caption: "Tiles of 300", stats: { Objects: "2,587", "On the borders": "9.5 %", Elsewhere: "10.3 %" } }
-  - { value: 200, src: /img/tutorials/object-based-image-analysis/large-images/tile_200.png, caption: "Tiles of 200", stats: { Objects: "2,549", "On the borders": "6.8 %", Elsewhere: "10.2 %" } }
-  - { value: 150, src: /img/tutorials/object-based-image-analysis/large-images/tile_150.png, caption: "Tiles of 150", stats: { Objects: "2,576", "On the borders": "9.4 %", Elsewhere: "10.2 %" } }
-  - { value: 100, src: /img/tutorials/object-based-image-analysis/large-images/tile_100.png, caption: "Tiles of 100", stats: { Objects: "2,397", "On the borders": "9.4 %", Elsewhere: "9.9 %" } }
-  - { value: 64, src: /img/tutorials/object-based-image-analysis/large-images/tile_64.png, caption: "Tiles of 64", stats: { Objects: "2,417", "On the borders": "8.9 %", Elsewhere: "9.9 %" } }
+  - { value: 580, src: /img/tutorials/object-based-image-analysis/large-images/tile_whole.png, caption: "Whole image (lines of 200 imagined)", stats: { Objects: "2,627", "On the borders": "10.6 %", Elsewhere: "10.4 %" } }
+  - { value: 400, src: /img/tutorials/object-based-image-analysis/large-images/tile_400.png, caption: "Tiles of 400", stats: { Objects: "2,606", "On the borders": "9.7 %", Elsewhere: "10.3 %" } }
+  - { value: 300, src: /img/tutorials/object-based-image-analysis/large-images/tile_300.png, caption: "Tiles of 300", stats: { Objects: "2,573", "On the borders": "9.8 %", Elsewhere: "10.2 %" } }
+  - { value: 200, src: /img/tutorials/object-based-image-analysis/large-images/tile_200.png, caption: "Tiles of 200", stats: { Objects: "2,517", "On the borders": "11.2 %", Elsewhere: "10.1 %" } }
+  - { value: 150, src: /img/tutorials/object-based-image-analysis/large-images/tile_150.png, caption: "Tiles of 150", stats: { Objects: "2,522", "On the borders": "9.6 %", Elsewhere: "10.1 %" } }
+  - { value: 100, src: /img/tutorials/object-based-image-analysis/large-images/tile_100.png, caption: "Tiles of 100", stats: { Objects: "2,500", "On the borders": "9.1 %", Elsewhere: "10.1 %" } }
+  - { value: 64, src: /img/tutorials/object-based-image-analysis/large-images/tile_64.png, caption: "Tiles of 64", stats: { Objects: "2,502", "On the borders": "9.8 %", Elsewhere: "10.1 %" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/large-images/tile_size.csv
@@ -469,9 +462,9 @@ chart:
   ylabel: "Pairs in different objects (%)"
 ```
 
-The **share on the borders is the same as elsewhere at every size** (7 to 9 % against 10 %), and the F against the whole run
-stays at 0.60 to 0.61, the value of another seed. What the tile size changes is the **number of objects**: it is within 2 % of the whole
-run for tiles of 200 or more and **7 to 8 % lower** for tiles of 100 and 64 (2,397 and 2,417 against 2,599), where a tile is not much bigger than a few objects.
+The ***share on the borders is the same as elsewhere at every size** (9 to 11 % against 10 %), and the F against the whole run
+stays at 0.61 to 0.62, the value of another seed. What the tile size changes is the **number of objects**: it is within 2 % of the whole
+run for tiles of 200 or more and **5 % lower** for tiles of 100 and 64 (2,500 and 2,502 against 2,627), where a tile is not much bigger than a few objects.
 It also changes the **work**: the smaller the tile, the larger the share of the cells that are in a margin or on a border to repair
 (on a scene of 10,980 cells with tiles of 1024, the border lines are 0.18 % of the cells).
 
@@ -487,11 +480,11 @@ colors: { on_borders: "#c0398f", elsewhere: "#3b8a5a" }
 xlabel: "Margin (cells)"
 ylabel: "Pairs in different objects (%)"
 height: 280
-caption: "Tiles of 200, scale 2.14. At every margin, from 1 to 64, the border is cut about as often as any other line (7 to 11 % against 10 %)."
+caption: "Tiles of 200, scale 2.14. At every margin, from 1 to 64, the border is cut about as often as any other line (9 to 11 % against 10 %)."
 ```
 
-With the borders repaired, **the margin hardly matters here**: the share on the borders is 7 to 11 % at every margin and the F against the whole run is 0.61;
-the objects number 2,514 with a margin of 1 and 2,549 with 64. The margin costs work (it is segmented twice), so
+With the borders repaired, **the margin hardly matters here**: the share on the borders is 9 to 11 % at every margin and the F against the whole run is 0.61;
+the objects number 2,566 with a margin of 1 and 2,517 with 64. The margin costs work (it is segmented twice), so
 a smaller one is cheaper; we did not measure the time at each margin, so we cannot say what you save. The default of 64 is the safe choice.
 
 **The scale.** The same tiles of 200, other scales (the multiresolution scale is in the image's units, part 3):
@@ -509,19 +502,19 @@ height: 280
 caption: "Tiles of 200, margin 64, at the scales 1, 2.14, 4 and 8 of the 580 by 580 clip."
 ```
 
-At every scale the borders are about as cut as any other line (scale 1: 19 % against 20 %; scale 8: 2.5 % against 2.6 %). What changes with the scale is the **count**: the tiled run had 10,938,
-2,549, 643 and 151 objects at the scales 1, 2.14, 4 and 8, against 11,145, 2,599, 739 and 187 for the whole image (2, 2, 13 and 19 % fewer). The coarser the
+At every scale the borders are about as cut as any other line (scale 1: 18 % against 20 %; scale 8: 3.2 % against 2.8 %). What changes with the scale is the **count**: the tiled run had 11,270,
+2,517, 667 and 169 objects at the scales 1, 2.14, 4 and 8, against 11,303, 2,627, 725 and 175 for the whole image (0.3, 4, 8 and 3 % fewer). The coarser the
 scale, the more the objects approach the tile and the more the two partitions differ in how many objects they make.
 For a coarse scale, use tiles several times larger than the objects.
 
 ## Common pitfalls
 
-- **Tiles on a small image.** Under about 4 million cells the default is no tiles for a reason. Forcing them cost nearly three times
+- **Tiles on a small image.** Under about 4 million cells the default is no tiles for a reason. Forcing them cost more than twice
   the time on 1 million cells.
 - **Believing tiles give the whole-image objects.** They give another valid partition, as different from the whole-image
   one as another seed would be, with no cut along the borders. Do not compare a tiled run with one made without tiles
-  object by object, and expect a different count (about 1 % fewer for the multiresolution method on the larger clips, 13 to 19 % fewer at coarse
-  scales on the small clip, 5 to 10 % more for region growing with `minsize` 20); and do not change `tile` between the runs of a study you will compare.
+  object by object, and expect a different count (about 1 % fewer for the multiresolution method on the larger clips, 3 to 8 % fewer at coarse
+  scales on the small clip, 7 to 14 % fewer for region growing with `minsize` 20); and do not change `tile` between the runs of a study you will compare.
 - **Expecting a speed-up on one or two threads.** The tiles cost more total work, and with the borders repaired that holds for region
   growing too. They pay when there are many threads (the project's benchmark, before the repair: 3.2 s against 7.2 s on 8 for the multiresolution
   method) or when memory forces them, and then only for the multiresolution method on our runs.
@@ -547,7 +540,7 @@ For a coarse scale, use tiles several times larger than the objects.
 - To choose the settings of a big image, run on a window first: [Choosing the scale](/tutorials/object-based-image-analysis/choosing-the-scale/).
 - Many computers: [The lab's computers](/parallel/lab-computers/), [A university cluster with Slurm](/parallel/slurm-cluster/),
   [Maps larger than memory](/parallel/maps-larger-than-memory/), [Parallel and distributed computing](/parallel/).
-- The operators of this page: [[segment.multiresolution]], [[segment.region_growing]], [[data.stac]], [[raster.reproject]],
+- The operators of this page: [[segment.multiresolution]], [[segment.region_growing]], [[data.stac]],
   [[raster.calc]], [[objects.to_map]], [[raster.write]].
 
 ## References

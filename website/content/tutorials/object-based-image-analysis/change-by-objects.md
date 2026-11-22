@@ -100,42 +100,35 @@ before: { src: /img/tutorials/object-based-image-analysis/change-by-objects/rgb_
 after: { src: /img/tutorials/object-based-image-analysis/change-by-objects/rgb_2024.png, label: 9 August 2024 }
 ```
 
-Not much changed, and what did is small: the mean NDVI difference between the dates is 0.01, and only 1.8 % of the cells lost more than 0.2 of NDVI and
-1.6 % gained that much. The 2019 scene is a little brighter than the 2024 one (the median blue is 387 against 327, the red 749
-against 689, the NIR 2076 against 1954, in reflectance times 10,000), the usual difference between two days: keep it in mind.
+Not much changed, and what did is small: the mean NDVI difference between the dates is 0.01, and only 2.1 % of the cells lost more than 0.2 of NDVI and
+1.9 % gained that much. The 2019 scene is a little brighter than the 2024 one (the median blue is 385 against 325, the red 744
+against 684, the NIR 2065 against 1943, in reflectance times 10,000), the usual difference between two days: keep it in mind.
 
 ## Build the model
 
 ### Steps 1 to 4: each date in objects
 
-[[data.stac]] reads each scene from Earth Search over the same box in degrees; [[raster.reproject]] puts it on the same UTM grid
-(`extent` and `resolution` are the same for both, so the cells coincide) and [[raster.calc]] makes the reflectance. For the 2019 day the
+[[data.stac]] reads each scene from Earth Search straight onto the same UTM grid (`crs`, `extent` and `cellsize` are the same
+for both, so the cells coincide) and [[raster.calc]] makes the reflectance. For the 2019 day the
 catalogue has the scene twice (processing baselines 02.13 and 05.00): the `query` setting, a JSON text, keeps one. Each date goes through
 [[segment.multiresolution]] at the scale 2 and [[objects.features]] with the same settings, the twelve attributes of part 5: **both dates need
 the same attributes** for one model to read them.
 
 ```tfgraph
 #! caption: Steps 1 to 4 (the nodes of the 2019 date): the earlier scene over the same box and grid, its reflectance, its objects and their attributes. The 2024 date has the same four nodes and one more for the clip.
-#! highlight: s2_e, utm_e, refl_e, seg_e, feat_e
+#! highlight: s2_e, refl_e, seg_e, feat_e
 #! numbered: true
 #! fragment: true
 [[nodes]]
 id = "s2_e"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2019-08-13", query = "{\"s2:processing_baseline\": {\"eq\": \"02.13\"}}", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2019-08-13", query = "{\"s2:processing_baseline\": {\"eq\": \"02.13\"}}", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "13 August 2019."
-
-[[nodes]]
-id = "utm_e"
-op = "raster.reproject"
-inputs = { raster = "s2_e.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
-note = "The same grid as the 2024 clip."
 
 [[nodes]]
 id = "refl_e"
 op = "raster.calc"
-inputs = { s = "utm_e.raster" }
+inputs = { s = "s2_e.raster" }
 params = { expression = "out image = s / 10000" }
 
 [[nodes]]
@@ -203,19 +196,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "9 August 2024."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 
 [[nodes]]
@@ -233,19 +220,13 @@ params = { features = ["mean", "sd", "ndvi", "ndwi", "ndmi", "contrast", "homoge
 [[nodes]]
 id = "s2_e"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2019-08-13", query = "{\"s2:processing_baseline\": {\"eq\": \"02.13\"}}", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2019-08-13", query = "{\"s2:processing_baseline\": {\"eq\": \"02.13\"}}", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "13 August 2019."
-
-[[nodes]]
-id = "utm_e"
-op = "raster.reproject"
-inputs = { raster = "s2_e.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl_e"
 op = "raster.calc"
-inputs = { s = "utm_e.raster" }
+inputs = { s = "s2_e.raster" }
 params = { expression = "out image = s / 10000" }
 
 [[nodes]]
@@ -323,7 +304,7 @@ note = "The second date bound to the first: the table of what changed to what."
 
     Save the graph as `change.toml` beside
     [training_samples.csv](/data/tutorials/object-based-image-analysis/change-by-objects/training_samples.csv) (the columns `x`, `y`, `class`) and run
-    `terraflux run change.toml --threads 4 --out output`. Without a network, replace the `s2`, `utm` and `s2_e`, `utm_e` nodes by two
+    `terraflux run change.toml --threads 4 --out output`. Without a network, replace the `s2` and `s2_e` nodes by two
     [[raster.read]] of the two clips (the 2024 one in the series' downloads, the 2019 one above); the nodes `refl` and `refl_e` divide by 10,000.
     The script that made this page's figures is `change-by-objects.py`, with `obia_dates.py` for the earlier date, in `website/figures/object-based-image-analysis/`.
 
@@ -340,11 +321,11 @@ data: /data/tutorials/object-based-image-analysis/change-by-objects/class_areas.
 labels: { class: Class, ha_2019: "2019 (ha)", ha_2024: "2024 (ha)" }
 align: { class: left }
 digits: 0
-caption: "The area of each class on each date, from the two classifications. The net change of the urban class is -1 ha."
+caption: "The area of each class on each date, from the two classifications. The net change of the urban class is -30 ha."
 ```
 
-The **net** changes are small and say little: urban 1,230 ha then 1,229 ha, water 199 then 191, forest +42, cerrado +34, and bare soil
-from 142 ha to 74 ha, the one that changed most in relative terms. A city that grew would show more built-up land in 2024. Does it
+The **net** changes are small and say little: urban 1,331 ha then 1,301 ha, water 194 then 199, forest +32, cerrado -7, and bare soil
+from 54 ha to 55 ha. The urban class even loses 30 ha. A city that grew would show more built-up land in 2024. Does it
 mean that nothing changed? The next table says that something did, in both directions, and that the net change is a balance
 of much larger movements.
 
@@ -361,10 +342,10 @@ digits: { changed_ha: 0, changed_share: 3, became_urban_ha: 0, left_urban_ha: 0,
 caption: "Cells whose class differs between the two dates, by how the second date was bound to the first (min 0.1 in all). The clip is 3,364 ha."
 ```
 
-Crossing the two maps as they are, **23.1 % of the clip, 776 ha, changed class in five years**. That is not a land-cover change: it is the
-sum of the errors of two classifications, as the idea section predicted. The matrix you wrote cuts it to 692 ha (20.6 %) and reduces the
-cells that *stopped being urban* from 226 to 143 ha, the transitions it calls (almost) impossible. It does not cut the cells that became urban (239 ha against
-214), because a forest becoming urban is allowed by the matrix, and it should be: it is the change you are looking for.
+Crossing the two maps as they are, **23.4 % of the clip, 787 ha, changed class in five years**. That is not a land-cover change: it is the
+sum of the errors of two classifications, as the idea section predicted. The matrix you wrote cuts it to 671 ha (20.0 %) and reduces the
+cells that *stopped being urban* from 235 to 134 ha, the transitions it calls (almost) impossible. It does not cut the cells that became urban (218 ha against
+199), because a forest becoming urban is allowed by the matrix, and it should be: it is the change you are looking for.
 
 ![The change maps](/img/tutorials/object-based-image-analysis/change-by-objects/change_legend.png "The colours of the change maps.")
 
@@ -375,7 +356,7 @@ after: { src: /img/tutorials/object-based-image-analysis/change-by-objects/chang
 ```
 
 Look at where the changes are. The **amber** cells cover the cerrado and the gallery forest in the south: that is forest turning to cerrado
-and back (113 ha of the first, 53 ha of cerrado to forest, in the table below), which the matrix allows, for a savanna shifts between woody and open and
+and back (110 ha of the first, 86 ha of cerrado to forest, in the table below), which the matrix allows, for a savanna shifts between woody and open and
 the two classes are close in the attributes. A good part of it is the classifier hesitating between them, in a dry August, from one day to the other. The **blue** cells are
 scattered through the town: built-up objects that on one date were taken for garden trees. **Magenta** cells are on the edge of the
 town, where there are new roofs, and also inside it.
@@ -388,23 +369,23 @@ align: { "From \\ to": left }
 caption: "Hectares of each transition between 2019 (rows) and 2024 (columns), with the matrix written by hand (objects.temporal's change table). The diagonal is what did not change class."
 ```
 
-Two rows deserve a second look. Urban to forest is still 99 ha although the matrix gives it 0. The matrix does not delete a transition; it cuts the
+Two rows deserve a second look. Urban to forest is still 77 ha although the matrix gives it 0. The matrix does not delete a transition; it cuts the
 membership of the second date to what the first date allows, and the `from` of the table is the *highest* membership of the first date. An object that was
 urban on 85 % of its votes and forest on 15 % can still become forest by the 15 %, if the second date is sure of forest. The matrix removes the
-transitions that need a class the first date did not give any room for. And water to forest, 11 ha, is probably at the edge of the lake, where
+transitions that need a class the first date did not give any room for. And water to forest, 3 ha, is probably at the edge of the lake, where
 the water level and the plants of the shore are not the same in two Augusts.
 
 ### Looking at the patches
 
-The only way to know what a change map is worth is to look at it. The 461 patches of the map that became urban (touching cells, with the matrix) add up to 239 ha; the 24
-largest, 93 ha of them, from 12.8 ha to 2.2 ha, are in this sheet, 2019 on the left of each pair and 2024 on the right, the patch outlined in yellow:
+The only way to know what a change map is worth is to look at it. The 473 patches of the map that became urban (touching cells, with the matrix) add up to 218 ha; the 24
+largest, 82 ha of them, from 8.7 ha to 2.2 ha, are in this sheet, 2019 on the left of each pair and 2024 on the right, the patch outlined in yellow:
 
 ![The 24 largest patches that became urban](/img/tutorials/object-based-image-analysis/change-by-objects/patches.png "The 24 largest patches that became urban with the matrix written by hand: 40 by 40 cells (400 m), the 2019 scene and the 2024 scene, with the patch outlined. Number 1 is the largest.")
 
-Here is my reading of them, with the eye at 10 m: **6 show new roofs or cleared ground with confidence** (numbers 3, 8, 13, 15, 16 and 23: for example, number 3 is a large
-orange roof where in 2019 there was a pale field), **7 look probable** (1, 2, 4, 5, 6, 7 and 12: more bright structures in 2024) and **11 look unchanged or doubtful** (9, 10,
-11, 14, 17 to 22 and 24: built-up blocks and street trees that look the same on both dates). At this resolution one cannot settle it. That is the real message: only
-a quarter of the 24 largest patches are sure, in a landscape whose city was already built in 2019. A figure of change for a paper needs more than this sheet: a
+Here is my reading of them, with the eye at 10 m: **3 show new roofs or cleared ground with confidence** (numbers 3, 19 and 23: for example, number 3 is a large pale
+surface where in 2019 there was a brown field), **3 look probable** (1, 2 and 6: more bright structures or bare ground in 2024) and **18 look unchanged or doubtful** (4, 5, 7 to 18, 20 to 22 and 24:
+built-up blocks, plots and street trees that look the same on both dates). At this resolution one cannot settle it. That is the real message: only
+an eighth of the 24 largest patches are sure, in a landscape whose city was already built in 2019. A figure of change for a paper needs more than this sheet: a
 reference of higher resolution or from the field, and an estimate of the area with its interval as in part 5, from a sample of the map's patches.
 
 !!! tip "What to report"
@@ -423,11 +404,11 @@ The slider moves `min` from 0.1 to 0.5 with the matrix written by hand. An objec
 label: min (lowest adjusted membership)
 caption: "objects.temporal with the matrix written by hand and min from 0.1 to 0.5. The cells with no class are white; the numbers count the clip's cells (3,364 ha)."
 frames:
-  - { value: 0.1, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_1.png, caption: "min = 0.1 (the default)", stats: { "Changed": "20.6 %", "No class": "0.0 %", "Became urban (ha)": "239", "Stopped being urban (ha)": "143" } }
-  - { value: 0.2, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_2.png, caption: "min = 0.2", stats: { "Changed": "20.4 %", "No class": "0.2 %", "Became urban (ha)": "239", "Stopped being urban (ha)": "140" } }
-  - { value: 0.3, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_3.png, caption: "min = 0.3", stats: { "Changed": "18.4 %", "No class": "3.2 %", "Became urban (ha)": "236", "Stopped being urban (ha)": "103" } }
-  - { value: 0.4, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_4.png, caption: "min = 0.4", stats: { "Changed": "14.1 %", "No class": "11.5 %", "Became urban (ha)": "204", "Stopped being urban (ha)": "62" } }
-  - { value: 0.5, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_5.png, caption: "min = 0.5", stats: { "Changed": "7.1 %", "No class": "30.3 %", "Became urban (ha)": "90", "Stopped being urban (ha)": "32" } }
+  - { value: 0.1, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_1.png, caption: "min = 0.1 (the default)", stats: { "Changed": "20.0 %", "No class": "0.0 %", "Became urban (ha)": "218", "Stopped being urban (ha)": "134" } }
+  - { value: 0.2, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_2.png, caption: "min = 0.2", stats: { "Changed": "19.9 %", "No class": "0.0 %", "Became urban (ha)": "218", "Stopped being urban (ha)": "134" } }
+  - { value: 0.3, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_3.png, caption: "min = 0.3", stats: { "Changed": "18.8 %", "No class": "2.1 %", "Became urban (ha)": "215", "Stopped being urban (ha)": "113" } }
+  - { value: 0.4, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_4.png, caption: "min = 0.4", stats: { "Changed": "13.0 %", "No class": "14.0 %", "Became urban (ha)": "170", "Stopped being urban (ha)": "51" } }
+  - { value: 0.5, src: /img/tutorials/object-based-image-analysis/change-by-objects/min_5.png, caption: "min = 0.5", stats: { "Changed": "6.1 %", "No class": "36.2 %", "Became urban (ha)": "57", "Stopped being urban (ha)": "21" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/change-by-objects/min.csv
@@ -437,15 +418,15 @@ chart:
   ylabel: "Share of the clip"
 ```
 
-Up to 0.3 the matrix only trims the transitions (the cells that stopped being urban go from 143 to 103 ha) and the gain of urban land
-stays at 236 to 239 ha. At 0.5, a third of the clip has no class, because the trees' votes are often split between two classes: the change falls to
-7 % **because the map says less**, not because there is less change. A `min` that leaves out a third of the map is not a result. Raise `min` until
+Up to 0.3 the matrix only trims the transitions (the cells that stopped being urban go from 134 to 113 ha) and the gain of urban land
+stays at 215 to 218 ha. At 0.5, a third of the clip has no class, because the trees' votes are often split between two classes: the change falls to
+the change falls to, not because there is less change. A `min` that leaves out a third of the map is not a result. Raise `min` until
 the implausible changes thin out (here, 0.3) and report it.
 
 ### `both`
 
-With `both = true` the first date is adjusted from the second the same way. Here it cut the cells that stopped being urban further, from 143 to 89 ha, and raised those
-that became urban, from 239 to 259 ha, with 655 ha changed in all (19.5 %). It is a more consistent pair of maps (what one date allows the other, in both
+With `both = true` the first date is adjusted from the second the same way. Here it cut the cells that stopped being urban further, from 134 to 82 ha, and raised those
+that became urban, from 218 to 241 ha, with 611 ha changed in all (18.2 %). It is a more consistent pair of maps (what one date allows the other, in both
 directions) and it is **more** work done by the matrix and less by the image: use it when you trust the matrix more than you trust the
 classifier, and say so.
 
@@ -462,14 +443,14 @@ data: /data/tutorials/object-based-image-analysis/change-by-objects/matrix_from_
 heat: true
 digits: 2
 align: { "From \\ to": left }
-caption: "The matrix estimated by objects.transition_matrix from the change table of the two maps crossed as they are. Forest to urban is 0.15, urban to forest 0.16: the noise looks like a rule."
+caption: "The matrix estimated by objects.transition_matrix from the change table of the two maps crossed as they are. Forest to urban is 0.15, urban to forest 0.15: the noise looks like a rule."
 ```
 
-It is a mirror of the errors. Urban to forest comes out as 0.16 and forest to urban as 0.15, nearly equal, which is what noise looks like. The estimate is
-only as good as the maps it comes from, and it is circular (the errors become the rule that is supposed to correct them). With it the first table gives 636 ha
-changed, fewer than the hand-written matrix's 692, but nothing says it is closer to the truth.
+It is a mirror of the errors. Urban to forest comes out as 0.15 and forest to urban as 0.15, nearly equal, which is what noise looks like. The estimate is
+only as good as the maps it comes from, and it is circular (the errors become the rule that is supposed to correct them). With it the first table gives 601 ha
+changed, fewer than the hand-written matrix's 671, but nothing says it is closer to the truth.
 
-**From samples.** The honest way is to give it places whose class you know on both dates. Here, the 93 training places (stable by assumption: the same class twice) and the 6
+**From samples.** The honest way is to give it places whose class you know on both dates. Here, the 93 training places (stable by assumption: the same class twice) and the 3
 patches above that I confirmed (their class on the first date by the map, urban on the second):
 
 ```tftable
@@ -477,11 +458,11 @@ data: /data/tutorials/object-based-image-analysis/change-by-objects/matrix_from_
 heat: true
 digits: 2
 align: { "From \\ to": left }
-caption: "The matrix estimated from 93 stable places and 6 confirmed changes to urban. Only the transitions seen get a value: forest to urban 0.14 (3 changes against 22 stable forest places), bare soil to urban 0.33 (3 against 9)."
+caption: "The matrix estimated from 93 stable places and 3 confirmed changes to urban. Only the transitions seen get a value: forest to urban 0.09 (2 changes against 22 stable forest places), bare soil to urban 0.11 (1 against 9)."
 ```
 
-Every transition that none of the 99 places showed is **0**: cerrado to urban, forest to cerrado and the rest are called impossible, which is wrong. That matrix gives
-623 ha changed (18.5 %), and with it the page would silently delete real change. This is the lesson of the table: the possibility of a transition is a
+Every transition that none of the 96 places showed is **0**: cerrado to urban, forest to cerrado and the rest are called impossible, which is wrong. That matrix gives
+That matrix gives, and with it the page would silently delete real change. This is the lesson of the table: the possibility of a transition is a
 statement about the world, and it needs more evidence than a sample of stable places and a handful of changes; `floor` (for instance 0.05) lets
 an unseen transition stay possible but rare. Estimate the matrix from a *probability sample* of both dates with the change classes in it, or write it by hand and justify it.
 

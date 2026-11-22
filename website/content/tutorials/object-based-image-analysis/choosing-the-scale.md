@@ -28,20 +28,20 @@ is wrong in itself; each is wrong for a question.
 
 ```tfgallery
 columns: 3
-caption: "The same town blocks at the multiresolution scales 1, 2.14 and 16 (shape 0.1, compactness 0.5). Too fine, about right for roofs and streets, too coarse."
+caption: "The same town blocks at the multiresolution scales 1, 2.48 and 16 (shape 0.1, compactness 0.5). Too fine, about right for roofs and streets, too coarse."
 images:
   - { src: /img/tutorials/object-based-image-analysis/choosing-the-scale/detail_fine.png, caption: "Scale 1: over-segmentation" }
-  - { src: /img/tutorials/object-based-image-analysis/choosing-the-scale/detail_right.png, caption: "Scale 2.14: about right" }
+  - { src: /img/tutorials/object-based-image-analysis/choosing-the-scale/detail_right.png, caption: "Scale 2.48: about right" }
   - { src: /img/tutorials/object-based-image-analysis/choosing-the-scale/detail_coarse.png, caption: "Scale 16: under-segmentation" }
 ```
 
 - **Over-segmentation** (scale 1): a roof is cut into three or four pieces and the street into many more. Every piece
   is homogeneous, but a piece says almost nothing about the thing it belongs to. The noise is kept, the table of
-  attributes has 11,145 rows for this clip, and each object looks very much like its neighbours.
+  attributes has 11,303 rows for this clip, and each object looks very much like its neighbours.
 - **Under-segmentation** (scale 16): the town is one huge object, with roofs, trees and streets inside it. This is the
   worse error of the two, because it cannot be mended later: an object that holds two classes will be given one of
   them, and half of it will be wrong. At the scale 16 the clip has 35 objects.
-- **About right** (scale 2.14): an object is a roof, a patch of street or a tree, about the size of the things in the
+- **About right** (scale 2.48): an object is a roof, a patch of street or a tree, about the size of the things in the
   image and bigger than a pixel.
 
 How do you find the middle without looking at every scale by eye? Two families of tools answer, and Terraflux has one of
@@ -118,8 +118,8 @@ builds them. If you have not yet read how the segmenters and their settings work
 
 ### Step 1: the image
 
-The first three nodes are the ones of part 2: [[data.stac]] reads the scene, [[raster.reproject]] puts it on square 10 m
-cells in UTM, and [[raster.calc]] turns the integers into reflectance. They are shown here as a fragment; the whole model
+The first two nodes are the ones of part 2: [[data.stac]] reads the scene onto square 10 m cells in UTM, and
+[[raster.calc]] turns the integers into reflectance. They are shown here as a fragment; the whole model
 is at the end of the section.
 
 ```tfgraph
@@ -130,7 +130,7 @@ is at the end of the section.
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance from 0 to 1 (the scene and its UTM grid come before, as in part 2)."
 
@@ -152,8 +152,8 @@ note = "Ten scales, each scored."
 
 Add [[segment.scale]] and connect `refl.image` to its `image` input. With no setting it works like this: it takes the
 **first scale** from the image itself (the square root of the summed median local standard deviation of the bands in
-3 × 3 cells, here 0.195), and then segments at that scale, at twice it, at three times it... for **30 levels**
-(`levels`, a minimum of 3), up to 5.84. Every level is grown from the one below, so the whole run costs about one
+3 × 3 cells, here 0.207), and then segments at that scale, at twice it, at three times it... for **30 levels**
+(`levels`, a minimum of 3), up to 6.20. Every level is grown from the one below, so the whole run costs about one
 segmentation. To stay fast it works on the **central window** of at most 512 × 512 cells (`window`; 0 takes the whole
 image): this clip has 580 × 580 cells, so ESP sees all but a 34-cell frame, and the scales it finds hold for the rest. The
 other settings are those of the multiresolution method (`shape`, `compactness`, `weights`) and the `seed` of its
@@ -181,7 +181,7 @@ single object) and `value`, the best value.
 your own, which is what the later tutorials do. The model below does the second, with the first of ESP's peaks.
 
 ```tfgraph
-#! caption: The whole model: scene, UTM grid, reflectance, ESP, USPO over ten scales, the multiresolution at the scale chosen (2.14) and its polygons.
+#! caption: The whole model: scene, UTM grid, reflectance, ESP, USPO over ten scales, the multiresolution at the scale chosen (2.48) and its polygons.
 #! highlight: esp, opt, segments
 #! numbered: true
 format = "terraflux/1"
@@ -189,19 +189,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "The scene of 9 August 2024, five bands."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -209,7 +203,7 @@ note = "Reflectance 0 to 1."
 id = "esp"
 op = "segment.scale"
 inputs = { image = "refl.image" }
-note = "Peaks at 2.14, 2.53 and 2.92."
+note = "Peaks at 2.48, 2.89 and 3.51."
 
 [[nodes]]
 id = "opt"
@@ -222,7 +216,7 @@ note = "Best by the sum: 1.5; by the F-measure: 6."
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
-params = { scale = 2.14 }
+params = { scale = 2.48 }
 note = "The scale you decide on."
 
 [[nodes]]
@@ -260,12 +254,12 @@ params = { path = "objects_scale.gpkg" }
 === "Without a network"
 
     As in part 2: download [sentinel2_brasilia.tif](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif)
-    beside the model and replace the nodes `s2` and `utm` with a `raster.read` of it. The download is rounded to whole
+    beside the model and replace the node `s2` with a `raster.read` of it. The download is rounded to whole
     numbers, so the counts of this page can differ by a few objects.
 
     ```toml
     [[nodes]]
-    id = "utm"
+    id = "s2"
     op = "raster.read"
     params = { path = "sentinel2_brasilia.tif" }
     ```
@@ -275,7 +269,7 @@ params = { path = "objects_scale.gpkg" }
 ### ESP: where the objects become wholes
 
 Open the table of `esp`. The local variance rises with the scale, as it must (bigger objects hold more variation), and
-its **rate of change** falls fast: from 68.6 % at the scale 0.58 to 4.6 % at 2.14 and to about 1 or 2 % above 3. A peak
+its **rate of change** falls fast: from 66.8 % at the scale 0.62 to 3.9 % at 2.48 and to about 1 or 2 % above 3. A peak
 is a scale where the fall stops for a moment, because objects stopped being parts and started to be wholes.
 
 ```tfchart
@@ -288,17 +282,17 @@ colors: { roc_mean: "#3b8a5a" }
 xlabel: Scale
 ylabel: ROC (%)
 height: 300
-caption: "ESP on the clip: the rate of change of the local variance (mean of the five bands) at the scales 1.17 to 5.84. The first levels, where it is in the hundreds, are left out. Peaks, higher than both neighbours, at 2.14, 2.53 and 2.92."
+caption: "ESP on the clip: the rate of change of the local variance (mean of the five bands) at the scales 1.24 to 6.20. The first levels, where it is in the hundreds, are left out. Peaks, higher than both neighbours, at 2.48, 2.89 and 3.51."
 ```
 
-ESP suggests the first three peaks: **2.14, 2.53 and 2.92**. At 2.14 the window's objects number 2,156 (2,599 over the whole
-clip), at 2.53 they number 1,553 and at 2.92 they number 1,160. ESP is meant to
+ESP suggests the first three peaks: **2.48, 2.89 and 3.51**. At 2.48 the window's objects number 1,602 (1,987 over the whole
+clip), at 2.89 they number 1,173 and at 3.51 they number 786. ESP is meant to
 suggest a fine, a medium and a coarse scale; here the three lie close together, because the curve is dominated by the
 town, where most of the variation of this scene is, and has little else to say above scale 3. If you leave `scale` empty,
 [[segment.multiresolution]] takes the first of these.
 
 !!! note
-    ESP's ROC is noisy. Look at the curve as well as at the three marked scales: a gentle bump (the one near 3.7, 2.2 %)
+    ESP's ROC is noisy. Look at the curve as well as at the three marked scales: a gentle bump (the one near 6.0, 2.2 %)
     that ESP did not mark can be as good a scale as one it did. Run ESP again with `start` and `step` over a range you
     care about to see it in finer steps.
 
@@ -311,16 +305,16 @@ beside it the two scaled scores and their sum.
 label: Scale
 caption: "The ten scales USPO scored, over the same part of the clip as in part 2 (shape 0.1, compactness 0.5). The chart is the scores of the whole clip: the variance and Moran's I rescaled from 1 (lowest) to 0 (highest) and their sum, the objective."
 frames:
-  - { value: 1, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_1.png, caption: "Scale 1", stats: { Objects: "11,145", "Mean size": "0.30 ha", Objective: "1.000" } }
-  - { value: 1.5, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_1_5.png, caption: "Scale 1.5", stats: { Objects: "5,219", "Mean size": "0.64 ha", Objective: "1.020" } }
-  - { value: 2, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_2.png, caption: "Scale 2", stats: { Objects: "3,035", "Mean size": "1.11 ha", Objective: "0.949" } }
-  - { value: 3, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_3.png, caption: "Scale 3", stats: { Objects: "1,338", "Mean size": "2.51 ha", Objective: "0.878" } }
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_4.png, caption: "Scale 4", stats: { Objects: "739", "Mean size": "4.55 ha", Objective: "0.813" } }
-  - { value: 6, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_6.png, caption: "Scale 6", stats: { Objects: "313", "Mean size": "10.75 ha", Objective: "0.765" } }
-  - { value: 8, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_8.png, caption: "Scale 8", stats: { Objects: "187", "Mean size": "17.99 ha", Objective: "0.712" } }
-  - { value: 12, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_12.png, caption: "Scale 12", stats: { Objects: "69", "Mean size": "48.75 ha", Objective: "0.731" } }
-  - { value: 16, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_16.png, caption: "Scale 16", stats: { Objects: "35", "Mean size": "96.11 ha", Objective: "0.821" } }
-  - { value: 24, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_24.png, caption: "Scale 24", stats: { Objects: "14", "Mean size": "240.29 ha", Objective: "1.000" } }
+  - { value: 1, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_1.png, caption: "Scale 1", stats: { Objects: "11,303", "Mean size": "0.30 ha", Objective: "1.000" } }
+  - { value: 1.5, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_1_5.png, caption: "Scale 1.5", stats: { Objects: "5,210", "Mean size": "0.65 ha", Objective: "1.006" } }
+  - { value: 2, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_2.png, caption: "Scale 2", stats: { Objects: "2,973", "Mean size": "1.13 ha", Objective: "0.958" } }
+  - { value: 3, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_3.png, caption: "Scale 3", stats: { Objects: "1,338", "Mean size": "2.51 ha", Objective: "0.892" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_4.png, caption: "Scale 4", stats: { Objects: "725", "Mean size": "4.64 ha", Objective: "0.842" } }
+  - { value: 6, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_6.png, caption: "Scale 6", stats: { Objects: "308", "Mean size": "10.92 ha", Objective: "0.855" } }
+  - { value: 8, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_8.png, caption: "Scale 8", stats: { Objects: "175", "Mean size": "19.22 ha", Objective: "0.626" } }
+  - { value: 12, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_12.png, caption: "Scale 12", stats: { Objects: "67", "Mean size": "50.21 ha", Objective: "0.874" } }
+  - { value: 16, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_16.png, caption: "Scale 16", stats: { Objects: "41", "Mean size": "82.05 ha", Objective: "0.854" } }
+  - { value: 24, src: /img/tutorials/object-based-image-analysis/choosing-the-scale/scale_24.png, caption: "Scale 24", stats: { Objects: "15", "Mean size": "224.27 ha", Objective: "1.000" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/choosing-the-scale/scores.csv
@@ -331,9 +325,9 @@ chart:
   ylabel: Score
 ```
 
-The two scores are made to disagree. The variance inside the objects only grows with the scale, from 0.00025 at scale 1
+The two scores are made to disagree. The variance inside the objects only grows with the scale, from 0.00029 at scale 1
 to 0.0015 at 24 (reflectance squared), so its scaled score falls from 1 to 0. Moran's I, the similarity of neighbours,
-falls too, from 0.64 to −0.08, so its scaled score rises from 0 to 1. Their sum is **high at both ends** and low in the
+falls too, from 0.61 to −0.05, so its scaled score rises from 0 to 1. Their sum is **high at both ends** and low in the
 middle, and this is the first thing to understand about USPO: it can only choose between "very homogeneous objects that
 look like their neighbours" and "very different objects that are not homogeneous", and an optimum appears only if the
 two scores trade off unevenly in between.
@@ -348,15 +342,15 @@ caption: "The scores table of segment.optimize on the whole clip, with the F-mea
 
 Read the table, not only the winner:
 
-- **By the sum, the best scale is 1.5** (5,219 objects), with an objective of 1.020. That is hardly above 1.000 at the scale 1
-  and at the scale 24: three very different segmentations are within 0.02 of each other. A winner so close to the ends of
+- **By the sum, the best scale is 1.5** (5,210 objects), with an objective of 1.006. That is hardly above 1.000 at the scale 1
+  and at the scale 24: three very different segmentations are within 0.01 of each other. A winner so close to the ends of
   the range says that the range, not the image, picked it.
-- **By the F-measure** (`objective = "f"`, Johnson and Xie's), the best scale is **6** (313 objects, 10.8 ha each), and
-  the objective is a smooth hump, 0 at both ends of the range and about 0.33 to 0.37 from 4 to 12. The F-measure does not
+- **By the F-measure** (`objective = "f"`, Johnson and Xie's), the best scale is **6** (308 objects, 10.9 ha each), and
+  the objective is a smooth hump, 0 at both ends of the range and about 0.31 to 0.43 from 4 to 12. The F-measure does not
   let a run with one score at the top and the other at the bottom win.
 - **The cost of a coarse scale** shows in the last column. Water against land changes at the lake shore, a sharp edge;
-  even at scale 12, 0.52 % of the cells are on the wrong side of their object's majority, and 0.25 % at scale 1. At the
-  scale 24 it jumps to 0.87 %, and the slider's last frame shows why: the lake has merged with the bare ground and the
+  even at scale 12, 0.50 % of the cells are on the wrong side of their object's majority, and 0.24 % at scale 1. At the
+  scale 24 it jumps to 0.95 %, and the slider's last frame shows why: the lake has merged with the bare ground and the
   blocks south of it.
 
 !!! tip
@@ -383,19 +377,18 @@ caption: "ESP's three peaks and USPO's best scale (the sum, over the scales 0.5 
 
 Their numbers disagree, and that is the point.
 
-- **The lake** has ESP peaks at 0.54, 0.77 and 0.89, far below the whole clip's, and USPO's best is the smallest scale it
-  tried (0.5). The water is nearly uniform, so the cost of merging two cells of water is tiny and "wholes" appear at
-  a very small scale. But look at what a **larger** scale does in the first row below: the lake becomes a few objects
+- **The lake** has ESP peaks at 0.47, 0.60 and 0.77, far below the whole clip's, and USPO's best is 8 (3 objects). The water is
+  nearly uniform, so the cost of merging two cells of water is tiny and "wholes" appear at a very small scale. But look at what a **larger** scale does in the first row below: the lake becomes a few objects
   and the shore does not move, because merging water into land costs far more than any scale shown here pays.
-- **The town** has its peaks at 2.89, 4.62 and 5.48, the highest of the three, and USPO's best is 1. Here the scale
+- **The town** has its peaks at 2.47, 3.70 and 4.32, the highest of the three, and USPO's best is 1. Here the scale
   matters at every step: by scale 12 the window holds two objects.
-- **The cerrado** has peaks at 1.19, 1.51 and 1.73, and USPO picks 6 (7 objects), with 8 and 12 giving a single object that
+- **The cerrado** has peaks at 0.92, 1.27 and 1.84, and USPO picks 6 (6 objects), with 8 and 12 giving a single object that
   has no score. The grass, the dirt tracks and a patch of trees are low in contrast: at scale 4 some objects still
   follow a track, and at 12 they do not.
 
 ```tfgallery
 columns: 3
-caption: "Each window at the scales 1, 4 and 12. Rows: the lake, the town, the cerrado. Objects touching the window, in the segmentation of the whole clip: lake 297, 31 and 7; town 488, 40 and 2; cerrado 271, 31 and 3."
+caption: "Each window at the scales 1, 4 and 12. Rows: the lake, the town, the cerrado. Objects touching the window, in the segmentation of the whole clip: lake 269, 38 and 5; town 517, 36 and 2; cerrado 265, 30 and 8."
 images:
   - { src: /img/tutorials/object-based-image-analysis/choosing-the-scale/win_water_1.png, caption: "Lake, scale 1" }
   - { src: /img/tutorials/object-based-image-analysis/choosing-the-scale/win_water_4.png, caption: "Lake, scale 4" }
@@ -429,8 +422,8 @@ which part 8 of the series does with `from`. A cheaper step first is to merge th
 ## Settings that change the answer
 
 **The range of values.** USPO can only choose among the scales you give it. The narrow run below, from 1 to 8 in steps of
-0.5, finds the same winner (1.5, objective 1.195) but shows what the first run could not: a second hump at 4.5
-(1.141) and a drop at 6.5 (0.724), where Moran's I rises from 0.42 to 0.49 although the scale only went up by half a unit. The
+0.5, finds the same winner (1.5, objective 1.066) but shows what the first run could not: a second hump at 7
+(1.054) and a drop at 7.5 (0.523) although the scale only went up by half a unit. The
 curve is bumpy; do not read a decimal into it.
 
 ```tfchart
@@ -483,12 +476,12 @@ setting that was varied and, with it, the fixed `params`, as one step of undo.
 
 ## Common pitfalls
 
-- **Taking the winner of a short range.** A best value at the end of the range (as the lake window's 0.5, the smallest
-  tried) is a sign to widen the range, not a result.
+- **Taking the winner of a short range.** A best value at the end of the range (as the sum's 1.5 here, next to the
+  smallest scale tried) is a sign to widen the range, not a result.
 - **Believing the sum.** On this clip its winner is hardly above the two ends of the range. Compare it with the F-measure
   and with ESP, and look.
 - **Mixing units.** The scales of this page are for reflectance from 0 to 1. Run the same image from 0 to 10 000 and
-  every scale means something else (ESP's first scale would be near 1950, not 0.195).
+  every scale means something else (ESP's first scale would be near 2070, not 0.207).
 - **Using a scale from another image.** A scale is a cost in the image's units: compare objects (their count and size),
   not numbers, between scenes.
 - **One scale for every class.** If the lake and the town are both in the map, expect to compromise or to use levels.

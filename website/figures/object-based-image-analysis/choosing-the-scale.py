@@ -30,7 +30,7 @@ R0, R1, C0, C1 = 90, 360, 200, 470
 D0, D1, E0, E1 = 190, 290, 230, 350
 # the scales of the slider, which are also the values segment.optimize scores
 SL = [1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24]
-ESP_SCALE = 2.14  # what segment.scale suggests first on this clip (checked below)
+ESP_SCALE = 2.48  # what segment.scale suggests first on this clip (checked below)
 CELL_HA = 0.01
 # three windows (row0, row1, col0, col1) of 100 x 100 cells: the lake, the town, the dry cerrado
 WIN = {"water": (20, 120, 240, 340), "town": (90, 190, 20, 120), "cerrado": (440, 540, 250, 350)}

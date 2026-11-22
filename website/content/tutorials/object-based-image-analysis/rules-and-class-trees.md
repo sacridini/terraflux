@@ -104,7 +104,7 @@ memberships feed the classifier as attributes. This page keeps to rules.
   [[raster.read]]. Its attribution is in [ATTRIBUTION.txt](/data/tutorials/object-based-image-analysis/ATTRIBUTION.txt).
   The bands must be named `red`, `green` and `nir`: the NDVI and NDWI of [[objects.features]] are found from the names.
 - **Objects with attributes.** The multiresolution objects of scale 2 of
-  [part 2](/tutorials/object-based-image-analysis/what-is-an-object/) (3,035 objects), and their spectral attributes
+  [part 2](/tutorials/object-based-image-analysis/what-is-an-object/) (2,973 objects), and their spectral attributes
   ([part 4](/tutorials/object-based-image-analysis/describing-objects/) says what each means).
 - **The template**, in the application: *Classify an image by rules* (group *Objects*). It runs on a synthetic image and
   has a class hierarchy of five classes; replace the image with yours with *Use my data* and move the thresholds.
@@ -113,8 +113,8 @@ memberships feed the classifier as attributes. This page keeps to rules.
 
 ### Steps 1 to 3: the image, the objects, their attributes
 
-The first three nodes are those of the earlier parts: [[data.stac]] reads the scene of 9 August 2024, [[raster.reproject]]
-puts it on 10 m cells in UTM zone 23S and [[raster.calc]] makes reflectance (0 to 1). They are in the full model below.
+The first two nodes are those of the earlier parts: [[data.stac]] reads the scene of 9 August 2024 onto 10 m cells in
+UTM zone 23S and [[raster.calc]] makes reflectance (0 to 1). They are in the full model below.
 Then [[segment.multiresolution]] cuts the reflectance image at `scale = 2`, and [[objects.features]] measures the
 objects.
 
@@ -147,9 +147,9 @@ The node's `objects` output has the table with a new column, `vis`. The script c
     Where does a threshold come from? From the table. Read the values of the objects you know are water or town (in the
     application, click them in the Viewer: the inspector lists every attribute), look at the histogram of an attribute in the
     feature space, and put the ends of a ramp where the two groups part. On this clip the water objects have a median NDWI of
-    0.64 and no other object is above −0.01. The visible brightness of the town's objects has a median of 0.103 (5th to
-    95th percentile 0.077 to 0.171), that of the cerrado's 0.055 (0.042 to 0.073): the ramp from 0.06 to 0.09 lies where the two
-    groups overlap least. The NDVI of the forest has a median of 0.63, that of the cerrado 0.43 and of the town 0.27. These
+    0.64 and no other object is above 0.05. The visible brightness of the town's objects has a median of 0.103 (5th to
+    95th percentile 0.077 to 0.193), that of the cerrado's 0.055 (0.042 to 0.073): the ramp from 0.06 to 0.09 lies where the two
+    groups overlap least. The NDVI of the forest has a median of 0.62, that of the cerrado 0.43 and of the town 0.27. These
     numbers are of the classes the tree gives, so they are only a check that the ramps are placed in sensible gaps, not a
     validation.
 
@@ -196,19 +196,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -217,7 +211,7 @@ id = "seg"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects."
+note = "2,973 objects."
 
 [[nodes]]
 id = "feat"
@@ -276,12 +270,12 @@ params = { title = "Classes by rules" }
 === "Without a network"
 
     Download [sentinel2_brasilia.tif](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif) beside the model
-    and replace the nodes `s2` and `utm` with a [[raster.read]] of it. The download is rounded to whole numbers, so the
+    and replace the node `s2` with a [[raster.read]] of it. The download is rounded to whole numbers, so the
     numbers of this page can differ in the last decimals.
 
     ```toml
     [[nodes]]
-    id = "utm"
+    id = "s2"
     op = "raster.read"
     params = { path = "sentinel2_brasilia.tif" }
     ```
@@ -334,7 +328,7 @@ caption: "The area of each class of the tree, from the map the node writes (a ce
 data: /data/tutorials/object-based-image-analysis/rules-and-class-trees/areas.csv
 ```
 
-The lake is 215.7 ha. The water of [part 7](/tutorials/object-based-image-analysis/water-by-thresholds/), found by Otsu's
+The lake is 216.8 ha. The water of [part 7](/tutorials/object-based-image-analysis/water-by-thresholds/), found by Otsu's
 cut of the NDWI on cells and not on objects, is 219.6 ha: 1.8 % more. Two methods that agree by that much on water, a class
 a threshold separates well, are two views of one lake. The other classes have no such check here: nobody measured them. To
 claim a number of hectares for forest or for the town you need reference data and an accuracy assessment
@@ -357,7 +351,7 @@ table, and the figure draws six.
 
 The **margin** is the largest membership minus the second largest. It is 1 where the object belongs to one class
 and nothing else competes, and close to 0 where two classes fit about equally. It is the map to look at before you trust the
-classes: **319 objects, 9.7 % of the clip (327 ha), have a margin below 0.2**. They are in two places: the south-east, where
+classes: **278 objects, 8.9 % of the clip (299 ha), have a margin below 0.2**. They are in two places: the south-east, where
 forest and cerrado meet on a continuum of NDVI, and the edges of the town, where mixed objects hold both roofs and trees.
 Those are the objects to inspect, to give samples to, or to send to a second rule.
 
@@ -377,7 +371,7 @@ min = 0.6
 classes = [ ... ]
 ```
 
-![Objects with no class when min is 0.6](/img/tutorials/object-based-image-analysis/rules-and-class-trees/strict.png "The same classes with min = 0.6. The magenta objects are left unclassified: 319 objects, 9.7 % of the clip, where the rules are not sure enough.")
+![Objects with no class when min is 0.6](/img/tutorials/object-based-image-analysis/rules-and-class-trees/strict.png "The same classes with min = 0.6. The magenta objects are left unclassified: 278 objects, 8.9 % of the clip, where the rules are not sure enough.")
 
 The default, 0.1, leaves every object classified here: each has a leaf with a membership of at least 0.1. With a
 stricter `min` you choose to leave the doubtful objects empty, and finish them another way
@@ -420,8 +414,8 @@ values. The classes are new: the second pass has its own numbering (water 1, for
 
 ![Where the detail is](/img/tutorials/object-based-image-analysis/rules-and-class-trees/detail_box.png "The detail of the figure above is the yellow box on the clip.")
 
-The second pass moves **27,993 cells, 280 ha, in 304 objects**, from cerrado to urban open ground, and the cerrado falls
-from 1,267 ha to 988 ha. On the detail the pale objects are the dark streets, the tree-lined avenues, the yards and the open
+The second pass moves **26,541 cells, 265 ha, in 302 objects**, from cerrado to urban open ground, and the cerrado falls
+from 1,241 ha to 976 ha. On the detail the pale objects are the dark streets, the tree-lined avenues, the yards and the open
 lots between the blocks. A reader can check this on the image itself, and a report should say how: the rule is
 "half the object's perimeter touches the town", the 0.5 is a choice, and no field data says whether these are gardens.
 
@@ -440,11 +434,11 @@ the ramp, `a + 0.075`.
 label: Lower end of the forest's NDVI ramp
 caption: "The classes for five positions of the forest ramp (the NDVI ramp is a to a + 0.15; the tree, the other rules and the objects are the same). The chart gives the hectares of each class in the clip."
 frames:
-  - { value: 0.3, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_3.png, caption: "Forest from NDVI 0.3 to 0.45", stats: { Forest: "2,029 ha", "Built-up": "878 ha", Cerrado: "241 ha" } }
-  - { value: 0.375, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_375.png, caption: "Forest from NDVI 0.375 to 0.525", stats: { Forest: "1,344 ha", "Built-up": "995 ha", Cerrado: "809 ha" } }
-  - { value: 0.45, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_45.png, caption: "Forest from NDVI 0.45 to 0.6 (the tree of the page)", stats: { Forest: "873 ha", "Built-up": "1,008 ha", Cerrado: "1,267 ha" } }
-  - { value: 0.525, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_525.png, caption: "Forest from NDVI 0.525 to 0.675", stats: { Forest: "514 ha", "Built-up": "1,009 ha", Cerrado: "1,625 ha" } }
-  - { value: 0.6, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_6.png, caption: "Forest from NDVI 0.6 to 0.75", stats: { Forest: "323 ha", "Built-up": "1,010 ha", Cerrado: "1,816 ha" } }
+  - { value: 0.3, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_3.png, caption: "Forest from NDVI 0.3 to 0.45", stats: { Forest: "2,011 ha", "Built-up": "906 ha", Cerrado: "231 ha" } }
+  - { value: 0.375, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_375.png, caption: "Forest from NDVI 0.375 to 0.525", stats: { Forest: "1,362 ha", "Built-up": "994 ha", Cerrado: "792 ha" } }
+  - { value: 0.45, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_45.png, caption: "Forest from NDVI 0.45 to 0.6 (the tree of the page)", stats: { Forest: "896 ha", "Built-up": "1,010 ha", Cerrado: "1,241 ha" } }
+  - { value: 0.525, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_525.png, caption: "Forest from NDVI 0.525 to 0.675", stats: { Forest: "513 ha", "Built-up": "1,011 ha", Cerrado: "1,623 ha" } }
+  - { value: 0.6, src: /img/tutorials/object-based-image-analysis/rules-and-class-trees/forest_0_6.png, caption: "Forest from NDVI 0.6 to 0.75", stats: { Forest: "315 ha", "Built-up": "1,011 ha", Cerrado: "1,821 ha" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/rules-and-class-trees/forest_sweep.csv
@@ -457,19 +451,19 @@ chart:
 
 Read it from left to right.
 
-- **The forest is the unstable class.** Its area goes from 2,029 ha to 323 ha, **a factor of six**, as one number moves by 0.3 in
+- **The forest is the unstable class.** Its area goes from 2,011 ha to 315 ha, **a factor of six**, as one number moves by 0.3 in
   the NDVI. The area changes steadily with the threshold and does not flatten anywhere, which is what a histogram with
   no valley between two groups does (the NDVI of the whole clip has quartiles of 0.30, 0.41 and 0.53). The boundary between
   "forest" and "not forest" is a choice here, not something the image shows. The lowest frames call most of the south
   "forest"; the highest keep only the gallery along the streams and the darkest woodland.
-- **The built-up class hardly moves** between 0.375 and 0.6 (995 to 1,010 ha): the town is bright in the visible, and its
-  ramp is far from the forest's. At 0.3 the forest rule reaches the town's greener blocks and built-up falls to 878 ha.
+- **The built-up class hardly moves** between 0.375 and 0.6 (994 to 1,011 ha): the town is bright in the visible, and its
+  ramp is far from the forest's. At 0.3 the forest rule reaches the town's greener blocks and built-up falls to 906 ha.
 - **The water does not move** because its rule was not touched. How steady its area is when its own threshold moves is in
   [part 7](/tutorials/object-based-image-analysis/water-by-thresholds/): a plateau, because the NDWI has a valley between
   water and land and the NDVI of forest and cerrado has none.
 
 So the rules need to be **checked against something**. Place the ramps where the data say (the histograms of the attribute for
-samples you know), and report the sensitivity as you report the threshold: "forest area between 514 and 1,344 ha for a
+samples you know), and report the sensitivity as you report the threshold: "forest area between 513 and 1,362 ha for a
 shift of the NDVI ramp of ±0.075".
 
 ## Common pitfalls

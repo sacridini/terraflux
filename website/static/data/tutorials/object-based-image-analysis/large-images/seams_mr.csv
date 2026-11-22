@@ -1,7 +1,7 @@
 run,objects,vs_whole_f,on_borders,elsewhere
-"whole, seed 0",2599,1.0,9.9,10.3
-"whole, seed 1 (another run)",2648,0.621,11.8,10.4
-"whole, seed 2 (another run)",2596,0.611,10.8,10.3
-"tiles of 200, margin 64",2549,0.614,6.8,10.2
-"tiles of 200, margin 64, seed 1",2515,0.616,9.6,10.1
-"tiles of 200, margin 1",2514,0.613,9.1,10.1
+"whole, seed 0",2627,1.0,10.6,10.4
+"whole, seed 1 (another run)",2624,0.62,10.1,10.4
+"whole, seed 2 (another run)",2606,0.62,10.8,10.4
+"tiles of 200, margin 64",2517,0.613,11.2,10.1
+"tiles of 200, margin 64, seed 1",2582,0.612,8.7,10.3
+"tiles of 200, margin 1",2566,0.615,10.0,10.3

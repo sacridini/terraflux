@@ -68,7 +68,7 @@ two are close and not equal (the last section).
 ## What you need
 
 - The NAIP clip of the series: 600 m of Plano, Texas, 0.6 m cells, bands red, green, blue and nir (9 November 2024;
-  [naip_plano.tif](/data/tutorials/object-based-image-analysis/naip_plano.tif) to download).
+  [naip_plano.tif](/data/tutorials/object-based-image-analysis/naip_plano.tif) to download; that scene is no longer in the Planetary Computer, so the model reads the file. For a scene that is, see [part 14](/tutorials/object-based-image-analysis/case-urban-cover-naip/), where [[data.stac]] reads NAIP onto a UTM grid with `bands` and `crs`).
 - The Sentinel-2 clip of Lago Paranoá (10 m cells, five bands, 9 August 2024;
   [sentinel2_brasilia.tif](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif)), for the second case. Their attribution is in
   [ATTRIBUTION.txt](/data/tutorials/object-based-image-analysis/ATTRIBUTION.txt).
@@ -308,7 +308,7 @@ So for **clean shapes** curvature now tells a straight line from a bend, and its
 
 An object that is a **network** (the streets of a quarter, the creeks of a basin) has many branches and junctions and a main line that is
 only one path through it. The main length is the longest way across it and the width (area over that length) is **not a width any more**. The Sentinel-2 section shows
-a network of 193 ha with a "width" of 393 m. For a network use `skel_branches`, `skel_junctions` and `skel_branch_length` (their mean length),
+a network of 191 ha with a "width" of 390 m. For a network use `skel_branches`, `skel_junctions` and `skel_branch_length` (their mean length),
 and the area; for the width of one reach, cut the network first (for example with [[objects.split]]).
 
 ## Another scale: the gallery forests of Lago Paranoá
@@ -371,12 +371,12 @@ data: /data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skelet
 labels: { id: Object, class: Class, area_ha: "Area (ha)", main_length_m: "Main length (m)", width_m: "Width (m)", length_width: "Length / width", branches: Branches, junctions: Junctions }
 align: { class: left }
 digits: { id: 0, area_ha: 1, main_length_m: 0, width_m: 1, length_width: 1, branches: 0, junctions: 0 }
-caption: "The six largest green objects. The first is the creek network of the south-east of the clip: 193 ha, a main line of 4.9 km, 201 branches."
+caption: "The six largest green objects. The first is the creek network of the south-east of the clip: 191 ha, a main line of 4.9 km, 249 branches."
 ```
 
-There are 7 gallery forests (275 ha), 7 forest patches (101 ha) and 864 small green objects (92 ha). The largest object is a **network**: a main line of 4.9 km, 201 branches and 113 junctions, and
-a "width" of 393 m that no creek has. Its length over width, 12.5, is above the ramp, so the rule calls it gallery forest, which is right, but for the wrong measure.
-The second (a patch of 58 ha, length over width 8.3, 70 branches) is a thick patch of forest on the east side. The objects of the middle, such as the 20 ha ribbon of 2.3 km and a
+There are 6 gallery forests (263 ha), 9 forest patches (115 ha) and 1,162 small green objects (108 ha). The largest object is a **network**: a main line of 4.9 km, 249 branches and 136 junctions, and
+a "width" of 390 m that no creek has. Its length over width, 12.6, is above the ramp, so the rule calls it gallery forest, which is right, but for the wrong measure.
+The second (a patch of 59 ha, length over width 8.5, 89 branches) is a thick patch of forest on the east side. The objects of the middle, such as the 20 ha ribbon of 2.3 km and a
 "width" of 87 m, are the typical gallery forests. As in the NAIP case there is no reference: these are the objects the rule calls long and thin, and they look right on the image.
 
 ## How this skeleton differs from eCognition's

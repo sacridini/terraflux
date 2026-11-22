@@ -91,11 +91,11 @@ along most of the block's boundary.
 **[blocks.geojson](/data/tutorials/object-based-image-analysis/classes-by-parcel/blocks.geojson)** is the file the model reads
 (EPSG:31983, the image's coordinate system); [its attribution](/data/tutorials/object-based-image-analysis/classes-by-parcel/ATTRIBUTION.txt)
 is in the same folder. The data are © OpenStreetMap contributors, under the Open Database Licence (ODbL); the blocks are
-a derived database and carry the same licence. The data are from 20 November 2026.
+a derived database and carry the same licence. The data are from 22 November 2026.
 
 These are **not cadastral blocks**, and the page is honest about it. Service roads are left out, so a block here is
 sometimes several real ones; the blocks cover a quarter of the clip, since many streets of the lower town are not
-closed polygons; and the block at the top-left corner holds 6.9 ha of the lake, since no street closes the shore. For
+closed polygons; and the block at the top-left corner holds 6.0 ha of the lake, since no street closes the shore. For
 the method that does not matter. For a report it would: use your cadastre.
 
 The template **Classes by parcel** (the library's *Templates*, group *Objects*) is the same model on a synthetic image,
@@ -155,13 +155,13 @@ why = "A block is a unit of management: an object across its edge has the spectr
 
     The file `blocks.geojson` sits in the model's folder.
 
-On the clip, **without** the bounds the segmentation has 3,035 objects, and **420 of them (13.8%) have cells in more than
-one zone**: they hold 13.5% of the clip's cells. Most cross the strips of street between two blocks, which belong to no
-block. **With** the bounds there are 3,107 objects, 72 more (+2.4%), and none crosses.
+On the clip, **without** the bounds the segmentation has 2,973 objects, and **425 of them (14.3%) have cells in more than
+one zone**: they hold 13.7% of the clip's cells. Most cross the strips of street between two blocks, which belong to no
+block. **With** the bounds there are 3,107 objects, 134 more (+4.5%), and none crosses.
 
 ```tfcompare
 caption: "Four blocks by the lake, objects of scale 2 (yellow outlines) and the blocks (magenta). Left, without bounds: the objects that cross a block's edge are tinted cyan. Right, with bounds: none. Drag the handle."
-before: { src: /img/tutorials/object-based-image-analysis/classes-by-parcel/zoom_free.png, label: "No bounds: 420 objects cross" }
+before: { src: /img/tutorials/object-based-image-analysis/classes-by-parcel/zoom_free.png, label: "No bounds: 425 objects cross" }
 after: { src: /img/tutorials/object-based-image-analysis/classes-by-parcel/zoom_bound.png, label: "bounds = blocks: none" }
 ```
 
@@ -205,10 +205,10 @@ caption: "The first objects inside a block, from the table of the features node:
     `th_share` below 1, and an object mostly outside has **no** `th_mode` (and no `th_share`), even if some of its cells
     are in a block.
 
-    On the clip, without the bounds, 420 objects cross a zone. For **287** of them `th_share` is below 1; the other **133**
-    are mostly outside a block, so their `th_mode` is missing (and they are among the 2,120 objects with no value). Together
-    they are the 420, which `th_share` and the missing values find without the zone map. With the bounds, `th_share`
-    is 1 for all 972 objects that have a value, and the 2,135 others have none. The operator's reference gives the full
+    On the clip, without the bounds, 425 objects cross a zone. For **285** of them `th_share` is below 1; the other **140**
+    are mostly outside a block, so their `th_mode` is missing (and they are among the 2,080 objects with no value). Together
+    they are the 425, which `th_share` and the missing values find without the zone map. With the bounds, `th_share`
+    is 1 for all 1,004 objects that have a value, and the 2,103 others have none. The operator's reference gives the full
     rule: [[objects.features]].
 
 ```tftable
@@ -345,19 +345,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -450,11 +444,11 @@ note = "The area of each class by the kind of street the block faces."
 
 ## Read the results
 
-Inside the 33 blocks (846 ha) the second pass gives **566.1 ha of built-up (66.9%)**, **81.8 ha of trees (9.7%)**, **191.1 ha
-of dry or bare ground (22.6%)** and 6.9 ha of lake (the corner block, see above). The rules gave the *same* built-up and the
+Inside the 33 blocks (846 ha) the second pass gives ***571.5 ha of built-up (67.6%)**, **92.7 ha of trees (11.0%)**, **175.8 ha
+of dry or bare ground (20.8%)** and 6.0 ha of lake (the corner block, see above). The rules gave the *same* built-up and the
 same spectra as the first pass: the parcel only renamed the forest and the cerrado.
 
-![Trees by block](/img/tutorials/object-based-image-analysis/classes-by-parcel/green_by_block.png "The share of each block that is trees (the light green class), over the clip faded out. Most blocks hold 0 to 10%; three have more than half, and two of them are under 2 ha.")
+![Trees by block](/img/tutorials/object-based-image-analysis/classes-by-parcel/green_by_block.png "The share of each block that is trees (the light green class), over the clip faded out. Most blocks hold 0 to 10%; four have more than half, and three of them are under 2 ha.")
 
 The table of the model's `by_block` node is a row per block and class; the page's script turns it into the map above. The
 same sums by the kind of street are the `by_faces` node:
@@ -488,12 +482,12 @@ cyan.
 label: Scale of the multiresolution segmentation
 caption: "Without the bounds, the larger the objects, the more of them cross a block. Cyan: objects with cells in more than one zone (a block, another block, or the land between). With the bounds, none ever does. The chart: the share of the objects, and of the cells, in objects that cross."
 frames:
-  - { value: 1, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_1.png, caption: "Scale 1: 11,145 objects", stats: { Objects: "11,145", "Cross a zone": "798 (7.2%)", "With bounds": "11,504" } }
-  - { value: 2, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_2.png, caption: "Scale 2 (the page's): 3,035 objects", stats: { Objects: "3,035", "Cross a zone": "420 (13.8%)", "With bounds": "3,107" } }
-  - { value: 3, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_3.png, caption: "Scale 3: 1,338 objects", stats: { Objects: "1,338", "Cross a zone": "263 (19.7%)", "With bounds": "1,394" } }
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_4.png, caption: "Scale 4: 739 objects", stats: { Objects: "739", "Cross a zone": "189 (25.6%)", "With bounds": "737" } }
-  - { value: 6, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_6.png, caption: "Scale 6: 313 objects", stats: { Objects: "313", "Cross a zone": "102 (32.6%)", "With bounds": "348" } }
-  - { value: 8, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_8.png, caption: "Scale 8: 187 objects", stats: { Objects: "187", "Cross a zone": "73 (39.0%)", "With bounds": "217" } }
+  - { value: 1, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_1.png, caption: "Scale 1: 11,303 objects", stats: { Objects: "11,303", "Cross a zone": "789 (7.0%)", "With bounds": "11,751" } }
+  - { value: 2, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_2.png, caption: "Scale 2 (the page's): 2,973 objects", stats: { Objects: "2,973", "Cross a zone": "425 (14.3%)", "With bounds": "3,107" } }
+  - { value: 3, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_3.png, caption: "Scale 3: 1,338 objects", stats: { Objects: "1,338", "Cross a zone": "277 (20.7%)", "With bounds": "1,386" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_4.png, caption: "Scale 4: 725 objects", stats: { Objects: "725", "Cross a zone": "209 (28.8%)", "With bounds": "760" } }
+  - { value: 6, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_6.png, caption: "Scale 6: 308 objects", stats: { Objects: "308", "Cross a zone": "99 (32.1%)", "With bounds": "331" } }
+  - { value: 8, src: /img/tutorials/object-based-image-analysis/classes-by-parcel/scale_8.png, caption: "Scale 8: 175 objects", stats: { Objects: "175", "Cross a zone": "67 (38.3%)", "With bounds": "217" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/classes-by-parcel/scales.csv
@@ -505,9 +499,9 @@ chart:
   ylabel: "%"
 ```
 
-At the finest scale 7% of the objects cross a zone; at scale 8, 39%, and they hold 42% of the clip's cells. The bounds cost objects: at
-scales 6 and 8 the bounded segmentation has 11% and 16% more objects than the free one, since an object that wanted to
-cross is two. (At scale 4 it has two fewer: the merging goes in a different order once some pairs are not allowed.)
+At the finest scale 7% of the objects cross a zone; at scale 8, 38%, and they hold 43% of the clip's cells. The bounds cost objects: at
+scales 6 and 8 the bounded segmentation has 7% and 24% more objects than the free one, since an object that wanted to
+cross is two. (At every scale it has more: 4 to 5% more up to scale 4.)
 
 ### The segmenter
 
@@ -520,15 +514,15 @@ digits: 0
 caption: "Four segmenters of the series with and without bounds = the blocks. The multiresolution and Felzenszwalb never join across a zone; SLIC and the watershed are cut where they cross, and the cut leaves small pieces."
 ```
 
-[[segment.multiresolution]] adds 72 objects (27 of three cells or fewer) and [[segment.felzenszwalb]] (k = 2, which makes 1,643 objects here) adds 126, 27 of three cells or fewer. SLIC, cut afterwards, goes from 2,270 to 2,911 objects,
-and **276 of the new ones are three cells or fewer**: the cut of a superpixel along a street leaves a sliver. The
-watershed goes from 747 to 1,006 objects with 115 slivers. After a cut, run [[objects.remove_small]] ([part 8](/tutorials/object-based-image-analysis/levels/))
+[[segment.multiresolution]] adds 72 objects (27 of three cells or fewer) and [[segment.felzenszwalb]] (k = 2, which makes 1,645 objects here) adds 126, 27 of three cells or fewer. SLIC, cut afterwards, goes from 2,245 to 2,880 objects,
+and **256 of the new ones are three cells or fewer**: the cut of a superpixel along a street leaves a sliver. The
+watershed goes from 591 to 764 objects with 73 slivers. After a cut, run [[objects.remove_small]] ([part 8](/tutorials/object-based-image-analysis/levels/))
 to give the slivers back to a neighbour.
 
 ```tfcompare
 caption: "SLIC (size 12) over four blocks, cut afterwards. Left, without bounds: the superpixels that cross a block are tinted cyan. Right, with bounds: the cut leaves small pieces along the edges."
-before: { src: /img/tutorials/object-based-image-analysis/classes-by-parcel/slic_free.png, label: "SLIC, no bounds: 300 cross" }
-after: { src: /img/tutorials/object-based-image-analysis/classes-by-parcel/slic_bound.png, label: "SLIC, bounds: 276 slivers" }
+before: { src: /img/tutorials/object-based-image-analysis/classes-by-parcel/slic_free.png, label: "SLIC, no bounds: 301 cross" }
+after: { src: /img/tutorials/object-based-image-analysis/classes-by-parcel/slic_bound.png, label: "SLIC, bounds: 256 slivers" }
 ```
 
 ### The other settings

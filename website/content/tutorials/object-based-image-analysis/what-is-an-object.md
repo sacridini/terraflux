@@ -102,7 +102,7 @@ description of the objects (part 4) and classification (parts 5 and 6). If you c
 !!! note
     Sentinel-2 files store reflectance as whole numbers, 10 000 times the real value (a reflectance of 0.07 is stored
     as 700). [[data.stac]] hands those numbers on as they are. Segmenters differ in how they treat the units, which
-    is why the model divides the image by 10 000 in its third node. You will see why in
+    is why the model divides the image by 10 000 in its second node. You will see why in
     [the pitfalls](#common-pitfalls).
 
 ## Build the model
@@ -111,51 +111,45 @@ description of the objects (part 4) and classification (parts 5 and 6). If you c
 
 Add [[data.stac]] and give it the catalogue (`url`), the collection and the bands (`assets`). To make the page
 reproducible the model asks for one scene, the one of 9 August 2024 (`datetime = "2024-08-09"`), a dry-season day with
-almost no cloud (the item `S2A_22LHH_20240809_0_L2A`, 0.0005 % cloud), over a box in longitude and latitude
-(`extent`, west, south, east, north, in degrees) on a grid of 0.00009 degrees (`cellsize`), which is about 10 m.
+almost no cloud (the item `S2A_22LHH_20240809_0_L2A`, 0.0005 % cloud), over a window of the UTM
+grid of Brasília (`crs`, `extent` and `cellsize`: see step 2).
 
 - **Why one date?** [[data.stac]] combines every scene it finds in the interval (by default with the median of the
   cells). With a single day it finds a single scene, and the figures of this page can be made again.
-- **Why a box in degrees?** The grid of [[data.stac]] is given in longitude and latitude, as `extent` and `cellsize`
-  (or, in the application, by connecting a map whose grid it should fill with the input `like`). Cells of
-  0.00009 degrees are about 9.96 m high and 9.58 m wide at this latitude: not square, and not in metres. The next
-  step fixes that.
+- **Why a grid in metres?** The grid of [[data.stac]] is given by `extent` and `cellsize` (or, in the application, by
+  connecting a map whose grid it should fill with the input `like`). Without `crs` they are in longitude and
+  latitude, and cells of 0.00009 degrees are about 9.96 m high and 9.58 m wide at this latitude: not square, and not in
+  metres. The next step gives a `crs`.
 - **A mask for clouds** (`mask = "auto"`) drops clouds and shadows pixel by pixel when a scene is cloudy. This scene
   needs none.
 
 ```tfgraph
-#! caption: Steps 1 to 3: the scene read from Earth Search, put in UTM at 10 m, and its reflectance made 0 to 1 (nodes 1 to 3).
-#! highlight: s2, utm, refl
+#! caption: Steps 1 to 3: the scene read from Earth Search onto a UTM grid of 10 m cells, and its reflectance made 0 to 1 (nodes 1 and 2).
+#! highlight: s2, refl
 #! numbered: true
 #! fragment: true
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
-note = "The scene of 9 August 2024, five bands (a box in degrees)."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
+note = "The scene of 9 August 2024, five bands, on a UTM grid of 10 m cells."
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance from 0 to 1; the layers keep their names."
 ```
 
 ### Step 2: a projected grid
 
-[[raster.reproject]] puts the stack in **SIRGAS 2000 / UTM zone 23S** (`crs = "EPSG:31983"`), a projected coordinate
-system whose unit is the metre, on cells of exactly 10 m (`resolution = 10`) over a window of 5.8 × 5.8 km
+The same [[data.stac]] puts the stack in **SIRGAS 2000 / UTM zone 23S** (`crs = "EPSG:31983"`), a projected
+coordinate system whose unit is the metre, on cells of exactly 10 m (`cellsize = 10`) over a window of 5.8 × 5.8 km
 (`extent`, `[xmin, ymin, xmax, ymax]` in metres of that system): 580 × 580 cells. Segmenters work on cells, but the
 numbers you will report (the area of an object, its perimeter, its length) are only right when the cells are square and
 measured in metres. UTM zone 23S is the one of Brasília; for your own study area use the zone, or the national
-projection, that suits it. The cells are resampled bilinearly by default (`resampling = auto`), which suits
+projection, that suits it. The scene is warped onto the grid in one resampling (bilinear by default, `resampling = auto`), which suits
 reflectance.
 
 ### Step 3: reflectance from 0 to 1
@@ -186,19 +180,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -207,7 +195,7 @@ id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects of about a hectare."
+note = "2,973 objects of about a hectare."
 
 [[nodes]]
 id = "polygons"
@@ -240,9 +228,9 @@ params = { path = "objects_scale2.gpkg" }
 === "Without a network"
 
     Download [sentinel2_brasilia.tif](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif) beside the
-    model and replace the nodes `s2` and `utm` with a file read (the file is already in UTM). Nothing else changes, except that the download is rounded to
-    whole numbers: the counts on this page can differ by a few objects (scale 2 gives 2,992 objects from the file,
-    3,035 from the server).
+    model and replace the node `s2` with a file read (the file is already in UTM). Nothing else changes, except that the download is rounded to
+    whole numbers: the counts on this page can differ by a few objects (scale 2 gives 2,987 objects from the file,
+    2,973 from the server).
 
     ```toml
     [[nodes]]
@@ -253,13 +241,13 @@ params = { path = "objects_scale2.gpkg" }
 
 ## Read the results
 
-Run the model and open `segments` in the Viewer. The scale 2 on this image gives **3,035 objects** over 336,400
-cells: about 111 cells, or 1.1 hectares, each. Their sizes are far from equal. In the dry brown cerrado, where neighbouring
+Run the model and open `segments` in the Viewer. The scale 2 on this image gives **2,973 objects** over 336,400
+cells: about 113 cells, or 1.1 hectares, each. Their sizes are far from equal. In the dry brown cerrado, where neighbouring
 cells are almost the same, objects are large; in the neighbourhoods, where the colour changes from roof to street to
 tree every few cells, they are small. That is the character of this method: it grows an object until the next merge
 would cost too much, so the size follows the local variation of the image.
 
-![Multiresolution objects over the clip](/img/tutorials/object-based-image-analysis/what-is-an-object/seg_mr.png "The multiresolution segmentation, scale 2 (shape 0.1, compactness 0.5): 3,035 objects over the whole clip, drawn here over the part in the yellow box.")
+![Multiresolution objects over the clip](/img/tutorials/object-based-image-analysis/what-is-an-object/seg_mr.png "The multiresolution segmentation, scale 2 (shape 0.1, compactness 0.5): 2,973 objects over the whole clip, drawn here over the part in the yellow box.")
 
 Look at the figure with these questions in mind.
 
@@ -288,9 +276,9 @@ except where the method works otherwise. All run on reflectance from 0 to 1 over
 columns: 3
 caption: "Outlines of five segmenters over the same part of the clip. Multiresolution: scale 2. SLIC: size 12. Felzenszwalb: k = 2. Watershed: the defaults. Threshold: two classes by Otsu, on the NDWI."
 images:
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_mr.png, caption: "Multiresolution, 3,035 objects" }
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_slic.png, caption: "SLIC, 2,270 objects" }
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_fz.png, caption: "Felzenszwalb, 1,643 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_mr.png, caption: "Multiresolution, 2,973 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_slic.png, caption: "SLIC, 2,245 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_fz.png, caption: "Felzenszwalb, 1,645 objects" }
   - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_ws.png, caption: "Watershed, 747 objects" }
   - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/seg_th.png, caption: "Threshold (NDWI), 12 objects" }
 ```
@@ -307,18 +295,12 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 
 [[nodes]]
@@ -366,11 +348,11 @@ digits: { objects: 0, mean_ha: 2 }
 caption: "What came out of each segmenter on the whole clip (336,400 cells). The mean size is cells per object, in hectares of about 0.01 ha a cell."
 csv: |
   segmenter,objects,mean_ha,good_at
-  Multiresolution,3035,1.11,Objects whose size follows the local variation
-  SLIC,2270,1.48,"Even, compact tiles; a fast first cut"
-  Felzenszwalb,1643,2.05,"Thin and long things (streams, roads) kept whole"
-  Watershed,747,4.50,Objects bounded by strong edges
-  Threshold,12,280.33,One band cut at its own natural gap (water)
+  Multiresolution,2973,1.13,Objects whose size follows the local variation
+  SLIC,2245,1.50,"Even, compact tiles; a fast first cut"
+  Felzenszwalb,1645,2.04,"Thin and long things (streams, roads) kept whole"
+  Watershed,591,5.69,Objects bounded by strong edges
+  Threshold,15,224.27,One band cut at its own natural gap (water)
 ```
 
 ### Multiresolution
@@ -447,13 +429,13 @@ number fall, and the town's blocks turn from single roofs to whole streets and t
 label: Scale
 caption: "The same part of the clip segmented with the scale from 1 to 8 (shape 0.1, compactness 0.5). The chart counts the objects of the whole clip."
 frames:
-  - { value: 1, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_1.png, caption: "Scale 1", stats: { Objects: "11,145", "Mean size": "0.30 ha" } }
-  - { value: 1.5, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_1_5.png, caption: "Scale 1.5", stats: { Objects: "5,219", "Mean size": "0.64 ha" } }
-  - { value: 2, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_2.png, caption: "Scale 2", stats: { Objects: "3,035", "Mean size": "1.11 ha" } }
+  - { value: 1, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_1.png, caption: "Scale 1", stats: { Objects: "11,303", "Mean size": "0.30 ha" } }
+  - { value: 1.5, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_1_5.png, caption: "Scale 1.5", stats: { Objects: "5,210", "Mean size": "0.65 ha" } }
+  - { value: 2, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_2.png, caption: "Scale 2", stats: { Objects: "2,973", "Mean size": "1.13 ha" } }
   - { value: 3, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_3.png, caption: "Scale 3", stats: { Objects: "1,338", "Mean size": "2.51 ha" } }
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_4.png, caption: "Scale 4", stats: { Objects: "739", "Mean size": "4.55 ha" } }
-  - { value: 6, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_6.png, caption: "Scale 6", stats: { Objects: "313", "Mean size": "10.75 ha" } }
-  - { value: 8, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_8.png, caption: "Scale 8", stats: { Objects: "187", "Mean size": "17.99 ha" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_4.png, caption: "Scale 4", stats: { Objects: "725", "Mean size": "4.64 ha" } }
+  - { value: 6, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_6.png, caption: "Scale 6", stats: { Objects: "308", "Mean size": "10.92 ha" } }
+  - { value: 8, src: /img/tutorials/object-based-image-analysis/what-is-an-object/scale_8.png, caption: "Scale 8", stats: { Objects: "175", "Mean size": "19.22 ha" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/what-is-an-object/scale.csv
@@ -463,11 +445,11 @@ chart:
   ylabel: "Objects in the clip"
 ```
 
-Doubling the scale does not halve the number of objects: from the scale 2 to 4 the count fell from 3,035 to 739, a
+Doubling the scale does not halve the number of objects: from the scale 2 to 4 the count fell from 2,973 to 725, a
 factor of four, as an object's area grows roughly with the square of the scale. At the scale 8 the lake is a few
 objects and the town has merged into district-sized pieces that mix roofs, trees and streets. There is no scale that
 is right in itself: it is right when the objects are about the size of what you want to classify. If you leave `scale`
-empty, the node uses the first scale suggested by [[segment.scale]] (here about 2.14, close to the 2 used above), and says so in a warning and in
+empty, the node uses the first scale suggested by [[segment.scale]] (here about 2.48, close to the 2 used above), and says so in a warning and in
 its `scale` output. That suggestion is where part 3 starts.
 
 ### Shape and compactness
@@ -483,18 +465,18 @@ term adds to a cost that the scale still limits. On this image more compactness 
 columns: 3
 caption: "The effect of shape at scale 2 (compactness 0.5)."
 images:
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/sh1.png, caption: "shape 0.1 (default), 3,035 objects" }
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/sh5.png, caption: "shape 0.5, 7,982 objects" }
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/sh9.png, caption: "shape 0.9, 12,927 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/sh1.png, caption: "shape 0.1 (default), 2,973 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/sh5.png, caption: "shape 0.5, 8,193 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/sh9.png, caption: "shape 0.9, 12,906 objects" }
 ```
 
 ```tfgallery
 columns: 3
 caption: "The effect of compactness at scale 2 with shape 0.5."
 images:
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/co1.png, caption: "compactness 0.1, 2,963 objects" }
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/sh5.png, caption: "compactness 0.5, 7,982 objects" }
-  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/co9.png, caption: "compactness 0.9, 13,326 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/co1.png, caption: "compactness 0.1, 2,997 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/sh5.png, caption: "compactness 0.5, 8,193 objects" }
+  - { src: /img/tutorials/object-based-image-analysis/what-is-an-object/co9.png, caption: "compactness 0.9, 13,262 objects" }
 ```
 
 Colour follows the image; shape tidies it. For natural landscapes, where edges are irregular, leave `shape` low
@@ -558,7 +540,7 @@ new one's, the old node stays (with nothing connected to it) and the change is o
 - **Judging by one place.** A scale that is right in town is too fine in the cerrado. Look at all the classes, and
   consider levels (part 8 of the series) when they need different scales.
 - **Areas in square degrees.** Had the clip stayed in longitude and latitude, areas would be in square degrees and
-  the cells not square. Always [[raster.reproject]] to a projected system (UTM or an equal-area one) before
+  the cells not square. Always put it on a projected system (a `crs` in [[data.stac]], or [[raster.reproject]]; UTM or an equal-area one) before
   segmenting if you will report areas.
 - **Cells without data.** A cell with no value in some band is no object: the objects have holes where the image has
   gaps. Fill them or mask them in the way your question needs.

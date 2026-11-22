@@ -1,5 +1,5 @@
 attributes,predictors,rf_overall,rf_kappa,nn_overall,nn_kappa
-Band means,5,0.625,0.516,0.562,0.446
-Band means and the three indices,8,0.525,0.391,0.525,0.399
-"+ texture (contrast, homogeneity) and sd of the NIR",11,0.775,0.708,0.562,0.462
-+ the compactness (the forest of the page),12,0.8,0.739,0.55,0.463
+Band means,5,0.7,0.611,0.588,0.481
+Band means and the three indices,8,0.7,0.611,0.575,0.466
+"+ texture (contrast, homogeneity) and sd of the NIR",11,0.787,0.723,0.662,0.576
++ the compactness (the forest of the page),12,0.825,0.77,0.637,0.547

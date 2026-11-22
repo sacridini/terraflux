@@ -78,12 +78,11 @@ S2_URL = "https://earth-search.aws.element84.com/v1"
 S2_ITEM = "S2A_22LHH_20240809_0_L2A"
 S2_DATE = "2024-08-09"
 S2_BANDS = ["blue", "green", "red", "nir", "swir16"]
-# west, south, east, north (degrees): about 5.5 x 5.5 km at the south edge of the lake
-S2_EXTENT = [-47.89, -15.89, -47.835, -15.835]
-S2_CELL = 0.00009
-# the clip itself: EPSG:31983, xmin, ymin, xmax, ymax (m), 580 x 580 cells of 10 m (the part of the box above)
+# the clip: EPSG:31983 (SIRGAS 2000 / UTM 23S), xmin, ymin, xmax, ymax (m), 580 x 580 cells of 10 m, about 5.8 x 5.8 km
+# at the south edge of the lake; data.stac warps the scene onto this grid in one resampling (`crs`)
 S2_CRS = "EPSG:31983"
 S2_UTM_EXTENT = [190520, 8241280, 196320, 8247080]
+S2_CELL = 10
 
 
 def sentinel2_node(node_id: str = "s2") -> str:
@@ -92,7 +91,7 @@ def sentinel2_node(node_id: str = "s2") -> str:
     return (
         f'[[nodes]]\nid = "{node_id}"\nop = "data.stac"\n'
         f'params = {{ url = "{S2_URL}", collection = "sentinel-2-l2a", assets = [{bands}], datetime = "{S2_DATE}", '
-        f"extent = {S2_EXTENT}, cellsize = {S2_CELL} }}\n"
+        f'extent = {S2_UTM_EXTENT}, cellsize = {S2_CELL}, crs = "{S2_CRS}" }}\n'
     )
 
 
@@ -104,21 +103,12 @@ def reflectance_node(node_id: str = "refl", source: str = "s2.raster") -> str:
     )
 
 
-def utm_node(node_id: str = "utm", source: str = "s2.raster") -> str:
-    """A `raster.reproject` node: the clip in SIRGAS 2000 / UTM 23S, square 10 m cells, 580 x 580 of them."""
-    return (
-        f'[[nodes]]\nid = "{node_id}"\nop = "raster.reproject"\ninputs = {{ raster = "{source}" }}\n'
-        f'params = {{ crs = "{S2_CRS}", resolution = 10, extent = {S2_UTM_EXTENT} }}\n'
-    )
-
-
 def sentinel2_model(node_id: str = "s2", with_reflectance: bool = True) -> str:
-    """A model with the `data.stac` node `s2` (degrees), the `raster.reproject` node `utm` after it (EPSG:31983, 10 m)
-    and, unless `with_reflectance` is false, the node `refl` (output `refl.image`, reflectance 0 to 1, what the
-    segmenters of the series read)."""
-    m = 'format = "terraflux/1"\n\n' + sentinel2_node(node_id) + "\n" + utm_node("utm", f"{node_id}.raster")
+    """A model with the `data.stac` node `s2` (EPSG:31983, 10 m cells, one resampling) and, unless `with_reflectance`
+    is false, the node `refl` (output `refl.image`, reflectance 0 to 1, what the segmenters of the series read)."""
+    m = 'format = "terraflux/1"\n\n' + sentinel2_node(node_id)
     if with_reflectance:
-        m += "\n" + reflectance_node("refl", "utm.raster")
+        m += "\n" + reflectance_node("refl", f"{node_id}.raster")
     return m
 
 
@@ -128,9 +118,9 @@ def sentinel2() -> pathlib.Path:
     if not tif.exists():
         work = CACHE / "work-s2"
         work.mkdir(parents=True, exist_ok=True)
-        model = figs.add_writes(sentinel2_model(with_reflectance=False), {"utm.raster": "sentinel2.tif"})
+        model = figs.add_writes(sentinel2_model(with_reflectance=False), {"s2.raster": "sentinel2.tif"})
         run(model, work)
-        # (raster.reproject hands the layers on in alphabetical order: rewritten as blue green red nir swir16)
+        # (the layers rewritten in the order blue green red nir swir16, whatever order they come in)
         import rasterio
 
         with rasterio.open(work / "sentinel2.tif") as src:

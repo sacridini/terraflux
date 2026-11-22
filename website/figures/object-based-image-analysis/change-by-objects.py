@@ -51,10 +51,10 @@ HAND = {
     "water": [0, 0, 0, 0, 1],
 }
 # the patches of the contact sheet (by rank, from 0) that the writer judged, by eye at 10 m, to be new roofs or cleared
-# ground with confidence, and those that look probable; the other 11 look unchanged or doubtful
-REAL = [2, 7, 12, 14, 15, 22]  # #3, #8, #13, #15, #16, #23
-UNCLEAR = [0, 1, 3, 4, 5, 6, 11]  # #1, #2, #4, #5, #6, #7, #12
-FIRST_SIZES = [1283, 676, 566, 505, 471]  # a guard: the ranking is that of the run these were judged on
+# ground with confidence, and those that look probable; the others look unchanged or doubtful
+REAL = [2, 18, 22]  # #3, #19, #23 (judged again on the run of 2026-11-22, with the grid made by data.stac)
+UNCLEAR = [0, 1, 5]  # #1, #2, #6
+FIRST_SIZES = [865, 643, 580, 451, 355]  # a guard: the ranking is that of the run these were judged on
 
 
 def tl(v):

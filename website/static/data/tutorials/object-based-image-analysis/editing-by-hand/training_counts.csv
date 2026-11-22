@@ -1,6 +1,6 @@
 class,objects_before,objects_after
-bare soil,8,8
-cerrado,21,21
-forest,21,21
+bare soil,7,7
+cerrado,22,22
+forest,19,19
 urban,26,26
-water,11,10
+water,13,11

@@ -1,12 +1,12 @@
 """An earlier date of the Sentinel-2 clip of the series, for part 11 (change by objects).
 
-The same box, grid and pipeline as obia_data.py (data.stac in degrees, raster.reproject to EPSG:31983 at 10 m,
+The same box, grid and pipeline as obia_data.py (data.stac straight onto EPSG:31983 at 10 m,
 the extent 190520, 8241280, 196320, 8247080), for a dry-season scene of an earlier year, so that the two dates lie on
 the same cells. The clip of 2024-08-09 is `obia_data.sentinel2()`.
 
     import obia_dates as dt
     early = dt.sentinel2_early()     # Path of the cached clip of the earlier date (website/.cache/obia/)
-    model = dt.early_model()         # the TOML: data.stac `s2_early`, raster.reproject `utm_early`, raster.calc `refl_early`
+    model = dt.early_model()         # the TOML: data.stac `s2_early` (on the UTM grid), raster.calc `refl_early`
 
 obia_data.py is only imported (its constants and helpers), never changed.
 """
@@ -32,16 +32,16 @@ def early_node(node_id: str = "s2_early") -> str:
     return (
         f'[[nodes]]\nid = "{node_id}"\nop = "data.stac"\n'
         f'params = {{ url = "{od.S2_URL}", collection = "sentinel-2-l2a", assets = [{bands}], datetime = "{EARLY_DATE}", '
-        f'query = "{q}", extent = {od.S2_EXTENT}, cellsize = {od.S2_CELL} }}\n'
+        f'query = "{q}", extent = {od.S2_UTM_EXTENT}, cellsize = {od.S2_CELL}, crs = "{od.S2_CRS}" }}\n'
     )
 
 
 def early_model(with_reflectance: bool = True, suffix: str = "_early") -> str:
-    """A model with `s2_early` (data.stac), `utm_early` (raster.reproject) and, unless `with_reflectance` is false,
+    """A model with `s2_early` (data.stac, on the UTM grid) and, unless `with_reflectance` is false,
     `refl_early` (reflectance 0 to 1, output `refl_early.image`)."""
-    m = 'format = "terraflux/1"\n\n' + early_node("s2" + suffix) + "\n" + od.utm_node("utm" + suffix, f"s2{suffix}.raster")
+    m = 'format = "terraflux/1"\n\n' + early_node("s2" + suffix)
     if with_reflectance:
-        m += "\n" + od.reflectance_node("refl" + suffix, f"utm{suffix}.raster")
+        m += "\n" + od.reflectance_node("refl" + suffix, f"s2{suffix}.raster")
     return m
 
 
@@ -51,7 +51,7 @@ def sentinel2_early() -> pathlib.Path:
     if not tif.exists():
         work = od.CACHE / "work-s2-early"
         work.mkdir(parents=True, exist_ok=True)
-        model = od.figs.add_writes(early_model(with_reflectance=False), {"utm_early.raster": "sentinel2_early.tif"})
+        model = od.figs.add_writes(early_model(with_reflectance=False), {"s2_early.raster": "sentinel2_early.tif"})
         od.figs.run(model, work, "--threads", "2", "--no-journal")
         import rasterio
 

@@ -90,7 +90,7 @@ attributes alone (part 9). In either case, an accuracy assessment is still neede
 ## What you need
 
 - **The objects and their attributes** of part 4: the Sentinel-2 clip of Lago Paranoá, cut by [[segment.multiresolution]]
-  at the scale 2 into 3,035 objects, with [[objects.features]] to describe them.
+  at the scale 2 into 2,973 objects, with [[objects.features]] to describe them.
 - **Training samples**: points, or polygons, each with a class name, in any coordinate system. In the Viewer you make
   them by clicking.
 - **Reference samples**, that were not used for training, to assess the map. A real study draws them with
@@ -140,7 +140,7 @@ garden and a roof for urban, a shaded and a lit stand for forest): a few objects
 
 ### Steps 1 to 3: the objects and their attributes
 
-[[data.stac]], [[raster.reproject]] and [[raster.calc]] make the reflectance as in part 2; [[segment.multiresolution]]
+[[data.stac]] and [[raster.calc]] make the reflectance as in part 2; [[segment.multiresolution]]
 cuts it at the scale 2; [[objects.features]] describes the objects. This time `features` is a list, to compute only
 what the classifier reads: `mean` and `sd` of each band, the three indices, the texture (`contrast` and `homogeneity`, of
 the brightness only, with `texture_bands`) and `compactness`. The short-wave infrared band is named for the NDMI, as in part 4.
@@ -155,7 +155,7 @@ id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects (nodes 1 to 3 as in part 2)."
+note = "2,973 objects (nodes 1 to 3 as in part 2)."
 
 [[nodes]]
 id = "feat"
@@ -230,19 +230,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -251,7 +245,7 @@ id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "3,035 objects."
+note = "2,973 objects."
 
 [[nodes]]
 id = "feat"
@@ -337,7 +331,7 @@ params = { design = "objects" }
     [training_samples.csv](/data/tutorials/object-based-image-analysis/classifying-by-samples/training_samples.csv)
     (93 rows) and [reference_samples.csv](/data/tutorials/object-based-image-analysis/classifying-by-samples/reference_samples.csv)
     (80 rows), each with the columns `x`, `y` (metres, EPSG:31983, the clip's system) and `class`. The model reads them with
-    [[table.read]] and [[vector.from_table]], and gives the numbers of this page (80.0 %, kappa 0.74). The script that
+    [[table.read]] and [[vector.from_table]], and gives the numbers of this page (82.5 %, kappa 0.77). The script that
     drew the points is `classifying-by-samples.py`, with `obia_samples.py`, in `website/figures/object-based-image-analysis/`.
     To run your own, replace the two `table.read` and `vector.from_table` pairs by a [[vector.read]] of your files (a GeoPackage of points with a column `class`):
 
@@ -357,13 +351,13 @@ params = { design = "objects" }
 ![Random forest and nearest neighbour maps](/img/tutorials/object-based-image-analysis/classifying-by-samples/maps.png "The part of the clip of the other tutorials: the objects over the true colours, and the maps of the random forest and of the nearest neighbour (scale 2, the samples of the previous figure). Unclassified objects are grey.")
 
 Both maps find the lake and put the dry cerrado in the lower right. They disagree about most of the town. The forest classes the
-gallery forest along the streams and the trees of the gardens; the nearest neighbour leaves 3.5 % of the cells
+gallery forest along the streams and the trees of the gardens; the nearest neighbour leaves 3.7 % of the cells
 unclassified (grey; many of them along the shore of the lake, where the colour is neither water nor land) and
 scatters the forest and bare soil classes over the neighbourhoods.
 
 The forest of this page reads twelve attributes, and its importance table (the `importance` output of [[ml.fit]],
-which adds up to 1) is led by the texture: `glcm_homogeneity` (0.185), `glcm_contrast` (0.122), `sd_nir` (0.101)
-and `mean_green` (0.091). That is part 4's finding again: texture separates the town from the cerrado and the forest.
+which adds up to 1) is led by the texture: `glcm_homogeneity` (0.157), `sd_nir` (0.146), `glcm_contrast` (0.121)
+and `mean_green` (0.093). That is part 4's finding again: texture separates the town from the cerrado and the forest.
 The nearest neighbour, in its default form, does not read the texture at all.
 
 ### How sure is each object
@@ -373,9 +367,9 @@ second best. A margin near 1 is an object the trees agree on; near 0, one that i
 
 ![The margin of the random forest](/img/tutorials/object-based-image-analysis/classifying-by-samples/margin.png "The random forest's classes (left) and the margin of each object (right: 1 the trees agree, 0 a tie between two classes). The lake and the cerrado are sure; the town is not.")
 
-The lake and the cerrado are the sure ones. Of the 3,035 objects, 31 % have a margin below 0.3, mostly in the
+The lake and the cerrado are the sure ones. Of the 2,973 objects, 36 % have a margin below 0.3, mostly in the
 neighbourhoods and at the edge of the gallery forest, where a garden full of trees is both urban and forest; the median
-margin is 0.46. In the Viewer, the **Feature space** window lists the objects whose class is *least certain*
+margin is 0.41. In the Viewer, the **Feature space** window lists the objects whose class is *least certain*
 (*Most uncertain*): they are the ones where one more sample helps most.
 
 ### The error matrix
@@ -388,16 +382,16 @@ data: /data/tutorials/object-based-image-analysis/classifying-by-samples/matrix_
 heat: true
 digits: 0
 align: { "Map \\ reference": left }
-caption: "Random forest: the 80 reference objects by the class the map gave (rows) and their true class (columns). 64 are on the diagonal."
+caption: "Random forest: the 80 reference objects by the class the map gave (rows) and their true class (columns). 66 are on the diagonal."
 ```
 
-The overall accuracy is 64 of 80, **80.0 %** (kappa 0.74). The matrix tells where the rest went.
+The overall accuracy is 66 of 80, **82.5 %** (kappa 0.77). The matrix tells where the rest went.
 
-- **Water** and **cerrado** are mapped without a mistake (14 of 14 and 18 of 20: two forest objects are called cerrado).
-- **Forest** is over-mapped: of the 24 objects the map calls forest, 14 are forest, 6 are really urban and 2 are water;
+- **Water** and **cerrado** are mapped without a mistake (14 of 14 and 17 of 18: one forest object is called cerrado).
+- **Forest** is over-mapped: of the 21 objects the map calls forest, 14 are forest, 3 are really urban, 2 are water, 1 is cerrado and 1 is bare soil;
   the urban ones are the "garden full of trees" again.
 - **Bare soil** is never found: no object is mapped to it among the reference ones, and the 6 reference objects of bare soil
-  went to urban (4) and forest (2). Nine training objects, in three small patches, were too few to learn it.
+  went to urban (5) and forest (1). Nine training objects, in three small patches, were too few to learn it.
 
 The same for the nearest neighbour:
 
@@ -406,7 +400,7 @@ data: /data/tutorials/object-based-image-analysis/classifying-by-samples/matrix_
 heat: true
 digits: 0
 align: { "Map \\ reference": left }
-caption: "Nearest neighbour (its default attributes): the same reference objects. 42 are on the diagonal, 52.5 %."
+caption: "Nearest neighbour (its default attributes): the same reference objects. 46 are on the diagonal, 57.5 %."
 ```
 
 ### User's and producer's accuracy, and the areas
@@ -421,20 +415,20 @@ caption: "Random forest: the area-adjusted user's and producer's accuracies of e
 
 Read the table by class.
 
-- **Cerrado**: user's accuracy 0.94 ± 0.14 and producer's 1.00. The map is reliable for cerrado, and finds all of it. The map has 753 ha of it;
-  the adjusted estimate is 705 ± 107 ha.
-- **Forest**: the user's accuracy is only 0.61 ± 0.31, the producer's 0.93 ± 0.14. The map finds the forest but also calls
-  many other things forest, so its area, **1,117 ha, is too large: the adjusted estimate is 735 ± 361 ha**. That is the
+- **Cerrado**: user's accuracy 0.96 ± 0.13 and producer's 0.92 ± 0.20. The map is reliable for cerrado, and finds most of it. The map has 727 ha of it;
+  the adjusted estimate is 754 ± 185 ha.
+- **Forest**: the user's accuracy is 0.82 ± 0.22, the producer's 0.91 ± 0.17. The map finds the forest but also calls
+  some urban objects forest, so its area, **1,082 ha, is a little too large: the adjusted estimate is 978 ± 300 ha**. That is the
   kind of correction the adjusted areas are for.
-- **Urban**: 0.88 and 0.79, the map's 1,229 ha against an estimate of 1,373 ± 379 ha.
+- **Urban**: 0.81 and 0.95, the map's 1,301 ha against an estimate of 1,106 ± 295 ha.
 - **Water**: all the objects the map calls water are water (1.00), but a few real water objects are
-  called forest, so the producer's accuracy is 0.74 ± 0.41 and the estimate, 259 ± 142 ha, is larger than the 191 ha of the map.
-- **Bare soil**: mapped as 74 ha; the estimate is 218 ± 268 ha. The interval says the map knows almost nothing about this class.
+  called forest, so the producer's accuracy is 0.75 ± 0.41 and the estimate, 267 ± 145 ha, is larger than the 199 ha of the map.
+- **Bare soil**: mapped as 55 ha; the estimate is 203 ± 243 ha. The interval says the map knows almost nothing about this class.
 
-The **overall** accuracy by objects is 80.0 %; the area-adjusted one is **81.1 % ± 12.6** (95 %). The adjusted one weighs each sampled object by its area and each class
+The **overall** accuracy by objects is 82.5 %; the area-adjusted one is **85.5 % ± 11.4** (95 %). The adjusted one weighs each sampled object by its area and each class
 by how much of the map it covers (`design = "objects"`: every object of a class had the same chance of being drawn); here it
 ends close to the share of objects, with a wider interval. For
-the nearest neighbour, the same reference gives an overall accuracy of 52.5 % (adjusted 50.7 ± 14.4 %, kappa 0.40).
+the nearest neighbour, the same reference gives an overall accuracy of 57.5 % (adjusted 54.8 ± 14.3 %, kappa 0.47).
 
 !!! tip "What to report"
     In a paper: the error matrix by objects (the counts), the user's and producer's accuracies with their intervals, the
@@ -442,7 +436,7 @@ the nearest neighbour, the same reference gives an overall accuracy of 52.5 % (a
     how the reference was drawn and who labelled it. Do not report kappa alone: it is a function of the
     matrix and says nothing the matrix does not.
 
-The `errors` table lists the 16 reference objects that the forest got wrong, with the object's number, the class
+The `errors` table lists the 14 reference objects that the forest got wrong, with the object's number, the class
 mapped and the true class. In the Viewer, each leads the map to the object: look at them, it is the cheapest way to see what the classifier
 misses.
 
@@ -458,7 +452,7 @@ data: /data/tutorials/object-based-image-analysis/classifying-by-samples/draw.cs
 labels: { class: Class, objects: "Objects of the class", sample: "Drawn" }
 align: { class: left }
 digits: 0
-caption: "objects.sample with per_class = 20 on the forest's map: 20 objects of each class, whatever the class's size. Bare soil has 71 objects, urban 1,394."
+caption: "objects.sample with per_class = 20 on the forest's map: 20 objects of each class, whatever the class's size. Bare soil has 60 objects, urban 1,379."
 ```
 
 The node gives a `points` output: a point at the cell nearest each object's centroid that is in the object, with the object's `id`,
@@ -476,7 +470,7 @@ of its neighbour. If the reference is made of neighbours of the training objects
 cases it learned, and the accuracy is flattering. This is a known problem in ecological and remote-sensing mapping
 (Roberts et al., 2017; Ploton et al., 2020).
 
-The experiment: one place for each of four classes (water, forest, cerrado, urban: bare soil is too small), 122 objects
+The experiment: one place for each of four classes (water, forest, cerrado, urban: bare soil is too small), 105 objects
 in all, picked by the script. Half of each class, at random, trains a forest. The other half is used as a reference, **next to the
 training objects**, and the accuracy is measured. Then the same forest is assessed on the 74 reference objects of other
 places, the ones in the map above. Six random splits:
@@ -490,11 +484,10 @@ labels: { neighbours: "Tested on neighbours of the training objects", elsewhere:
 colors: { neighbours: "#e8901f", elsewhere: "#3b8a5a" }
 ylabel: "Overall accuracy by objects"
 height: 320
-caption: "The same forest, six random splits of the same samples. Tested on objects beside the ones it was trained on, it looks better than tested on objects far from them, by 9 points on average (85.0 % against 76.3 %), and by up to 14."
+caption: "The same forest, six random splits of the same samples. Tested on objects beside the ones it was trained on it does not look better than tested far from them in this run: 81.8 % on average against 85.5 %."
 ```
 
-Every split is higher on the neighbours, by 3 to 14 points. The difference is not huge here (the landscape is simple and the samples
-came from big, uniform places), but it is **always in the same direction**, and it can be much larger in other landscapes. The cure is in the design: **draw the reference over the whole map, with a probability sample
+In this run no split is higher on the neighbours (lower by 0.5 to 7 points: the places are large and uniform, so the objects beside a training object are no easier than those of the other places). The effect is real in other landscapes and in other draws (on an earlier resampling of this scene the six splits were higher on the neighbours by 3 to 14 points), so a draw like this one proves nothing about your map: the sign changes with the draw, and the risk stays. The cure is in the design: **draw the reference over the whole map, with a probability sample
 ([[objects.sample]]), and keep it apart from the training objects.** The application warns when
 the accuracy node reads the same samples as the node that trained the model: the accuracy is then assessed with the samples the
 model was trained on. For the training samples themselves, spread them over the whole study area and over the different looks of
@@ -512,11 +505,11 @@ are drawn at random from the 93, so each frame is one draw: with other seeds the
 label: Training objects per class
 caption: "The forest trained with from 3 to 20 objects per class (at most the class has), assessed on the same reference objects. Each frame is one random draw of the training objects."
 frames:
-  - { value: 3, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_3.png, caption: "3 per class (15 objects)", stats: { "Overall accuracy": "62.5 %", Kappa: "0.52" } }
-  - { value: 5, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_5.png, caption: "5 per class (25 objects)", stats: { "Overall accuracy": "62.5 %", Kappa: "0.53" } }
-  - { value: 8, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_8.png, caption: "8 per class (40 objects)", stats: { "Overall accuracy": "65.0 %", Kappa: "0.56" } }
-  - { value: 12, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_12.png, caption: "12 per class (57 objects)", stats: { "Overall accuracy": "71.3 %", Kappa: "0.63" } }
-  - { value: 20, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_20.png, caption: "20 per class (83 objects)", stats: { "Overall accuracy": "80.0 %", Kappa: "0.74" } }
+  - { value: 3, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_3.png, caption: "3 per class (15 objects)", stats: { "Overall accuracy": "57.5 %", Kappa: "0.46" } }
+  - { value: 5, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_5.png, caption: "5 per class (25 objects)", stats: { "Overall accuracy": "72.5 %", Kappa: "0.65" } }
+  - { value: 8, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_8.png, caption: "8 per class (40 objects)", stats: { "Overall accuracy": "72.5 %", Kappa: "0.65" } }
+  - { value: 12, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_12.png, caption: "12 per class (57 objects)", stats: { "Overall accuracy": "81.2 %", Kappa: "0.76" } }
+  - { value: 20, src: /img/tutorials/object-based-image-analysis/classifying-by-samples/n_20.png, caption: "20 per class (83 objects)", stats: { "Overall accuracy": "82.5 %", Kappa: "0.77" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/classifying-by-samples/samples_per_class.csv
@@ -526,7 +519,7 @@ chart:
   ylabel: "Accuracy on the reference objects"
 ```
 
-Accuracy rises with the number of samples, from 62.5 % with 3 per class to 80 % with 20, and the maps change as it grows (look at the town). The curve has not flattened out by 20. A few good samples of every look
+Accuracy rises with the number of samples, from 57.5 % with 3 per class to 82.5 % with 20, and the maps change as it grows (look at the town). The curve is nearly flat from 12 to 20. A few good samples of every look
 of a class are worth more than many of one, but a class with a handful (bare soil here) stays poorly mapped.
 
 ### Which attributes
@@ -541,11 +534,11 @@ digits: { predictors: 0, rf_overall: 3, rf_kappa: 2, nn_overall: 3, nn_kappa: 2 
 caption: "Overall accuracy by objects and kappa of the random forest and the nearest neighbour with four sets of attributes. The reference objects are the same in all rows: the table reports how the answer changes, it is not how to choose the attributes."
 ```
 
-Three things, none of them a rule. The band means alone give 62.5 % with the forest. **Adding the three indices makes it worse**
-(52.5 %): the indices are made from the same bands, so they bring no new information and only a bit of noise to a small sample. **Adding texture** brings
-the forest to 77.5 %: this is the largest step, and it is the one that part 4's separability predicted (the texture separated the
-town from the cerrado). The nearest neighbour does not profit from it in this sample (56 %), and
-stays at 52 % to 56 % in the four rows. Choose the attributes with the feature space and a reference you set aside beforehand, not by
+Three things, none of them a rule. The band means alone give 70.0 % with the forest. **Adding the three indices changes nothing**
+(70.0 %): the indices are made from the same bands, so they bring no new information. **Adding texture** brings
+the forest to 78.7 %: this is the largest step, and it is the one that part 4's separability predicted (the texture separated the
+town from the cerrado). The nearest neighbour profits from it in this sample (66 %), and
+stays between 58 % and 66 % in the four rows. Choose the attributes with the feature space and a reference you set aside beforehand, not by
 the best number in a table like this one, which is measured on the very objects you would judge the choice with.
 
 ### The settings of the nearest neighbour
@@ -557,8 +550,8 @@ digits: { slope: 2, min: 2, unclassified_share: 3, overall: 3, kappa: 2 }
 caption: "The nearest neighbour on the band means and the three indices, with five pairs of the settings slope and min."
 ```
 
-`slope` and `min` change the share of the objects left unclassified (0 % when `min` is 0, 7 % with a `slope` of 0.05, where a
-distance of 1 gives a membership of 0.05) and the accuracy by a few points: here from 48.7 % to 55.0 %. It is a way to
+`slope` and `min` change the share of the objects left unclassified (0 % when `min` is 0, 9 % with a `slope` of 0.05, where a
+distance of 1 gives a membership of 0.05) and the accuracy by a few points: here from 56.2 % to 60.0 %. It is a way to
 say "I do not know" about the objects far from every sample, instead of forcing a class on them. Whether that is better depends on what
 the map is for: a map for planning field work may want the unclassified.
 

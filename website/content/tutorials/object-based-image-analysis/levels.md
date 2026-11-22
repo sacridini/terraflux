@@ -76,7 +76,7 @@ of zoning, and the results depend on it (see "Settings that change the answer").
   [[data.stac]] as in [part 2](/tutorials/object-based-image-analysis/what-is-an-object/), or the download
   [sentinel2_brasilia.tif](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif), 2.3 MB, read with
   [[raster.read]]; attribution in [ATTRIBUTION.txt](/data/tutorials/object-based-image-analysis/ATTRIBUTION.txt)), and its
-  3,035 objects of scale 2, classified by the class tree of
+  2,973 objects of scale 2, classified by the class tree of
   [part 6](/tutorials/object-based-image-analysis/rules-and-class-trees/). The first seven nodes of the model below are those;
   read part 6 for what they do.
 - **Attributes** the rules read ([part 4](/tutorials/object-based-image-analysis/describing-objects/)): the means, the
@@ -89,7 +89,7 @@ of zoning, and the results depend on it (see "Settings that change the answer").
 
 ### Step 1: the fine level
 
-The first seven nodes (`s2` to `rules`) are part 6's: the scene, reflectance, multiresolution objects of `scale = 2` (3,035),
+The first seven nodes (`s2` to `rules`) are part 6's: the scene, reflectance, multiresolution objects of `scale = 2` (2,973),
 their spectral attributes, the visible brightness and the class tree (water, forest, built-up, cerrado). They are in the model
 at the end of this section. Every later node reads `rules.objects`, the fine objects with their classes.
 
@@ -105,7 +105,7 @@ into pieces. [[objects.merge]] puts them together. Add it, connect `rules.object
   length of the border they share: `abs(a.vis - b.vis) < 0.01 and abs(a.ndvi - b.ndvi) < 0.05` merges the pairs that look
   alike in the visible brightness and the NDVI, whatever their class.
 
-By class, the 3,035 fine objects become **301 patches**. By that condition they become 1,513: merging by look keeps more
+By class, the 2,973 fine objects become **323 patches**. By that condition they become 1,502: merging by look keeps more
 objects, because two neighbours of the same class can still differ by more than the limit.
 
 A merged object has its `cells` and `area` added up and every other numeric attribute as the **mean of its parts weighted by
@@ -126,7 +126,7 @@ id = "patches"
 op = "objects.merge"
 inputs = { objects = "rules.objects" }
 params = { by = "class" }
-note = "3,035 objects become 301 patches."
+note = "2,973 objects become 323 patches."
 
 [[nodes]]
 id = "lvl"
@@ -146,7 +146,7 @@ out patch_cells = parent.cells
 out patch_ha = parent.area / 10000
 ```
 
-Of the 3,035 fine objects, 2,523 are in a patch larger than 10 ha, 135 in a patch of less than 1 ha, and 167 are the only
+Of the 2,973 fine objects, 2,405 are in a patch larger than 10 ha, 154 in a patch of less than 1 ha, and 179 are the only
 object of their patch: isolated in their class. A fine object in a small patch of a class is a candidate for a clean-up (Step
 7), one in a big patch is part of something solid.
 
@@ -156,7 +156,7 @@ A patch is made of one class. A **block** is made of whatever is together, and i
 [[segment.multiresolution]] with the image `refl.image` and the classified fine objects (`rules.objects`) in the **`from`**
 input, and a `scale`. The scale is in the units of the image, as in [part 3](/tutorials/object-based-image-analysis/choosing-the-scale/),
 but what it merges are now the fine objects, not the cells, so every block is a union of whole fine objects: at scale 6 the
-3,035 fine objects become **320 blocks**. The outputs are `objects` (the blocks), `below` (the fine objects with the block as
+2,973 fine objects become **312 blocks**. The outputs are `objects` (the blocks), `below` (the fine objects with the block as
 parent) and the usual table of `mean_<band>` and `sd_<band>`. `shape` and `compactness` work as before.
 
 !!! note
@@ -180,7 +180,7 @@ id = "blocks"
 op = "segment.multiresolution"
 inputs = { image = "refl.image", from = "rules.objects" }
 params = { scale = 6 }
-note = "320 blocks from the 3,035 fine objects."
+note = "312 blocks from the 2,973 fine objects."
 
 [[nodes]]
 id = "units"
@@ -201,13 +201,13 @@ area. A block with a quarter of its area in building objects starts to be urban 
 trees. It is the same fuzzy machinery as in part 6: the memberships, the margin and `min` apply.
 The `below` input is needed only for `children.*`; a rule that reads the objects and their parent does not need it.
 
-![The landscape units](/img/tutorials/object-based-image-analysis/levels/units.png "The 320 blocks of scale 6 classed by what they hold. Urban (red) covers the town with the gardens and streets in it, forest (green) the gallery along the streams and the woodland to the south-east, water (blue) the lake, cerrado (tan) the grassland. One block at the shore is not classed (magenta): its children split between classes so that no rule reaches a membership of 0.1.")
+![The landscape units](/img/tutorials/object-based-image-analysis/levels/units.png "The 312 blocks of scale 6 classed by what they hold. Urban (red) covers the town with the gardens and streets in it, forest (green) the gallery along the streams and the woodland to the south-east, water (blue) the lake, cerrado (tan) the grassland. One block at the shore is not classed (magenta): its children split between classes so that no rule reaches a membership of 0.1.")
 
-The landscape units answer a **different question** from the fine map. The fine map says where buildings are: **1,008 ha** of
-built-up, with the streets and gardens between them as cerrado. The landscape units say where the town is: **1,367 ha** of
+The landscape units answer a **different question** from the fine map. The fine map says where buildings are: **1,010 ha** of
+built-up, with the streets and gardens between them as cerrado. The landscape units say where the town is: **1,327 ha** of
 urban, 36 % more, because a block of houses is urban as a whole. Neither is the right one: one is the area of roofs and
-asphalt, the other of the urban fabric. They have 748 ha of forest (the fine map has 873), 1,025 ha of cerrado (1,267) and 219.6 ha of
-water (215.7); one block, 3.9 ha, is not classed.
+asphalt, the other of the urban fabric. They have 761 ha of forest (the fine map has 896), 1,041 ha of cerrado (1,241) and 226.2 ha of
+water (216.8); one block, 9.3 ha, is not classed.
 
 ### Step 6: send the blocks' knowledge down to the fine objects
 
@@ -234,7 +234,7 @@ measurement: only samples or a reference map say which one is right.
     class to a map with [[objects.to_map]] (`what = "class"`) and give the map to [[objects.features]] as `thematic`: each fine
     object gets `th_mode`, the class number of the map under most of its cells, and `th_share`. A rule `cls == "cerrado" and th_mode
     == 1` (urban is the first unit) gives **30,908 cells** of urban open ground, 2,144 fewer than with the brightness, and the two
-    maps differ in 4,174 cells: the block's brightness and its class are not the same thing.
+    maps differ in 4,796 cells: the block's brightness and its class are not the same thing.
 
 ```tfgraph
 #! caption: The fine objects of a block, refined by an attribute of the block (node 1), then with the class of the block as a thematic layer (nodes 2 to 4).
@@ -295,19 +295,19 @@ The size you choose is a choice of **minimum mapping unit**, and the table shows
 sortable: true
 digits: { min_ha: 2, objects: 0, cells_changed: 0, percent_changed: 2 }
 labels: { min_cells: "min_cells", min_ha: "Least area (ha)", objects: "Objects left", cells_changed: "Cells that changed class", percent_changed: "Share of the clip (%)" }
-caption: "objects.remove_small on the 3,035 classified fine objects (into = similar), at five sizes: the objects left and how many cells end in another class."
+caption: "objects.remove_small on the 2,973 classified fine objects (into = similar), at five sizes: the objects left and how many cells end in another class."
 data: /data/tutorials/object-based-image-analysis/levels/remove_small.csv
 ```
 
 Removing the objects under 10 cells changes nothing on the map (3 objects join neighbours of their own class). At 50 cells
-(0.5 ha) 517 objects are gone, 2,518 are left and **1.3 %** of the cells change class. At 200 cells (2 ha) 786 objects remain and
+(0.5 ha) 501 objects are gone, 2,472 are left and **1.3 %** of the cells change class. At 200 cells (2 ha) 759 objects remain and
 9.7 % of the clip has another class: the classes of narrow things go to their neighbours. `into = "border"` instead of
-`similar` at 50 cells leaves 2,505 objects and changes 10,354 cells (3.1 %) where `similar` changes 4,336: the neighbour
-chosen is not the same one, and the two maps differ in 9,532 cells (2.8 %).
+`similar` at 50 cells leaves 2,462 objects and changes 9,923 cells (2.9 %) where `similar` changes 4,280: the neighbour
+chosen is not the same one, and the two maps differ in 8,510 cells (2.5 %).
 
 **[[objects.grow]]** takes one class, `class`, and a `condition` that a *neighbour* must meet to be merged into it, an
 [[objects.calc]] expression computed on the candidate; it repeats until nothing changes or `max_steps`. It is for the objects
-the rules left unclassified. With `min = 0.6` in part 6's tree, 32,745 cells (319 objects) are left without a class. Growing
+the rules left unclassified. With `min = 0.6` in part 6's tree, 29,923 cells (278 objects) are left without a class. Growing
 the forest into the small ones whose NDVI is above 0.4:
 
 ```toml
@@ -318,9 +318,9 @@ inputs = { objects = "strict.objects" }
 params = { class = "forest", condition = 'cls == "unclassified" and ndvi > 0.4 and cells < 200' }
 ```
 
-takes 11,542 cells into the forest (80,348 to 91,890) and leaves 21,203 cells unclassified. In the detail below it shows at the foot
+takes 9,279 cells into the forest (81,056 to 90,335) and leaves 20,644 cells unclassified. In the detail below it shows at the foot
 of the lake. A merged object keeps the class of the object that grew, so the class only gains cells. The `cells < 200` limit is a
-guard, not a need: without it (`ndvi > 0.4` alone) the forest takes 16,436 cells (96,784 in all) and 16,309 stay unclassified,
+guard, not a need: without it (`ndvi > 0.4` alone) the forest takes 16,232 cells (97,288 in all) and 13,691 stay unclassified,
 but a large mixed object, up to thousands of cells, is then swallowed whole by the first forest object it touches. Keep the
 candidates small, or check what the big ones are, before you let a class grow into them.
 
@@ -339,19 +339,13 @@ format = "terraflux/1"
 [[nodes]]
 id = "s2"
 op = "data.stac"
-params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [-47.89, -15.89, -47.835, -15.835], cellsize = 0.00009 }
+params = { url = "https://earth-search.aws.element84.com/v1", collection = "sentinel-2-l2a", assets = ["blue", "green", "red", "nir", "swir16"], datetime = "2024-08-09", extent = [190520, 8241280, 196320, 8247080], cellsize = 10, crs = "EPSG:31983" }
 note = "Five bands, one scene."
-
-[[nodes]]
-id = "utm"
-op = "raster.reproject"
-inputs = { raster = "s2.raster" }
-params = { crs = "EPSG:31983", resolution = 10, extent = [190520, 8241280, 196320, 8247080] }
 
 [[nodes]]
 id = "refl"
 op = "raster.calc"
-inputs = { s = "utm.raster" }
+inputs = { s = "s2.raster" }
 params = { expression = "out image = s / 10000" }
 note = "Reflectance 0 to 1."
 
@@ -360,7 +354,7 @@ id = "seg"
 op = "segment.multiresolution"
 inputs = { image = "refl.image" }
 params = { scale = 2 }
-note = "The fine level: 3,035 objects."
+note = "The fine level: 2,973 objects."
 
 [[nodes]]
 id = "feat"
@@ -407,7 +401,7 @@ id = "blocks"
 op = "segment.multiresolution"
 inputs = { image = "refl.image", from = "rules.objects" }
 params = { scale = 6 }
-note = "320 blocks segmented from the fine objects."
+note = "312 blocks segmented from the fine objects."
 
 [[nodes]]
 id = "units"
@@ -469,12 +463,12 @@ params = { title = "Landscape units" }
 === "Without a network"
 
     Download [sentinel2_brasilia.tif](/data/tutorials/object-based-image-analysis/sentinel2_brasilia.tif) beside the model
-    and replace the nodes `s2` and `utm` with a [[raster.read]] of it. The download is rounded to whole numbers, so the
+    and replace the node `s2` with a [[raster.read]] of it. The download is rounded to whole numbers, so the
     numbers of this page can differ in the last decimals.
 
     ```toml
     [[nodes]]
-    id = "utm"
+    id = "s2"
     op = "raster.read"
     params = { path = "sentinel2_brasilia.tif" }
     ```
@@ -495,13 +489,13 @@ caption: "The 301 patches made by merging the fine objects by class: their numbe
 data: /data/tutorials/object-based-image-analysis/levels/patches.csv
 ```
 
-The numbers say what a landscape ecologist wants to know. The 2 water patches are the lake (208.9 ha) and a second one of 6.8 ha; the 43
-built-up patches have a median of 1.2 ha but a mean of 23 ha, because the largest is 276 ha: **most patches are small and most
+The numbers say what a landscape ecologist wants to know. The 4 water patches are the lake (205.9 ha) and three small ones; the 44
+built-up patches have a median of 1.3 ha but a mean of 23 ha, because the largest is 330 ha: **most patches are small and most
 of the area is in a few large ones**, the usual shape of a patch-size distribution. Report the median and the largest beside
-the mean. Note that the patches are the fine objects' classes put together: 697 fine objects of forest are 100 patches.
+the mean. Note that the patches are the fine objects' classes put together: 712 fine objects of forest are 120 patches.
 
-**The landscape units** are the answer to "what is the block made of": 1,367 ha urban, 748 ha forest, 220 ha water and
-1,025 ha cerrado, with 3.9 ha unclassified, at the scale of 6. A report says the units' definition (the rules, the
+**The landscape units** are the answer to "what is the block made of": 1,327 ha urban, 761 ha forest, 226 ha water and
+1,041 ha cerrado, with 9.3 ha unclassified, at the scale of 6. A report says the units' definition (the rules, the
 thresholds, the scale), the level they are at, and that the area depends on them.
 
 **To report it:** the image (sensor, scene, date), the scale of each level (2 for the fine objects, 6 for the blocks), the
@@ -517,11 +511,11 @@ the same fine objects, with the same rules for the units.
 label: Scale of the blocks
 caption: "The blocks (outlined) made from the fine objects at five scales, each classed by what it holds (red urban, green forest, blue water, tan cerrado, magenta not classified). The chart is the area of the units in the whole clip."
 frames:
-  - { value: 3, src: /img/tutorials/object-based-image-analysis/levels/units_3.png, caption: "Scale 3: 1,341 blocks", stats: { Blocks: "1,341", Urban: "1,156 ha", Forest: "832 ha", Cerrado: "1,158 ha" } }
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/levels/units_4.png, caption: "Scale 4: 716 blocks", stats: { Blocks: "716", Urban: "1,201 ha", Forest: "801 ha", Cerrado: "1,135 ha" } }
-  - { value: 6, src: /img/tutorials/object-based-image-analysis/levels/units_6.png, caption: "Scale 6: 320 blocks (the page's)", stats: { Blocks: "320", Urban: "1,367 ha", Forest: "748 ha", Cerrado: "1,025 ha" } }
-  - { value: 10, src: /img/tutorials/object-based-image-analysis/levels/units_10.png, caption: "Scale 10: 100 blocks", stats: { Blocks: "100", Urban: "1,425 ha", Forest: "704 ha", Cerrado: "1,013 ha" } }
-  - { value: 16, src: /img/tutorials/object-based-image-analysis/levels/units_16.png, caption: "Scale 16: 34 blocks", stats: { Blocks: "34", Urban: "1,680 ha", Forest: "650 ha", Cerrado: "814 ha" } }
+  - { value: 3, src: /img/tutorials/object-based-image-analysis/levels/units_3.png, caption: "Scale 3: 1,359 blocks", stats: { Blocks: "1,359", Urban: "1,133 ha", Forest: "846 ha", Cerrado: "1,166 ha" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/levels/units_4.png, caption: "Scale 4: 723 blocks", stats: { Blocks: "723", Urban: "1,221 ha", Forest: "807 ha", Cerrado: "1,114 ha" } }
+  - { value: 6, src: /img/tutorials/object-based-image-analysis/levels/units_6.png, caption: "Scale 6: 312 blocks (the page's)", stats: { Blocks: "312", Urban: "1,327 ha", Forest: "761 ha", Cerrado: "1,041 ha" } }
+  - { value: 10, src: /img/tutorials/object-based-image-analysis/levels/units_10.png, caption: "Scale 10: 109 blocks", stats: { Blocks: "109", Urban: "1,511 ha", Forest: "689 ha", Cerrado: "904 ha" } }
+  - { value: 16, src: /img/tutorials/object-based-image-analysis/levels/units_16.png, caption: "Scale 16: 37 blocks", stats: { Blocks: "37", Urban: "1,505 ha", Forest: "542 ha", Cerrado: "1,098 ha" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/levels/scales.csv
@@ -532,11 +526,11 @@ chart:
   ylabel: "Hectares in the clip"
 ```
 
-- **Water does not move**: 218 to 222 ha at every scale. The lake is a single contrast and any block over it is water.
-- **The urban unit grows with the scale**, from 1,156 ha to 1,680 ha (45 %), and the cerrado shrinks (1,158 to 814 ha). As blocks
+- **Water hardly moves**: 218 to 226 ha at every scale. The lake is a single contrast and any block over it is water.
+- **The urban unit grows with the scale**, from 1,133 ha to 1,511 ha at the scale 10 (33 %), and the cerrado shrinks (1,166 to 904 ha); the scale 16 gives back some of it (1,505 and 1,098 ha). As blocks
   grow they take in the gardens, the lots and the grassland at the edge of the town, and a block of mixed content is classed by the
   larger share. The unit is where the **town** is, and how far the town goes depends on how big the cell you look with is.
-- **Forest shrinks** (832 to 650 ha), most likely for the same reason: thin strips of gallery forest are absorbed by their
+- **Forest shrinks** (846 to 542 ha), most likely for the same reason: thin strips of gallery forest are absorbed by their
   neighbours and their share in a block falls under its limit.
 - At 16 the clip is 34 blocks; the unit map is a coarse picture of the landscape, good for a region, not for a plot.
 
