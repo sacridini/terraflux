@@ -394,6 +394,26 @@ fn tiled_multiresolution_has_no_seam() {
 }
 
 #[test]
+fn tiled_multiresolution_with_a_seam_band_has_no_seam_and_is_deterministic() {
+    let (w, t) = (192, 64);
+    let img = smooth(w, w, 3, 4.0, 7);
+    let p = |band: i64| serde_json::json!({ "scale": 16.0, "tile": t, "margin": 16, "seed": 1, "seam_band": band });
+    let whole = objects_of(&multires(img.clone(), serde_json::json!({ "scale": 16.0, "seed": 1 })).unwrap());
+    let band = objects_of(&multires(img.clone(), p(4)).unwrap());
+    connected(&band);
+    let (border, elsewhere) = cut_share(&band, t);
+    assert!(border < elsewhere * 1.2, "{border:.3} of the pairs across the borders cut, {elsewhere:.3} elsewhere");
+    let ratio = band.count as f64 / whole.count as f64;
+    assert!((0.85..1.15).contains(&ratio), "{} objects of {}", band.count, whole.count);
+    for threads in [1, 8] {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        let o = pool.install(|| objects_of(&multires(img.clone(), p(4)).unwrap()));
+        assert_eq!(o.labels, band.labels, "{threads} threads");
+    }
+    assert!(multires(img, p(-1)).is_err());
+}
+
+#[test]
 fn tiled_region_growing_has_no_seam() {
     no_seam("segment.region_growing", "threshold", 0.03);
 }
@@ -472,5 +492,53 @@ fn seam_bench() {
             boundary_f(&whole, &tiled),
             peak_mb()
         );
+    }
+}
+
+/// `seam_band` against the whole-piece dissolve and against no tiles: objects, the cut on the tile lines, the
+/// boundaries' F against the untiled run (and another seed's), and the time. SEAM_SIDE (1024), SEAM_TILE (256),
+/// SEAM_THREADS (8), SEAM_SCALES (10,20,40), SEAM_IMAGE=smooth for the photograph-like field.
+#[test]
+#[ignore]
+fn seam_band_report() {
+    let env = |k: &str, d: usize| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+    let (side, t, threads) = (env("SEAM_SIDE", 1024), env("SEAM_TILE", 256), env("SEAM_THREADS", 8));
+    let img = if std::env::var("SEAM_IMAGE").is_ok_and(|v| v == "smooth") {
+        smooth(side, side, 4, 4.0, 7)
+    } else {
+        voronoi(side, side, 4, 3000, 5.0, 7)
+    };
+    let scales: Vec<f64> =
+        std::env::var("SEAM_SCALES").unwrap_or("10,20,40".into()).split(',').map(|x| x.parse().unwrap()).collect();
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+    for scale in scales {
+        let run = |p: serde_json::Value| {
+            let t0 = std::time::Instant::now();
+            let o = pool.install(|| objects_of(&multires(img.clone(), p).unwrap()));
+            (o, t0.elapsed().as_secs_f64())
+        };
+        let (whole, ws) = run(serde_json::json!({ "scale": scale, "seed": 1 }));
+        let (other, _) = run(serde_json::json!({ "scale": scale, "seed": 2 }));
+        let typical = ((side * side) as f64 / whole.count as f64).sqrt();
+        println!(
+            "scale {scale}: whole {} objects in {ws:.2} s (seed 2: {}), typical object side {typical:.0}, F seed 2 vs whole {:.3}",
+            whole.count,
+            other.count,
+            boundary_f(&whole, &other)
+        );
+        let mut bands = vec![0usize, 2, 8];
+        bands.extend([1.0, 2.0, 4.0].map(|k| ((k * typical) as usize).clamp(1, t / 2)));
+        bands.dedup();
+        for band in bands {
+            let p = serde_json::json!({ "scale": scale, "tile": t, "margin": 16, "seed": 1, "seam_band": band });
+            let (o, secs) = run(p);
+            connected(&o);
+            let (b, n) = cut_share(&o, t);
+            println!(
+                "  seam_band {band:>3}: {} objects, cut {b:.3} on borders, {n:.3} elsewhere, F vs whole {:.3}, {secs:.2} s",
+                o.count,
+                boundary_f(&whole, &o)
+            );
+        }
     }
 }

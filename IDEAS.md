@@ -4430,6 +4430,18 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    ocupada as rodadas variaram ±30% e o ganho na costura (uns 0,1 a 0,2 s de 6 s com 8 threads em 2000²) ficou dentro
    do ruído; o `smooth` deu -0,07 a -0,13 s em 2000² com 1 thread (slic 1,15 -> 1,02, snic 2,49 -> 2,32, watershed 1,37
    -> 1,30 s).
+   Feito (2026-11-22, a costura): o que domina o multiresolution com tiles e 8 threads é o `merge_all` da costura
+   (~2,6 de ~5,8 s em 2000²): 1,72 milhão das 4 milhões de células voltam a ser regiões soltas (as peças que tocam uma
+   borda são desfeitas) e são refundidas na ordem embaralhada, tão caro por célula quanto o caso sem tiles; só 481
+   regiões estão inertes, então não há o que pular com exatidão. No `merge_all` em si, buscas antecipadas (prefetch)
+   das regiões vizinhas cujo custo falta e das listas dos vizinhos da fusão tiraram uns 10-20% numa thread em 1000²
+   sem tiles, mesmos rótulos. Experimento `seam_band` (padrão 0 = o de hoje): desfazer só as células a `seam_band`
+   células das bordas e manter o resto de cada peça. Com 1024², tiles de 256, 8 threads, imagem de Voronoi: escala 20,
+   hoje 1307 objetos em 4,6 s, sem tiles 1285; `seam_band` 2 dá 1187 em 2,3 s e 8 dá 1180 em 3,0 s (-8% de objetos,
+   fora do ruído de outra semente, ±1,5%), 28 (1x o lado típico) dá 1278 em 3,9 s; escala 40: 867 hoje, 861 em 1,6 s
+   com 2 e 855 com 8, F contra o sem-tiles 0,868 -> 0,879/0,876; imagem suave: sem diferença nos objetos e -15 a -25%
+   do tempo. O corte nas bordas fica abaixo do corte nas outras linhas em todos. Faixas finas ganham 2x mas
+   fundem a mais em escalas pequenas; ainda não é o padrão.
 9. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
 ### Qualidade de vida do OBIA (pedido de 2026-11-19)

@@ -915,7 +915,7 @@ impl Operator for RegionGrowing {
                     Ok(tl.core(&o.labels[..]))
                 };
                 let per_cell = l.data.len() as u64 * 40 + 300;
-                merge_tiled_with(&l.grid, t, m, per_cell, nbs as usize, None, &core, |pieces| {
+                merge_tiled_with(&l.grid, t, m, per_cell, nbs as usize, 0, None, &core, |pieces| {
                     Ok(stitch(&l, &sc, &zone, sd, pieces, eight, manhattan, &plan))
                 })?
             }

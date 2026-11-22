@@ -358,6 +358,17 @@ impl Regions {
     fn best(&mut self, p: &Cost, a: usize, stamp: &[u32], pass: u32) -> (Option<(u32, f64, u32)>, bool) {
         let mut best: Option<(u32, f64, u32)> = None;
         let mut left_out = false;
+        // the regions whose cost is to be worked out are fetched together, not one miss after the other
+        for e in &self.adj[a] {
+            prefetch(&stamp[e.nb as usize]);
+            if e.cost.is_nan() {
+                let b = e.nb as usize;
+                prefetch(&self.reg[b]);
+                prefetch(self.st[b * self.stride..].as_ptr());
+                prefetch(self.st[b * self.stride..].as_ptr().wrapping_add(8));
+                prefetch(&self.adj[b]);
+            }
+        }
         for i in 0..self.adj[a].len() {
             let e = self.adj[a][i];
             if stamp[e.nb as usize] == pass {
@@ -419,7 +430,13 @@ impl Regions {
                 }
             }
         }
-        // each neighbour of the two now points to a (b gone), the cost of that pair unknown
+        // each neighbour of the two now points to a (b gone), the cost of that pair unknown (their lists first fetched
+        // together)
+        for e in &merged {
+            let l = &self.adj[e.nb as usize] as *const Adj;
+            prefetch(l);
+            prefetch(l.wrapping_byte_add(64));
+        }
         for e in &merged {
             let l = &mut self.adj[e.nb as usize];
             let pa = l.binary_search_by_key(&a32, |x| x.nb);
@@ -785,6 +802,13 @@ impl Operator for Multiresolution {
             "cells, the margin around each tile that is segmented with it for the context of its border; 0 \
              (default) is automatic: 64 cells, at most half the tile",
         ))
+        .param(PortSpec::optional(
+            "seam_band",
+            Type::Integer,
+            "cells, with tiles: 0 (default) takes apart every piece that touches a tile border into single cells to \
+             merge them again across it; above 0 only the cells of those pieces within this many cells of a border \
+             are taken apart and the rest of each piece stays one region (faster, an experiment)",
+        ))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -815,6 +839,10 @@ impl Operator for Multiresolution {
             return Err(bad(format!("tile {tile}: 0 (automatic) or 8 cells or more")));
         }
         let margin: i64 = args.param("margin", 0)?;
+        let seam_band: i64 = args.param("seam_band", 0)?;
+        if seam_band < 0 {
+            return Err(bad(format!("seam_band {seam_band}: 0 (the whole pieces) or more")));
+        }
         if margin < 0 {
             return Err(bad(format!("margin {margin}: 0 (automatic) or more")));
         }
@@ -862,6 +890,7 @@ impl Operator for Multiresolution {
                 m,
                 remote,
                 &zone,
+                seam_band as usize,
             );
             // a cluster that fails (a computer left) never fails the run: the tiles run here
             if let (true, Err(e)) = (on_cluster, &o) {
@@ -878,6 +907,7 @@ impl Operator for Multiresolution {
                     m,
                     None,
                     &zone,
+                    seam_band as usize,
                 );
             }
             let o = o?;
@@ -942,6 +972,7 @@ impl Operator for Multiresolution {
                 m,
                 None,
                 &zone,
+                seam_band as usize,
             )?;
             let table = super::stats_table(&o, &l.names, &l.data);
             let o = Arc::new(o.with_table(table.clone())?);

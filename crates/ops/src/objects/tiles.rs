@@ -318,6 +318,7 @@ pub(crate) fn merge_tiled(
     margin: usize,
     remote: Option<(&dyn TileCores, TileJob)>,
     zones: &[u64],
+    band: usize,
 ) -> Result<Objects> {
     let dims = (grid.width, grid.height);
     let tiles = dims.0.div_ceil(t) * dims.1.div_ceil(t);
@@ -334,7 +335,7 @@ pub(crate) fn merge_tiled(
     let zone = |tl: &Tile| if zones.is_empty() { Vec::new() } else { tl.cut(zones, dims.0) };
     let core = |k: usize| tile_core(src, dims, cost, scale, mutual, seed, max_passes, t, margin, k, &zone);
     let per_cell = src.nb() as u64 * 40 + 200;
-    merge_tiled_with(grid, t, margin, per_cell, 4, given, &core, |pieces| {
+    merge_tiled_with(grid, t, margin, per_cell, 4, band, given, &core, |pieces| {
         Ok(merge_level_src(grid, src, cost, scale, mutual, seed, max_passes, Some(&pieces), zones)?.objects)
     })
 }
@@ -352,6 +353,7 @@ pub(crate) fn merge_tiled_with(
     margin: usize,
     per_cell: u64,
     conn: usize,
+    band: usize,
     given: Option<Vec<Vec<u32>>>,
     core: &(dyn Fn(usize) -> Result<Vec<u32>> + Sync),
     stitch: impl FnOnce(Objects) -> Result<Objects>,
@@ -424,7 +426,7 @@ pub(crate) fn merge_tiled_with(
     }
     let pieces = Objects::from_fn(grid.clone(), |i| lab[i], 0u32, conn);
     drop(lab);
-    let pieces = dissolve_at_borders(grid, pieces, t, conn);
+    let pieces = dissolve_at_borders(grid, pieces, t, conn, band);
     stitch(pieces)
 }
 
@@ -434,7 +436,7 @@ pub(crate) fn merge_tiled_with(
 /// object edge. The whole image's objects grew from cells, so no line cut them. With those pieces as cells the
 /// stitching grows them across the border as the merging does anywhere. The pieces away from the borders are kept
 /// (they are the speed of the tiles).
-fn dissolve_at_borders(grid: &Arc<Grid>, pieces: Objects, t: usize, conn: usize) -> Objects {
+fn dissolve_at_borders(grid: &Arc<Grid>, pieces: Objects, t: usize, conn: usize, band: usize) -> Objects {
     let (w, h) = (grid.width, grid.height);
     let mut touch = vec![false; pieces.count + 1];
     let mut any = false;
@@ -461,12 +463,20 @@ fn dissolve_at_borders(grid: &Arc<Grid>, pieces: Objects, t: usize, conn: usize)
     if !any {
         return pieces;
     }
+    // with a band, only the cells of those pieces within `band` cells of a border are taken apart; the rest of each
+    // piece stays one region
+    let near =
+        |x: usize, len: usize| (x >= t && x % t < band) || ((x / t + 1) * t < len && (x / t + 1) * t - x <= band);
     // (a cell's number is above every piece's: u64 holds both)
     Objects::from_fn(
         grid.clone(),
         |i| {
             let l = pieces.labels[i];
-            if l != 0 && touch[l as usize] { (1u64 << 32) + i as u64 } else { l as u64 }
+            if l != 0 && touch[l as usize] && (band == 0 || near(i / w, h) || near(i % w, w)) {
+                (1u64 << 32) + i as u64
+            } else {
+                l as u64
+            }
         },
         0u64,
         conn,
