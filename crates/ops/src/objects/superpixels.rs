@@ -729,34 +729,55 @@ fn smooth_n<const N: usize>(p: &mut Prep, ker: &[f64], rad: i64) {
     let (w, h, nb) = (p.w, p.h, p.nb);
     let n = if N == 0 { nb } else { N };
     let valid = &p.valid;
+    // (both passes write every cell: a cell without a value keeps its numbers, so there is no copy to start from)
+    // the weights of a window with every cell in it, summed as the loops below do
+    let whole = ker.iter().fold(0.0, |s, &k| s + k);
     // along the rows
-    let mut rows = p.x.clone();
+    let mut rows = vec![0.0f64; p.x.len()];
     rows.par_chunks_mut(w * nb).zip(p.x.par_chunks(w * nb)).enumerate().for_each_init(
-        || vec![0.0f64; nb],
-        |acc, (r, (dst, src))| {
+        || (vec![0.0f64; nb], vec![0u32; w + 1]),
+        |(acc, bad), (r, (dst, src))| {
             let vr = &valid[r * w..(r + 1) * w];
             let acc = &mut acc[..n];
+            // the cells without a value up to each cell, to tell a window with all its cells at once
+            for (j, &ok) in vr.iter().enumerate() {
+                bad[j + 1] = bad[j] + !ok as u32;
+            }
             for pos in 0..w {
+                let d = &mut dst[pos * nb..pos * nb + n];
                 if !vr[pos] {
+                    d.copy_from_slice(&src[pos * nb..pos * nb + n]);
                     continue;
                 }
                 acc.fill(0.0);
-                let mut wsum = 0.0;
-                for (q, &kw) in ker.iter().enumerate() {
-                    let at = pos as i64 + q as i64 - rad;
-                    if at < 0 || at >= w as i64 {
-                        continue;
-                    }
-                    let j = at as usize;
-                    if vr[j] {
-                        wsum += kw;
-                        let s = &src[j * nb..j * nb + n];
+                let rd = rad as usize;
+                let wsum = if pos >= rd && pos + rd < w && bad[pos + rd + 1] == bad[pos - rd] {
+                    // the window is whole and every cell in it has a value
+                    for (q, &kw) in ker.iter().enumerate() {
+                        let s = &src[(pos + q - rd) * nb..(pos + q - rd) * nb + n];
                         for b in 0..n {
                             acc[b] += kw * s[b];
                         }
                     }
-                }
-                let d = &mut dst[pos * nb..pos * nb + n];
+                    whole
+                } else {
+                    let mut ws = 0.0;
+                    for (q, &kw) in ker.iter().enumerate() {
+                        let at = pos as i64 + q as i64 - rad;
+                        if at < 0 || at >= w as i64 {
+                            continue;
+                        }
+                        let j = at as usize;
+                        if vr[j] {
+                            ws += kw;
+                            let s = &src[j * nb..j * nb + n];
+                            for b in 0..n {
+                                acc[b] += kw * s[b];
+                            }
+                        }
+                    }
+                    ws
+                };
                 for b in 0..n {
                     d[b] = acc[b] / wsum;
                 }
@@ -764,7 +785,7 @@ fn smooth_n<const N: usize>(p: &mut Prep, ker: &[f64], rad: i64) {
         },
     );
     // along the columns: an output row sums the rows around it, cell by cell
-    let mut out = rows.clone();
+    let mut out = vec![0.0f64; rows.len()];
     out.par_chunks_mut(w * nb).enumerate().for_each_init(
         || (vec![0.0f64; w * nb], vec![0.0f64; w]),
         |(acc, wsum), (r, dst)| {
@@ -788,12 +809,16 @@ fn smooth_n<const N: usize>(p: &mut Prep, ker: &[f64], rad: i64) {
                     }
                 }
             }
+            let mine = &rows[r * w * nb..(r + 1) * w * nb];
             for c in 0..w {
+                let d = &mut dst[c * nb..c * nb + n];
                 if valid[r * w + c] {
-                    let (d, a) = (&mut dst[c * nb..c * nb + n], &acc[c * nb..c * nb + n]);
+                    let a = &acc[c * nb..c * nb + n];
                     for b in 0..n {
                         d[b] = a[b] / wsum[c];
                     }
+                } else {
+                    d.copy_from_slice(&mine[c * nb..c * nb + n]);
                 }
             }
         },
@@ -1030,5 +1055,68 @@ impl Operator for Felzenszwalb {
         let region = felzenszwalb(&p, nbs == 8, k, min_size as usize, &zone);
         // (the zones kept out of the graph, no object crosses one)
         made(&l, Objects::from_regions(l.grid.clone(), &region, 4))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The smoothing as written plainly (a pass along the rows, then along the columns, each tap checked), to compare
+    /// the fast one to, bit for bit.
+    fn plain(p: &Prep, sigma: f64) -> Vec<f64> {
+        let (w, h, nb) = (p.w, p.h, p.nb);
+        let rad = (4.0 * sigma).ceil() as i64;
+        let ker: Vec<f64> = (-rad..=rad).map(|d| (-((d * d) as f64) / (2.0 * sigma * sigma)).exp()).collect();
+        let pass = |src: &[f64], along_rows: bool| -> Vec<f64> {
+            let mut out = src.to_vec();
+            for r in 0..h {
+                for c in 0..w {
+                    let i = r * w + c;
+                    if !p.valid[i] {
+                        continue;
+                    }
+                    let mut acc = vec![0.0; nb];
+                    let mut wsum = 0.0;
+                    for (q, &kw) in ker.iter().enumerate() {
+                        let d = q as i64 - rad;
+                        let (rr, cc) = if along_rows { (r as i64, c as i64 + d) } else { (r as i64 + d, c as i64) };
+                        if rr < 0 || cc < 0 || rr >= h as i64 || cc >= w as i64 {
+                            continue;
+                        }
+                        let j = rr as usize * w + cc as usize;
+                        if p.valid[j] {
+                            wsum += kw;
+                            for b in 0..nb {
+                                acc[b] += kw * src[j * nb + b];
+                            }
+                        }
+                    }
+                    for b in 0..nb {
+                        out[i * nb + b] = acc[b] / wsum;
+                    }
+                }
+            }
+            out
+        };
+        pass(&pass(&p.x, true), false)
+    }
+
+    #[test]
+    fn smoothing_is_the_plain_one_to_the_bit() {
+        let mut s = 7u64;
+        let mut rnd = move || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (s >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for (nb, sigma) in [(1, 1.0), (3, 1.0), (4, 2.0), (6, 1.5)] {
+            let (w, h) = (37, 29);
+            let valid: Vec<bool> = (0..w * h).map(|_| rnd() > 0.1).collect();
+            let x: Vec<f64> = (0..w * h * nb).map(|_| rnd() * 10.0 - 3.0).collect();
+            let mut p = Prep { w, h, nb, valid, x };
+            let want = plain(&p, sigma);
+            smooth(&mut p, sigma);
+            assert!(p.x.iter().zip(&want).all(|(a, b)| a.to_bits() == b.to_bits()), "{nb} bands, sigma {sigma}");
+        }
     }
 }

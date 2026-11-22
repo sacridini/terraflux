@@ -85,15 +85,6 @@ fn around_at(i: usize, r: usize, c: usize, w: usize, h: usize, eight: bool, out:
     n
 }
 
-/// The markers found by the gradient: the cells of its minima that stand `h` or more above the lowest cell they
-/// join (their dynamics, the h-minima). The cells go from the lowest up, and a cell joins the components of the cells
-/// before it that touch it; when two meet the one with the higher minimum (the younger) ends, its depth being the level
-/// of the meeting less its minimum. Each area cut off by cells without a value keeps its lowest minimum whatever its
-/// depth. The marker of a minimum is its cells at its lowest value (a plateau is one marker).
-pub(super) fn minima(p: &Prep, grad: &[f64], eight: bool, h: f64) -> Vec<Vec<usize>> {
-    minima_in(p, &order_of(p, grad), eight, h)
-}
-
 /// The cells with a value, from the lowest gradient up (the ties by index): (the gradient's bits, the cell).
 pub(super) fn order_of(p: &Prep, grad: &[f64]) -> Vec<(u64, u32)> {
     let mut order: Vec<(u64, u32)> =
@@ -103,7 +94,12 @@ pub(super) fn order_of(p: &Prep, grad: &[f64]) -> Vec<(u64, u32)> {
     order
 }
 
-/// [`minima`] with the cells in the order of [`order_of`] already.
+/// The markers found by the gradient: the cells of its minima that stand `h` or more above the lowest cell they
+/// join (their dynamics, the h-minima). The cells go from the lowest up, and a cell joins the components of the cells
+/// before it that touch it; when two meet the one with the higher minimum (the younger) ends, its depth being the level
+/// of the meeting less its minimum. Each area cut off by cells without a value keeps its lowest minimum whatever its
+/// depth. The marker of a minimum is its cells at its lowest value (a plateau is one marker).
+/// `order` is the cells in the order of [`order_of`].
 pub(super) fn minima_in(p: &Prep, order: &[(u64, u32)], eight: bool, h: f64) -> Vec<Vec<usize>> {
     let (w, hh) = (p.w, p.h);
     let n = w * hh;
@@ -208,16 +204,8 @@ fn given(p: &Prep, m: &[f64]) -> Vec<Vec<usize>> {
 
 /// The flooding: the markers' cells labelled (marker k with k + 1), then the cell of the lowest priority among those
 /// that touch a labelled one, the gradient plus `compact` times its distance to the centre of the marker it would
-/// join, ties to the cell queued first. Returns the label of each cell (0 none).
-pub(super) fn flood(p: &Prep, grad: &[f64], markers: &[Vec<usize>], eight: bool, compact: f64) -> Vec<u32> {
-    if compact > 0.0 {
-        flood_heap(p, grad, markers, eight, compact)
-    } else {
-        flood_buckets(p, &order_of(p, grad), markers, eight)
-    }
-}
-
-/// [`flood`] with the cells in the order of [`order_of`] already.
+/// join, ties to the cell queued first. Returns the label of each cell (0 none). With no compactness the queue is a
+/// bucket a distinct gradient (`order` is the cells in the order of [`order_of`]); with it, a heap.
 pub(super) fn flood_in(
     p: &Prep,
     grad: &[f64],
@@ -353,7 +341,7 @@ impl Buckets {
     }
 }
 
-/// [`flood`] with no compactness: the priority of a cell is its gradient, whichever marker reaches it, and it is
+/// [`flood_in`] with no compactness: the priority of a cell is its gradient, whichever marker reaches it, and it is
 /// queued once, so the label goes on at the queueing and the queue is one bucket a distinct gradient (no sorting of
 /// the queue, no heap). The same labels as the heap's, as a cell comes out by (gradient, the order it went in).
 fn flood_buckets(p: &Prep, order: &[(u64, u32)], markers: &[Vec<usize>], eight: bool) -> Vec<u32> {
@@ -407,7 +395,7 @@ fn flood_buckets(p: &Prep, order: &[(u64, u32)], markers: &[Vec<usize>], eight: 
     slots.par_iter().map(|s| if s.lab == NONE { 0 } else { s.lab }).collect()
 }
 
-/// [`flood`] by the heap (any compactness; the buckets do for 0).
+/// [`flood_in`] by the heap (any compactness; the buckets do for 0).
 pub(super) fn flood_heap(p: &Prep, grad: &[f64], markers: &[Vec<usize>], eight: bool, compact: f64) -> Vec<u32> {
     let (w, h) = (p.w, p.h);
     // the queue numbers its pushes in 32 bits, at most 8 a cell (`run` refuses bigger images)
@@ -640,7 +628,7 @@ mod tests {
                     let a = flood_heap(&p, &grad, &markers, eight, 0.0);
                     let b = flood_buckets(&p, &order, &markers, eight);
                     assert_eq!(a, b, "seed {seed}, levels {levels}, eight {eight}, h {hh}");
-                    assert_eq!(a, flood(&p, &grad, &markers, eight, 0.0));
+                    assert_eq!(a, flood_in(&p, &grad, &order, &markers, eight, 0.0));
                 }
             }
         }

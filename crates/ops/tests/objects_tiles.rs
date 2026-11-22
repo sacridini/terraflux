@@ -166,6 +166,29 @@ fn tiled_is_deterministic_whatever_the_threads() {
     connected(&other);
 }
 
+/// The table of an output, its numbers as written (a NaN too), to compare to the bit.
+fn table_text(out: &Outputs) -> String {
+    let Value::Table(t) = &out["table"] else { panic!("table") };
+    format!("{:?}", t.rows)
+}
+
+#[test]
+fn tiled_labels_and_table_are_the_same_on_1_and_8_threads() {
+    // tiles of 64 with a margin: the stitching (the pieces at the borders in single cells again) has work to do
+    let img = image(260, 200, 3, 6.0, 21, |r, c| 15.0 * (((r / 17) + 3 * (c / 29)) % 5) as f64);
+    let p = serde_json::json!({ "scale": 30, "seed": 3, "tile": 64, "margin": 16 });
+    let run = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| multires(img.clone(), p.clone()).unwrap())
+    };
+    let (one, eight) = (run(1), run(8));
+    let (a, b) = (objects_of(&one), objects_of(&eight));
+    assert_eq!(a.labels, b.labels);
+    assert_eq!(a.cells, b.cells);
+    assert_eq!(table_text(&one), table_text(&eight));
+    connected(&a);
+}
+
 #[test]
 fn tiled_objects_are_connected_and_the_table_matches() {
     // noise strong enough that the objects are small and irregular; some cells without a value

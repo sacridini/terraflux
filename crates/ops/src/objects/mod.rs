@@ -343,22 +343,49 @@ impl Objects {
             edges.extend_from_slice(&row);
         }
         edges.par_sort_unstable();
-        let mut adjacency: Vec<Vec<(u32, u32)>> = vec![Vec::new(); count];
+        // the borders as (lower id, higher id, edges), each pair once, in order of the keys
+        let mut borders: Vec<(u32, u32, u32)> = Vec::new();
         let mut e = 0;
         while e < edges.len() {
             let mut end = e;
             while end < edges.len() && edges[end] == edges[e] {
                 end += 1;
             }
-            let (a, b) = ((edges[e] >> 32) as u32, edges[e] as u32);
-            let length = (end - e) as u32;
-            // (a < b: the keys come sorted, so each list stays sorted by id)
-            adjacency[a as usize - 1].push((b, length));
-            adjacency[b as usize - 1].push((a, length));
+            borders.push(((edges[e] >> 32) as u32, edges[e] as u32, (end - e) as u32));
             e = end;
         }
+        drop(edges);
+        // an object's list is the objects below it, by id (the borders sorted by the higher id), then those above it
+        // (the borders as they are, by the lower id): each object's list is made on its own, in parallel
+        let mut below: Vec<(u64, u32)> =
+            borders.par_iter().map(|&(a, b, n)| (((b as u64) << 32) | a as u64, n)).collect();
+        below.par_sort_unstable();
+        // where the borders of object k + 1 start in each (the ids come sorted)
+        let starts = |key: &(dyn Fn(usize) -> u32 + Sync), n: usize| -> Vec<usize> {
+            let mut at = vec![0usize; count + 2];
+            for i in 0..n {
+                at[key(i) as usize + 1] += 1;
+            }
+            for k in 1..at.len() {
+                at[k] += at[k - 1];
+            }
+            at
+        };
+        let (up_at, down_at) =
+            (starts(&|i| borders[i].0, borders.len()), starts(&|i| (below[i].0 >> 32) as u32, below.len()));
+        let adjacency: Vec<Vec<(u32, u32)>> = (0..count)
+            .into_par_iter()
+            .map(|k| {
+                let id = k + 1;
+                let (up, down) = (&borders[up_at[id]..up_at[id + 1]], &below[down_at[id]..down_at[id + 1]]);
+                let mut list = Vec::with_capacity(up.len() + down.len());
+                list.extend(down.iter().map(|&(key, n)| (key as u32, n)));
+                list.extend(up.iter().map(|&(_, b, n)| (b, n)));
+                list
+            })
+            .collect();
         let mut table = Table::new(vec!["id".to_string()]);
-        table.rows = (1..=count).map(|id| vec![id as f64]).collect();
+        table.rows = (1..=count).into_par_iter().map(|id| vec![id as f64]).collect();
         Objects {
             grid,
             labels: Arc::new(labels),

@@ -447,8 +447,12 @@ fn dissolve_at_borders(grid: &Arc<Grid>, pieces: Objects, t: usize, conn: usize)
     // border columns in the others
     for r in 0..h {
         let row = (r % t == 0 && r > 0) || ((r + 1) % t == 0 && r + 1 < h);
-        for c in 0..w {
-            if row || (c % t == 0 && c > 0) || ((c + 1) % t == 0 && c + 1 < w) {
+        if row {
+            (0..w).for_each(|c| mark(r * w + c));
+        } else {
+            // (the two columns of each border: only those are visited)
+            for c in (t..w).step_by(t) {
+                mark(r * w + c - 1);
                 mark(r * w + c);
             }
         }

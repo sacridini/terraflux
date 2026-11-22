@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use smallvec::SmallVec;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::Grid;
@@ -147,6 +148,43 @@ struct Reg {
     smooth: f64,
 }
 
+/// The terms cached for a region, worked out again from its sums (`st`) and its shape.
+fn refresh_of(st: &mut [f64], g: &mut Reg) {
+    for j in (0..st.len()).step_by(4) {
+        st[j + 3] = st[j] * sd(&st[j..j + 3]);
+    }
+    let (n, l) = (g.cells as f64, g.perim as f64);
+    g.cmpct = n * l / n.sqrt();
+    g.smooth = n * l / around(g.bbox);
+}
+
+/// [`Regions::cost`] from the parts of the state it reads.
+fn cost_of(p: &Cost, reg: &[Reg], st: &[f64], stride: usize, a: usize, b: usize, shared: u32) -> f64 {
+    let (sa, sb) = (&st[a * stride..(a + 1) * stride], &st[b * stride..(b + 1) * stride]);
+    let mut hc = 0.0;
+    for (k, w) in p.weights.iter().enumerate() {
+        let (x, y) = (&sa[4 * k..4 * k + 4], &sb[4 * k..4 * k + 4]);
+        let m = [x[0] + y[0], x[1] + y[1], x[2] + y[2]];
+        hc += w * (m[0] * sd(&m) - (x[3] + y[3]));
+    }
+    if p.colour >= 1.0 {
+        return hc;
+    }
+    let (ra, rb) = (&reg[a], &reg[b]);
+    let bbox = [
+        ra.bbox[0].min(rb.bbox[0]),
+        ra.bbox[1].min(rb.bbox[1]),
+        ra.bbox[2].max(rb.bbox[2]),
+        ra.bbox[3].max(rb.bbox[3]),
+    ];
+    let nm = ra.cells as f64 + rb.cells as f64;
+    let lm = ra.perim as f64 + rb.perim as f64 - 2.0 * shared as f64;
+    let cmpct = nm * lm / nm.sqrt() - (ra.cmpct + rb.cmpct);
+    let smooth = nm * lm / around(bbox) - (ra.smooth + rb.smooth);
+    let hs = p.compact * cmpct + (1.0 - p.compact) * smooth;
+    p.colour * hc + (1.0 - p.colour) * hs
+}
+
 /// The regions' state.
 pub(crate) struct Regions {
     /// Numbers per region in `st`: per band (count, sum, sum of squares, count · standard deviation).
@@ -227,7 +265,8 @@ impl Regions {
                 }
             }
         })?;
-        for l in g.adj.iter_mut() {
+        // (each region on its own from here: the lists sorted and the terms cached, in parallel)
+        g.adj.par_iter_mut().for_each(|l| {
             l.sort_unstable_by_key(|e| e.nb);
             l.dedup_by(|b, a| {
                 if a.nb == b.nb {
@@ -237,9 +276,9 @@ impl Regions {
                     false
                 }
             });
-        }
-        for r in 0..count {
-            g.refresh(r);
+        });
+        if stride > 0 {
+            g.st.par_chunks_mut(stride).zip(g.reg.par_iter_mut()).for_each(|(st, reg)| refresh_of(st, reg));
         }
         Ok(g)
     }
@@ -287,31 +326,20 @@ impl Regions {
     /// The cost of every pair of neighbours worked out, in the order of the regions (what the first pass would do at
     /// random: read in a row, memory keeps up).
     fn eval_all(&mut self, p: &Cost) {
-        for a in 0..self.reg.len() {
-            for i in 0..self.adj[a].len() {
-                let e = self.adj[a][i];
-                if (e.nb as usize) > a && e.cost.is_nan() {
-                    let f = self.cost(p, a, e.nb as usize, e.shared);
-                    self.adj[a][i].cost = f;
-                    let l = &mut self.adj[e.nb as usize];
-                    if let Ok(j) = l.binary_search_by_key(&(a as u32), |x| x.nb) {
-                        l[j].cost = f;
-                    }
+        // (the regions in parallel, a pair worked out from each side to the same bits: the cost is symmetric)
+        let (reg, st, stride) = (&self.reg, &self.st, self.stride);
+        self.adj.par_iter_mut().enumerate().for_each(|(a, l)| {
+            for e in l.iter_mut() {
+                if e.cost.is_nan() {
+                    e.cost = cost_of(p, reg, st, stride, a, e.nb as usize, e.shared);
                 }
             }
-        }
+        });
     }
 
     /// The terms cached for region `r` worked out again from its state (after its sums or its shape changed).
     fn refresh(&mut self, r: usize) {
-        let st = &mut self.st[r * self.stride..(r + 1) * self.stride];
-        for j in (0..st.len()).step_by(4) {
-            st[j + 3] = st[j] * sd(&st[j..j + 3]);
-        }
-        let g = &mut self.reg[r];
-        let (n, l) = (g.cells as f64, g.perim as f64);
-        g.cmpct = n * l / n.sqrt();
-        g.smooth = n * l / around(g.bbox);
+        refresh_of(&mut self.st[r * self.stride..(r + 1) * self.stride], &mut self.reg[r]);
     }
 
     /// The statistics of region `r`: per band (count, sum, sum of squares, count · standard deviation).
@@ -322,29 +350,7 @@ impl Regions {
     /// The cost of merging regions `a` and `b` that touch along `shared` edges (as `fusion_cost`, the same number,
     /// bit for bit): from the regions' cached terms, so only the merged region's own terms are worked out.
     fn cost(&self, p: &Cost, a: usize, b: usize, shared: u32) -> f64 {
-        let (sa, sb) = (self.stats(a), self.stats(b));
-        let mut hc = 0.0;
-        for (k, w) in p.weights.iter().enumerate() {
-            let (x, y) = (&sa[4 * k..4 * k + 4], &sb[4 * k..4 * k + 4]);
-            let m = [x[0] + y[0], x[1] + y[1], x[2] + y[2]];
-            hc += w * (m[0] * sd(&m) - (x[3] + y[3]));
-        }
-        if p.colour >= 1.0 {
-            return hc;
-        }
-        let (ra, rb) = (&self.reg[a], &self.reg[b]);
-        let bbox = [
-            ra.bbox[0].min(rb.bbox[0]),
-            ra.bbox[1].min(rb.bbox[1]),
-            ra.bbox[2].max(rb.bbox[2]),
-            ra.bbox[3].max(rb.bbox[3]),
-        ];
-        let nm = ra.cells as f64 + rb.cells as f64;
-        let lm = ra.perim as f64 + rb.perim as f64 - 2.0 * shared as f64;
-        let cmpct = nm * lm / nm.sqrt() - (ra.cmpct + rb.cmpct);
-        let smooth = nm * lm / around(bbox) - (ra.smooth + rb.smooth);
-        let hs = p.compact * cmpct + (1.0 - p.compact) * smooth;
-        p.colour * hc + (1.0 - p.colour) * hs
+        cost_of(p, &self.reg, &self.st, self.stride, a, b, shared)
     }
 
     /// The neighbour of `a` of the lowest cost among those not merged in this pass (the lowest id on a tie): the
@@ -384,7 +390,8 @@ impl Regions {
         let ra = &mut self.reg[a];
         ra.cells = x.cells + y.cells;
         ra.perim = x.perim + y.perim - 2 * shared;
-        ra.bbox = [x.bbox[0].min(y.bbox[0]), x.bbox[1].min(y.bbox[1]), x.bbox[2].max(y.bbox[2]), x.bbox[3].max(y.bbox[3])];
+        ra.bbox =
+            [x.bbox[0].min(y.bbox[0]), x.bbox[1].min(y.bbox[1]), x.bbox[2].max(y.bbox[2]), x.bbox[3].max(y.bbox[3])];
         self.refresh(a);
         let lb = std::mem::take(&mut self.adj[b]);
         let mut merged = std::mem::take(&mut self.scratch);

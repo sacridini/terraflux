@@ -18,7 +18,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use super::each::{Frame, each};
 use super::levels::class_numbers;
 use super::superpixels::{Prep, smooth};
-use super::watershed::{flood, minima};
+use super::watershed::{flood_in, minima_in, order_of};
 use super::{NO_REGION, Objects, big, objects_in, stats_table};
 use crate::linkage::{Lattice, edt};
 use crate::{Args, Ctx, Error, Operator, Outputs, Registry, Result, Table, Value, outputs};
@@ -206,11 +206,12 @@ fn split_one(o: &Objects, id: u32, f: &Frame, s: &Setup) -> Option<Pieces> {
     // upside down and never negative: the peaks are the minima, as the watershed's queue wants them
     let low: Vec<f64> = (0..w * h).map(|i| if valid[i] { top - height[i] } else { 0.0 }).collect();
     let p = Prep { w, h, nb: 1, valid, x: Vec::new() };
-    let markers = minima(&p, &low, s.eight, s.h);
+    let order = order_of(&p, &low);
+    let markers = minima_in(&p, &order, s.eight, s.h);
     if markers.len() < 2 {
         return None;
     }
-    let mut lab = flood(&p, &low, &markers, s.eight, 0.0);
+    let mut lab = flood_in(&p, &low, &order, &markers, s.eight, 0.0);
     fill(&mut lab, &mask, w, h);
     let mut g = Graph::new(&lab, &dist, w, markers.len());
     let cell = (s.lat.dx + s.lat.dy) / 2.0;
