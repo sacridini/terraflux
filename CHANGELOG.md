@@ -8,6 +8,7 @@ version.
 ## [Unreleased]
 
 ### Added
+- **Ports shaped by what they carry, and a legend of the canvas** (`crates/app/src/editor_view.rs`, `crates/app/src/canvas_gpu.rs`): a circle for a map or a stack, a rounded square for a table, a diamond for a number, a yes or no or a text, a triangle along the flow for features and objects; an input that takes any type takes the shape and colour of what flows into it, a setting's socket its type's shape (hollow until it reads a value). The button beside the zoom opens a legend of the types and of the families in the scope.
 - **The operators' families on the canvas** (`crates/app/src/family.rs`, `crates/app/src/editor_view.rs`, `crates/app/src/canvas_gpu.rs`, `crates/app/src/theme.rs`): every operator belongs to one of 13 families (data, raster, vector, landscape metrics, connectivity, conservation...), shown by a Phosphor icon in its box's header and a thin band of the family's colour along the box's left edge (muted hues, one set for dark themes and one for light). The same icons mark the operators in the library, the "/" search and the commands.
 
 ## [1.62.0] - 2026-11-23

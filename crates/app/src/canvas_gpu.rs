@@ -11,8 +11,16 @@ use std::sync::Arc;
 use eframe::egui_wgpu::{self, CallbackResources, CallbackTrait, wgpu};
 use egui::Color32;
 
-/// A rounded rectangle (a node's box, a port, a light): its corner, size and corner radius in the graph's
-/// units, its fill and border (premultiplied sRGB, as egui's colours), the border's width in points.
+/// The shape a [`RectInstance`] is drawn as, inside its box: a rounded rectangle, a diamond (a square turned by
+/// 45 degrees) or a triangle pointing right. The diamond and the triangle have their corners rounded by `radius`
+/// too.
+pub const ROUND: u32 = 0;
+pub const DIAMOND: u32 = 1;
+pub const TRIANGLE: u32 = 2;
+
+/// A rounded rectangle (a node's box, a port, a light), or a diamond or a triangle fitted in the same box (a
+/// port by its type): its corner, size and corner radius in the graph's units, its fill and border (premultiplied
+/// sRGB, as egui's colours), the border's width in points, its shape.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RectInstance {
@@ -22,11 +30,26 @@ pub struct RectInstance {
     pub border: [u8; 4],
     pub radius: f32,
     pub border_width: f32,
+    pub shape: u32,
 }
 
 impl RectInstance {
     pub fn new(min: [f32; 2], size: [f32; 2], radius: f32, fill: Color32, border: Color32, width: f32) -> Self {
-        RectInstance { min, size, fill: fill.to_array(), border: border.to_array(), radius, border_width: width }
+        RectInstance {
+            min,
+            size,
+            fill: fill.to_array(),
+            border: border.to_array(),
+            radius,
+            border_width: width,
+            shape: ROUND,
+        }
+    }
+
+    /// The same box drawn as another shape ([`DIAMOND`], [`TRIANGLE`]).
+    pub fn shaped(mut self, shape: u32) -> Self {
+        self.shape = shape;
+        self
     }
 }
 
@@ -136,6 +159,7 @@ struct RectOut {
     @location(3) border_width: f32,
     @location(4) fill: vec4<f32>,
     @location(5) border: vec4<f32>,
+    @location(6) @interpolate(flat) shape: u32,
 };
 
 @vertex
@@ -147,6 +171,7 @@ fn vs_rect(
     @location(3) border: vec4<f32>,
     @location(4) radius: f32,
     @location(5) border_width: f32,
+    @location(6) shape: u32,
 ) -> RectOut {
     let unit = vec2<f32>(f32(v & 1u), f32(v >> 1u));
     let half_points = extent * u.zoom * 0.5;
@@ -162,13 +187,74 @@ fn vs_rect(
     out.border_width = border_width * u.ppp;
     out.fill = fill;
     out.border = border;
+    out.shape = shape;
     return out;
+}
+
+// Exact signed distances (Inigo Quilez's): a rhombus of half diagonals b, a triangle of three points.
+fn ndot(a: vec2<f32>, b: vec2<f32>) -> f32 {
+    return a.x * b.x - a.y * b.y;
+}
+
+fn sd_rhombus(p0: vec2<f32>, b: vec2<f32>) -> f32 {
+    let p = abs(p0);
+    let h = clamp(ndot(b - 2.0 * p, b) / dot(b, b), -1.0, 1.0);
+    let d = length(p - 0.5 * b * vec2<f32>(1.0 - h, 1.0 + h));
+    return d * sign(p.x * b.y + p.y * b.x - b.x * b.y);
+}
+
+fn sd_triangle(p: vec2<f32>, p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>) -> f32 {
+    let e0 = p1 - p0;
+    let e1 = p2 - p1;
+    let e2 = p0 - p2;
+    let v0 = p - p0;
+    let v1 = p - p1;
+    let v2 = p - p2;
+    let pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+    let pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+    let pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+    let s = sign(e0.x * e2.y - e0.y * e2.x);
+    let d = min(
+        min(
+            vec2<f32>(dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
+            vec2<f32>(dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x)),
+        ),
+        vec2<f32>(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)),
+    );
+    return -sqrt(d.x) * sign(d.y);
+}
+
+// The distance to the shape of the box (negative inside), pixels; a diamond and a triangle with rounded corners
+// are the shape drawn inside by the radius, grown by it.
+fn sd_shape(in: RectOut) -> f32 {
+    if (in.shape == 1u) {
+        let r = min(in.radius, 0.45 * min(in.half.x, in.half.y));
+        let inradius = in.half.x * in.half.y / length(in.half);
+        let k = max(inradius - r, 0.0) / inradius;
+        return sd_rhombus(in.local, in.half * k) - r;
+    }
+    if (in.shape == 2u) {
+        let a = vec2<f32>(-in.half.x, -in.half.y);
+        let b = vec2<f32>(-in.half.x, in.half.y);
+        let c = vec2<f32>(in.half.x, 0.0);
+        let la = length(b - c);
+        let lb = length(c - a);
+        let lc = length(a - b);
+        let per = la + lb + lc;
+        let centre = (la * a + lb * b + lc * c) / per;
+        let area = 0.5 * abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
+        let inradius = 2.0 * area / per;
+        let r = min(in.radius, 0.45 * inradius);
+        let k = max(inradius - r, 0.0) / inradius;
+        return sd_triangle(in.local, centre + (a - centre) * k, centre + (b - centre) * k, centre + (c - centre) * k) - r;
+    }
+    let q = abs(in.local) - in.half + in.radius;
+    return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - in.radius;
 }
 
 @fragment
 fn fs_rect(in: RectOut) -> @location(0) vec4<f32> {
-    let q = abs(in.local) - in.half + in.radius;
-    let d = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - in.radius;
+    let d = sd_shape(in);
     let outside = clamp(0.5 - d, 0.0, 1.0);
     var c = in.fill;
     if (in.border_width > 0.0) {
@@ -313,7 +399,7 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         "terraflux canvas rects",
         "vs_rect",
         "fs_rect",
-        &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Unorm8x4, 3 => Unorm8x4, 4 => Float32, 5 => Float32],
+        &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Unorm8x4, 3 => Unorm8x4, 4 => Float32, 5 => Float32, 6 => Uint32],
         std::mem::size_of::<RectInstance>() as u64,
     );
     let edges = pipeline(

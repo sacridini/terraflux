@@ -272,6 +272,7 @@ pub fn shortcuts() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                     ("right or middle drag", "move the view"),
                     ("wheel", "zoom"),
                     ("double click", "a node's output in the Viewer; a container: its body"),
+                    ("legend button", "the shapes of the ports and the families of the nodes (bottom right)"),
                 ],
                 crate::keymap::Scope::Viewer => {
                     &[("wheel, drag", "zoom, move"), ("double click", "the whole map in view")]

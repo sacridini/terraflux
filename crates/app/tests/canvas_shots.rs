@@ -117,6 +117,14 @@ fn canvas_shots() {
                 look_at(&mut h, "zonation", 0.5);
                 save(&mut h, "zonation_far_dark.png");
             }
+            if short == "zonation" {
+                // the legend open
+                let s = h.state_mut().session.as_mut().unwrap();
+                s.editor.legend = true;
+                s.editor.fit();
+                h.run_steps(6);
+                save(&mut h, &format!("zonation_legend_{tag}.png"));
+            }
         }
     }
     // close: a node's header at 1.5 and twice the pixels, to judge the small details
@@ -126,6 +134,30 @@ fn canvas_shots() {
             template(&mut h, "Fragmentation of a forest");
             look_at(&mut h, node, 1.5);
             save(&mut h, &format!("{node}_close_{tag}.png"));
+        }
+    }
+    // the legend of a scope with features, objects and tables (every shape in it), at twice the pixels
+    for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
+        let mut h = harness((720.0, 450.0), 2.0, theme);
+        template(&mut h, "Segment an image into polygons");
+        h.state_mut().session.as_mut().unwrap().editor.legend = true;
+        h.run_steps(6);
+        save(&mut h, &format!("objects_legend_{tag}.png"));
+    }
+    // close: ports of every shape (objects, vector features, tables, numbers) at three zooms
+    for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
+        for (template_name, node) in [
+            ("Segment an image into polygons", "features"),
+            ("Segment an image into polygons", "polygons"),
+            ("Species distribution model", "data"),
+            ("Species distribution model", "fit"),
+        ] {
+            for zoom in [0.7, 1.0, 1.5] {
+                let mut h = harness((720.0, 450.0), 2.0, theme);
+                template(&mut h, template_name);
+                look_at(&mut h, node, zoom);
+                save(&mut h, &format!("shapes_{node}_{zoom}_{tag}.png"));
+            }
         }
     }
     println!("the pictures are in {}", out().display());

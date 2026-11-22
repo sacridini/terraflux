@@ -16,6 +16,12 @@
 //! colour along its left edge (the name of the family on the icon's hover); the boxes of data (the model's inputs, what reads, writes, stacks or plots) may have a header in the
 //! colour of the type they give (a map's blue, vectors' pink...), an option of the settings.
 //!
+//! A port says its type by its colour and by its shape (`port_shape`): a circle for the maps, stacks and series, a
+//! rounded square for tables, a diamond for numbers, whole numbers, yes or no and texts, a triangle pointing along
+//! the flow for vectors and objects, a circle for the rest; a setting's socket has its type's shape too, hollow
+//! until it reads a value. The button beside the zoom (bottom right) opens the legend, a card of the shapes and
+//! colours of the types and the icons of the families present in the scope.
+//!
 //! A box shows the inputs its node needs and those given; its optional others are folded in a row ("+ 9
 //! optional") that a click unfolds. Under its ports a box shows its main settings, a row each (the name at the
 //! left, the value at the right, a default in grey; those the operator needs, those given and its essential
@@ -159,14 +165,14 @@ fn shown_inputs(n: &Node, r: &Registry, unfolded: bool) -> (Vec<Port>, Vec<(Stri
         // (a node of the user's: a value it is given is a setting, in the Node pane, unless it must still be given)
         let setting = crate::my_nodes::is_setting(n, &name, ty) && !(required && !connected);
         if !setting && (required || connected || essentials.contains(&name.as_str())) || unfolded {
-            shown.push(Port { connected, name, ty, required });
+            shown.push(Port { connected, name, ty, required, flow: None });
         } else {
             folded.push((name, ty));
         }
     }
     // (a node of the user's takes the inputs it declares, no others)
     if let Some(ty) = r.sig(&n.op).and_then(|s| s.extra).filter(|_| n.uses.is_none()) {
-        shown.push(Port { name: String::new(), ty, required: false, connected: false });
+        shown.push(Port { name: String::new(), ty, required: false, connected: false, flow: None });
     }
     (shown, folded)
 }
@@ -523,6 +529,79 @@ pub fn type_colour(t: Type, dark: bool) -> Option<Color32> {
     };
     let c = Color32::from_rgb(r, g, b);
     Some(if dark { c } else { c.lerp_to_gamma(Color32::BLACK, 0.3) })
+}
+
+/// The shape of a type's ports: what it is is told by the shape as well as by the colour (for those who tell colours
+/// apart less, and in a grey print): a circle for the grids (maps, stacks, series), a rounded square for tables, a
+/// diamond for the plain values, a triangle (pointing along the flow) for the features and the objects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortShape {
+    Circle,
+    Square,
+    Diamond,
+    Triangle,
+}
+
+pub fn port_shape(t: Type) -> PortShape {
+    match t {
+        Type::Table => PortShape::Square,
+        Type::Number | Type::Integer | Type::Bool | Type::Text => PortShape::Diamond,
+        Type::Vector | Type::Objects => PortShape::Triangle,
+        _ => PortShape::Circle,
+    }
+}
+
+impl PortShape {
+    /// The box of a port at `c` (graph units), scaled by `k` (a socket is smaller than a port): its corner, its
+    /// size, its corner radius and the shape the GPU draws it as. The sizes are chosen for the same visual
+    /// weight: a diamond and a triangle are larger than the circle (the eye sees them smaller), a square a little
+    /// smaller; the triangle sits with its centre of mass, not its box, on `c` (a little toward its tip).
+    fn frame(self, c: Pos2, k: f32) -> ([f32; 2], [f32; 2], f32, u32) {
+        use crate::canvas_gpu::{DIAMOND, ROUND, TRIANGLE};
+        let (w, h, r, shape, shift) = match self {
+            PortShape::Circle => (2.0 * PORT, 2.0 * PORT, PORT, ROUND, 0.0),
+            PortShape::Square => (8.6, 8.6, 1.9, ROUND, 0.0),
+            PortShape::Diamond => (12.6, 12.6, 1.0, DIAMOND, 0.0),
+            PortShape::Triangle => (10.4, 11.6, 1.1, TRIANGLE, 0.1 * 10.4),
+        };
+        let (w, h, r) = (w * k, h * k, r * k);
+        ([c.x - w / 2.0 + shift * k, c.y - h / 2.0], [w, h], r, shape)
+    }
+}
+
+/// A port of type `t` at `c` as the GPU draws it: filled, or hollow (`edge` a border of `width`).
+fn port_rect(t: Type, c: Pos2, k: f32, fill: Color32, edge: Color32, width: f32) -> RectInstance {
+    let (min, size, r, shape) = port_shape(t).frame(c, k);
+    RectInstance::new(min, size, r, fill, edge, width).shaped(shape)
+}
+
+/// The same shape with egui's painter (the legend, a port lit): `c` the centre on the screen, `r` the circle's
+/// radius there; a polygon for the diamond and the triangle, as the GPU's, without the rounded corners.
+fn paint_port(painter: &egui::Painter, t: Type, c: Pos2, r: f32, colour: Color32) {
+    let k = r / PORT;
+    let (min, size, radius, shape) = port_shape(t).frame(Pos2::ZERO, k);
+    let (min, size) = (Pos2::from(min) + c.to_vec2(), Vec2::from(size));
+    let rect = Rect::from_min_size(min, size);
+    match shape {
+        crate::canvas_gpu::DIAMOND => {
+            let m = rect.center();
+            let (hx, hy) = (size.x / 2.0, size.y / 2.0);
+            // (a little inside, as the rounded corners are)
+            let (hx, hy) = (hx - radius * 0.6, hy - radius * 0.6);
+            let pts =
+                vec![m + Vec2::new(0.0, -hy), m + Vec2::new(hx, 0.0), m + Vec2::new(0.0, hy), m + Vec2::new(-hx, 0.0)];
+            painter.add(egui::Shape::convex_polygon(pts, colour, Stroke::new(radius * 1.2, colour)));
+        }
+        crate::canvas_gpu::TRIANGLE => {
+            let ins = radius * 0.6;
+            let (l, rt, tp, bt) = (rect.left() + ins, rect.right() - ins, rect.top() + ins, rect.bottom() - ins);
+            let pts = vec![Pos2::new(l, tp), Pos2::new(rt, rect.center().y), Pos2::new(l, bt)];
+            painter.add(egui::Shape::convex_polygon(pts, colour, Stroke::new(radius * 1.2, colour)));
+        }
+        _ => {
+            painter.rect_filled(rect, radius, colour);
+        }
+    }
 }
 
 /// How a node did in the last run.
@@ -1023,6 +1102,8 @@ pub struct EditorState {
     /// A node to centre the camera on at the next frame (once the scene of its scope is built).
     centre: Option<String>,
     pub message: Option<String>,
+    /// The legend (the ports' shapes and the families of the scope) is open on the canvas.
+    pub legend: bool,
     /// Where the view looks, by scope.
     cameras: HashMap<Vec<String>, Camera>,
     /// The scope drawn last frame (a change of one level starts a transition), and the transition going on.
@@ -1544,6 +1625,9 @@ struct Port {
     ty: Type,
     required: bool,
     connected: bool,
+    /// The type of the output that feeds it, once the scene knows the wires (a port of a type of no colour of its
+    /// own is drawn as what flows in).
+    flow: Option<Type>,
 }
 
 /// A box of the canvas: a node, or something its scope reads (on the left, one output).
@@ -1579,6 +1663,23 @@ struct BoxAt {
     bypass: bool,
     /// Its result frozen (kept on disk, used instead of running it): a mark at its top left.
     frozen: bool,
+    /// The type of the output that feeds each setting row that reads a value (by row).
+    setting_flow: Vec<(usize, Type)>,
+}
+
+impl BoxAt {
+    /// The type its input `i` is drawn as: the one that flows in when it is connected (and has a colour), else
+    /// its own.
+    fn input_type(&self, i: usize) -> Type {
+        let p = &self.inputs[i];
+        p.flow.filter(|t| p.connected && type_colour(*t, true).is_some()).unwrap_or(p.ty)
+    }
+
+    /// The same for the socket of the setting row `k` (`feed` is the type it takes).
+    fn setting_type(&self, k: usize, feed: Type) -> Type {
+        let flow = self.setting_flow.iter().find(|(r, _)| *r == k).map(|(_, t)| *t);
+        flow.filter(|t| type_colour(*t, true).is_some()).unwrap_or(feed)
+    }
 }
 
 /// The name of a file short enough for a box's row: its name without its folder, cut in the middle (the end kept,
@@ -1929,7 +2030,14 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
         let c = if b.bypass { c.gamma_multiply(0.45) } else { c };
         let (x, inset) = (b.rect.left() + 1.5, radius * 0.6);
         let (top, bottom) = (b.rect.top() + inset, b.rect.bottom() - inset);
-        rects.push(RectInstance::new([x, top], [BAND, (bottom - top).max(BAND)], BAND / 2.0, c, Color32::TRANSPARENT, 0.0));
+        rects.push(RectInstance::new(
+            [x, top],
+            [BAND, (bottom - top).max(BAND)],
+            BAND / 2.0,
+            c,
+            Color32::TRANSPARENT,
+            0.0,
+        ));
     }
     // the line over the row naming its file
     if let Some(f) = b.foot() {
@@ -1947,21 +2055,20 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
             0.0,
         ));
     }
-    let dot = |c: Pos2, colour: Color32| {
-        RectInstance::new([c.x - PORT, c.y - PORT], [2.0 * PORT; 2], PORT, colour, Color32::TRANSPARENT, 0.0)
-    };
+    let dot = |c: Pos2, t: Type, colour: Color32| port_rect(t, c, 1.0, colour, Color32::TRANSPARENT, 0.0);
     for (i, p) in b.inputs.iter().enumerate() {
+        let ty = b.input_type(i);
         let colour = if p.connected {
-            type_colour(p.ty, v.dark_mode).unwrap_or(v.text_color())
+            type_colour(ty, v.dark_mode).unwrap_or(v.text_color())
         } else if p.required {
             v.warn_fg_color
         } else {
             v.weak_text_color()
         };
-        rects.push(dot(b.input_at(i), colour));
+        rects.push(dot(b.input_at(i), ty, colour));
     }
     for (i, (_, t)) in b.outputs.iter().enumerate() {
-        rects.push(dot(b.output_at(i), type_colour(*t, v.dark_mode).unwrap_or(v.text_color())));
+        rects.push(dot(b.output_at(i), *t, type_colour(*t, v.dark_mode).unwrap_or(v.text_color())));
     }
     // the sockets of the settings that may read another value: a smaller, hollow, fainter dot than a port's,
     // filled in the colour of the type when one is read
@@ -1969,11 +2076,11 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
         let Some(t) = row.feed else { continue };
         let c = b.setting_at(k);
         if row.reads {
-            rects.push(dot(c, type_colour(t, v.dark_mode).unwrap_or(v.text_color())));
+            let t = b.setting_type(k, t);
+            rects.push(dot(c, t, type_colour(t, v.dark_mode).unwrap_or(v.text_color())));
         } else {
-            let r = PORT - 1.0;
             let edge = v.weak_text_color().gamma_multiply(0.7);
-            rects.push(RectInstance::new([c.x - r, c.y - r], [2.0 * r; 2], r, fill, edge, 1.2));
+            rects.push(port_rect(t, c, (PORT - 1.0) / PORT, fill, edge, 1.2));
         }
     }
     if let Some(s) = state {
@@ -2019,6 +2126,129 @@ pub fn slowest_of(times: &HashMap<String, (f64, usize, bool)>) -> Vec<(String, f
     all.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     all.truncate(5);
     all
+}
+
+/// What the legend names of the types of ports: its name and the type that stands for it (its colour and shape),
+/// in the order the legend lists them.
+const LEGEND_TYPES: [(&str, Type); 11] = [
+    ("Map", Type::Map),
+    ("Stack of maps", Type::Stack),
+    ("Series", Type::Series),
+    ("Table", Type::Table),
+    ("Number", Type::Number),
+    ("Yes or no", Type::Bool),
+    ("Text", Type::Text),
+    ("Vector features", Type::Vector),
+    ("Objects", Type::Objects),
+    ("Agents", Type::Agents),
+    ("Other", Type::Any),
+];
+
+/// Where a type is in [`LEGEND_TYPES`].
+fn legend_index(t: Type) -> usize {
+    match t {
+        Type::Map | Type::Raster => 0,
+        Type::Stack => 1,
+        Type::Series => 2,
+        Type::Table => 3,
+        Type::Number | Type::Integer => 4,
+        Type::Bool => 5,
+        Type::Text => 6,
+        Type::Vector => 7,
+        Type::Objects => 8,
+        Type::Agents => 9,
+        _ => 10,
+    }
+}
+
+/// What the legend lists for the boxes of a scope: the types of the ports as they are drawn (by [`LEGEND_TYPES`]'s
+/// order) and the families of the operators.
+fn legend_of(boxes: &[BoxAt]) -> ([bool; LEGEND_TYPES.len()], HashSet<crate::family::Family>) {
+    let mut types = [false; LEGEND_TYPES.len()];
+    let mut families = HashSet::new();
+    for b in boxes {
+        for i in 0..b.inputs.len() {
+            types[legend_index(b.input_type(i))] = true;
+        }
+        for (_, t) in &b.outputs {
+            types[legend_index(*t)] = true;
+        }
+        for (k, t) in b.settings.rows.iter().enumerate().filter_map(|(k, r)| Some((k, r.feed?))) {
+            types[legend_index(b.setting_type(k, t))] = true;
+        }
+        if !b.source {
+            families.insert(b.family);
+        }
+    }
+    (types, families)
+}
+
+/// The card of the legend, over the canvas with its bottom right corner at `at`: the types of the ports of the
+/// scope's boxes, each as its port is drawn, and the families of its operators, each with its icon.
+fn legend(ui: &mut Ui, boxes: &[BoxAt], at: Pos2, canvas: Rect) {
+    let (types, families) = legend_of(boxes);
+    let dark = ui.visuals().dark_mode;
+    let weak = ui.visuals().weak_text_color();
+    let text = ui.visuals().text_color();
+    let high = (at.y - canvas.top() - 44.0).max(80.0);
+    egui::Area::new(egui::Id::new("canvas legend"))
+        .order(egui::Order::Foreground)
+        .pivot(Align2::RIGHT_BOTTOM)
+        .fixed_pos(at)
+        .constrain_to(canvas)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(14, 10)).corner_radius(10.0).show(
+                ui,
+                |ui| {
+                    ui.set_min_width(176.0);
+                    ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
+                    let body = |ui: &mut Ui| {
+                        if types.iter().any(|t| *t) {
+                            crate::theme::section(ui, "Data");
+                            ui.add_space(2.0);
+                            for (name, t) in LEGEND_TYPES.iter().enumerate().filter(|(k, _)| types[*k]).map(|(_, x)| x)
+                            {
+                                ui.horizontal(|ui| {
+                                    let (r, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
+                                    let colour = type_colour(*t, dark).unwrap_or(text);
+                                    paint_port(ui.painter(), *t, r.center(), PORT, colour);
+                                    ui.label(egui::RichText::new(*name).color(text));
+                                });
+                            }
+                        }
+                        if !families.is_empty() {
+                            ui.add_space(6.0);
+                            crate::theme::section(ui, "Operators");
+                            ui.add_space(2.0);
+                            for f in crate::family::ALL.iter().filter(|f| families.contains(*f)) {
+                                ui.horizontal(|ui| {
+                                    let (r, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
+                                    let font = crate::family::icon_font(ui.ctx(), 14.0);
+                                    ui.painter().text(
+                                        r.center(),
+                                        Align2::CENTER_CENTER,
+                                        f.icon(),
+                                        font,
+                                        f.colour(dark),
+                                    );
+                                    ui.label(egui::RichText::new(f.name()).color(text));
+                                });
+                            }
+                        }
+                        if !types.iter().any(|t| *t) && families.is_empty() {
+                            ui.label(egui::RichText::new("Nothing on this canvas yet.").color(weak));
+                        }
+                    };
+                    // (a scroll when the canvas is too low for the whole card)
+                    let rows = types.iter().filter(|t| **t).count() + families.len();
+                    if 90.0 + 28.0 * rows as f32 > high {
+                        egui::ScrollArea::vertical().max_height(high).auto_shrink([true, true]).show(ui, body);
+                    } else {
+                        body(ui);
+                    }
+                },
+            );
+        });
 }
 
 /// The slowest nodes listed in the canvas's top right corner (Times): a click selects one and takes the view to it.
@@ -2330,6 +2560,7 @@ impl Scene {
                     settings: SettingRows::default(),
                     bypass: false,
                     frozen: false,
+                    setting_flow: Vec::new(),
                 });
                 if placed.is_none() {
                     y += HEAD + ROW + foot + 12.0;
@@ -2393,6 +2624,7 @@ impl Scene {
                 settings: set,
                 bypass: n.bypass,
                 frozen: n.frozen,
+                setting_flow: Vec::new(),
             });
         }
         let index: HashMap<String, usize> = boxes.iter().enumerate().map(|(i, b)| (b.key.clone(), i)).collect();
@@ -2434,6 +2666,8 @@ impl Scene {
                 None
             }
         };
+        let mut flows: Vec<(usize, usize, Type)> = Vec::new();
+        let mut setting_flows: Vec<(usize, usize, Type)> = Vec::new();
         for (k, n) in nodes.iter().enumerate() {
             let b = &boxes[n_src + k];
             for (port, src) in &n.inputs {
@@ -2442,6 +2676,7 @@ impl Scene {
                 let from = source_of(reference, b.input_at(i));
                 if let Some((s, o)) = from {
                     let to_box = n_src + k;
+                    flows.push((to_box, i, boxes[s].outputs[o].1));
                     // the type of what flows: the output's, else (an output of any type) the input's
                     let colour = type_colour(boxes[s].outputs[o].1, v.dark_mode)
                         .or_else(|| type_colour(b.inputs[i].ty, v.dark_mode))
@@ -2466,6 +2701,7 @@ impl Scene {
             for (row_k, row) in b.settings.rows.iter().enumerate().filter(|(_, row)| row.reads) {
                 let Some(reference) = n.params.get(&row.name).and_then(terraflux_graph::setting_ref) else { continue };
                 let Some((s, o)) = source_of(reference, b.setting_at(row_k)) else { continue };
+                setting_flows.push((n_src + k, row_k, boxes[s].outputs[o].1));
                 let colour = type_colour(boxes[s].outputs[o].1, v.dark_mode)
                     .or_else(|| row.feed.and_then(|t| type_colour(t, v.dark_mode)))
                     .unwrap_or(line);
@@ -2514,6 +2750,12 @@ impl Scene {
                     width: 1.0,
                 });
             }
+        }
+        for (b, i, t) in flows {
+            boxes[b].inputs[i].flow = Some(t);
+        }
+        for (b, row, t) in setting_flows {
+            boxes[b].setting_flow.push((row, t));
         }
         let mut rects = Vec::with_capacity(boxes.len() * 6);
         let mut ranges = Vec::with_capacity(boxes.len());
@@ -4970,7 +5212,14 @@ pub fn show(
         && let Some(&i) = scene.index.get(node)
         && let Some(k) = scene.boxes[i].outputs.iter().position(|(p, _)| p == port)
     {
-        painter.circle_filled(screen(scene.boxes[i].output_at(k)), (PORT * cam.zoom).max(2.0), crate::theme::accent());
+        let ty = scene.boxes[i].outputs[k].1;
+        paint_port(
+            &painter,
+            ty,
+            screen(scene.boxes[i].output_at(k)),
+            (PORT * cam.zoom).max(2.0),
+            crate::theme::accent(),
+        );
     }
     if st.path.is_empty() {
         let running: Vec<&String> = status.iter().filter(|(_, s)| **s == NodeStatus::Running).map(|(k, _)| k).collect();
@@ -5522,13 +5771,36 @@ pub fn show(
         }
     }
     // the zoom, in the corner
-    painter.text(
+    let label = painter.text(
         rect.right_bottom() - Vec2::new(8.0, 6.0),
         Align2::RIGHT_BOTTOM,
         format!("{} nodes   {:.0}%", nodes.len(), cam.zoom * 100.0),
         FontId::proportional(11.0),
         v.weak_text_color(),
     );
+    // the legend: a button beside it, and the card it opens (the shapes and families of this scope)
+    let button = Rect::from_center_size(label.left_center() + Vec2::new(-14.0, 0.0), Vec2::splat(20.0));
+    let b = ui.interact(button, ui.id().with("legend"), Sense::click());
+    b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Legend"));
+    let b = b.on_hover_text("Legend").on_hover_cursor(egui::CursorIcon::PointingHand);
+    if b.clicked() {
+        st.legend = !st.legend;
+    }
+    if b.hovered() || st.legend {
+        let back = if st.legend { v.widgets.active.weak_bg_fill } else { v.widgets.hovered.weak_bg_fill };
+        painter.rect_filled(button, 5.0, back.gamma_multiply(0.8));
+    }
+    painter.text(
+        button.center(),
+        Align2::CENTER_CENTER,
+        crate::family::LEGEND_ICON,
+        crate::family::icon_font(ui.ctx(), 13.0),
+        if b.hovered() || st.legend { v.strong_text_color() } else { v.weak_text_color() },
+    );
+    if st.legend {
+        let right = mini.map_or(rect.right() - 10.0, |m| m.rect.left() - 8.0);
+        legend(ui, &scene.boxes, Pos2::new(right, rect.bottom() - 30.0), rect);
+    }
     // the minimap: the boxes, the nodes selected in the accent, the connections thin, the view's rectangle
     if let Some(m) = mini {
         let accent = crate::theme::accent();
@@ -5611,6 +5883,27 @@ pub fn show(
 mod tests {
     use super::*;
     use crate::theme::{THEMES, contrast};
+
+    /// The legend lists the families of every operator of the scope, and the types that flow in the wires.
+    #[test]
+    fn the_legend_lists_the_families_and_types_present() {
+        use crate::family::Family;
+        let t = crate::templates::TEMPLATES.iter().find(|t| t.name == "Zonation").unwrap();
+        let m = t.model();
+        let v = egui::Visuals::dark();
+        let mut measure = |s: &str, _: &FontId| s.len() as f32 * 7.0;
+        let status = BTreeStatus::new();
+        let scene =
+            Scene::build(&m, &m.nodes, standard(), &[], &status, &v, true, &HashSet::new(), None, true, &mut measure);
+        let (types, families) = legend_of(&scene.boxes);
+        let want: HashSet<Family> = [Family::Synthetic, Family::Raster, Family::Conservation].into();
+        assert_eq!(families, want);
+        // (maps, stacks, tables and numbers are in it)
+        for name in ["Map", "Stack of maps", "Table", "Number"] {
+            let k = LEGEND_TYPES.iter().position(|(n, _)| *n == name).unwrap();
+            assert!(types[k], "{name}");
+        }
+    }
 
     /// What a node's box is made of in a theme, as `box_rects` reads it from the visuals: its fill and its border.
     fn node_of(p: &crate::theme::Palette) -> (Color32, Color32) {

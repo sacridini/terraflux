@@ -25,6 +25,9 @@ pub enum Family {
     ModelFlow,
 }
 
+/// The icon of the canvas's legend button.
+pub const LEGEND_ICON: &str = ph::SHAPES;
+
 /// Every family, in the order of the library.
 pub const ALL: [Family; 13] = [
     Family::Data,
