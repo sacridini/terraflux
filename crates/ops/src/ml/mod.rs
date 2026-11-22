@@ -7,6 +7,7 @@
 //! the nearest centre, and its self-organizing map (`ml.som`), whose model gives other data the nearest node.
 
 pub mod boosting;
+mod cv;
 pub mod forest;
 pub mod inspect;
 mod kmeans;
@@ -362,7 +363,33 @@ impl Operator for Fit {
             .input(PortSpec::optional("cells", Type::Map, "with maps: the cells to learn from (non-zero; default all)"))
             .output(PortSpec::new("model", Type::MlModel, "the fitted forest"))
             .output(PortSpec::new("importance", Type::Table, "the importance of each predictor (they add up to 1)"))
+            .output(PortSpec::optional(
+                "cv",
+                Type::Table,
+                "with fold or cv: the cross-validation, a row per fold and a last for all the predictions together: \
+                 n, then for classes the accuracy, kappa, macro F1 and the F1 of each class (f1_<class>), for values \
+                 the RMSE, MAE and R2",
+            ))
+            .output(PortSpec::optional(
+                "cv_matrix",
+                Type::Table,
+                "with fold or cv, for classes: the confusion matrix of all the folds' predictions, a row per predicted \
+                 class and a column per reference class, as objects.accuracy's matrix",
+            ))
             .param(PortSpec::optional("column", Type::Text, "with a table: the target's column (default target)"))
+            .param(PortSpec::optional(
+                "fold",
+                Type::Text,
+                "with a table: the column holding each row's fold (objects.folds makes it; left out of the predictors): \
+                 the model is fitted with each fold out and tested on it, and the model itself on every row. The \
+                 accuracy of folds that are not spatial is higher than the model's on other places",
+            ))
+            .param(PortSpec::optional(
+                "cv",
+                Type::Integer,
+                "without fold: the folds (2 or more) drawn at random, stratified by class, for the cross-validation: \
+                 not spatial, so the accuracy it gives is optimistic for neighbouring records",
+            ))
             .param(PortSpec::optional(
                 "columns",
                 Type::Any,
@@ -391,16 +418,37 @@ impl Operator for Fit {
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
-        let (x, y) = match (args.get("table"), args.get("predictors")) {
+        let fold_column: Option<String> = args.opt_param("fold")?;
+        let cv: Option<usize> = args.opt_param("cv")?;
+        if fold_column.is_some() && cv.is_some() {
+            return Err(fail(args, "fold (the folds' column) or cv (random folds), not both"));
+        }
+        if cv.is_some_and(|k| k < 2) {
+            return Err(fail(args, "cv: 2 folds or more"));
+        }
+        // (the target's name, to name the classes in the cross-validation)
+        let mut named: Option<(Table, String)> = None;
+        let (x, y, fold_of) = match (args.get("table"), args.get("predictors")) {
             (Some(_), Some(_)) => return Err(fail(args, "a table or maps (predictors), not both")),
             (Some(Value::Table(t)), None) => {
                 let column: String = args.param("column", "target".to_string())?;
                 let y = t
                     .column(&column)
                     .ok_or_else(|| fail(args, format!("the table has no column {column:?} (setting column)")))?;
+                let fold_col = match &fold_column {
+                    Some(f) => Some(
+                        t.column(f).ok_or_else(|| fail(args, format!("the table has no column {f:?} (setting fold)")))?,
+                    ),
+                    None => None,
+                };
                 let names: Vec<String> = match args.opt_param::<Vec<String>>("columns")? {
                     Some(c) => c,
-                    None => t.columns.iter().filter(|c| **c != column).cloned().collect(),
+                    None => t
+                        .columns
+                        .iter()
+                        .filter(|c| **c != column && Some(*c) != fold_column.as_ref())
+                        .cloned()
+                        .collect(),
                 };
                 let mut columns = Vec::new();
                 for n in &names {
@@ -410,10 +458,15 @@ impl Operator for Fit {
                     (0..y.len()).filter(|&r| !y[r].is_nan() && columns.iter().all(|c| !c[r].is_nan())).collect();
                 let frame =
                     Frame { names, columns: columns.iter().map(|c| keep.iter().map(|&r| c[r]).collect()).collect() };
-                (frame, keep.iter().map(|&r| y[r]).collect::<Vec<f64>>())
+                named = Some(((*t).clone(), column));
+                let folds = fold_col.map(|f| keep.iter().map(|&r| f[r]).collect::<Vec<f64>>());
+                (frame, keep.iter().map(|&r| y[r]).collect::<Vec<f64>>(), folds)
             }
             (Some(v), None) => return Err(fail(args, format!("table: a table, not a {:?}", v.ty()))),
             (None, Some(_)) => {
+                if fold_column.is_some() {
+                    return Err(fail(args, "fold goes with a table; with maps, cv draws random folds"));
+                }
                 let stack = args.stack("predictors")?;
                 let target = args.map("target")?;
                 let (names, layers) = named_layers(stack).map_err(|e| fail(args, e))?;
@@ -428,7 +481,7 @@ impl Operator for Fit {
                             && cells.is_none_or(|c| !c.data[i].is_nan() && c.data[i] != 0.0)
                     })
                     .collect();
-                (frame_of(&names, &layers, &idx), idx.iter().map(|&i| target.data[i]).collect())
+                (frame_of(&names, &layers, &idx), idx.iter().map(|&i| target.data[i]).collect(), None)
             }
             (None, None) => return Err(fail(args, "connect the records: a table, or maps (predictors and target)")),
         };
@@ -443,8 +496,8 @@ impl Operator for Fit {
             t => return Err(fail(args, format!("task: auto, classes or values, not {t:?}"))),
         };
         // the sample: numpy's draw of the records (from each class apart when stratified)
-        let (x, y) = match args.opt_param::<f64>("sample")? {
-            None => (x, y),
+        let (x, y, fold_of) = match args.opt_param::<f64>("sample")? {
+            None => (x, y, fold_of),
             Some(s) => {
                 let stratify: bool = args.param("stratify", false)?;
                 if stratify && regression {
@@ -469,8 +522,33 @@ impl Operator for Fit {
                     names: x.names.clone(),
                     columns: x.columns.iter().map(|c| pick.iter().map(|&k| c[k]).collect()).collect(),
                 };
-                (frame, pick.iter().map(|&k| y[k]).collect())
+                let folds = fold_of.map(|f| pick.iter().map(|&k| f[k]).collect::<Vec<f64>>());
+                (frame, pick.iter().map(|&k| y[k]).collect(), folds)
             }
+        };
+        // the cross-validation: the folds of a column, or drawn at random
+        let validation = match (fold_of, cv) {
+            (Some(folds), _) => Some(folds),
+            (None, Some(k)) => {
+                ctx.warn(format!(
+                    "node {:?}: cv {k}: the folds are drawn at random, not by place: records next to each other are \
+                     alike, so the accuracy is higher than the model's on other places (objects.folds makes spatial \
+                     folds)",
+                    args.node
+                ));
+                Some(cv::random_folds(&y, regression, k, args.param("seed", 1)?))
+            }
+            (None, None) => None,
+        };
+        let validation = match validation {
+            Some(folds) => {
+                let name = |c: f64| match &named {
+                    Some((t, column)) => t.label(column, c).map_or_else(|| class_label(c), str::to_string),
+                    None => class_label(c),
+                };
+                Some(cv::cross_validate(ctx, args, &x, &y, &folds, regression, &name)?)
+            }
+            None => None,
         };
         let f = fit_model(args, &x, &y, regression, &mut || !ctx.stopped())?;
         let importance = importance_table(f.predictors(), &[(None, f.importances())]);
@@ -478,7 +556,14 @@ impl Operator for Fit {
             Fitted::Forest(f) => Model::Forest(f),
             Fitted::Boosting(b) => Model::Boosting(b),
         };
-        Ok(outputs([("model", Value::MlModel(Arc::new(model))), ("importance", Value::Table(importance))]))
+        let mut out = outputs([("model", Value::MlModel(Arc::new(model))), ("importance", Value::Table(importance))]);
+        if let Some(v) = validation {
+            out.insert("cv".into(), Value::Table(v.table));
+            if let Some(m) = v.matrix {
+                out.insert("cv_matrix".into(), Value::Table(m));
+            }
+        }
+        Ok(out)
     }
 }
 

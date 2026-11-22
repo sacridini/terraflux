@@ -113,6 +113,13 @@ impl Operator for Accuracy {
             Type::Table,
             "the reference as a table instead: the columns id (the object) and class",
         ))
+        .input(PortSpec::optional(
+            "training",
+            Type::Any,
+            "the training objects (objects.samples' `objects`, or a table with their `id`): the reference objects that \
+             are also training objects, or touch one, are counted in `overall` and warned of: the accuracy of objects \
+             beside the ones the model learned from is higher than it is elsewhere",
+        ))
         .output(PortSpec::new(
             "table",
             Type::Table,
@@ -125,7 +132,8 @@ impl Operator for Accuracy {
             "overall",
             Type::Table,
             "overall_objects, overall_adjusted, overall_se, overall_ci, kappa (by objects), objects (sampled), \
-             cells, confidence",
+             cells, confidence (and, with training, training_objects and touching_training: the sampled objects that \
+             are training objects, and those that touch one)",
         ))
         .output(PortSpec::new(
             "matrix",
@@ -339,6 +347,23 @@ impl Operator for Accuracy {
             .to_vec(),
         );
         overall.rows.push(vec![po, e.overall, e.overall_se, z * e.overall_se, kappa, n, e.total, confidence]);
+        if let Some(train) = training_of(args, o)? {
+            let own = sampled.iter().filter(|&&i| train[i]).count();
+            let near = sampled
+                .iter()
+                .filter(|&&i| !train[i] && o.neighbours_of(i as u32 + 1).iter().any(|&(nb, _)| train[nb as usize - 1]))
+                .count();
+            overall.columns.extend(["training_objects", "touching_training"].map(String::from));
+            overall.rows[0].extend([own as f64, near as f64]);
+            if own + near > 0 {
+                ctx.warn(format!(
+                    "objects.accuracy: {own} of the {} reference objects are training objects and {near} more touch \
+                     one: their accuracy is higher than the model's on other places; use reference objects far from \
+                     the samples (objects.folds makes the folds of a cross-validation by place)",
+                    sampled.len()
+                ));
+            }
+        }
         let header: Vec<String> = std::iter::once("map".to_string())
             .chain(idx.iter().map(|&j| names[e.classes[j] as usize - 1].clone()))
             .collect();
@@ -362,6 +387,35 @@ impl Operator for Accuracy {
             ("errors", Value::Table(errors)),
         ]))
     }
+}
+
+/// The objects the classifier was trained on, when `training` is connected: the marked objects of objects.samples, or
+/// the ids of a table.
+fn training_of(args: &Args, o: &Objects) -> Result<Option<Vec<bool>>> {
+    let node = args.node;
+    Ok(match args.get("training") {
+        None => None,
+        Some(Value::Objects(t)) => {
+            if t.count != o.count {
+                return Err(Error::msg(format!("node {node:?}: training: objects of another segmentation")));
+            }
+            Some(t.class_of.iter().map(|&k| k != 0).collect())
+        }
+        Some(Value::Table(t)) => {
+            let ids = t.column("id").ok_or_else(|| {
+                Error::msg(format!("node {node:?}: training: a table needs the column id (or connect objects.samples' objects)"))
+            })?;
+            let mut flag = vec![false; o.count];
+            for id in ids {
+                if id.fract() != 0.0 || id < 1.0 || id > o.count as f64 {
+                    return Err(Error::msg(format!("node {node:?}: training: the id {id} is no object")));
+                }
+                flag[id as usize - 1] = true;
+            }
+            Some(flag)
+        }
+        Some(v) => return Err(Error::msg(format!("node {node:?}: training: objects or a table, not a {:?}", v.ty()))),
+    })
 }
 
 /// Whether some object holds two or more of the points (a sample of one object each never does).

@@ -851,7 +851,21 @@ pub const TIPS: &[(&str, &str)] = &[
          gives) weights each sampled object by its area, since objects differ in size (Radoux and Bogaert 2017, \
          Stehman 2014); points thrown at random over the map need `area`, where an object's chance already is \
          its area and each counts once. Aim at 50 objects or more per class; a class with none sampled is left \
-         out. The errors table lists the misclassified objects to look at.",
+         out. The errors table lists the misclassified objects to look at. Connect the training objects (objects.samples' \
+         `objects`) as `training` and it counts the reference objects that are training objects or touch one, and \
+         warns: their accuracy is borrowed from the neighbours the model learned from.",
+    ),
+    (
+        "objects.folds",
+        "Neighbouring objects are nearly alike, so a cross-validation with folds drawn at random lends every test \
+         object a twin in the training and reports an accuracy that is too high (Ploton et al. 2020; Meyer and \
+         Pebesma 2022). Connect objects.samples' `objects` and `table` and give the result to ml.fit as `fold`: its \
+         `cv` table is then the accuracy by place. `neighbours` (the default) is the safest: objects within `steps` \
+         steps of each other never fall in different folds, and the classes are spread over the folds; it needs more \
+         groups than folds, so with few samples or a large `steps` lower `k` or turn to `blocks` (squares of `size` \
+         map units, given to the folds at random: the usual choice when the map is large and the samples spread out) \
+         or `clusters` (k-means of the centroids). A fold with no object of a class is warned of: its test or its \
+         training lacks the class. `random` is not spatial: use it to see how much the neighbours lend.",
     ),
     (
         "objects.sample",

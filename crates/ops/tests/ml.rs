@@ -2361,3 +2361,136 @@ fn pca_standardises_a_constant_column_as_scale_one_and_says_it() {
         near("c", ra[4].abs(), rb[3].abs(), 1e-9);
     }
 }
+
+// -- ml.fit, cv -------------------------------------------------------------------------------------------------
+// (scikit-learn's cross_val_predict with the same folds and its metrics, tools/make_cv_reference.py:
+// tests/data/reference/cv.json)
+
+fn cv_reference() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/cv.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The reference's records as a table: x1..x4, class (named c1, c2, c3), value and fold.
+fn cv_table(z: &serde_json::Value) -> Table {
+    let x = rows_of(&z["x"]);
+    let (class, value, fold) = (numbers(&z["class"]), numbers(&z["value"]), numbers(&z["fold"]));
+    let mut t = Table::new(["x1", "x2", "x3", "x4", "class", "value", "fold"].map(String::from).to_vec());
+    for i in 0..x.len() {
+        let mut row = x[i].clone();
+        row.extend([class[i], value[i], fold[i]]);
+        t.rows.push(row);
+    }
+    t.labels.insert("class".into(), ["c1", "c2", "c3"].map(String::from).to_vec());
+    t
+}
+
+fn close(what: &str, got: f64, want: f64) {
+    assert!((got - want).abs() <= 1e-12 * want.abs().max(1.0), "{what}: {got} {want}");
+}
+
+#[test]
+fn cv_is_scikit_learns_cross_val_predict_with_the_same_folds() {
+    let z = cv_reference();
+    let t = cv_table(&z);
+    // classes: a forest of ten trees, the folds of the column `fold`, left out of the predictors
+    let fit = run(
+        "ml.fit",
+        vec![("table", Value::Table(t.clone()))],
+        serde_json::json!({"column": "class", "fold": "fold", "columns": ["x1", "x2", "x3", "x4"], "n_estimators": 10}),
+    );
+    let cv = table(&fit["cv"]);
+    assert_eq!(cv.columns, ["fold", "n", "accuracy", "kappa", "macro_f1", "f1_c1", "f1_c2", "f1_c3"]);
+    assert_eq!(cv.labels["fold"], ["1", "2", "3", "4", "5", "all"]);
+    let rows = z["classes"]["folds"].as_object().unwrap();
+    let mut keys: Vec<&String> = rows.keys().collect();
+    keys.sort();
+    let all = &z["classes"]["all"];
+    for (r, want) in keys.iter().map(|k| &rows[*k]).chain(std::iter::once(all)).enumerate() {
+        let row = &cv.rows[r];
+        close("n", row[1], want["n"].as_f64().unwrap());
+        close(&format!("accuracy {r}"), row[2], want["accuracy"].as_f64().unwrap());
+        close(&format!("kappa {r}"), row[3], want["kappa"].as_f64().unwrap());
+        close(&format!("macro_f1 {r}"), row[4], want["macro_f1"].as_f64().unwrap());
+        for (j, c) in ["1", "2", "3"].iter().enumerate() {
+            match want["f1"].get(*c) {
+                Some(v) => close(&format!("f1 {r} {c}"), row[5 + j], v.as_f64().unwrap()),
+                None => assert!(row[5 + j].is_nan()),
+            }
+        }
+    }
+    // the matrix: a row per predicted class, a column per reference class (scikit-learn's is the transpose)
+    let m = table(&fit["cv_matrix"]);
+    assert_eq!(m.columns, ["map", "c1", "c2", "c3"]);
+    let want = rows_of(&z["matrix"]);
+    for (p, row) in m.rows.iter().enumerate() {
+        for (r, v) in row[1..].iter().enumerate() {
+            close("matrix", *v, want[r][p]);
+        }
+    }
+    // the model itself is fitted on every row: the predictors are the four columns
+    let Value::MlModel(model) = &fit["model"] else { panic!() };
+    assert_eq!(model.predictors(), ["x1", "x2", "x3", "x4"]);
+
+    // values: RMSE, MAE and R2
+    let fit = run(
+        "ml.fit",
+        vec![("table", Value::Table(t.clone()))],
+        serde_json::json!({"column": "value", "fold": "fold", "columns": ["x1", "x2", "x3", "x4"], "n_estimators": 10, "task": "values"}),
+    );
+    let cv = table(&fit["cv"]);
+    assert_eq!(cv.columns, ["fold", "n", "rmse", "mae", "r2"]);
+    assert!(!fit.contains_key("cv_matrix"));
+    let rows = z["values"]["folds"].as_object().unwrap();
+    let mut keys: Vec<&String> = rows.keys().collect();
+    keys.sort();
+    for (r, want) in keys.iter().map(|k| &rows[*k]).chain(std::iter::once(&z["values"]["all"])).enumerate() {
+        for (j, name) in ["n", "rmse", "mae", "r2"].iter().enumerate() {
+            close(&format!("{name} {r}"), cv.rows[r][1 + j], want[*name].as_f64().unwrap());
+        }
+    }
+}
+
+#[test]
+fn cv_without_a_fold_column_draws_stratified_folds_and_says_they_are_not_spatial() {
+    let z = cv_reference();
+    // the table without the fold and the value: the predictors and the class
+    let mut table_in = cv_table(&z);
+    table_in.columns.retain(|c| c != "value" && c != "fold");
+    table_in.rows.iter_mut().for_each(|r| {
+        r.pop();
+        r.pop();
+    });
+    let go = || {
+        let mut ctx = Ctx::default();
+        let out = try_run(
+            "ml.fit",
+            vec![("table", Value::Table(table_in.clone()))],
+            serde_json::json!({"column": "class", "cv": 5, "seed": 3, "n_estimators": 10}),
+            &mut ctx,
+        )
+        .unwrap();
+        (out, ctx.warnings)
+    };
+    let (a, warnings) = go();
+    assert!(warnings.iter().any(|w| w.contains("not by place")), "{warnings:?}");
+    let cv = table(&a["cv"]);
+    assert_eq!(cv.rows.len(), 6);
+    // stratified: every fold holds about a fifth of every class (150 records: 30 each fold, the classes within 1)
+    assert!(cv.rows[..5].iter().all(|r| r[1] == 30.0), "{:?}", cv.rows.iter().map(|r| r[1]).collect::<Vec<_>>());
+    // the same seed, the same folds, the same numbers
+    let (b, _) = go();
+    check("cv", &table(&a["cv"]).rows.concat(), &table(&b["cv"]).rows.concat());
+    // refusals
+    let refused = |params: serde_json::Value| {
+        try_run("ml.fit", vec![("table", Value::Table(cv_table(&z)))], params, &mut Ctx::default())
+            .map(|_| ())
+            .expect_err("refused")
+    };
+    let e = refused(serde_json::json!({"column": "class", "cv": 5, "fold": "fold"}));
+    assert!(e.contains("not both"), "{e}");
+    let e = refused(serde_json::json!({"column": "class", "cv": 1}));
+    assert!(e.contains("2 folds or more"), "{e}");
+    let e = refused(serde_json::json!({"column": "class", "fold": "nothing"}));
+    assert!(e.contains("no column \"nothing\""), "{e}");
+}

@@ -5917,7 +5917,7 @@ fn obia_samples() -> Model {
         r#"
 format = "terraflux/1"
 name = "Classify an image by clicking samples"
-description = "An image classified by examples, the way a user would in eCognition or QGIS: the image is cut into objects (multiresolution segmentation at the scale ESP suggests), their attributes are measured, a few objects of each class are named by points (their cell picks the object), a random forest learns the classes from them and gives every object a class and the probability of each class. The objects as polygons and as a map. Replace the image with yours (Use my data) and the points with yours: in the Viewer, click objects with the class's name."
+description = "An image classified by examples, the way a user would in eCognition or QGIS: the image is cut into objects (multiresolution segmentation at the scale ESP suggests), their attributes are measured, a few objects of each class are named by points (their cell picks the object), a random forest learns the classes from them and gives every object a class and the probability of each class. Its accuracy is cross-validated by place (objects.folds keeps the objects that touch in one fold) and, to compare, by folds drawn at random: the second is the higher, because a test object has its twin in the training. The objects as polygons and as a map. Replace the image with yours (Use my data) and the points with yours: in the Viewer, click objects with the class's name."
 "#,
     );
     text.push_str(OBIA_SCENE);
@@ -5954,12 +5954,28 @@ note = "The objects under the points, with their attributes: the table the fores
 why = "Classes are numbered by their names in alphabetical order, so the model's codes follow that order."
 
 [[nodes]]
+id = "folds"
+op = "objects.folds"
+inputs = { objects = "training.objects", samples = "training.table" }
+params = { method = "neighbours", k = 5, seed = 1 }
+note = "The samples dealt into five folds for a cross-validation, objects that touch always in the same fold (the samples' table with a column fold)."
+why = "Neighbouring objects look alike: with folds drawn at random a test object has a twin in the training and the accuracy comes out too high (Ploton et al. 2020; Meyer and Pebesma 2022). Keeping the neighbours in one fold tests the forest on objects it has not seen anything like."
+
+[[nodes]]
 id = "model"
 op = "ml.fit"
+inputs = { table = "folds.table" }
+params = { column = "class", fold = "fold", method = "random_forest", seed = 1 }
+note = "A random forest on the samples' table (the target is the column class, the column fold only names the test folds, every other column a predictor). `cv` is its accuracy with each fold left out, by place: the row all is the figure to quote."
+why = "The forest works without tuning and says which attributes mattered (the importance output). The model itself is fitted on every sample."
+
+[[nodes]]
+id = "random_model"
+op = "ml.fit"
 inputs = { table = "training.table" }
-params = { column = "class", method = "random_forest", seed = 1 }
-note = "A random forest on the samples' table (the target is the column class, every other column a predictor)."
-why = "The forest works without tuning and says which attributes mattered (the importance output)."
+params = { column = "class", cv = 5, method = "random_forest", seed = 1 }
+note = "The same forest cross-validated with folds drawn at random, for comparison: compare the row all of its `cv` with the one of `model`. The accuracy by random folds is the higher, because the twins of the test objects are in the training; the difference is what the neighbours lend."
+why = "A map's accuracy matters where the model is used, on objects it has not met: that is what the folds by place measure."
 
 [[nodes]]
 id = "classify"
@@ -6602,6 +6618,22 @@ mod tests {
         assert_eq!(o.classes.len(), 5);
         let Some(Value::Table(c)) = out.get("training.counts") else { panic!("no counts") };
         assert!(c.rows.iter().all(|r| r[1] >= 5.0), "{:?}", c.rows);
+        // the cross-validation by place and by random folds: both are computed, and keeping the neighbours together does
+        // not give a higher accuracy than random folds beyond the noise of 40 samples (a fold is 8 of them)
+        let (Some(Value::Table(spatial)), Some(Value::Table(random))) = (out.get("model.cv"), out.get("random_model.cv"))
+        else {
+            panic!("no cv tables")
+        };
+        assert_eq!((spatial.rows.len(), random.rows.len()), (6, 6));
+        assert_eq!(spatial.labels["fold"].last().map(String::as_str), Some("all"));
+        let (by_place, by_chance) = (spatial.rows[5][2], random.rows[5][2]);
+        println!("samples: accuracy {acc:.4}; cross-validated by place {by_place:.3}, by random folds {by_chance:.3}");
+        assert!((0.0..=1.0).contains(&by_place) && (0.0..=1.0).contains(&by_chance));
+        assert!(by_place <= by_chance + 0.15, "by place {by_place}, by chance {by_chance}");
+        let Some(Value::Table(folds)) = out.get("folds.table") else { panic!("no folds") };
+        assert!(folds.columns.contains(&"fold".to_string()));
+        let Some(Value::MlModel(fitted)) = out.get("model.model") else { panic!("no model") };
+        assert!(!fitted.predictors().iter().any(|p| p == "fold"), "{:?}", fitted.predictors());
 
         // by rules
         let out = run("Classify an image by rules");

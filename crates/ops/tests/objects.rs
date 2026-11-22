@@ -3841,3 +3841,134 @@ fn optimize_checks_its_settings() {
     let flat = Value::Map(map(8, 8, vec![1.0; 64]));
     assert!(optimize(flat, serde_json::json!({ "values": [10, 20] })).is_err());
 }
+
+/// The marked objects of objects.samples' output and its table: the samples of a case, `per` objects of each class.
+fn folds_case(per: usize, seed: u64) -> (Arc<Objects>, Value, Table) {
+    let (o, truth) = obia_case("segment.slic", serde_json::json!({}));
+    let s = run(
+        "objects.samples",
+        vec![("objects", Value::Objects(o.clone())), ("samples", truth_points(&o, &truth, per, seed))],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    (objects_of(&s), Value::Table(table_of(&s)), table_of(&s))
+}
+
+fn folds_of(marked: &Arc<Objects>, table: &Value, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    run("objects.folds", vec![("objects", Value::Objects(marked.clone())), ("samples", table.clone())], params)
+}
+
+#[test]
+fn folds_keep_neighbours_together_balance_the_classes_and_follow_the_seed() {
+    let (marked, table, t) = folds_case(12, 5);
+    for (per, steps) in [(12, 1usize), (3, 2)] {
+        let (marked, table, t) = if per == 12 { (marked.clone(), table.clone(), t.clone()) } else { folds_case(per, 5) };
+        let ids: Vec<usize> = (0..marked.count).filter(|&i| marked.class_of[i] != 0).collect();
+        assert_eq!(ids.len(), t.rows.len());
+        let class = t.column("class").unwrap();
+        let out = folds_of(&marked, &table, serde_json::json!({"method": "neighbours", "k": 3, "steps": steps})).unwrap();
+        let folded = table_of(&out);
+        assert_eq!(folded.columns.last().unwrap(), "fold");
+        // (the samples' own columns are as they were)
+        assert_eq!(&folded.columns[..t.columns.len()], &t.columns[..]);
+        let fold = folded.column("fold").unwrap();
+        assert!(fold.iter().all(|f| (1.0..=3.0).contains(f)));
+        for f in 1..=3 {
+            assert!(fold.contains(&(f as f64)), "steps {steps}: an empty fold {f}");
+        }
+        // two sample objects within `steps` steps of each other are in one fold
+        let at: std::collections::HashMap<usize, usize> = ids.iter().enumerate().map(|(p, &i)| (i, p)).collect();
+        for (p, &i) in ids.iter().enumerate() {
+            let mut frontier = vec![i];
+            let mut seen = std::collections::HashSet::from([i]);
+            for _ in 0..steps {
+                let mut next = Vec::new();
+                for &a in &frontier {
+                    for &(nb, _) in marked.neighbours_of(a as u32 + 1) {
+                        let b = nb as usize - 1;
+                        if seen.insert(b) {
+                            next.push(b);
+                            if let Some(&q) = at.get(&b) {
+                                assert_eq!(fold[p], fold[q], "steps {steps}: objects {} and {} apart", i + 1, b + 1);
+                            }
+                        }
+                    }
+                }
+                frontier = next;
+            }
+        }
+        // the counts table: the objects of each fold add up, and so do those of each class
+        let counts = table_of_port(&out, "counts");
+        assert_eq!(counts.rows.iter().map(|r| r[1]).sum::<f64>() as usize, ids.len());
+        // the classes are spread over the folds: no class sits in a single fold
+        let mut codes = class.clone();
+        codes.sort_by(f64::total_cmp);
+        codes.dedup();
+        for (c, &code) in codes.iter().enumerate() {
+            let held = counts.rows.iter().filter(|r| r[3 + c] > 0.0).count();
+            println!("steps {steps}: class {code} in {held} folds");
+            // (with fewer samples and wider groups, a class can sit in one group: the op warns of it)
+            if steps == 1 {
+                assert!(held >= 2, "class {code} in {held} folds");
+            }
+        }
+    }
+    // the same seed, the same folds; another seed another split; any number of threads
+    let p = serde_json::json!({"method": "neighbours", "k": 3, "seed": 7});
+    let a = table_of(&folds_of(&marked, &table, p.clone()).unwrap()).column("fold").unwrap();
+    let on = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| table_of(&folds_of(&marked, &table, p.clone()).unwrap()).column("fold").unwrap())
+    };
+    assert_eq!(a, on(1));
+    assert_eq!(a, on(8));
+    let others: Vec<Vec<f64>> = (1..6)
+        .map(|s| {
+            table_of(&folds_of(&marked, &table, serde_json::json!({"method": "neighbours", "k": 3, "seed": s})).unwrap())
+                .column("fold")
+                .unwrap()
+        })
+        .collect();
+    assert!(others.iter().any(|f| *f != a), "five seeds gave one split");
+}
+
+fn table_of_port(out: &Outputs, port: &str) -> Table {
+    let Value::Table(t) = &out[port] else { panic!("{port} is not a table") };
+    t.clone()
+}
+
+#[test]
+fn folds_by_random_blocks_and_clusters_fill_every_fold() {
+    let (marked, table, t) = folds_case(12, 5);
+    let n = t.rows.len();
+    // random: stratified, so the folds hold the same number of objects within one, and each class within one
+    let out = folds_of(&marked, &table, serde_json::json!({"method": "random", "k": 4, "seed": 2})).unwrap();
+    let counts = table_of_port(&out, "counts");
+    let sizes: Vec<f64> = counts.rows.iter().map(|r| r[1]).collect();
+    assert!(sizes.iter().all(|s| (s - n as f64 / 4.0).abs() < 1.0 + 1e-9), "{sizes:?}");
+    for c in 3..counts.columns.len() {
+        let per: Vec<f64> = counts.rows.iter().map(|r| r[c]).collect();
+        let (lo, hi) = (per.iter().cloned().fold(f64::INFINITY, f64::min), per.iter().cloned().fold(0.0, f64::max));
+        assert!(hi - lo <= 1.0, "class column {c}: {per:?}");
+    }
+    // blocks and clusters of the centroids: a fold each, and the same numbers twice
+    for method in ["blocks", "clusters"] {
+        let p = serde_json::json!({"method": method, "k": 3, "seed": 4});
+        let a = table_of(&folds_of(&marked, &table, p.clone()).unwrap());
+        let fold = a.column("fold").unwrap();
+        for f in 1..=3 {
+            assert!(fold.contains(&(f as f64)), "{method}: an empty fold {f}");
+        }
+        assert_eq!(fold, table_of(&folds_of(&marked, &table, p).unwrap()).column("fold").unwrap());
+    }
+    // refusals
+    let refused = |params: serde_json::Value| folds_of(&marked, &table, params).map(|_| ()).expect_err("refused").to_string();
+    assert!(refused(serde_json::json!({"k": 1})).contains("k 1"));
+    assert!(refused(serde_json::json!({"method": "hexagons"})).contains("neighbours, blocks, clusters or random"));
+    assert!(refused(serde_json::json!({"k": 500})).contains("k 500"));
+    // a table of another size is not these objects' samples
+    let mut short = t.clone();
+    short.rows.pop();
+    let e = folds_of(&marked, &Value::Table(short), serde_json::json!({})).map(|_| ()).expect_err("refused").to_string();
+    assert!(e.contains("marked"), "{e}");
+}

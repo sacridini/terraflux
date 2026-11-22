@@ -31,7 +31,7 @@ enum Near {
 }
 
 /// The centroid of each object, in map units from the grid's corner (only differences are used).
-fn centroids(o: &Objects) -> Vec<(f64, f64)> {
+pub(super) fn centroids(o: &Objects) -> Vec<(f64, f64)> {
     let w = o.grid.width;
     let (dx, dy) = (o.grid.transform[1].abs(), o.grid.transform[5].abs());
     let mut sum = vec![(0.0f64, 0.0f64); o.count];

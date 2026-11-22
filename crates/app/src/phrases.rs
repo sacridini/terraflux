@@ -716,7 +716,8 @@ const PHRASES: &[(&str, &str)] = &[
     (
         "ml.fit",
         "A random forest or gradient boosting[ ({method})] fitted to the records[ of <table>][ on the maps \
-         <predictors>][, learning <target>][; seed {seed}].",
+         <predictors>][, learning <target>][, cross-validated by the folds in {fold}][, cross-validated in {cv} random \
+         folds][; seed {seed}].",
     ),
     (
         "ml.importance",
@@ -1092,7 +1093,11 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     (
         "objects.accuracy",
-        "The accuracy of the classes of <objects> against <samples> or <reference>[ (the class in {class})], by objects and by area.",
+        "The accuracy of the classes of <objects> against <samples> or <reference>[ (the class in {class})], by objects and by area[, counting the reference objects of the training <training>].",
+    ),
+    (
+        "objects.folds",
+        "The training objects of <samples> (of <objects>) dealt into {k} folds[ by {method}][, objects within {steps} steps together][; seed {seed}].",
     ),
     ("objects.sample", "A stratified sample of the objects of <objects>[, {per_class} of each class][, {n} in all], to label."),
     (

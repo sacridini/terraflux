@@ -4921,6 +4921,14 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     produtor nas margens, a exatidão global no título). Um clique numa casa acende no Viewer os objetos daquela classe
     do mapa com aquela referência (`confusion_link.rs`, como o `som_link.rs`: a lista `errors` já tem os ids) e a
     lista leva a cada um, como os erros no `feature_space.rs:748-753`.
+  - **Feito (2026-11-22), a parte dos operadores**: `objects.folds` (`objects/folds.rs`: `neighbours` com os componentes do grafo
+    de vizinhança até `steps`, distribuídos do maior para o menor no fold que mantém as classes mais parelhas, a ordem
+    entre iguais pela `seed`; `blocks` e `clusters` pelo `sdm/folds.rs`, sobre os centróides; `random` estratificado), o `fold`
+    e o `cv` do `ml.fit` (`ml/cv.rs`; saídas `cv` e `cv_matrix`, a mesma tabela que o `sklearn` com os mesmos folds, a 1e-12, para a
+    floresta de 10 árvores), o `training` do `objects.accuracy` (os objetos de referência que são de treino ou encostam
+    num; entra no `overall` e avisa) e o template "Classify an image by clicking samples" (`objects.folds` mais duas
+    `ml.fit`, uma por lugar e uma sorteada). O OOB da floresta ficou de fora: `forest::grow` não guarda as linhas de
+    cada bootstrap; seria uma mudança no `Forest`. Falta o gráfico da matriz de confusão e a ligação com o Viewer.
   - Template: o "Classify an image by clicking samples" ganha o `objects.folds` (`neighbours`) e a `cv` do `ml.fit`,
     com uma nota sobre a diferença entre a acurácia sorteada e a espacial. Testes: folds sem vizinhos separados;
     a `cv` igual à do `sklearn.model_selection.cross_val_score` com os mesmos folds para a árvore de decisão

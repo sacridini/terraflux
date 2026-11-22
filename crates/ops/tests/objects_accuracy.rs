@@ -428,3 +428,55 @@ fn the_design_is_checked_and_points_are_guessed() {
     Registry::standard().get("objects.accuracy").unwrap().run(&mut ctx, &args).unwrap();
     assert!(ctx.warnings.iter().any(|w| w.contains("design not set")));
 }
+
+#[test]
+fn training_objects_and_their_neighbours_among_the_reference_are_counted_and_warned_of() {
+    let go = |training: Value| {
+        let mut ctx = Ctx::default();
+        let r = Registry::standard();
+        let params = serde_json::Map::new();
+        let args = Args {
+            node: "n",
+            inputs: [
+                ("objects".to_string(), Value::Objects(objects(MAPPED))),
+                ("samples".to_string(), points(&REFERENCE)),
+                ("training".to_string(), training),
+            ]
+            .into_iter()
+            .collect(),
+            params: &params,
+        };
+        let out = r.get("objects.accuracy").unwrap().run(&mut ctx, &args).unwrap();
+        (table_of(&out, "overall"), ctx.warnings)
+    };
+    // object 1 is trained on: it is a reference object, and objects 2 and 4 touch it
+    let (o, warnings) = go(Value::Objects(objects([1, 0, 0, 0, 0, 0])));
+    assert_eq!(o.column("training_objects").unwrap(), [1.0]);
+    assert_eq!(o.column("touching_training").unwrap(), [2.0]);
+    assert!(
+        warnings.iter().any(|w| w.contains("1 of the 6 reference objects are training objects and 2 more touch")),
+        "{warnings:?}"
+    );
+    // objects 1 and 6 by a table of ids: 2 and 4 touch 1, 3 and 5 touch 6
+    let mut ids = Table::new(vec!["id".into(), "class".into()]);
+    ids.rows = vec![vec![1.0, 1.0], vec![6.0, 3.0]];
+    let (o, _) = go(Value::Table(ids));
+    assert_eq!(o.column("training_objects").unwrap(), [2.0]);
+    assert_eq!(o.column("touching_training").unwrap(), [4.0]);
+    // without `training` the columns are not there
+    let out = accuracy(vec![("objects", Value::Objects(objects(MAPPED))), ("samples", points(&REFERENCE))]);
+    assert!(!table_of(&out, "overall").columns.contains(&"training_objects".to_string()));
+    // an id that is no object is refused
+    let mut bad = Table::new(vec!["id".into()]);
+    bad.rows = vec![vec![9.0]];
+    let r = run(
+        "objects.accuracy",
+        vec![
+            ("objects", Value::Objects(objects(MAPPED))),
+            ("samples", points(&REFERENCE)),
+            ("training", Value::Table(bad)),
+        ],
+        serde_json::json!({}),
+    );
+    assert!(r.map(|_| ()).unwrap_err().to_string().contains("no object"));
+}
