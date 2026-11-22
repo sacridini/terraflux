@@ -35,12 +35,22 @@ pub struct Pca {
     pub variance: Vec<f64>,
     /// The share of the total variance of every component.
     pub explained: Vec<f64>,
+    /// What the scores are called before their number: `pc` for a PCA, `mnf` for a minimum noise fraction (a model
+    /// written before it was there has none, and reads as `pc`).
+    #[serde(default)]
+    pub prefix: String,
 }
 
 impl Pca {
     /// The components kept.
     pub fn k(&self) -> usize {
         self.components.len()
+    }
+
+    /// The names of the scores: pc1, pc2... (mnf1, mnf2... for a minimum noise fraction).
+    pub fn names(&self) -> Vec<String> {
+        let prefix = if self.prefix.is_empty() { "pc" } else { &self.prefix };
+        (1..=self.k()).map(|i| format!("{prefix}{i}")).collect()
     }
 
     /// The scores of records, a slice of values per variable (all the same length): a vector of scores per component.
@@ -142,7 +152,7 @@ pub fn fit_noting(
             v.iter().map(|x| x * sign).collect()
         })
         .collect();
-    Ok((Pca { predictors: names, mean: m.mean, scale, components, variance, explained }, constant))
+    Ok((Pca { predictors: names, mean: m.mean, scale, components, variance, explained, prefix: "pc".into() }, constant))
 }
 
 #[cfg(test)]

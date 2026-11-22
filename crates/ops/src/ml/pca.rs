@@ -7,6 +7,7 @@ use std::sync::Arc;
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 
 use super::{Model, fail, sample_size};
+use crate::multivar::linalg;
 use crate::multivar::pca::{self, Keep, Pca};
 use crate::signatures::NumpyRng;
 use crate::value::Key;
@@ -16,11 +17,6 @@ use crate::{Args, Ctx, Operator, Outputs, Result, Stack, Table, Value, outputs};
 const FIT_RECORDS: usize = 1_000_000;
 
 pub struct Components;
-
-/// The names of the scores: pc1, pc2...
-fn pc_names(k: usize) -> Vec<String> {
-    (1..=k).map(|i| format!("pc{i}")).collect()
-}
 
 /// The scores of the cells of a stack: a layer per component, NaN where a variable has none.
 fn stack_scores(args: &Args, p: &Pca, stack: &Stack) -> Result<Stack> {
@@ -36,7 +32,7 @@ fn stack_scores(args: &Args, p: &Pca, stack: &Stack) -> Result<Stack> {
     let scores = p.scores(&slices).map_err(|e| fail(args, e))?;
     Ok(Stack {
         grid: stack.grid.clone(),
-        keys: pc_names(p.k()).into_iter().map(Key::Name).collect(),
+        keys: p.names().into_iter().map(Key::Name).collect(),
         layers: scores.into_iter().map(Arc::new).collect(),
     })
 }
@@ -50,7 +46,7 @@ fn table_scores(args: &Args, p: &Pca, t: &Table) -> Result<Table> {
         .collect::<Result<_>>()?;
     let slices: Vec<&[f64]> = columns.iter().map(Vec::as_slice).collect();
     let scores = p.scores(&slices).map_err(|e| fail(args, e))?;
-    let names = pc_names(p.k());
+    let names = p.names();
     if let Some(c) = names.iter().find(|n| t.columns.contains(n)) {
         return Err(fail(args, format!("the table already has a column {c:?}")));
     }
@@ -305,6 +301,208 @@ fn change_of(v: &[f64]) -> f64 {
     diff / (diff + sum)
 }
 
+/// The eigenvalues (from the largest) and eigenvectors (rows) of a symmetric matrix, the matrix scaled to a mean
+/// diagonal of 1 first so that the rotations' stopping rule means the same for bands of any size of numbers.
+fn sym_eigen(a: &[f64], d: usize) -> (Vec<f64>, Vec<Vec<f64>>) {
+    let scale = (0..d).map(|i| a[i * d + i]).sum::<f64>() / d as f64;
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let scaled: Vec<f64> = a.iter().map(|v| v / scale).collect();
+    let (values, vectors) = linalg::eigen(&scaled, d);
+    (values.into_iter().map(|v| v * scale).collect(), vectors)
+}
+
+/// `sum_k f(lambda_k) q_k q_k^T` of a symmetric matrix's eigenvalues and eigenvectors (rows), as a d x d matrix.
+fn spectral_function(values: &[f64], vectors: &[Vec<f64>], f: impl Fn(f64) -> f64) -> Vec<Vec<f64>> {
+    let d = values.len();
+    let mut m = vec![vec![0.0; d]; d];
+    for (k, q) in vectors.iter().enumerate() {
+        let fk = f(values[k]);
+        for i in 0..d {
+            for j in 0..d {
+                m[i][j] += fk * q[i] * q[j];
+            }
+        }
+    }
+    m
+}
+
+/// The covariance of the differences between neighbouring cells, over 2: the pairs (a cell and the one `step` cells
+/// on, to its right when `step` is 1) whose first cell is `anchor` and whose second has every band. `None` with fewer
+/// than two pairs.
+fn noise_cov(
+    columns: &[std::sync::Arc<Vec<f64>>],
+    anchor: &[bool],
+    ok: &[bool],
+    width: usize,
+    right: bool,
+) -> Option<Vec<f64>> {
+    let n = anchor.len();
+    let mut diffs: Vec<Vec<f64>> = vec![Vec::new(); columns.len()];
+    for i in (0..n).filter(|&i| anchor[i]) {
+        let j = if right {
+            if i % width == width - 1 {
+                continue;
+            }
+            i + 1
+        } else {
+            i + width
+        };
+        if j >= n || !ok[j] {
+            continue;
+        }
+        for (d, c) in diffs.iter_mut().zip(columns) {
+            d.push(c[i] - c[j]);
+        }
+    }
+    let slices: Vec<&[f64]> = diffs.iter().map(Vec::as_slice).collect();
+    linalg::moments(&slices, 1).map(|m| m.cov.iter().map(|v| v / 2.0).collect())
+}
+
+/// The minimum noise fraction (Green, Berman, Switzer and Craig 1988; Lee, Woodyatt and Berman 1990's noise-adjusted
+/// principal components): the noise's covariance N from the differences between neighbouring cells, the data whitened
+/// by it (N^-1/2), and the principal components of the whitened data, from the largest eigenvalue (the signal-to-noise
+/// ratio plus 1). The score of a component is its eigenvector's product with N^-1/2 and the centred cell, so its noise
+/// has a variance of 1 (as Spectral Python's `MNFResult.reduce`); `denoised` is the cell rebuilt from the components
+/// kept (`denoise`).
+fn mnf(ctx: &mut Ctx, args: &Args, keep: Keep) -> Result<Outputs> {
+    if args.get("table").is_some() {
+        return Err(fail(
+            args,
+            "method mnf reads maps (predictors): the noise is the difference between neighbouring cells",
+        ));
+    }
+    if args.get("later").is_some() || args.opt_param::<String>("change")?.is_some() {
+        return Err(fail(args, "method mnf is for one date: not with later (and change)"));
+    }
+    let noise: String = args.param("noise", "shift".to_string())?;
+    if !["shift", "shift_both"].contains(&noise.as_str()) {
+        return Err(fail(args, format!("noise {noise:?}: shift or shift_both")));
+    }
+    let stack = args.stack("predictors")?;
+    let Records { names, columns, idx } = records_of(ctx, args, None)?;
+    let (d, n, width) = (names.len(), columns[0].len(), stack.grid.width);
+    // the cells with every band (and in `cells`), and those the fit and the noise pairs start from
+    let cells = args.opt_map("cells")?;
+    let ok: Vec<bool> = (0..n)
+        .map(|i| {
+            columns.iter().all(|c| !c[i].is_nan()) && cells.is_none_or(|c| !c.data[i].is_nan() && c.data[i] != 0.0)
+        })
+        .collect();
+    let mut anchor = vec![false; n];
+    idx.iter().for_each(|&i| anchor[i] = true);
+    let whole = ok.iter().filter(|&&b| b).count();
+    if idx.len() < whole {
+        ctx.warn(format!(
+            "node {:?}: the signal and the noise are from a sample: the {} cells drawn and their right-hand and lower \
+             neighbours with every band, of the {whole} cells with every band",
+            args.node,
+            idx.len()
+        ));
+    }
+    // the signal: the covariance of the cells
+    let used: Vec<Vec<f64>> = columns.iter().map(|c| idx.iter().map(|&i| c[i]).collect()).collect();
+    let slices: Vec<&[f64]> = used.iter().map(Vec::as_slice).collect();
+    let signal = linalg::moments(&slices, 1).ok_or_else(|| fail(args, "an MNF needs two cells with every band"))?;
+    // the noise: the covariance of the differences
+    let few = || fail(args, "the noise needs two pairs of neighbouring cells with every band at least");
+    let right = noise_cov(&columns, &anchor, &ok, width, true);
+    let noise_matrix = if noise == "shift" {
+        right.ok_or_else(few)?
+    } else {
+        match (right, noise_cov(&columns, &anchor, &ok, width, false)) {
+            (Some(h), Some(v)) => h.iter().zip(&v).map(|(a, b)| (a + b) / 2.0).collect(),
+            (Some(c), None) | (None, Some(c)) => c,
+            (None, None) => return Err(few()),
+        }
+    };
+    let (nvals, nvecs) = sym_eigen(&noise_matrix, d);
+    let top = nvals.first().copied().unwrap_or(0.0);
+    if !top.is_finite() || top <= 0.0 || nvals.iter().any(|&v| v <= top * 1e-12) {
+        return Err(fail(
+            args,
+            "the noise has no variance in some direction (a band that does not change between neighbours, or bands \
+             that repeat each other): drop those bands",
+        ));
+    }
+    let inv_root = spectral_function(&nvals, &nvecs, |v| 1.0 / v.sqrt());
+    let root = spectral_function(&nvals, &nvecs, f64::sqrt);
+    // the whitened signal's covariance N^-1/2 S N^-1/2, and its eigenvectors
+    let times = |a: &[Vec<f64>], b: &[Vec<f64>]| -> Vec<Vec<f64>> {
+        (0..d).map(|i| (0..d).map(|j| (0..d).map(|k| a[i][k] * b[k][j]).sum()).collect()).collect()
+    };
+    let s: Vec<Vec<f64>> = (0..d).map(|i| signal.cov[i * d..(i + 1) * d].to_vec()).collect();
+    let c = times(&times(&inv_root, &s), &inv_root);
+    let sym: Vec<f64> = (0..d * d).map(|k| (c[k / d][k % d] + c[k % d][k / d]) / 2.0).collect();
+    let (values, vectors) = sym_eigen(&sym, d);
+    let variance: Vec<f64> = values.iter().map(|v| v.max(0.0)).collect();
+    let total: f64 = variance.iter().sum();
+    if total.is_nan() || total <= 0.0 {
+        return Err(fail(args, "the bands have no variance"));
+    }
+    let explained: Vec<f64> = variance.iter().map(|v| v / total).collect();
+    let k = pca::kept(&explained, keep).map_err(|e| fail(args, e))?;
+    // the loading of a band in component c is (N^-1/2 v_c) and its way back (N^1/2 v_c), signed so that the
+    // largest loading is positive
+    let (mut loadings, mut back) = (Vec::new(), Vec::new());
+    for v in vectors.iter().take(k) {
+        let mut w: Vec<f64> = (0..d).map(|j| (0..d).map(|i| inv_root[j][i] * v[i]).sum()).collect();
+        let mut b: Vec<f64> = (0..d).map(|j| (0..d).map(|i| root[j][i] * v[i]).sum()).collect();
+        let sign = linalg::sign_of(&w);
+        w.iter_mut().chain(b.iter_mut()).for_each(|x| *x *= sign);
+        loadings.push(w);
+        back.push(b);
+    }
+    let p = Pca {
+        predictors: names.clone(),
+        mean: signal.mean,
+        scale: vec![1.0; d],
+        components: loadings,
+        variance,
+        explained,
+        prefix: "mnf".into(),
+    };
+    let scores = stack_scores(args, &p, stack)?;
+    // the cells rebuilt from the components kept
+    let denoised = Stack {
+        grid: stack.grid.clone(),
+        keys: names.iter().cloned().map(Key::Name).collect(),
+        layers: (0..d)
+            .map(|j| {
+                Arc::new(
+                    (0..n)
+                        .map(|i| {
+                            let mut v = 0.0;
+                            for (c, layer) in scores.layers.iter().enumerate() {
+                                v += back[c][j] * layer[i];
+                            }
+                            p.mean[j] + v
+                        })
+                        .collect(),
+                )
+            })
+            .collect(),
+    };
+    let mut head = vec!["component".to_string(), "explained".to_string()];
+    head.extend(names.iter().cloned());
+    let mut table = Table::new(head);
+    for (c, w) in p.components.iter().enumerate() {
+        table.rows.push([(c + 1) as f64, p.explained[c]].into_iter().chain(w.iter().copied()).collect());
+    }
+    let head = ["component", "variance", "ratio", "cumulative", "snr"].map(String::from).to_vec();
+    let mut eigenvalues = Table::new(head);
+    let mut cum = 0.0;
+    for c in 0..d {
+        cum += p.explained[c];
+        eigenvalues.rows.push(vec![(c + 1) as f64, p.variance[c], p.explained[c], cum, p.variance[c] - 1.0]);
+    }
+    let mut out = outputs([("scores", Value::Stack(scores))]);
+    out.insert("denoised".into(), Value::Stack(denoised));
+    out.insert("loadings".into(), Value::Table(table));
+    out.insert("explained".into(), Value::Table(eigenvalues));
+    out.insert("model".into(), Value::MlModel(Arc::new(Model::Pca(p))));
+    Ok(out)
+}
+
 /// Chavez and Kwarteng's selective PCA: for each layer, the PCA of the pair (the layer at the first date, at the later)
 /// and its two components, `<layer>_pc1` (what the dates share) and `<layer>_pc2` (what changed).
 fn selective(ctx: &mut Ctx, args: &Args, pr: &Pair, standardise: bool) -> Result<Outputs> {
@@ -370,7 +568,10 @@ impl Operator for Components {
              (<layer>_1, <layer>_2), and the change column of the explained table tells how much each component is \
              a difference of the dates; selective (Chavez and Kwarteng 1989) is a PCA of each layer's two dates, \
              <layer>_pc1 the part that stayed and <layer>_pc2 the part that changed. A cell with a layer none at \
-             either date stays out.",
+             either date stays out. With `method` mnf (maps, one date; Green, Berman, Switzer and Craig 1988; Lee, \
+             Woodyatt and Berman 1990) the noise's covariance is taken from the differences between neighbouring \
+             cells, the bands are whitened by it and the components of the whitened bands come ordered by \
+             signal-to-noise ratio: `denoised` is the image rebuilt from the components kept.",
             Access::Global,
         )
         .input(PortSpec::optional("table", Type::Table, "the records: a column per variable"))
@@ -434,11 +635,48 @@ impl Operator for Components {
             )
             .choices(["stacked", "selective"]),
         )
+        .param(
+            PortSpec::optional(
+                "method",
+                Type::Text,
+                "pca (default), or mnf, the minimum noise fraction (Green et al. 1988): the components ordered by \
+                 signal-to-noise ratio, the noise being the difference between neighbouring cells; with maps \
+                 (predictors) only. Its scores are mnf1, mnf2..., the variance of the explained table is the \
+                 eigenvalue (the SNR plus 1), `components` a number or a share of the eigenvalues' sum, and \
+                 `standardise` does not matter (the transform does not depend on the bands' units)",
+            )
+            .choices(["pca", "mnf"]),
+        )
+        .param(
+            PortSpec::optional(
+                "noise",
+                Type::Text,
+                "with mnf: shift (default), the covariance of the difference between each cell and its right-hand \
+                 neighbour, over 2 (as ENVI's and Spectral Python's); or shift_both, the mean of that and of the \
+                 difference with the neighbour below",
+            )
+            .choices(["shift", "shift_both"]),
+        )
+        .output(PortSpec::optional(
+            "denoised",
+            Type::Stack,
+            "with mnf: the layers (named as the predictors) rebuilt from the components kept, the noise left out",
+        ))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let standardise: bool = args.param("standardise", true)?;
         let keep = keep_of(args)?;
+        let method: String = args.param("method", "pca".to_string())?;
+        match method.as_str() {
+            "pca" => {
+                if args.opt_param::<String>("noise")?.is_some() {
+                    return Err(fail(args, "noise goes with method mnf"));
+                }
+            }
+            "mnf" => return mnf(ctx, args, keep),
+            m => return Err(fail(args, format!("method {m:?}: pca or mnf"))),
+        }
         let pair = dates_of(args)?;
         if let Some(pr) = pair.as_ref().filter(|pr| pr.selective) {
             return selective(ctx, args, pr, standardise);

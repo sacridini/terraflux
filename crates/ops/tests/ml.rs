@@ -655,6 +655,242 @@ fn pca_of_two_dates_refuses_what_does_not_fit() {
     assert!(e.contains("stacked or selective"), "{e}");
 }
 
+// -- ml.pca, method mnf -----------------------------------------------------------------------------------------
+// (Spectral Python's mnf, calc_stats and noise_from_diffs, tools/make_mnf_reference.py: tests/data/reference/mnf.json)
+
+fn mnf_reference() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference/mnf.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// An image whose cells are `rows` (a band each, `nx` cells across), the bands named a, b, c...
+fn mnf_stack(rows: &[Vec<f64>], nx: usize) -> Stack {
+    let names = ["a", "b", "c", "d", "e", "f"];
+    Stack {
+        grid: Arc::new(Grid::new(nx, rows.len() / nx)),
+        keys: (0..rows[0].len()).map(|j| Key::Name(names[j].to_string())).collect(),
+        layers: (0..rows[0].len()).map(|j| Arc::new(rows.iter().map(|r| r[j]).collect())).collect(),
+    }
+}
+
+fn mnf(stack: &Stack, params: serde_json::Value) -> Outputs {
+    run("ml.pca", vec![("predictors", Value::Stack(stack.clone()))], params)
+}
+
+#[test]
+fn mnf_is_spectral_pythons() {
+    let z = mnf_reference();
+    let image = rows_of(&z["image"]);
+    let stack = mnf_stack(&image, z["cols"].as_u64().unwrap() as usize);
+    for (noise, key) in [("shift", "shift"), ("shift_both", "shift_both")] {
+        let m = &z[key];
+        let all = mnf(&stack, serde_json::json!({"method": "mnf", "noise": noise, "components": 5}));
+        // the eigenvalues: the variance column, and the SNR is that less 1
+        let ex = table(&all["explained"]);
+        assert_eq!(ex.columns, ["component", "variance", "ratio", "cumulative", "snr"]);
+        let want = numbers(&m["eigenvalues"]);
+        for c in 0..5 {
+            assert!(
+                (ex.rows[c][1] - want[c]).abs() <= 1e-9 * want[0],
+                "{key} eigenvalue {c}: {} {}",
+                ex.rows[c][1],
+                want[c]
+            );
+            assert!((ex.rows[c][4] - (want[c] - 1.0)).abs() <= 1e-9 * want[0]);
+        }
+        // the loadings (the matrix that makes the scores), the scores, up to the sign of each component
+        let loadings = table(&all["loadings"]);
+        assert_eq!(loadings.columns, ["component", "explained", "a", "b", "c", "d", "e"]);
+        let (want_load, want_scores) = (rows_of(&m["loadings"]), rows_of(&m["scores"]));
+        let Value::Stack(s) = &all["scores"] else { panic!() };
+        assert_eq!(s.names(), ["mnf1", "mnf2", "mnf3", "mnf4", "mnf5"]);
+        for c in 0..5 {
+            close_up_to_sign(&format!("{key} loading {c}"), &loadings.rows[c][2..], &want_load[c], 1e-9);
+            let w: Vec<f64> = want_scores.iter().map(|r| r[c]).collect();
+            close_up_to_sign(&format!("{key} scores {c}"), &s.layers[c], &w, 1e-9);
+            // the largest loading is positive
+            let row = &loadings.rows[c][2..];
+            let big = (0..5).fold(0, |b, j| if row[j].abs() > row[b].abs() { j } else { b });
+            assert!(row[big] > 0.0);
+        }
+        // the noise has a variance of 1 in every score: the scores' own spread is the eigenvalue
+        // the denoised image from the two components kept
+        let two = mnf(&stack, serde_json::json!({"method": "mnf", "noise": noise, "components": 2}));
+        assert_eq!(table(&two["loadings"]).rows.len(), 2);
+        let want = rows_of(&m["denoised"]);
+        let Value::Stack(d) = &two["denoised"] else { panic!() };
+        assert_eq!(d.names(), ["a", "b", "c", "d", "e"]);
+        for j in 0..5 {
+            let w: Vec<f64> = want.iter().map(|r| r[j]).collect();
+            let big = w.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+            for (i, (a, b)) in d.layers[j].iter().zip(&w).enumerate() {
+                assert!((a - b).abs() <= 1e-9 * big, "{key} denoised band {j} cell {i}: {a} {b}");
+            }
+        }
+        // the model scores the same image
+        let out = run(
+            "ml.predict",
+            vec![("model", two["model"].clone()), ("predictors", Value::Stack(stack.clone()))],
+            serde_json::json!({}),
+        );
+        let Value::Stack(p) = &out["scores"] else { panic!() };
+        assert_eq!(p.names(), ["mnf1", "mnf2"]);
+        let Value::Stack(kept) = &two["scores"] else { panic!() };
+        check("predict", &p.layers[0], &kept.layers[0]);
+    }
+}
+
+/// A smooth image of one source seen by four bands, each with white noise of its own size (the last one is noisy).
+fn noisy_rows(nx: usize, ny: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let mut s = 987654321u64;
+    let mut gauss = move || {
+        let mut u = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((s >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+        };
+        (-2.0 * u().ln()).sqrt() * (2.0 * std::f64::consts::PI * u()).cos()
+    };
+    let (gain, sd) = ([10.0, 8.0, 6.0, 5.0], [1.0, 1.0, 1.0, 40.0]);
+    let mut source = Vec::new();
+    let rows = (0..nx * ny)
+        .map(|i| {
+            let (x, y) = ((i % nx) as f64, (i / nx) as f64);
+            let t = (x / 7.0).sin() + (y / 9.0).cos();
+            source.push(t);
+            (0..4).map(|b| gain[b] * t + 50.0 * b as f64 + sd[b] * gauss()).collect()
+        })
+        .collect();
+    (rows, source)
+}
+
+fn correlation(a: &[f64], b: &[f64]) -> f64 {
+    let n = a.len() as f64;
+    let (ma, mb) = (a.iter().sum::<f64>() / n, b.iter().sum::<f64>() / n);
+    let (mut ab, mut aa, mut bb) = (0.0, 0.0, 0.0);
+    for (x, y) in a.iter().zip(b) {
+        ab += (x - ma) * (y - mb);
+        aa += (x - ma).powi(2);
+        bb += (y - mb).powi(2);
+    }
+    ab / (aa * bb).sqrt()
+}
+
+#[test]
+fn mnf_puts_the_signal_first_where_the_pca_follows_the_noisiest_band() {
+    let (rows, source) = noisy_rows(60, 50);
+    let stack = mnf_stack(&rows, 60);
+    // white noise of 1, 1, 1 and 40: after whitening one component holds the signal and the others are noise (SNR ~ 0)
+    let fit = mnf(&stack, serde_json::json!({"method": "mnf", "components": 4}));
+    let ex = table(&fit["explained"]);
+    assert!(ex.rows[0][4] > 20.0, "the signal's SNR {}", ex.rows[0][4]);
+    for c in 1..4 {
+        assert!(ex.rows[c][4].abs() < 0.3, "component {c}: SNR {}", ex.rows[c][4]);
+    }
+    let Value::Stack(s) = &fit["scores"] else { panic!() };
+    let r_mnf = correlation(&s.layers[0], &source).abs();
+    // a PCA of the covariance of the same image: the noisiest band has the most variance, so its component is the first
+    let pca = run(
+        "ml.pca",
+        vec![("predictors", Value::Stack(stack.clone()))],
+        serde_json::json!({"components": 4, "standardise": false}),
+    );
+    let Value::Stack(p) = &pca["scores"] else { panic!() };
+    let r_pca = correlation(&p.layers[0], &source).abs();
+    println!("MNF 1: {r_mnf:.3}, PCA 1: {r_pca:.3}");
+    assert!(r_mnf > 0.99 && r_pca < 0.5, "{r_mnf} {r_pca}");
+    // the denoised image keeps the signal: closer to the noiseless bands than the noisy ones were
+    let Value::Stack(d) = &mnf(&stack, serde_json::json!({"method": "mnf", "components": 1}))["denoised"] else {
+        panic!()
+    };
+    let gain = [10.0, 8.0, 6.0, 5.0];
+    for (b, g) in gain.iter().enumerate() {
+        let truth: Vec<f64> = source.iter().map(|t| g * t + 50.0 * b as f64).collect();
+        let rmse =
+            |x: &[f64]| (x.iter().zip(&truth).map(|(a, t)| (a - t).powi(2)).sum::<f64>() / x.len() as f64).sqrt();
+        let (before, after) = (rmse(&stack.layers[b]), rmse(&d.layers[b]));
+        if b == 3 {
+            assert!(after < before / 4.0, "band {b}: {before} -> {after}");
+        }
+        assert!(after <= before + 1e-9, "band {b}: {before} -> {after}");
+    }
+}
+
+#[test]
+fn mnf_leaves_out_cells_with_none_and_is_the_same_on_any_threads() {
+    let (rows, _) = noisy_rows(60, 50);
+    let stack = mnf_stack(&rows, 60);
+    // a cell with none in one band does not take part (nor its pairs), and has no scores; masked out, the same fit
+    let mut hole = stack.clone();
+    let mut l = hole.layers[2].to_vec();
+    l[130] = f64::NAN;
+    hole.layers[2] = Arc::new(l);
+    let mut keep = vec![1.0; 3000];
+    keep[130] = 0.0;
+    let mask = Value::Map(Map::new(stack.grid.clone(), keep));
+    let params = serde_json::json!({"method": "mnf", "noise": "shift_both", "components": 4});
+    let a = mnf(&hole, params.clone());
+    let b = run("ml.pca", vec![("predictors", Value::Stack(stack.clone())), ("cells", mask)], params);
+    check("loadings", &table(&a["loadings"]).rows.concat(), &table(&b["loadings"]).rows.concat());
+    check("eigenvalues", &table(&a["explained"]).rows.concat(), &table(&b["explained"]).rows.concat());
+    let (Value::Stack(sa), Value::Stack(da)) = (&a["scores"], &a["denoised"]) else { panic!() };
+    assert!(sa.layers.iter().all(|l| l[130].is_nan() && l.iter().filter(|v| v.is_nan()).count() == 1));
+    assert!(da.layers.iter().all(|l| l[130].is_nan() && l.iter().filter(|v| v.is_nan()).count() == 1));
+    // more cells than the blocks of the moments, on one thread and on eight
+    let (big, _) = noisy_rows(400, 300);
+    let big = mnf_stack(&big, 400);
+    let on = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| mnf(&big, serde_json::json!({"method": "mnf", "noise": "shift_both", "components": 3})))
+    };
+    let (one, eight) = (on(1), on(8));
+    for port in ["scores", "denoised"] {
+        let (Value::Stack(x), Value::Stack(y)) = (&one[port], &eight[port]) else { panic!() };
+        for (u, v) in x.layers.iter().zip(&y.layers) {
+            check(port, u, v);
+        }
+    }
+    check("loadings", &table(&one["loadings"]).rows.concat(), &table(&eight["loadings"]).rows.concat());
+}
+
+#[test]
+fn mnf_on_a_sample_says_so_and_refuses_what_it_cannot_do() {
+    let (rows, _) = noisy_rows(60, 50);
+    let stack = mnf_stack(&rows, 60);
+    let mut ctx = Ctx::default();
+    let fit = try_run(
+        "ml.pca",
+        vec![("predictors", Value::Stack(stack.clone()))],
+        serde_json::json!({"method": "mnf", "sample": 0.5, "components": 2}),
+        &mut ctx,
+    )
+    .unwrap();
+    assert!(ctx.warnings.iter().any(|w| w.contains("from a sample")), "{:?}", ctx.warnings);
+    assert_eq!(table(&fit["loadings"]).rows.len(), 2);
+    let refused = |inputs: Vec<(&str, Value)>, params: serde_json::Value| {
+        try_run("ml.pca", inputs, params, &mut Ctx::default()).map(|_| ()).expect_err("refused")
+    };
+    let one = || Value::Stack(stack.clone());
+    // a table has no neighbours, nor does a second date
+    let e =
+        refused(vec![("table", Value::Table(pca_table(&vec![vec![1.0; 5]; 4])))], serde_json::json!({"method": "mnf"}));
+    assert!(e.contains("method mnf reads maps"), "{e}");
+    let e = refused(vec![("predictors", one()), ("later", one())], serde_json::json!({"method": "mnf"}));
+    assert!(e.contains("one date"), "{e}");
+    // the settings that do not fit
+    let e = refused(vec![("predictors", one())], serde_json::json!({"noise": "shift"}));
+    assert!(e.contains("noise goes with method mnf"), "{e}");
+    let e = refused(vec![("predictors", one())], serde_json::json!({"method": "mnf", "noise": "diagonal"}));
+    assert!(e.contains("shift or shift_both"), "{e}");
+    let e = refused(vec![("predictors", one())], serde_json::json!({"method": "nmf"}));
+    assert!(e.contains("pca or mnf"), "{e}");
+    // a band that repeats another has no noise of its own: the whitening is singular
+    let mut twin = stack.clone();
+    twin.keys.push(Key::Name("copy".into()));
+    twin.layers.push(stack.layers[0].clone());
+    let e = refused(vec![("predictors", Value::Stack(twin))], serde_json::json!({"method": "mnf"}));
+    assert!(e.contains("no variance in some direction"), "{e}");
+}
+
 #[test]
 fn pca_of_maps_scores_other_maps_with_the_fits_mean() {
     let z = pca_reference();

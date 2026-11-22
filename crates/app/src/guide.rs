@@ -218,10 +218,16 @@ a few that add up to little variance are noise. Clusters are groups of alike cel
 centres (in the variables' own units) and at the map, and name them; the silhouette's k is a statistical \
 answer, a k that suits the question may be better. A map with many nodes reads as the shape of the data, with \
 few as a classification: look at its quantisation and topographic errors (quality) and at its empty nodes.
-6. Change between two dates: the same bands of both dates as the variables of one ml.pca (stack.of with a layer \
-per band and date, on one grid, registered): what the dates share is in the first components and what changed is \
-in a minor one, found by its loadings (the dates' opposite signs). Its absolute value is a map of the size of the \
-change. It tells where, not what became what: classify the dates for that.
+6. Change between two dates: the bands of the first date as `predictors` and the same bands of the later date as \
+`later` (stack.of, the same layer names, on one grid, registered) in one ml.pca: what the dates share is in the \
+first components and what changed is in a minor one, which the `change` column of the explained table finds (near \
+1 for a difference of the dates, near 0 for a sum) and its loadings show (the dates' opposite signs). Its absolute \
+value is a map of the size of the change. `change = selective` takes each band's two dates apart instead. It tells \
+where, not what became what: classify the dates for that.
+6b. Noisy or many bands: ml.pca with `method = mnf` (the minimum noise fraction, maps only) orders the components \
+by signal-to-noise ratio, the noise being the difference between neighbouring cells, instead of by variance: use \
+it over a PCA for noisy bands or a hyperspectral image, where a noisy band can take the variance of a component. \
+`denoised` is the image rebuilt from the components kept.
 7. Objects: the table of objects.features is a table. ml.kmeans or ml.som on it (`columns` naming the \
 attributes, not id, cells or area) and objects.classify with the model (no samples) give every object its cluster \
 (\"cluster 1\"...), or the group of its node, or its node: unsupervised classes of objects, as polygons and as a \

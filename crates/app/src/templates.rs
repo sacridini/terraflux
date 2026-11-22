@@ -5257,7 +5257,7 @@ op = "ml.pca"
 inputs = { predictors = "image.image" }
 params = { components = 3, standardise = true }
 note = "The first three components of the bands, from their correlations (standardise = true). Their scores are the layers pc1, pc2 and pc3; the model keeps the means and scales of this fit, so ml.predict gives another image of the same bands its scores."
-why = "Standardising is the right default when the bands are in different units; for bands of one unit (reflectance) both are common. Ask for a share of the variance (components = 0.95) instead of a number to keep as many components as it takes."
+why = "Standardising is the right default when the bands are in different units; for bands of one unit (reflectance) both are common. Ask for a share of the variance (components = 0.95) instead of a number to keep as many components as it takes. For noisy bands or many of them, `method = \"mnf\"` (the minimum noise fraction) orders the components by signal-to-noise ratio instead, and `denoised` gives the image without the noise."
 refs = ["Pearson 1901", "Hotelling 1933"]
 
 [[nodes]]

@@ -437,6 +437,32 @@ pub const REFERENCES: &[Reference] = &[
         report: "",
     },
     Reference {
+        key: "green1988",
+        authors: &["Green, A. A.", "Berman, M.", "Switzer, P.", "Craig, M. D."],
+        more: false,
+        year: 1988,
+        title: "A transformation for ordering multispectral data in terms of image quality with implications for noise removal",
+        journal: "IEEE Transactions on Geoscience and Remote Sensing",
+        volume: "26",
+        issue: "1",
+        pages: "65-74",
+        doi: "10.1109/36.3001",
+        report: "",
+    },
+    Reference {
+        key: "lee1990",
+        authors: &["Lee, J. B.", "Woodyatt, A. S.", "Berman, M."],
+        more: false,
+        year: 1990,
+        title: "Enhancement of high spectral resolution remote-sensing data by a noise-adjusted principal components transform",
+        journal: "IEEE Transactions on Geoscience and Remote Sensing",
+        volume: "28",
+        issue: "3",
+        pages: "295-304",
+        doi: "10.1109/36.54356",
+        report: "",
+    },
+    Reference {
         key: "byrne1980",
         authors: &["Byrne, G. F.", "Crapper, P. F.", "Mayo, K. K."],
         more: false,
@@ -1472,7 +1498,7 @@ pub const METHODS: &[Method] = &[
     Method {
         ops: &["ml.pca"],
         name: "principal component analysis",
-        refs: &["pearson1901", "hotelling1933", "byrne1980", "fung1987", "chavez1989"],
+        refs: &["pearson1901", "hotelling1933", "byrne1980", "fung1987", "chavez1989", "green1988", "lee1990"],
         software: "",
         software_refs: &[],
     },
@@ -2205,7 +2231,7 @@ mod tests {
         assert_eq!(method_of("segment.optimize").unwrap().refs, &["espindola2006", "johnson2011"]);
         assert_eq!(
             method_of("ml.pca").unwrap().refs,
-            &["pearson1901", "hotelling1933", "byrne1980", "fung1987", "chavez1989"]
+            &["pearson1901", "hotelling1933", "byrne1980", "fung1987", "chavez1989", "green1988", "lee1990"]
         );
         assert_eq!(method_of("ml.kmeans").unwrap().refs, &["lloyd1982", "arthur2007", "rousseeuw1987"]);
         assert_eq!(method_of("ml.som").unwrap().refs, &["kohonen1982", "kohonen2001", "vesanto2000"]);

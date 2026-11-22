@@ -5188,8 +5188,13 @@ Os três projetos são GPL-3.0, do mesmo autor; o Terraflux é GPL-3.0-or-later:
   `change` em `explained` (||a-b||^2 / (||a-b||^2 + ||a+b||^2) das cargas) e um aviso que nomeia o componente mais parecido com
   mudança entre os de 1% da variância ou mais; `selective` (Chavez e Kwarteng 1989), um PCA por banda, `<banda>_pc1` (o que
   ficou) e `<banda>_pc2` (o que mudou), sem `model` (um ajuste por banda; o `ml.predict` não tem o que aplicar). Testes contra o
-  scikit-learn (`tools/make_pca_reference.py`, `tests/data/reference/pca_dates.json`). O template usa `later`. A MNF continua
-  em aberto. O guia do MCP ganhou o tópico `multivariate` em `guide.rs` (quando usar
+  scikit-learn (`tools/make_pca_reference.py`, `tests/data/reference/pca_dates.json`). O template usa `later`. A MNF: **Feito (2026-11-22)**, como `method = "mnf"` do `ml.pca`
+  (só com `predictors`; recusa `table` e `later`): a covariância do ruído pela diferença com o vizinho da direita (`noise = "shift"`, a de
+  `noise_from_diffs(X, "right")` do Spectral Python: covariância das diferenças com n-1, sobre 2) ou a média dela e da diferença com o
+  vizinho de baixo (`shift_both`); o branqueamento pelo ruído e o PCA do branqueado, ordenado pelo autovalor (SNR + 1); os scores
+  `mnf1`... com o ruído de variância 1 (o `reduce` do SPy); `denoised` (o `denoise(X, num=k)`); o modelo é um `Pca` com prefixo `mnf`,
+  que o `ml.predict` aplica. Igual ao SPy a 1e-9 (`tools/make_mnf_reference.py`, `tests/data/reference/mnf.json`). Com amostra,
+  o sinal e o ruído vêm dos sorteados e dos vizinhos deles, dito numa nota. O guia do MCP ganhou o tópico `multivariate` em `guide.rs` (quando usar
   cada um, padronizar, as escolhas automáticas, ler os resultados, a mudança entre datas, os objetos), com um
   ponteiro nos itens 7 a 9 do `data-preparation`. O `python_script`: os três ficam em "sem equivalente", com as razões
   de `python/models.rs` relidas (a ordem dos números, o modelo e o mapa que o script não tem): estão claras e ficam
