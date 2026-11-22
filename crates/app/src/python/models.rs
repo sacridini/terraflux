@@ -53,6 +53,14 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
              library has none (tf.landscape_mosaic is GuidosToolbox's Landscape Mosaic, another thing), and \
              rasterio's merge does not resample as gdalwarp does"
             .into()),
+        "ml.write" | "ml.read" => Err("the model's JSON file (its trees and what it was trained on, which tells a second \
+             scene what lies outside) is Terraflux's: the script keeps a fitted model as a scikit-learn object \
+             (joblib.dump and joblib.load write and read it as a file)"
+            .into()),
+        "raster.match_histogram" => Err("scikit-image's exposure.match_histograms gives the same values band by band \
+             (each value takes the reference's with the same cumulative share), but the script has no stack of \
+             bands with a mask of the common area to give it yet: no equivalent"
+            .into()),
         "crafty.allocate" => Err("CRAFTY's competition between agent functional types is not in the Python library".into()),
         "segment.from_map" | "segment.chessboard" | "segment.quadtree" | "segment.from_vector" | "objects.to_map"
         | "objects.to_vector" | "segment.multiresolution" | "segment.slic" | "segment.snic" | "segment.felzenszwalb"
@@ -305,7 +313,7 @@ fn fitted(n: &Node, sc: &Scope) -> Result<String, String> {
 }
 
 fn predict(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
-    refuse_others(n, &["model", "predictors", "table"])?;
+    refuse_others(n, &["model", "predictors", "table", "novelty"])?;
     let m = fitted(n, sc)?;
     let c = format!("_{var}");
     let mut code = format!("import pandas as pd\n{c}_names = list({m}.feature_names_in_)\n");

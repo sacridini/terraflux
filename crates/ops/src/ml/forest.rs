@@ -679,6 +679,10 @@ pub struct Forest {
     /// The classes, increasing (a node's value holds their shares); none: the trees give values.
     #[serde(default = "presence")]
     pub classes: Vec<f64>,
+    /// What the fit saw (ml.fit): the predictors' summary and the rows, for the novelty of new records. Models saved
+    /// before have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub training: Option<super::novelty::Training>,
 }
 
 fn max_features_of(v: &serde_json::Value, n: usize) -> Result<usize, String> {
@@ -731,7 +735,7 @@ pub fn classifier(
     }
     let codes: Vec<usize> = y.iter().map(|v| classes.partition_point(|c| c < v)).collect();
     let trees = grow(x, Target::Classes(&codes), classes.len(), weights, s, stop)?;
-    Ok(Forest { predictors: x.names.clone(), trees, classes })
+    Ok(Forest { predictors: x.names.clone(), trees, classes, training: None })
 }
 
 /// RandomForestRegressor.fit (the squared error; scikit-learn's max_features for it is 1.0, all).
@@ -746,7 +750,7 @@ pub fn regressor(
         return Err("the values have missing values".into());
     }
     let trees = grow(x, Target::Values(y), 1, weights, s, stop)?;
-    Ok(Forest { predictors: x.names.clone(), trees, classes: Vec::new() })
+    Ok(Forest { predictors: x.names.clone(), trees, classes: Vec::new(), training: None })
 }
 
 /// BaseForest.fit: the trees' seeds drawn from the forest's, each tree grown from its bootstrap (in parallel:

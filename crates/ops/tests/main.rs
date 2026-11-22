@@ -31,6 +31,7 @@ mod landforms;
 mod legend;
 mod linkage;
 mod map_validation;
+mod match_histogram;
 mod marxan;
 mod metapopulation;
 mod metrics;

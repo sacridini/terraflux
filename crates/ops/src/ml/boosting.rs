@@ -540,6 +540,10 @@ pub struct Boosting {
     pub classes: Vec<f64>,
     pub baseline: Vec<f64>,
     pub trees: Vec<Vec<Tree>>,
+    /// What the fit saw (ml.fit): the predictors' summary and the rows, for the novelty of new records. Models saved
+    /// before have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub training: Option<super::novelty::Training>,
 }
 
 /// scipy's logit (xsf's: log1p's form between 0.3 and 0.65).
@@ -713,7 +717,7 @@ fn fit(
         }
         trees.push(iteration);
     }
-    Ok(Boosting { predictors: x.names.clone(), classes, baseline, trees })
+    Ok(Boosting { predictors: x.names.clone(), classes, baseline, trees, training: None })
 }
 
 impl Boosting {

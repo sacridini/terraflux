@@ -748,7 +748,12 @@ const PHRASES: &[(&str, &str)] = &[
         "The potential of each class of <landscape>[ ({target})] from the drivers <drivers>[ and the later map \
          <later>][, a {method} model][; seed {seed}].",
     ),
-    ("ml.predict", "The prediction of the model <model>[ on the maps <predictors>][ on the rows of <table>]."),
+    (
+        "ml.predict",
+        "The prediction of the model <model>[ on the maps <predictors>][ on the rows of <table>][, novelty by {novelty}].",
+    ),
+    ("ml.read", "The fitted model read from the file {path}."),
+    ("ml.write", "The model <model> written to the file {path}."),
     (
         "molusce.step",
         "An iteration of MOLUSCE's simulator on <landscape>[, by the weights <total>][, by the potentials \
@@ -1024,7 +1029,10 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     ("objects.to_map", "The objects of <objects> as a map[ of their {what}]."),
     ("objects.samples", "The objects under the samples of <samples> (the class in {class}), as a training table."),
-    ("objects.classify", "The objects of <objects> classed by <model>[, a class only above a probability of {min}]."),
+    (
+        "objects.classify",
+        "The objects of <objects> classed by <model>[, a class only above a probability of {min}][, novelty by {novelty}].",
+    ),
     (
         "objects.calc",
         "The attributes of the objects of <objects>[ ({column})] computed from their attributes, their neighbours and their levels by a script.",
@@ -1103,7 +1111,10 @@ const PHRASES: &[(&str, &str)] = &[
         "objects.folds",
         "The training objects of <samples> (of <objects>) dealt into {k} folds[ by {method}][, objects within {steps} steps together][; seed {seed}].",
     ),
-    ("objects.sample", "A stratified sample of the objects of <objects>[, {per_class} of each class][, {n} in all], to label."),
+    (
+        "objects.sample",
+        "A stratified sample of the objects of <objects>[, {per_class} of each class][, {n} in all], to label.",
+    ),
     (
         "nlm.image",
         "A synthetic multispectral image of the classes of <classes>, with their truth known[; seed {seed}].",
@@ -1114,6 +1125,7 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     ("raster.majority", "<map> cleaned by the majority filter, {neighbours} neighbours, {iterations} times."),
     ("raster.match", "<raster> on the grid of <like>, by {resampling}."),
+    ("raster.match_histogram", "<raster> brought to the histogram of <reference>[ over the cells of <mask>]."),
     ("raster.mosaic", "The rasters of <raster> joined into one mosaic[ in {crs}][, cells of side {resolution}]."),
     ("raster.shrink", "The classes {classes} of <map> shrunk by {cells} cells, {neighbours} neighbours."),
     ("raster.standardize", "<map> put on a common scale by {method}."),

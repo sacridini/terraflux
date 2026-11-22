@@ -476,7 +476,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 77] = [
+pub const TEMPLATES: [Template; 78] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -5126,6 +5126,13 @@ params = { title = "Rivers, lakes, roads and buildings" }
         about: "the scale of a segmentation chosen by objects drawn as a reference, not by the variance: segment.optimize measures each scale against reference polygons (made here from the true regions of the drawn image, in their place the polygons you draw in the Viewer) and takes the one of the lowest ED2; the best segmentation measured again, its errors per object",
     },
     Template {
+        name: "Classify a second scene with the model of the first",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_second_scene),
+        about: "the model of a first scene (a forest on a few clicked samples) carried to a second one that is brighter and has a class the first lacks: objects.classify warns that the scene is brighter and that objects lie outside what the model saw, marks them (novel, hatched in the Viewer), and raster.match_histogram brings the second scene to the first's light before the objects are classed again; the model is written to a file and read back",
+    },
+    Template {
         name: "Water by Otsu on the NDWI",
         group: OBJECTS,
         build: None,
@@ -6079,6 +6086,199 @@ params = { title = "The choice of k (inertia and silhouette)" }
     Model::from_toml(&text).expect("a template is a model")
 }
 
+/// The samples of the template's first scene: those of the five classes without the urban ones (the first scene has
+/// none).
+fn obia_first_samples() -> String {
+    let rows: Vec<serde_json::Value> = serde_json::from_str(OBIA_SAMPLE_ROWS).expect("the samples are a list");
+    let kept: Vec<&serde_json::Value> = rows.iter().filter(|r| r[2] != "urban").collect();
+    serde_json::to_string(&kept).expect("a list is text")
+}
+
+/// "Classify a second scene with the model of the first".
+fn obia_second_scene() -> Model {
+    let text = r##"
+format = "terraflux/1"
+name = "Classify a second scene with the model of the first"
+description = "A model carried to another scene. The first scene has four classes (water, forest, grassland, cropland): a random forest learns them from a few clicked samples, and the model is written to a file (ml.write) and read back (ml.read), as it would be to classify a scene in another model. The second scene is the same ground with a fifth class, urban, that the first never had, and it is brighter (another date or sensor). objects.classify on it warns twice: the scene is brighter than the training's, and many objects lie outside what the model saw (MESS), which it marks in the columns mess and novel (the Viewer hatches them). raster.match_histogram brings the second scene to the first's histogram over the area both show (the mask) and the objects are classed again: the warning of the shift is gone, the objects that stay novel are mostly the urban ones, and the other classes are classed much better than before. Matching histograms does not make a class the model never learned: it only shows it."
+
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): the ground of the second scene, and the truth to compare with."
+
+[[nodes]]
+id = "first_classes"
+op = "raster.calc"
+inputs = { m = "land.map" }
+params = { expression = "4 if m == 5 else m" }
+note = "The first scene's ground: the same map without the urban class (it is cropland there)."
+why = "A model can only name the classes it was trained on: the new class is the thing to find out about a second scene."
+
+[[nodes]]
+id = "first"
+op = "nlm.image"
+inputs = { classes = "first_classes.map" }
+params = { seed = 1 }
+note = "The first scene, a synthetic image of six bands. In its place, a raster.read of your first image as a stack of its bands, named for the band they are (blue, green, red, nir...)."
+data = { what = "the image the model is trained on, a layer per band (named blue, green, red, nir, swir1, swir2 where there are such bands)", kind = "stack" }
+
+[[nodes]]
+id = "segments"
+op = "segment.multiresolution"
+inputs = { image = "first.image" }
+params = { scale = 2.5 }
+note = "The objects of the first scene."
+why = "The same scale and settings must make the objects of the second scene: the attributes of an object depend on how it was cut."
+
+[[nodes]]
+id = "features"
+op = "objects.features"
+inputs = { objects = "segments.objects", image = "first.image" }
+note = "The attributes of each object (the basic set): the mean and the standard deviation of each band, NDVI, the area, the compactness and the homogeneity of the texture."
+
+[[nodes]]
+id = "sample_table"
+op = "table.of"
+note = "The samples: a point (x and y in the image's coordinates) on an object of each class, with the class's name. In its place, the points you clicked in the Viewer."
+
+[nodes.params]
+columns = ["x", "y", "class"]
+rows = SAMPLE_ROWS
+
+[[nodes]]
+id = "samples"
+op = "vector.from_table"
+inputs = { table = "sample_table.table" }
+note = "The points as features, with the class as an attribute."
+
+[[nodes]]
+id = "training"
+op = "objects.samples"
+inputs = { objects = "features.objects", samples = "samples.vector" }
+note = "The objects under the points, with their attributes: the table the forest learns from."
+
+[[nodes]]
+id = "fit"
+op = "ml.fit"
+inputs = { table = "training.table" }
+params = { column = "class", columns = ["mean_blue", "mean_green", "mean_red", "mean_nir", "mean_swir1", "mean_swir2", "ndvi"], method = "random_forest", seed = 1 }
+note = "A random forest on the samples' table, reading the mean of each band and NDVI (`columns`: the shape and the texture of an object do not carry from one scene to another as the colours do). The model keeps, besides its trees, what it was trained on: the range, the quantiles, the mean and the deviation of every attribute, and the training rows, which is what tells a second scene what lies outside."
+why = "A model is only sure of what it has seen: novelty (MESS) measures how far an object's attributes lie from the training's."
+refs = ["Elith et al. 2010", "Mesgaran et al. 2014"]
+
+[[nodes]]
+id = "save"
+op = "ml.write"
+inputs = { model = "fit.model" }
+params = { path = "scene_model.json" }
+note = "The model in a file beside this model: another model (another scene, another day) reads it with ml.read and classes without fitting again."
+
+[[nodes]]
+id = "model"
+op = "ml.read"
+inputs = { after = "save.path" }
+params = { path = "scene_model.json" }
+note = "The model read back from the file, as the model of another scene would read it."
+why = "Reading the file made by ml.write gives the same model, with the training it saw."
+
+[[nodes]]
+id = "second_raw"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 2 }
+note = "The second scene as the sensor gave it: the same ground, urban included. In its place, a raster.read of your second image."
+data = { what = "the second image, with the same bands as the first", kind = "stack" }
+
+[[nodes]]
+id = "second"
+op = "raster.calc"
+inputs = { s = "second_raw.image" }
+params = { expression = "out image = s * 1.4 + 0.03" }
+note = "The second scene brighter: another date, sensor or processing, as a gain and an offset of the light."
+
+[[nodes]]
+id = "second_segments"
+op = "segment.multiresolution"
+inputs = { image = "second.image" }
+params = { scale = 2.5 }
+note = "The objects of the second scene, at the first scene's scale."
+
+[[nodes]]
+id = "second_features"
+op = "objects.features"
+inputs = { objects = "second_segments.objects", image = "second.image" }
+note = "The attributes of the second scene's objects, the same set."
+
+[[nodes]]
+id = "classify_raw"
+op = "objects.classify"
+inputs = { objects = "second_features.objects", model = "model.model", samples = "training.table" }
+note = "The first model on the second scene as it is. It warns that the scene is brighter than the training's and that objects lie outside what the model saw; the columns mess and novel mark them, and the Viewer draws them hatched. The classes follow the light, not the ground."
+
+[[nodes]]
+id = "common"
+op = "raster.calc"
+inputs = { m = "land.map" }
+params = { expression = "0 if m == 5 else 1" }
+note = "The area both scenes show alike: where the urban class is, only the second scene has it. In your own scenes: the area that did not change, or the cloud-free part of both."
+
+[[nodes]]
+id = "matched"
+op = "raster.match_histogram"
+inputs = { raster = "second.image", reference = "first.image", mask = "common.map" }
+note = "The second scene taken to the first's light, band by band: each value takes the value of the first scene with the same cumulative share, over the cells of the mask."
+why = "A relative normalisation, the simple kind: it does not tell a change of the ground from a change of the light, so the mask keeps out what changed."
+refs = ["van der Walt et al. 2014"]
+
+[[nodes]]
+id = "matched_segments"
+op = "segment.multiresolution"
+inputs = { image = "matched.raster" }
+params = { scale = 2.5 }
+note = "The objects of the matched scene."
+
+[[nodes]]
+id = "matched_features"
+op = "objects.features"
+inputs = { objects = "matched_segments.objects", image = "matched.raster" }
+note = "Their attributes."
+
+[[nodes]]
+id = "classify"
+op = "objects.classify"
+inputs = { objects = "matched_features.objects", model = "model.model", samples = "training.table" }
+note = "The same model on the matched scene: no warning of a shift; the objects that stay novel are mostly those of the class the model never saw (all of them, here, against a few of the others)."
+
+[[nodes]]
+id = "polygons"
+op = "objects.to_vector"
+inputs = { objects = "classify.objects" }
+params = { smooth = 1 }
+note = "A polygon for each object with its class, its attributes and whether it is novel."
+
+[[nodes]]
+id = "write"
+op = "vector.write"
+inputs = { vector = "polygons.vector" }
+params = { path = "second_scene_classified.gpkg" }
+note = "The classified polygons, in a file beside the model."
+
+[[nodes]]
+id = "plot_raw"
+op = "view.plot"
+inputs = { value = "classify_raw.map" }
+params = { title = "The second scene as it is" }
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { value = "classify.map" }
+params = { title = "The second scene after raster.match_histogram" }
+"##;
+    Model::from_toml(&text.replace("SAMPLE_ROWS", &obia_first_samples())).expect("a template is a model")
+}
+
 /// "Classify objects by principal components of their attributes".
 fn obia_components() -> Model {
     let mut text = String::from(
@@ -6637,6 +6837,109 @@ pub fn save_user_template(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Classify a second scene with the model of the first": the model goes through a file; on the brighter second
+    /// scene objects.classify warns of the shift and of the objects outside, the novel objects are the urban ones (the
+    /// class the first scene lacks) once the light is matched, and the classes are better after raster.match_histogram.
+    #[test]
+    fn the_second_scene_template_warns_marks_the_new_class_and_matches_the_light() {
+        use terraflux_ops::Value;
+        #[derive(Default)]
+        struct Warnings(Vec<(String, String)>);
+        impl terraflux_exec::Observer for Warnings {
+            fn warning(&mut self, at: &str, message: &str) {
+                self.0.push((at.to_string(), message.to_string()));
+            }
+        }
+        let dir = std::env::temp_dir().join(format!("terraflux-second-scene-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("scene_model.json").to_string_lossy().replace('\\', "/");
+        let mut m =
+            TEMPLATES.iter().find(|t| t.name == "Classify a second scene with the model of the first").unwrap().model();
+        m.nodes.retain(|n| n.op != "vector.write");
+        for n in m.nodes.iter_mut().filter(|n| n.op == "ml.write" || n.op == "ml.read") {
+            n.params.insert("path".into(), serde_json::json!(file));
+        }
+        // (the first scene itself, the one the model was trained on: no novelty to tell)
+        m.nodes.push(
+            terraflux_graph::Node::new("classify_first", "objects.classify")
+                .input("objects", "features.objects")
+                .input("model", "model.model"),
+        );
+        let mut seen = Warnings::default();
+        let out = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut seen).expect("the template runs");
+        let _ = std::fs::remove_dir_all(&dir);
+        let said = |node: &str, text: &str| seen.0.iter().any(|(at, w)| at == node && w.contains(text));
+        // the raw second scene: brighter, and many objects outside what the model saw
+        assert!(said("classify_raw", "brighter") && said("classify_raw", "raster.match_histogram"), "{:?}", seen.0);
+        assert!(said("classify_raw", "lie outside what the model saw"), "{:?}", seen.0);
+        assert!(said("classify_raw", "training samples themselves"), "{:?}", seen.0);
+        assert!(!said("classify_first", "lie outside") && !said("classify_first", "brighter"), "{:?}", seen.0);
+        // after the match: no shift is told
+        assert!(!said("classify", "brighter") && !said("classify", "darker"), "{:?}", seen.0);
+        let objects = |port: &str| match out.get(port) {
+            Some(Value::Objects(o)) => o.clone(),
+            _ => panic!("no objects {port}"),
+        };
+        let truth = match out.get("land.map") {
+            Some(Value::Map(m)) => m.clone(),
+            _ => panic!("no truth"),
+        };
+        let (raw, matched) = (objects("classify_raw.objects"), objects("classify.objects"));
+        // the model is the first scene's: four classes, with its training
+        assert_eq!(matched.classes.len(), 4);
+        let Some(Value::MlModel(model)) = out.get("model.model") else { panic!("no model") };
+        assert!(model.training().is_some());
+        // the main truth class of each object (the codes 1..5), and the share of each class's objects that are novel
+        let main_class = |o: &terraflux_ops::objects::Objects| -> Vec<u32> {
+            let mut n = vec![[0u32; 6]; o.count];
+            for (&l, &c) in o.labels.iter().zip(truth.data.iter()) {
+                if l != 0 && !c.is_nan() {
+                    n[l as usize - 1][c as usize] += 1;
+                }
+            }
+            n.iter().map(|k| (1..6).max_by_key(|&c| (k[c], std::cmp::Reverse(c))).unwrap() as u32).collect()
+        };
+        let novel_share = |o: &terraflux_ops::objects::Objects, urban: bool| -> f64 {
+            let (main, flags) = (main_class(o), o.table.column("novel").expect("the column novel"));
+            let of: Vec<f64> =
+                (0..o.count).filter(|&i| (main[i] == 5) == urban).map(|i| flags[i]).filter(|v| !v.is_nan()).collect();
+            of.iter().sum::<f64>() / of.len().max(1) as f64
+        };
+        let (raw_other, raw_urban) = (novel_share(&raw, false), novel_share(&raw, true));
+        let (other, urban) = (novel_share(&matched, false), novel_share(&matched, true));
+        println!(
+            "novel objects: raw {raw_other:.2} / {raw_urban:.2}, matched {other:.2} / {urban:.2} (the rest / urban)"
+        );
+        assert!(raw_other > 0.5, "the brighter scene is outside as a whole: {raw_other}");
+        assert!(
+            urban >= 0.9 && other < 0.5,
+            "after the match the novel ones are the urban objects: {urban} against {other}"
+        );
+        assert!(urban > other + 0.4);
+        // the classes of the common ground (not urban), by the main class of the object against the truth's
+        let accuracy = |o: &terraflux_ops::objects::Objects| -> f64 {
+            let (main, mut hit, mut all) = (main_class(o), 0usize, 0usize);
+            for (&l, &c) in o.labels.iter().zip(truth.data.iter()) {
+                if l == 0 || c.is_nan() || c == 5.0 {
+                    continue;
+                }
+                all += 1;
+                let k = o.class_of[l as usize - 1];
+                if k != 0
+                    && o.classes[k as usize - 1].name == ["water", "forest", "grassland", "cropland"][c as usize - 1]
+                {
+                    hit += 1;
+                }
+                let _ = main[l as usize - 1];
+            }
+            hit as f64 / all.max(1) as f64
+        };
+        let (before, after) = (accuracy(&raw), accuracy(&matched));
+        println!("accuracy on the common ground: as it is {before:.3}, matched {after:.3}");
+        assert!(after >= 0.8, "{after}");
+        assert!(after > before + 0.1, "matching the light must help: {before} then {after}");
+    }
 
     /// The object templates run, quickly, and do what they say: the samples' classification and the rules' agree
     /// with the truth the image was drawn from, the polygons are the objects, the change table has the changes drawn

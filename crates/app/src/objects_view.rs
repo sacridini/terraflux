@@ -114,7 +114,16 @@ fn classes_key(o: &Objects) -> u64 {
         (&c.name, c.colour).hash(&mut h);
     }
     o.class_of.hash(&mut h);
+    novel_flags(o).hash(&mut h);
     h.finish()
+}
+
+/// The objects objects.classify flagged outside what the model was trained on (the attribute `novel`, 1): None when
+/// there are none. Their class is drawn hatched.
+fn novel_flags(o: &Objects) -> Option<Vec<bool>> {
+    let j = o.table.columns.iter().position(|c| c == "novel")?;
+    let flags: Vec<bool> = o.table.rows.iter().map(|r| r[j] == 1.0).collect();
+    flags.iter().any(|&f| f).then_some(flags)
 }
 
 /// The fill of objects in a way, made once while the objects are the same.
@@ -194,7 +203,7 @@ fn made(o: &Objects, how: Fill) -> Filled {
                     colour: format!("#{:02x}{:02x}{:02x}", col.r(), col.g(), col.b()),
                 });
             }
-            let data = o
+            let mut data: Vec<f64> = o
                 .labels
                 .iter()
                 .map(|&l| match l {
@@ -205,6 +214,15 @@ fn made(o: &Objects, how: Fill) -> Filled {
                     },
                 })
                 .collect();
+            // (the novel objects hatched: diagonal stripes of two cells, the image showing through the others)
+            if let Some(flags) = novel_flags(o) {
+                let w = o.grid.width.max(1);
+                for (i, &l) in o.labels.iter().enumerate() {
+                    if l != 0 && flags[l as usize - 1] && (i / w + i % w) % 4 < 2 {
+                        data[i] = f64::NAN;
+                    }
+                }
+            }
             (data, Coloring::Classes(colours))
         }
         Fill::Random => {
@@ -599,5 +617,31 @@ mod tests {
         let ((w, h), per) = image_size(10_000.0, 10_000.0, 2.0);
         assert!(w * h <= MOST_PIXELS + w + h, "{w} x {h}");
         assert!(per < 2.0);
+    }
+
+    #[test]
+    fn the_novel_objects_are_drawn_hatched_over_their_class() {
+        // object 2 is flagged novel by objects.classify's column `novel`: its cells are left out in diagonal stripes
+        let mut t = terraflux_ops::Table::new(vec!["id".into(), "novel".into()]);
+        t.rows = vec![vec![1.0, 0.0], vec![2.0, 1.0]];
+        let hatched = Arc::new((*classed()).clone().with_table(t).unwrap());
+        let (plain, f) = (fill(&classed(), Fill::Classes), fill(&hatched, Fill::Classes));
+        let w = 6;
+        for i in 0..24 {
+            let (r, c) = (i / w, i % w);
+            let (a, b) = (plain.map.data[i], f.map.data[i]);
+            if r == 3 || c < 3 {
+                // (no object, or the object that is not novel)
+                assert!(a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan()), "cell {r},{c}");
+            } else if (r + c) % 4 < 2 {
+                assert!(b.is_nan() && a == 2.0, "cell {r},{c}: the stripe lets the image through");
+            } else {
+                assert_eq!(b, 2.0, "cell {r},{c}: the class between the stripes");
+            }
+        }
+        // (the legend and the cells of each class are those of the classes: the hatching is only how it is drawn)
+        assert_eq!(f.counts, plain.counts);
+        // another set of flags is another fill (the fill is kept by the objects and what they say)
+        assert!(!Arc::ptr_eq(&plain, &f));
     }
 }

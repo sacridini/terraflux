@@ -2157,12 +2157,15 @@ fn classify_on_nlm_image_by_samples_is_accurate() {
         assert_eq!(c.membership.len(), 5);
         assert!(c.class_of.iter().all(|&k| k > 0));
         // the probabilities add up to 1, the margin is the first minus the second
+        // (the columns after the margin are the novelty's)
+        let at = t.columns.iter().position(|c| c == "margin").unwrap();
+        assert_eq!(&t.columns[at + 1..], ["mess", "novel"]);
         for r in &t.rows {
-            let p = &r[2..r.len() - 1];
+            let p = &r[2..at];
             assert!((p.iter().sum::<f64>() - 1.0).abs() < 1e-9);
             let mut q = p.to_vec();
             q.sort_by(|a, b| b.partial_cmp(a).unwrap());
-            assert!((r[r.len() - 1] - (q[0] - q[1])).abs() < 1e-9);
+            assert!((r[at] - (q[0] - q[1])).abs() < 1e-9);
         }
         // the same again, the same result
         let (_, _, again) = classify_case(&o, &truth, 5, method, 0.0);
@@ -2178,7 +2181,8 @@ fn classify_min_leaves_the_unsure_unclassified_and_missing_attributes_are_named(
     println!("min 0.9: {none} of {} objects unclassified", o.count);
     assert!(none > 0 && none < o.count, "{none} unclassified");
     let t = table_of(&out);
-    assert!(t.rows.iter().all(|r| (r[1].is_nan()) == (r[2..r.len() - 1].iter().all(|&p| p < 0.9))));
+    let at = t.columns.iter().position(|c| c == "margin").unwrap();
+    assert!(t.rows.iter().all(|r| (r[1].is_nan()) == (r[2..at].iter().all(|&p| p < 0.9))));
     let Value::Map(m) = &out["map"] else { panic!("map") };
     assert!(m.data.iter().any(|v| v.is_nan()));
     // the objects without the attributes the model reads
@@ -3971,4 +3975,227 @@ fn folds_by_random_blocks_and_clusters_fill_every_fold() {
     short.rows.pop();
     let e = folds_of(&marked, &Value::Table(short), serde_json::json!({})).map(|_| ()).expect_err("refused").to_string();
     assert!(e.contains("marked"), "{e}");
+}
+
+// ---- novelty: what a model carried to another scene has not seen
+
+/// The samples' table of an object case, the model fitted on it (a forest on every attribute) and the objects.
+fn novelty_case() -> (Arc<Objects>, Table, Value) {
+    novelty_case_with(4, false)
+}
+
+/// [`novelty_case`] with `per` samples of each class, the model reading only the band means when `means`: with few
+/// samples and many attributes nearly every sample is the largest or the smallest of one of them, so the training
+/// itself has nothing to be told against.
+fn novelty_case_with(per: usize, means: bool) -> (Arc<Objects>, Table, Value) {
+    let (o, truth) = obia_case("segment.slic", serde_json::json!({}));
+    let s = run(
+        "objects.samples",
+        vec![("objects", Value::Objects(o.clone())), ("samples", truth_points(&o, &truth, per, 7))],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    let train = table_of(&s);
+    let mut params = serde_json::json!({ "column": "class", "seed": 1, "min_samples_leaf": 2 });
+    if means {
+        let names: Vec<&String> = train.columns.iter().filter(|c| c.starts_with("mean_")).collect();
+        params["columns"] = serde_json::json!(names);
+    }
+    let fit = run("ml.fit", vec![("table", Value::Table(train.clone()))], params).unwrap();
+    (o, train, fit["model"].clone())
+}
+
+/// A table with the columns `names` of `t`.
+fn columns_of(t: &Table, names: &[String]) -> Table {
+    let at: Vec<usize> = names.iter().map(|n| t.columns.iter().position(|c| c == n).unwrap()).collect();
+    let mut out = Table::new(names.to_vec());
+    out.rows = t.rows.iter().map(|r| at.iter().map(|&j| r[j]).collect()).collect();
+    out
+}
+
+fn same_bits(a: &[f64], b: &[f64]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan()))
+}
+
+#[test]
+fn the_novelty_of_objects_is_the_mess_of_the_training_table() {
+    let (o, train, model) = novelty_case();
+    let Value::MlModel(m) = &model else { panic!("a model") };
+    let predictors = m.predictors().to_vec();
+    assert!(m.training().is_some_and(|t| t.rows == train.rows.len() && t.summary.len() == predictors.len()));
+    let (out, warnings) = run_warn(
+        "objects.classify",
+        vec![
+            ("objects", Value::Objects(o.clone())),
+            ("model", model.clone()),
+            ("samples", Value::Table(train.clone())),
+        ],
+        serde_json::json!({}),
+    );
+    let out = out.unwrap();
+    let table = table_of(&out);
+    let (mess, novel) = (col(&table, "mess"), col(&table, "novel"));
+    // sdm.mess of the same attributes against the same table
+    let sdm = run(
+        "sdm.mess",
+        vec![
+            ("reference", Value::Table(columns_of(&train, &predictors))),
+            ("env", Value::Table(columns_of(&o.table, &predictors))),
+        ],
+        serde_json::json!({}),
+    )
+    .unwrap();
+    let Value::Table(sdm_table) = &sdm["result"] else { panic!("a table") };
+    let want = col(sdm_table, "mess");
+    assert_eq!(mess.len(), o.count);
+    assert!(same_bits(&mess, &want), "{mess:?} against {want:?}");
+    for (i, b) in want.iter().enumerate() {
+        assert_eq!(novel[i] == 1.0, *b < 0.0, "object {}", i + 1);
+    }
+    assert!(novel.contains(&1.0), "a sample of a few objects leaves some outside");
+    // the objects' attributes carry them too (the Viewer hatches the novel ones)
+    let c = objects_of(&out);
+    assert!(same_bits(&c.table.column("novel").unwrap(), &novel) && same_bits(&c.table.column("mess").unwrap(), &mess));
+    // the warning gives the share of the objects and of the area, only from a twentieth of them
+    let share = novel.iter().filter(|&&v| v == 1.0).count() as f64 / o.count as f64;
+    // (what the training's own rows give is the yardstick: more than 10 points above it and more than twice it)
+    let base = m.training().unwrap().baseline.expect("the fit keeps the baseline");
+    let area: f64 = (0..o.count).map(|i| f64::from(o.cells[i])).sum();
+    let outside: f64 = (0..o.count).filter(|&i| novel[i] == 1.0).map(|i| f64::from(o.cells[i])).sum();
+    let clear = |s: f64| s > base + 0.10 && s > 2.0 * base;
+    let warned = warnings.iter().any(|w| w.contains("lie outside what the model saw"));
+    assert_eq!(warned, clear(share) || clear(outside / area), "{share} against {base}: {warnings:?}");
+    // the scene the model was trained on is not told to lie outside it, with every attribute of the training
+    assert!(predictors.len() >= 10, "{predictors:?}");
+    assert!(!warned, "the training scene itself: {share} against {base}");
+
+    // the MOP: its column, and novel where a predictor is beyond the training's range
+    let mop = table_of(
+        &run(
+            "objects.classify",
+            vec![("objects", Value::Objects(o.clone())), ("model", model.clone())],
+            serde_json::json!({ "novelty": "mop" }),
+        )
+        .unwrap(),
+    );
+    assert!(mop.columns.contains(&"mop".to_string()) && !mop.columns.contains(&"mess".to_string()));
+    assert!(same_bits(&col(&mop, "novel"), &novel), "outside the range is outside the range");
+
+    // none: no columns, no warning
+    let (out, warnings) = run_warn(
+        "objects.classify",
+        vec![("objects", Value::Objects(o.clone())), ("model", model.clone())],
+        serde_json::json!({ "novelty": "none" }),
+    );
+    let t = table_of(&out.unwrap());
+    assert!(!t.columns.contains(&"mess".to_string()) && !t.columns.contains(&"novel".to_string()));
+    assert!(
+        !warnings.iter().any(|w| w.contains("outside what the model saw") || w.contains("brighter")),
+        "{warnings:?}"
+    );
+    let e = run(
+        "objects.classify",
+        vec![("objects", Value::Objects(o)), ("model", model)],
+        serde_json::json!({ "novelty": "other" }),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("mess, mop or none"), "{e}");
+}
+
+#[test]
+fn a_brighter_scene_is_told_and_its_objects_are_outside() {
+    let (o, train, model) = novelty_case_with(12, true);
+    let mut bright = o.as_ref().clone();
+    let at: Vec<usize> =
+        (0..bright.table.columns.len()).filter(|&j| bright.table.columns[j].starts_with("mean_")).collect();
+    assert!(!at.is_empty());
+    for r in bright.table.rows.iter_mut() {
+        for &j in &at {
+            r[j] = r[j] * 1.5 + 0.1;
+        }
+    }
+    let (out, warnings) = run_warn(
+        "objects.classify",
+        vec![("objects", Value::Objects(Arc::new(bright))), ("model", model.clone()), ("samples", Value::Table(train))],
+        serde_json::json!({}),
+    );
+    out.unwrap();
+    let shift = warnings.iter().find(|w| w.contains("brighter")).unwrap_or_else(|| panic!("{warnings:?}"));
+    assert!(shift.contains("raster.match_histogram"), "{shift}");
+    let far = warnings
+        .iter()
+        .find(|w| w.contains("lie outside what the model saw"))
+        .unwrap_or_else(|| panic!("{warnings:?}"));
+    assert!(
+        far.contains("mean_") && far.contains("% of the area") && far.contains("training samples themselves"),
+        "{far}"
+    );
+    // the scene itself: neither warning
+    let (_, warnings) =
+        run_warn("objects.classify", vec![("objects", Value::Objects(o)), ("model", model)], serde_json::json!({}));
+    assert!(!warnings.iter().any(|w| w.contains("brighter") || w.contains("darker")), "{warnings:?}");
+}
+
+#[test]
+fn a_model_goes_through_a_file_and_an_old_one_without_a_summary_still_reads() {
+    let (o, _, model) = novelty_case();
+    let Value::MlModel(m) = &model else { panic!("a model") };
+    let dir = std::env::temp_dir().join(format!("terraflux-ml-file-{}", std::process::id()));
+    let path = dir.join("model.json");
+    let path_text = path.to_string_lossy().replace('\\', "/");
+    let written = run("ml.write", vec![("model", model.clone())], serde_json::json!({ "path": path_text })).unwrap();
+    assert!(matches!(&written["path"], Value::Text(p) if p.ends_with("model.json")));
+    let read = run("ml.read", vec![], serde_json::json!({ "path": path_text })).unwrap();
+    let Value::MlModel(back) = &read["model"] else { panic!("a model") };
+    // the same model: the same classes, the same training, the same novelty
+    let classify = |m: &Value| {
+        table_of(
+            &run(
+                "objects.classify",
+                vec![("objects", Value::Objects(o.clone())), ("model", m.clone())],
+                serde_json::json!({}),
+            )
+            .unwrap(),
+        )
+    };
+    assert_eq!(classify(&model), classify(&read["model"]));
+    assert_eq!(serde_json::to_string(&**m).unwrap(), serde_json::to_string(&**back).unwrap());
+    assert!(back.training().is_some_and(|t| t.rows > 0 && !t.sample.is_empty()));
+
+    // a model saved before the summary was kept: no `training` in the JSON; it reads and gives no novelty
+    let mut json: serde_json::Value = serde_json::to_value(&**m).unwrap();
+    assert!(json.as_object_mut().unwrap().remove("training").is_some());
+    std::fs::write(&path, json.to_string()).unwrap();
+    let old = run("ml.read", vec![], serde_json::json!({ "path": path_text })).unwrap();
+    let Value::MlModel(old_model) = &old["model"] else { panic!("a model") };
+    assert!(old_model.training().is_none());
+    // (a training without the baseline: the columns, and no warning to compare)
+    let mut no_base: serde_json::Value = serde_json::to_value(&**m).unwrap();
+    assert!(no_base["training"].as_object_mut().unwrap().remove("baseline").is_some());
+    std::fs::write(&path, no_base.to_string()).unwrap();
+    let half = run("ml.read", vec![], serde_json::json!({ "path": path_text })).unwrap();
+    let (out, warnings) = run_warn(
+        "objects.classify",
+        vec![("objects", Value::Objects(o.clone())), ("model", half["model"].clone())],
+        serde_json::json!({}),
+    );
+    assert!(table_of(&out.unwrap()).columns.contains(&"novel".to_string()));
+    assert!(!warnings.iter().any(|w| w.contains("outside what the model saw")), "{warnings:?}");
+    std::fs::write(&path, json.to_string()).unwrap();
+    let old = run("ml.read", vec![], serde_json::json!({ "path": path_text })).unwrap();
+    let t = classify(&old["model"]);
+    assert!(!t.columns.contains(&"mess".to_string()) && !t.columns.contains(&"novel".to_string()));
+    let (out, warnings) = run_warn(
+        "objects.classify",
+        vec![("objects", Value::Objects(o)), ("model", old["model"].clone())],
+        serde_json::json!({}),
+    );
+    out.unwrap();
+    assert!(!warnings.iter().any(|w| w.contains("outside what the model saw")), "{warnings:?}");
+    // not a model
+    std::fs::write(&path, "[1, 2]").unwrap();
+    let e = run("ml.read", vec![], serde_json::json!({ "path": path_text })).expect_err("refused").to_string();
+    assert!(e.contains("not a fitted model"), "{e}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -766,7 +766,30 @@ pub const TIPS: &[(&str, &str)] = &[
         "The objects must carry the same attributes as those of the training: run objects.features with the same \
          settings on the same image before. Pass the samples' table to name the classes. The margin (first minus \
          second probability) is low where the model hesitates: look there for more samples. `min` leaves \
-         unclassified the objects whose best probability is under it.",
+         unclassified the objects whose best probability is under it. A model of ml.fit remembers what it was \
+         trained on: the objects get the columns `mess` (or `mop`) and `novel` (1 where an attribute lies outside the \
+         training's range, the Viewer hatches them), and a warning tells the share of the objects and of the area \
+         outside and the attributes that weigh most. Their class is an extrapolation: add samples that cover them. \
+         When the scene's band means are all higher or all lower than the training's (another date or sensor), the \
+         warning points to raster.match_histogram: bring the second scene to the first's light before its objects \
+         are made. A model saved as a file (ml.write, ml.read) carries the same memory; one saved by an older \
+         version has none and gives no novelty (`novelty` none turns it off).",
+    ),
+    (
+        "raster.match_histogram",
+        "For a second scene (another date, sensor or processing) before a model fitted on the first classes it: the \
+         bands go to the first scene's histogram, and the model then reads the ground and not the light. Give the \
+         `mask` the area both scenes show alike (what did not change, the part without clouds): the cells of \
+         the mask make the distributions, and the rest follow them. It is a relative normalisation of the simple \
+         kind: a class the first scene lacks is drawn into the first scene's range, so look at the novelty \
+         columns (objects.classify) after it. Make the objects of the matched scene, not of the scene as it was.",
+    ),
+    (
+        "ml.write",
+        "The model in a file (JSON) to carry to another model: ml.read gives it back with its trees and, for a model \
+         of ml.fit, what it was trained on (each attribute's range and quantiles, and the training rows), so the \
+         second scene's objects can be told from the ones the model knows. Give ml.read the `after` input (this \
+         node's path) when the same graph writes the file and reads it.",
     ),
     (
         "objects.rules",

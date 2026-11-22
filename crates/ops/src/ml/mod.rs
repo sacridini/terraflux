@@ -8,9 +8,11 @@
 
 pub mod boosting;
 mod cv;
+mod file;
 pub mod forest;
 pub mod inspect;
 mod kmeans;
+pub mod novelty;
 mod pca;
 mod som;
 
@@ -37,6 +39,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(kmeans::Groups));
     r.add(Arc::new(som::Organise));
     inspect::register(r);
+    file::register(r);
 }
 
 /// A fitted model: one forest or boosting of classes or values (`ml.fit`), or one per class, each of the class
@@ -82,6 +85,15 @@ impl Fitted {
             Fitted::Boosting(b) => &b.predictors,
         }
     }
+
+    /// The same model with what its fit saw.
+    fn with_training(mut self, t: novelty::Training) -> Fitted {
+        match &mut self {
+            Fitted::Forest(f) => f.training = Some(t),
+            Fitted::Boosting(b) => b.training = Some(t),
+        }
+        self
+    }
 }
 
 impl Model {
@@ -96,6 +108,16 @@ impl Model {
             Model::Pca(p) => &p.predictors,
             Model::KMeans(c) => &c.predictors,
             Model::Som(s) => &s.predictors,
+        }
+    }
+
+    /// What its fit saw (the predictors' summary and the training rows): none for a model saved before this was kept,
+    /// and for the models that are not of ml.fit.
+    pub fn training(&self) -> Option<&novelty::Training> {
+        match self {
+            Model::Forest(f) => f.training.as_ref(),
+            Model::Boosting(b) => b.training.as_ref(),
+            _ => None,
         }
     }
 
@@ -550,7 +572,8 @@ impl Operator for Fit {
             }
             None => None,
         };
-        let f = fit_model(args, &x, &y, regression, &mut || !ctx.stopped())?;
+        let f = fit_model(args, &x, &y, regression, &mut || !ctx.stopped())?
+            .with_training(novelty::Training::of(&x, args.param("seed", 1)?));
         let importance = importance_table(f.predictors(), &[(None, f.importances())]);
         let model = match f {
             Fitted::Forest(f) => Model::Forest(f),
@@ -603,11 +626,30 @@ impl Operator for Predict {
             "table",
             Type::Table,
             "with a table: its columns, then prediction and the probability of each class (p_<class>), or a PCA's \
-             scores (pc1, pc2...), or a k-means model's cluster, or a map model's node (and group)",
+             scores (pc1, pc2...), or a k-means model's cluster, or a map model's node (and group); then, for a \
+             model of ml.fit, mess (or mop) and novel",
         ))
+        .output(PortSpec::optional(
+            "novelty",
+            Type::Stack,
+            "with maps and a model of ml.fit: the layers mess (or mop) and novel (1 where a predictor is outside what \
+             the model was fitted on)",
+        ))
+        .param(
+            PortSpec::optional(
+                "novelty",
+                Type::Text,
+                "how far the records lie from the training of a model of ml.fit: mess (default, Elith's MESS: negative \
+                 outside the range of a predictor), mop (the mean distance to the nearest training rows, and the \
+                 records outside the ranges) or none. A warning says the share outside (from 5 %) and the predictors \
+                 that weigh most, and when the scene's predictors are all higher or all lower than the training's \
+                 (raster.match_histogram brings a scene to another's)",
+            )
+            .choices(["mess", "mop", "none"]),
+        )
     }
 
-    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+    fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let Some(Value::MlModel(model)) = args.get("model") else { return Err(fail(args, "connect a fitted model")) };
         if let Model::Pca(p) = &**model {
             return pca::apply(args, p);
@@ -647,9 +689,20 @@ impl Operator for Predict {
                     })
                     .collect::<Result<_>>()?;
                 let all: Vec<usize> = (0..stack.grid.cells()).collect();
-                let cols = model.outputs(&frame_of(&names, &layers, &all)).map_err(|e| fail(args, e))?;
+                let frame = frame_of(&names, &layers, &all);
+                let cols = model.outputs(&frame).map_err(|e| fail(args, e))?;
                 let map = Map::new(stack.grid.clone(), all.iter().map(|&i| best(&cols, i)).collect());
                 let mut out = outputs([("map", Value::Map(map))]);
+                if let Some(f) = new_records(ctx, args, model, &frame, "cells")? {
+                    out.insert(
+                        "novelty".into(),
+                        Value::Stack(Stack {
+                            grid: stack.grid.clone(),
+                            keys: vec![Key::Name(f.measure.into()), Key::Name("novel".into())],
+                            layers: vec![Arc::new(f.values), Arc::new(f.novel)],
+                        }),
+                    );
+                }
                 if !classes.is_empty() {
                     let probability = Stack {
                         grid: stack.grid.clone(),
@@ -665,7 +718,9 @@ impl Operator for Predict {
                     .iter()
                     .map(|n| t.column(n).ok_or_else(|| fail(args, format!("the table has no column {n:?}"))))
                     .collect::<Result<_>>()?;
-                let cols = model.outputs(&Frame { names: names.clone(), columns }).map_err(|e| fail(args, e))?;
+                let frame = Frame { names: names.clone(), columns };
+                let cols = model.outputs(&frame).map_err(|e| fail(args, e))?;
+                let found = new_records(ctx, args, model, &frame, "records")?;
                 let mut out = t.clone();
                 out.columns.push("prediction".into());
                 if !classes.is_empty() {
@@ -677,12 +732,31 @@ impl Operator for Predict {
                         row.extend(cols.iter().map(|c| c[i]));
                     }
                 }
+                if let Some(f) = found {
+                    out.columns.extend([f.measure.to_string(), "novel".to_string()]);
+                    for (i, row) in out.rows.iter_mut().enumerate() {
+                        row.extend([f.values[i], f.novel[i]]);
+                    }
+                }
                 Ok(outputs([("table", Value::Table(out))]))
             }
             (None, Some(v)) => Err(fail(args, format!("table: a table, not a {:?}", v.ty()))),
             (None, None) => Err(fail(args, "connect the maps (predictors) or a table")),
         }
     }
+}
+
+/// The novelty of the records `frame` against the training of the model (the setting `novelty`), with the warnings
+/// of the share outside and of a shifted scene. None for a model with no training, and for `none`.
+fn new_records(ctx: &mut Ctx, args: &Args, model: &Model, frame: &Frame, what: &str) -> Result<Option<novelty::Found>> {
+    let kind = novelty::Kind::parse(&args.param("novelty", "mess".to_string())?).map_err(|e| fail(args, e))?;
+    let Some(t) = model.training().filter(|_| kind != novelty::Kind::No) else { return Ok(None) };
+    let found = novelty::assess(t, frame, kind).map_err(|e| fail(args, e))?;
+    if let Some(f) = &found {
+        novelty::warn(ctx, args.node, what, f, None, t.baseline);
+    }
+    novelty::warn_shift(ctx, args.node, t, frame);
+    Ok(found)
 }
 
 // -- ml.potential -------------------------------------------------------------------------------------------------

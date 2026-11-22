@@ -5000,6 +5000,29 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     classe que a primeira não tem: o teste exige o aviso, os objetos novos na classe que faltava e a acurácia melhor
     depois do `raster.match_histogram`). Testes: o MESS dos objetos igual ao do `sdm.mess` sobre a mesma tabela;
     histograma casado com os quantis iguais aos da referência.
+  - **Feito (2026-11-22).** O modelo do `ml.fit` guarda `training` (o resumo de cada preditor, min, max, quantis
+    1/25/50/75/99, média e desvio, e as linhas do treino, uma amostra sorteada de 10 000 acima disso; `ml/novelty.rs`),
+    com `serde(default)`: o JSON de um modelo antigo, sem ele, lê e não dá novidade. Não havia como levar um modelo para
+    outro grafo (só a saída `[outputs]` o gravava como JSON): entram `ml.write` e `ml.read` (`ml/file.rs`; o `ml.read`
+    tem a entrada `after` para ordenar depois do `ml.write` no mesmo grafo). O `objects.classify` e o `ml.predict`
+    ganham `novelty` (`mess` padrão, `mop`, `none`): as colunas `mess` (ou `mop`) e `novel` na tabela e nos atributos
+    dos objetos (no `ml.predict` com mapas, a saída `novelty`), o `sdm::extrapolation::mess` e o `mop` sobre as linhas
+    guardadas, e um aviso com a parte dos objetos e da área fora (a partir de 5 %) e os preditores que mais pesam (o
+    `exdet`, ou a contagem fora da faixa quando a covariância é singular). O aviso da diferença radiométrica não
+    precisou da imagem do treino: o modelo não a conhece, então vale os preditores `mean_*`/`median_*` (as médias das
+    bandas) contra a mediana e o IQR do treino, a partir de 0,75 IQR em metade deles do mesmo lado; ele aponta o novo
+    `raster.match_histogram` (`raster_match.rs`: a definição do `skimage.exposure.match_histograms`, os quantis da
+    origem sobre os da referência por interpolação, e a `mask` para a área comum; igual ao scikit-image, o teste lê
+    `tests/data/reference/match_histogram.json` de `tools/make_match_histogram_reference.py`). No Viewer os objetos
+    `novel` aparecem listrados (`objects_view.rs`: listras de duas células sobre a classificação, o resto do mapa
+    aparece por baixo). O template "Classify a second scene with the model of the first" (a segunda cena mais clara
+    e com a classe urbana que a primeira não tem; o modelo vai e volta pelo arquivo): o teste exige os dois avisos, os
+    objetos novos na classe que faltava (urbano 100 % contra 39 % dos outros) e a acurácia no chão comum de 0,46 para
+    0,93 depois do `raster.match_histogram`. Duas coisas que a medida mostrou: o MESS com muitos preditores e poucas
+    amostras marca muito objeto normal (57 % dos da própria cena de treino com os 20 atributos do `features`; 15 % só
+    com as médias das bandas e o NDVI), por isso o template ajusta o modelo nessas colunas e o aviso só vem a partir de
+    5 %; e o `raster.match_histogram` casa o histograma, não o objeto: o segmentador roda de novo sobre a cena casada.
+    Ficou de fora: a AOA de Meyer e Pebesma (2021) e o IR-MAD de Canty et al. (2004).
 
 - **5. As séries temporais por objeto (M/G).** Hoje o `objects.features` (`features.rs`) dá média, desvio, mínimo,
   máximo e mediana por camada (`per_band` `:713`) e os índices das bandas nomeadas, sem eixo do tempo; o

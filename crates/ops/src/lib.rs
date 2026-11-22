@@ -81,6 +81,7 @@ pub mod presets;
 pub mod prioritize;
 pub mod prioritize_tools;
 pub mod raster_analysis;
+pub mod raster_match;
 pub mod raster_neighbours;
 pub mod raster_stats;
 pub mod redd;
@@ -505,6 +506,7 @@ impl Registry {
         tables::register(&mut r);
         table_ops::register(&mut r);
         raster_stats::register(&mut r);
+        raster_match::register(&mut r);
         raster_neighbours::register(&mut r);
         vector_tools::register(&mut r);
         values::register(&mut r);

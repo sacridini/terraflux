@@ -2494,3 +2494,89 @@ fn cv_without_a_fold_column_draws_stratified_folds_and_says_they_are_not_spatial
     let e = refused(serde_json::json!({"column": "class", "fold": "nothing"}));
     assert!(e.contains("no column \"nothing\""), "{e}");
 }
+
+// -- ml.predict, novelty --------------------------------------------------------------------------------------------
+
+#[test]
+fn predict_tells_what_lies_outside_the_training() {
+    let (z, _) = reference();
+    let x = &z["table/x"];
+    let train = records(x, Some(&z["table/class"].data));
+    let fit = run(
+        "ml.fit",
+        vec![("table", Value::Table(train.clone()))],
+        serde_json::json!({ "task": "classes", "n_estimators": 10 }),
+    );
+    let Value::MlModel(m) = &fit["model"] else { panic!("a model") };
+    let training = m.training().expect("the fit keeps what it saw");
+    assert_eq!((training.rows, training.summary.len(), training.sampled), (x.shape[0], x.shape[1], false));
+    let names: Vec<String> = (0..x.shape[1]).map(|j| format!("x{j}")).collect();
+    // the records of the table, the last ten moved far out on the first predictor
+    let mut test = records(&z["table/test"], None);
+    let last = test.rows.len() - 10;
+    let hi = training.summary[0].max;
+    for r in test.rows[last..].iter_mut() {
+        r[0] = hi + 10.0;
+    }
+    let out = run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("table", Value::Table(test.clone()))],
+        serde_json::json!({}),
+    );
+    let t = table(&out["table"]);
+    assert_eq!(&t.columns[t.columns.len() - 2..], ["mess", "novel"]);
+    let (mess, novel) = (t.column("mess").unwrap(), t.column("novel").unwrap());
+    // sdm.mess of the same columns against the training's
+    let reference = {
+        let mut r = Table::new(names.clone());
+        r.rows = train.rows.iter().map(|row| row[..names.len()].to_vec()).collect();
+        r
+    };
+    let env = {
+        let mut r = Table::new(names.clone());
+        r.rows = test.rows.iter().map(|row| row[..names.len()].to_vec()).collect();
+        r
+    };
+    let sdm = run(
+        "sdm.mess",
+        vec![("reference", Value::Table(reference)), ("env", Value::Table(env))],
+        serde_json::json!({}),
+    );
+    let want = table(&sdm["result"]).column("mess").unwrap();
+    check("mess", &mess, &want);
+    assert!(novel[last..].iter().all(|&v| v == 1.0), "the moved records are outside");
+    assert!(mess[last..].iter().all(|&v| v < 0.0));
+    // none: the table as before, and the model's novelty off
+    let out = run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("table", Value::Table(test.clone()))],
+        serde_json::json!({ "novelty": "none" }),
+    );
+    assert!(!table(&out["table"]).columns.contains(&"mess".to_string()));
+    // maps: a stack of the layers mess and novel on the grid
+    let (w, h) = (6, 5);
+    let cells = w * h;
+    let layers: Vec<Arc<Vec<f64>>> = (0..names.len())
+        .map(|j| {
+            Arc::new((0..cells).map(|i| if i == 0 && j == 0 { hi + 10.0 } else { training.summary[j].q50 }).collect())
+        })
+        .collect();
+    let stack =
+        Stack { grid: Arc::new(Grid::new(w, h)), keys: names.iter().map(|n| Key::Name(n.clone())).collect(), layers };
+    let out = run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("predictors", Value::Stack(stack.clone()))],
+        serde_json::json!({}),
+    );
+    let Value::Stack(nov) = &out["novelty"] else { panic!("a stack") };
+    assert_eq!(nov.keys.iter().map(|k| k.to_string()).collect::<Vec<_>>(), ["mess", "novel"]);
+    assert_eq!((nov.layers[1][0], nov.layers[1][1]), (1.0, 0.0));
+    let out = run(
+        "ml.predict",
+        vec![("model", fit["model"].clone()), ("predictors", Value::Stack(stack))],
+        serde_json::json!({ "novelty": "mop" }),
+    );
+    let Value::Stack(nov) = &out["novelty"] else { panic!("a stack") };
+    assert_eq!(nov.keys[0].to_string(), "mop");
+    assert_eq!((nov.layers[1][0], nov.layers[1][1]), (1.0, 0.0));
+}

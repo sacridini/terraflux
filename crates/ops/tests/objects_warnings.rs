@@ -233,7 +233,8 @@ fn classify(o: &Arc<Objects>, train: &Table) -> Vec<String> {
             ("model", fit["model"].clone()),
             ("samples", Value::Table(train.clone())),
         ],
-        serde_json::json!({}),
+        // (the objects reach far beyond the few samples: this test is about what the samples say, not about novelty)
+        serde_json::json!({ "novelty": "none" }),
     );
     out.unwrap();
     w

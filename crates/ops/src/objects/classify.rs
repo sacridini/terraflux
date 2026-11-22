@@ -10,7 +10,7 @@ use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::vector::{Column, Geometry, Vector};
 
 use super::{ObjectClass, Objects, objects_in};
-use crate::ml::Model;
+use crate::ml::{Model, novelty};
 use crate::sdm::extrapolation::Frame;
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
@@ -295,6 +295,17 @@ fn unsupervised(node: &str, model: &Model, o: &Objects) -> Result<Option<Groups>
     Ok(Some((names, probs)))
 }
 
+/// A column of a table, a value per row: replaced when the table has it, else added at the end.
+fn set_column(t: &mut Table, name: &str, values: &[f64]) {
+    match t.columns.iter().position(|c| c == name) {
+        Some(j) => t.rows.iter_mut().zip(values).for_each(|(r, &v)| r[j] = v),
+        None => {
+            t.columns.push(name.to_string());
+            t.rows.iter_mut().zip(values).for_each(|(r, &v)| r.push(v));
+        }
+    }
+}
+
 /// `objects.classify`.
 struct Classify;
 
@@ -329,6 +340,20 @@ impl Operator for Classify {
             Type::Number,
             "the least probability for a class, 0 to 1 (default 0: every object takes its most probable class)",
         ))
+        .param(
+            PortSpec::optional(
+                "novelty",
+                Type::Text,
+                "for a model of ml.fit, how far each object lies from what the model was trained on: mess (default, \
+                 Elith's MESS: negative outside the range of an attribute), mop (the mean distance to the nearest \
+                 training objects, and the objects outside the ranges) or none. The columns mess (or mop) and novel \
+                 (1 outside) go to the table and the objects' attributes, the Viewer hatches the novel ones, and a \
+                 warning gives the share of the objects and of the area outside (from 5 %) and the attributes that \
+                 weigh most; another warning tells a scene whose attributes are all higher or all lower than the \
+                 training's, and points to raster.match_histogram",
+            )
+            .choices(["mess", "mop", "none"]),
+        )
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
@@ -341,6 +366,9 @@ impl Operator for Classify {
         if !(0.0..=1.0).contains(&min) {
             return Err(Error::msg(format!("node {node:?}: min {min}: 0 to 1")));
         }
+        let kind = novelty::Kind::parse(&args.param("novelty", "mess".to_string())?)
+            .map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
+        let mut found = None;
         let (names, probs) = if let Some(u) = unsupervised(node, model, o)? {
             u
         } else {
@@ -381,9 +409,18 @@ impl Operator for Classify {
                 super::warnings::counts(ctx, "objects.classify", node, &per);
             }
             super::warnings::correlated(ctx, "objects.classify", node, &predictors, &columns);
-            let probs = model
-                .outputs(&Frame { names: predictors, columns })
-                .map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
+            let frame = Frame { names: predictors, columns };
+            let probs = model.outputs(&frame).map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
+            // (an object outside what the model saw: its class is an extrapolation; a scene shifted as a whole is
+            // another matter: the model reads the shift, not the ground)
+            if let Some(t) = model.training().filter(|_| kind != novelty::Kind::No) {
+                found = novelty::assess(t, &frame, kind).map_err(|e| Error::msg(format!("node {node:?}: {e}")))?;
+                if let Some(f) = &found {
+                    let area: Vec<f64> = o.cells.iter().map(|&c| f64::from(c)).collect();
+                    novelty::warn(ctx, node, "objects", f, Some(&area), t.baseline);
+                }
+                novelty::warn_shift(ctx, node, t, &frame);
+            }
             (names, probs)
         };
         let n = o.count;
@@ -429,7 +466,13 @@ impl Operator for Classify {
         text_column(&mut table, "class", names);
         let per: Vec<f64> = class_of.iter().map(|&k| if k == 0 { f64::NAN } else { k as f64 }).collect();
         let data: Vec<f64> = o.labels.iter().map(|&l| if l == 0 { f64::NAN } else { per[l as usize - 1] }).collect();
-        let classed = o.as_ref().clone().with_classes(classes, class_of, membership)?;
+        let mut classed = o.as_ref().clone().with_classes(classes, class_of, membership)?;
+        if let Some(f) = &found {
+            for t in [&mut table, &mut classed.table] {
+                set_column(t, f.measure, &f.values);
+                set_column(t, "novel", &f.novel);
+            }
+        }
         let mut out = outputs([("table", Value::Table(table)), ("map", Value::Map(Map::new(o.grid.clone(), data)))]);
         out.insert("objects".into(), Value::Objects(Arc::new(classed)));
         Ok(out)
