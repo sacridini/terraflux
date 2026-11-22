@@ -4452,6 +4452,13 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    por passada (`chain`): na imagem do bench com `threshold` 0,05 deu 5277 objetos contra 1522 e 59 s contra 4,5 s (F
    0,78 contra 0,90 de outra semente); com 0,02, +3% de objetos e F 1,000, 5,2 -> 3,4 s. Pior onde devia ajudar:
    não entrou no código.
+   Visto (2026-11-22, SNIC e Felzenszwalb), sem mudança exata que se meça. Felzenszwalb 2000² (8 vizinhos, 16M
+   arestas, 1 thread): arestas 0,25 s, ordenação 0,67 s, união ~3,0 s, corte 0,42 s, `min_size` ~1,2 s. A união
+   domina: as arestas vêm em ordem de peso e cada uma lê duas células longe no espaço (~190 ns por aresta mesmo com
+   prefetch). Um radix sort não ganha (lê e escreve ~256 MB por passada, ~0,6 s, o mesmo do `par_sort_unstable`).
+   Filtrar em paralelo as arestas candidatas da segunda passada, com ou sem prefetch de 32, ficou dentro do ruído.
+   SNIC: a fila é um heap 4-ário de u128 (distância, ordem do push, célula) com centroides que mudam a cada célula.
+   Uma fila de baldes teria de quantizar a distância e mudaria os rótulos. Uma chave de 64 bits perderia o desempate.
 9. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
 ### Qualidade de vida do OBIA (pedido de 2026-11-19)
