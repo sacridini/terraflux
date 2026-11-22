@@ -4846,6 +4846,157 @@ somem com o `ops.json` do próximo release.
   modelos da série passam a usá-lo.
   **Decisões (2026-11-20).** Camadas por banda: o nome é o `common_name` do `eo:bands` (ou do `raster:bands`), senão o `name`, senão `<asset>_<n>`; um asset de uma banda continua com o nome do asset e o mesmo cache (a chave só ganha `bands` quando ele é dado). O `bands` aceita nomes (qualquer caixa, `name` ou `common_name`), números a partir de 1 e `<asset>_<n>`, na ordem pedida, e só vale para os assets de várias bandas (uma banda que o asset não tem é erro, com a lista das que tem). O número de bandas vem do `eo:bands`/`raster:bands` do item; sem eles o arquivo é aberto (uma ida à rede por asset). Se dois assets dariam o mesmo nome de camada, as do asset de várias bandas ganham o nome do asset na frente. `crs` é validado pelo GDAL (`crs_wkt`), guardado como veio (`EPSG:32631`, sem o WKT, para não trocar a ordem dos eixos) e vale sem `like` (com `like` a grade é a do mapa: erro); o `cellsize` passa a ser obrigatório com `crs`. A busca no catálogo continua em graus (a caixa da grade reprojetada). Falta: usar o `crs` e o `bands` nos modelos da série (o NAIP e a grade UTM direto) Conferido ao vivo: NAIP do Planetary Computer em UTM 14N a 10 m dá `red`, `green`, `blue`, `nir` (teste `planetary_computer_gives_the_bands_of_naip_in_utm`, `--ignored`).
 
+### O OBIA mais completo: o que um especialista ainda sente falta (pedido de 2026-11-22)
+
+A pergunta do usuário: o Terraflux deve ser o programa de OBIA mais completo e ao mesmo tempo o mais fácil; o que
+falta? O fluxo central (segmentar ao vivo, comparar, ESP/USPO, amostras por clique, espaço dos atributos, regras,
+aprendizado ativo, hipóteses, edição, acurácia por área, níveis, tiles, SAM) já passa o eCognition. Faltam cinco coisas
+que aparecem em quase todo trabalho real e que um revisor de artigo pede. O usuário escolheu as cinco (2026-11-22);
+ficaram de fora, por ora: a gestão de amostras (importar de vetor ou de um mapa antigo, atalhos 1–9, o painel de
+equilíbrio), o relatório de um clique, o LiDAR direto (LAS/LAZ pelo PDAL) e o aviso da escala ao mudar de resolução.
+
+Ordem, da mais rápida para a mais demorada (cada uma um commit, depois a próxima): 2, 1, 4, 5, 3. Começa depois das
+sobras do OBIA em andamento (o bloco de 2026-11-22).
+
+**Plano de implementação** (levantado no código em 2026-11-22). Valem para todos: cada operador novo com descrição,
+portas, dicas (`tips.rs`/`advice.rs`), frases e referências no `methods.rs`, a lista "sem equivalente" do
+`python_script` (o OBIA fica só no aplicativo), o guia `objects` do MCP (`guide.rs`), testes em
+`crates/ops/tests/objects*.rs` e no `--test app`, o `CHANGELOG`, e o `website/data/ops.json` no próximo release.
+Referências conferidas no Crossref antes de entrar no `methods.rs`.
+
+- **1. A segmentação medida contra objetos de referência (M).** Hoje o `segment.optimize` (`objects/optimize.rs:218`)
+  só mede sem referência: `score()` (`:48`, a variância interna ponderada e o I de Moran das médias), `objective()`
+  (`:168`, soma ou F com `alpha`), a fronteira de Pareto (`:189-198`) e a tabela `scores` (`value`, `objects`,
+  `variance`, `moran`, `objective`). Os artigos pedem as medidas supervisionadas, contra 20 a 50 polígonos desenhados.
+  - Um operador `segment.evaluate`: entradas `objects` e `reference` (polígonos, ou um `Objects` vindo do
+    `segment.from_vector`, `segment.rs:215-276`, que queima pelo `vector::burn`, `vector.rs:196`); o cruzamento é a
+    tabela de sobreposição (referência × objeto, em células) de uma só varredura, como a do `thematic` em
+    `features.rs:625`. Medidas (`metrics`, padrão todas): OS, US e D (Clinton et al. 2010, PE&RS 76(3):289-299; os
+    objetos correspondentes pelo critério dele: mais de 50% da referência ou do objeto, ou o centróide dentro), ED2 com
+    PSE e NSR (Liu et al. 2012, ISPRS J. 68:144-156), AFI (Lucieer e Stein 2002), QR (Weidner 2008) e o F das
+    sobreposições (Zhang et al. 2015). Saídas: `table` (uma linha por referência: o objeto correspondente, a
+    sobreposição, OS, US, D), `summary` (a média de cada medida e o ED2) e `objects` (a coluna `os`/`us` em cada
+    objeto, para pintar no Viewer onde a segmentação erra por excesso ou por falta).
+  - A referência bit a bit é o pacote R `segmetric` (Costa et al.; no CRAN, os nomes das medidas são os dele): os
+    casos de teste em `tests/data/reference/segmetric.json`, gerados por um script em `tools/`, como os do PCA.
+  - O `segment.optimize` ganha a entrada `reference` e os objetivos `d`, `ed2` e `f_overlap`: cada candidato é medido
+    também por `segment.evaluate`, e a tabela `scores` ganha as colunas; sem `reference`, nada muda. O gráfico do
+    optimize (`charts.rs::scores`, `optimize_view.rs`) mostra a medida escolhida e o clique escolhe o valor (a sobra
+    do bloco de 2026-11-22).
+  - No aplicativo: na seção dos objetos, *Draw reference objects* desenha polígonos com a ferramenta de desenho do
+    Viewer (os atributos do desenho já ficam no modelo) e liga ao `segment.evaluate` num passo de desfazer; a
+    camada `os`/`us` com a rampa divergente (vermelho onde a referência foi cortada, azul onde foi engolida).
+  - Template "Choose the segmentation by reference objects" (a `nlm.image` com polígonos de referência feitos dos
+    rótulos verdadeiros do `nlm`; o teste exige que o ED2 escolha uma escala perto da verdadeira) e uma parte nova da
+    série de tutoriais.
+  - Testes: o `segmetric` bit a bit; propriedades (segmentação igual à referência dá OS = US = 0; cortar cada
+    referência em dois sobe o US e não o OS); o `optimize` com referência escolhe o valor do menor ED2.
+
+- **2. A validação cruzada espacial e a matriz de confusão (M).** O `ml.fit` (`ml/mod.rs` ~355-389: `column`,
+  `columns`, `task`, `sample`, `stratify`, `seed`) não tem validação nenhuma, nem OOB; o `sdm.fit` tem (`fold`, `cv`,
+  `workflow::fit`, `sdm/mod.rs:1268-1390`), e os geradores de folds gravam uma coluna `fold` (`with_folds`,
+  `sdm/mod.rs:904-926`; `sdm/folds.rs`: `spatial_blocks` `:522`, `buffer_folds` `:728`). Objetos vizinhos são quase
+  iguais, então a acurácia por amostras sorteadas sai otimista (Ploton et al. 2020; Meyer e Pebesma 2022).
+  - Um operador `objects.folds`: entrada `objects` e `samples` (a tabela do `objects.samples`); `method` `blocks`
+    (blocos de `size` em unidades do mapa, pelos centróides), `clusters` (k-means dos centróides, como o
+    `sdm.spatial_clusters`), `neighbours` (um objeto e os seus vizinhos até `steps` passos nunca caem em folds
+    diferentes: os componentes do grafo de vizinhança restrito às amostras, distribuídos pelos folds com o
+    equilíbrio das classes) e `random`; `k` (padrão 5), `seed`. Reaproveita o `sdm/folds.rs` onde der (os centróides
+    como pontos). Saída: a tabela com a coluna `fold`.
+  - O `ml.fit` ganha `fold` (o nome da coluna; sem ela e com `cv = k`, folds sorteados e estratificados) e a saída
+    `cv`: por fold e no total, a exatidão, o kappa, o F1 por classe e a matriz somada (regressão: RMSE, MAE, R²); o
+    modelo final é ajustado em todas as amostras, como hoje. Com a floresta aleatória, o OOB (`ml/forest.rs`: guardar
+    as linhas fora de cada árvore) como coluna a mais, avisando que o OOB não é espacial.
+  - O `objects.accuracy` (`accuracy.rs:84-158`) ganha a entrada opcional `training` (a tabela das amostras de
+    treino): conta as referências que são também de treino ou encostam num objeto de treino (pela vizinhança dos
+    objetos), diz no `overall` e avisa; o aviso do `advice.rs:488-503` (o mesmo `objects.samples`) continua.
+  - No aplicativo: a saída `matrix` do `objects.accuracy` e a `cv` do `ml.fit` viram um gráfico de matriz de confusão
+    (`charts.rs`, um `Kind::Confusion`: as contagens com a cor pela proporção da linha, as exatidões do usuário e do
+    produtor nas margens, a exatidão global no título). Um clique numa casa acende no Viewer os objetos daquela classe
+    do mapa com aquela referência (`confusion_link.rs`, como o `som_link.rs`: a lista `errors` já tem os ids) e a
+    lista leva a cada um, como os erros no `feature_space.rs:748-753`.
+  - Template: o "Classify an image by clicking samples" ganha o `objects.folds` (`neighbours`) e a `cv` do `ml.fit`,
+    com uma nota sobre a diferença entre a acurácia sorteada e a espacial. Testes: folds sem vizinhos separados;
+    a `cv` igual à do `sklearn.model_selection.cross_val_score` com os mesmos folds para a árvore de decisão
+    determinística; o clique na casa acende os ids certos.
+
+- **4. Levar o modelo para outra cena (M).** O `ml.predict` e o `objects.classify` não dizem quando um objeto está
+  fora do que o treino viu. O `sdm.mess`, o `sdm.mop` e o `sdm.exdet` (`sdm/extrapolation.rs`: `mess` `:78`, `mop`
+  `:208`, `exdet` `:345`) já aceitam tabelas pelo `frame_of` (`sdm/mod.rs:74-97`) e devolvem tabelas pelo
+  `frame_out`.
+  - O modelo do `ml.fit` passa a guardar o resumo do treino de cada preditor (mínimo, máximo, quantis 1/25/50/75/99,
+    média e desvio) e, só quando pequena, a própria tabela de treino (para o MOP; acima de 10 000 linhas, uma amostra).
+  - O `objects.classify` e o `ml.predict` ganham `novelty` (`mess` padrão, `mop`, `none`): as colunas `mess` (ou
+    `mop`) e `novel` (verdadeiro fora da faixa) por objeto, e um `ctx.warn` com a parte dos objetos e da área fora,
+    e quais preditores mais pesam (o `exdet`). No Viewer, a camada dos objetos novos hachurada sobre a classificação.
+  - A diferença radiométrica: o modelo guarda os quantis de cada banda da imagem do treino; o `objects.classify`
+    sobre uma imagem cujas medianas ou amplitudes diferem mais que um limiar avisa ("a cena é mais clara que a do
+    treino") e aponta o operador novo `raster.match_histogram` (a correspondência de histogramas por banda, com
+    `mask` para as áreas comuns; uma normalização relativa simples, sem o IR-MAD de Canty et al. 2004, que fica para
+    depois se pedido). O aviso de bandas em escalas diferentes (`objects/warnings.rs:34-64`) continua.
+  - Conferir antes de começar: se um modelo ajustado pode ser gravado e lido em outro modelo (um `ml.save`/`ml.load`
+    ou o `model` gravado num arquivo); se não, entra aqui (o modelo é JSON com os parâmetros e o resumo do treino).
+  - Template "Classify a second scene with the model of the first" (duas `nlm.image`, a segunda mais clara e com uma
+    classe que a primeira não tem: o teste exige o aviso, os objetos novos na classe que faltava e a acurácia melhor
+    depois do `raster.match_histogram`). Testes: o MESS dos objetos igual ao do `sdm.mess` sobre a mesma tabela;
+    histograma casado com os quantis iguais aos da referência.
+
+- **5. As séries temporais por objeto (M/G).** Hoje o `objects.features` (`features.rs`) dá média, desvio, mínimo,
+  máximo e mediana por camada (`per_band` `:713`) e os índices das bandas nomeadas, sem eixo do tempo; o
+  `objects.temporal` (`temporal.rs`) é a matriz de transição de duas datas (Feitosa et al. 2009), não uma série; não
+  há fenologia em lugar nenhum do código; o inspetor (`objects_inspect.rs:286`) não tem gráfico. O uso mais comum do
+  OBIA hoje é mapear lavouras pela série do Sentinel-2.
+  - Um operador `objects.series`: entradas `objects` e `series` (uma pilha, uma camada por data, de um índice ou de
+    uma banda; ou várias pilhas, uma por variável); as datas pelos nomes das camadas (`YYYY-MM-DD` ou `YYYYMMDD` em
+    qualquer parte do nome, como o `data.stac` as escreve; conferir) ou pelo `dates`. Por objeto e data, a média das
+    células com valor (NaN de nuvem fica de fora; a data inteira sai NaN quando menos de `min_share` das células têm
+    valor). Saídas: `objects` com as colunas (grupos `values`: `<var>_<data>`; `phenology`; `harmonics`) e a tabela
+    longa (`id`, `date`, `value`) para o gráfico.
+  - `phenology`: o máximo, o mínimo, a amplitude, o dia do pico, a integral (trapézios no tempo), o início e o fim da
+    estação pelo limiar de uma fração da amplitude (`season_threshold`, padrão 0,5; o método do TIMESAT, Jönsson e
+    Eklundh 2004), a duração, as taxas de subida e de descida; sobre a série alisada (`smooth` `none`, `savgol` de
+    Savitzky e Golay com janela e grau, ou `harmonic`), os buracos de nuvem interpolados só para essas medidas.
+  - `harmonics`: o ajuste por mínimos quadrados de `n` harmônicos (padrão 2) com o período de um ano (Jakubauskas et
+    al. 2001; o mesmo modelo do CCDC sem as quebras): a média, a tendência opcional, a amplitude e a fase de cada
+    harmônico e o RMSE; poucos valores (menos de `2n + 2`) dão NaN.
+  - Os mesmos núcleos para mapas (um `raster.phenology` por célula, em paralelo por linhas) se não custar mais que
+    expor as funções: os objetos e as células com as mesmas contas.
+  - No aplicativo: o inspetor ganha o perfil do objeto escolhido (a série da tabela longa, os pontos de nuvem como
+    buracos) com a faixa das amostras da classe (mediana e intervalo interquartil por data) e um segundo objeto
+    para comparar (Ctrl+clique); no espaço dos atributos, as colunas da fenologia como quaisquer outras.
+  - Template "Crops by their seasons" (objetos de lotes por `nlm.*`, cada classe com a sua curva de NDVI, ruído e
+    datas de nuvem sorteadas; amostras, floresta aleatória sobre a fenologia e os harmônicos; o teste exige a pureza)
+    e uma parte nova da série de tutoriais com uma série real do Sentinel-2 pelo `data.stac`.
+  - Testes: curvas analíticas (um seno dá a amplitude, a fase e o pico exatos; o trapézio de uma reta); o Savitzky e
+    Golay igual ao `scipy.signal.savgol_filter`; os harmônicos iguais ao `numpy.linalg.lstsq`; NaN nas datas de
+    nuvem; 1 e 8 threads com o mesmo resultado; o perfil no inspetor no `--test app`.
+
+- **3. O SAM interativo e os objetos parecidos (G).** O `segment.sam` (`objects/deep.rs`) só tem a grade automática
+  (`SamParams` `:290-308`; `sam_tile` `:320-`: o codificador uma vez por tile, o decodificador em cada ponto, com um
+  ponto positivo e um de preenchimento, `:359-369`), mas o decodificador aceita quaisquer pontos e caixas (é um tensor
+  de coordenadas e rótulos). O `sam_view.rs` é só a janela dos pesos; não há ferramenta de clique para o SAM. O
+  `objects.embed` (`deep.rs:767-832`) dá um vetor por objeto.
+  - O `segment.sam` ganha a entrada `prompts` (um vetor de pontos com a coluna `label`, 1 dentro e 0 fora, e
+    caixas como polígonos, agrupados por `group`; opcional `class`): um objeto por grupo, o codificador só nos tiles
+    que os prompts tocam; sem `prompts`, a grade de hoje. O modelo guarda os prompts, não as máscaras: reproduzível e
+    pequeno, como as amostras.
+  - No Viewer, a ferramenta *SAM* na seção dos objetos: o codificador da janela visível roda num worker (uma vez por
+    janela, de 1 a 3 s na CPU; a barra de estado diz), e cada clique roda só o decodificador (dezenas de ms) e mostra a
+    máscara ao vivo; botão esquerdo dentro, direito fora, arrastar uma caixa; Enter aceita (grava o prompt no vetor do
+    nó num passo de desfazer), Esc descarta. Com uma classe escolhida, o objeto aceito vira também uma amostra.
+  - Patentes (`docs/patents-objects-resolve.md`): os objetos do SAM ficam como um `Objects` próprio; nada de
+    "imprimir" uma segmentação na outra. Juntar com outra segmentação é pela edição manual que já existe
+    (`objects.edit`), feita pela pessoa; conferir o texto antes de oferecer qualquer atalho que combine as duas.
+  - Os objetos parecidos: um operador `objects.similar` (entradas `objects`; `examples`, os ids ou uma tabela de
+    amostras; `columns` padrão os `emb_*` do `objects.embed` quando existem, senão os atributos padronizados;
+    `metric` `cosine` ou `euclidean`; `top` ou `threshold`): a coluna `similarity` e a seleção. No inspetor, *Find
+    similar*: um controle do limiar acende os objetos no mapa ao vivo e *Label all as <classe>* grava as amostras num
+    passo de desfazer, o rotular de muitos com poucos cliques que o eCognition não tem.
+  - Testes: o decodificador com prompts igual ao do SAM de referência em Python (o `segment-anything` com os pesos
+    quantizados, uma vez, guardado em `tests/data/reference`); um prompt fora de um objeto não o inclui; os tiles só
+    onde há prompts; o `objects.similar` cosseno igual ao do numpy; no `--test app`, um clique com o decodificador
+    falso (sem os pesos) grava o prompt e o desfazer o tira.
+
 ## PCA, k-means e SOM para mapas, pilhas e tabelas
 
 Pedido de 2026-11-19: operadores de componentes principais (PCA), k-means e mapas auto-organizáveis (SOM), com o
