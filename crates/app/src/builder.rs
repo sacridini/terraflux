@@ -5665,7 +5665,7 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
             }
             egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
                 if scores {
-                    crate::optimize_view::panel(ui, s, r, &node, salt);
+                    crate::optimize_view::panel(ui, s, r, &node, salt, Some(id.with("chart")));
                 }
                 crate::table_view::show(ui, t, id)
             });

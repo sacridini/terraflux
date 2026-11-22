@@ -706,6 +706,47 @@ pub fn best_value(t: &Table) -> Option<f64> {
     best.map(|b| b.0)
 }
 
+/// The candidate value nearest to `x` (the earliest when two are as near).
+pub fn nearest_value(values: &[f64], x: f64) -> Option<f64> {
+    let mut best: Option<(f64, f64)> = None;
+    for &v in values.iter().filter(|v| v.is_finite()) {
+        let d = (v - x).abs();
+        if best.is_none_or(|b| d < b.1) {
+            best = Some((v, d));
+        }
+    }
+    best.map(|b| b.0)
+}
+
+/// Where the value `v` is on the chart of the scores shown by `table`, at the last frame (on the middle of the plot).
+pub fn score_screen(ctx: &egui::Context, table: egui::Id, v: f64) -> Option<egui::Pos2> {
+    let t: egui_plot::PlotTransform = ctx.data(|d| d.get_temp(table.with("scores transform")))?;
+    let y = t.frame().center().y;
+    Some(egui::pos2(t.position_from_point(&egui_plot::PlotPoint::new(v, 0.0)).x, y))
+}
+
+/// What identifies a scores table: the choice made on its chart is dropped when another run changes it.
+fn scores_sig(t: &Table) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    t.rows.len().hash(&mut h);
+    for r in &t.rows {
+        r.iter().for_each(|v| v.to_bits().hash(&mut h));
+    }
+    h.finish()
+}
+
+/// The value chosen by a click on the chart of the scores `t` shown by the table `table` (none: the best is meant).
+pub fn score_pick(ctx: &egui::Context, table: egui::Id, t: &Table) -> Option<f64> {
+    let (sig, v) = ctx.data(|d| d.get_temp::<(u64, Option<f64>)>(table.with("score pick")))?;
+    (sig == scores_sig(t)).then_some(v).flatten()
+}
+
+/// Choose a value on the chart of the scores `t` (none: back to the best).
+pub fn set_score_pick(ctx: &egui::Context, table: egui::Id, t: &Table, v: Option<f64>) {
+    ctx.data_mut(|d| d.insert_temp(table.with("score pick"), (scores_sig(t), v)));
+}
+
 /// segment.optimize's scores: the objective and the variance and Moran's I scaled 0-1 as the operator scales them
 /// (1 the lowest, the best) against the value, a vertical line at the best, and the objects each value made in a
 /// smaller panel under it.
@@ -720,9 +761,11 @@ fn scores(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
         [("objective", line(&col(4))), ("variance (scaled)", line(&variance)), ("Moran's I (scaled)", line(&moran))];
     let objects: Vec<[f64; 2]> = rows.iter().map(|&i| [t.rows[i][0], t.rows[i][1]]).collect();
     let best = best_value(t);
+    let picked = score_pick(ui.ctx(), id, t);
     let mark = ui.visuals().text_color().gamma_multiply(0.5);
     let w = ui.available_width().clamp(240.0, 640.0);
-    crate::theme::plot(Plot::new(id.with("scores")))
+    let accent = crate::palette::seen(crate::theme::accent());
+    let shown = crate::theme::plot(Plot::new(id.with("scores")))
         .width(w)
         .height(220.0)
         .allow_scroll(false)
@@ -734,13 +777,23 @@ fn scores(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
             if let Some(b) = best {
                 p.vline(VLine::new("best", b).color(mark));
             }
+            if let Some(c) = picked.filter(|c| Some(*c) != best) {
+                p.vline(VLine::new("chosen", c).color(accent).width(2.0));
+            }
             for (k, (label, pts)) in curves.into_iter().enumerate() {
                 let c = colour(k, 3);
                 p.line(Line::new(label, pts.clone()).color(c).width(if k == 0 { 2.5 } else { 1.5 }));
                 p.points(Points::new(label, pts).color(c).radius(3.0));
             }
         });
-    let accent = crate::palette::seen(crate::theme::accent());
+    ui.data_mut(|d| d.insert_temp(id.with("scores transform"), shown.transform));
+    // a click on the chart chooses the value nearest to it (the best again: back to the best)
+    if shown.response.clicked()
+        && let Some(pos) = shown.response.interact_pointer_pos()
+        && let Some(v) = nearest_value(&value, shown.transform.value_from_position(pos).x)
+    {
+        set_score_pick(ui.ctx(), id, t, (Some(v) != best).then_some(v));
+    }
     crate::theme::plot(Plot::new(id.with("scores objects")))
         .width(w)
         .height(100.0)
@@ -752,6 +805,9 @@ fn scores(ui: &mut Ui, t: &Table, rows: &[usize], id: egui::Id) {
             wheel_zoom(p);
             if let Some(b) = best {
                 p.vline(VLine::new("best", b).color(mark));
+            }
+            if let Some(c) = picked.filter(|c| Some(*c) != best) {
+                p.vline(VLine::new("chosen", c).color(accent).width(2.0));
             }
             p.line(Line::new("objects", objects.clone()).color(accent).width(1.5));
             p.points(Points::new("objects", objects).color(accent).radius(2.5));
@@ -1297,6 +1353,17 @@ fn som(ui: &mut Ui, t: &Table, view: SomView, id: egui::Id) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_click_chooses_the_nearest_candidate_value() {
+        let v = [0.5, 1.0, 2.0, f64::NAN, 4.0];
+        assert_eq!(nearest_value(&v, 0.0), Some(0.5));
+        assert_eq!(nearest_value(&v, 1.4), Some(1.0));
+        assert_eq!(nearest_value(&v, 3.1), Some(4.0));
+        assert_eq!(nearest_value(&v, 1.5), Some(1.0));
+        assert_eq!(nearest_value(&[], 1.0), None);
+        assert_eq!(nearest_value(&[f64::NAN], 1.0), None);
+    }
 
     #[test]
     fn groups_and_clustergram() {

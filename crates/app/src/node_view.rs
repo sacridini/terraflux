@@ -508,7 +508,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry) {
     }
     // a segment.optimize that has run: its best value, to apply to a segmenter
     if path.is_empty() && n.op == crate::optimize_view::OP {
-        crate::optimize_view::panel(ui, s, r, &n.id, "node");
+        crate::optimize_view::panel(ui, s, r, &n.id, "node", None);
     }
     // those it needs, those given and the essential ones, then the optional others folded away
     let essentials = terraflux_ops::essentials::essentials(&n.op);

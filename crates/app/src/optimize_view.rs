@@ -55,10 +55,28 @@ fn writes(o: &Node, parameter: &str, value: f64) -> String {
 /// new node of the segmenter connected to the optimize node's image when none is given. The setting varied and the
 /// fixed `params` are written. One step of undo (named by them); the model is put back on an error.
 pub fn apply(s: &mut Session, r: &Registry, node: &str, value: f64, target: Option<&str>) -> Result<String, String> {
+    apply_as(s, r, node, value, target, true)
+}
+
+/// [`apply`] of a value that is the best (`best`) or another one chosen on the chart (the step is named so).
+pub fn apply_as(
+    s: &mut Session,
+    r: &Registry,
+    node: &str,
+    value: f64,
+    target: Option<&str>,
+    best: bool,
+) -> Result<String, String> {
     let before = s.source.clone();
     match write(s, r, node, value, target) {
         Ok((msg, parameter, id)) => {
-            s.history.name(&format!("Best {parameter} of {node}: {value} in {id}"));
+            if best {
+                s.history.name(&format!("Best {parameter} of {node}: {value} in {id}"));
+            } else {
+                let mut name = parameter.chars();
+                let name: String = name.next().into_iter().flat_map(char::to_uppercase).chain(name).collect();
+                s.history.name(&format!("{name} {value} of {node} in {id}"));
+            }
             s.edited();
             Ok(msg)
         }
@@ -118,11 +136,17 @@ fn write(
 }
 
 /// The panel: "best size = 12", where to apply it, and *Apply*. `node` is the optimize node shown; nothing when it
-/// has not run (no best value yet).
-pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry, node: &str, salt: &str) {
+/// has not run (no best value yet). `table` is the id of the table of scores shown beside it (if any): a value chosen
+/// by a click on its chart is the one *Apply* writes ("Chosen: 8", with the best and *Back to the best*).
+pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry, node: &str, salt: &str, table: Option<egui::Id>) {
     let Some(o) = s.source.nodes.iter().find(|n| n.id == node && n.op == OP).cloned() else { return };
     let Some((_, parameter)) = varied(&o) else { return };
     let Some(Value::Number(best)) = s.value_of(node, "value") else { return };
+    let pick = table.zip(s.value_of(node, "scores")).and_then(|(id, t)| match t {
+        Value::Table(t) => crate::charts::score_pick(ui.ctx(), id, &t).map(|v| (id, t, v)),
+        _ => None,
+    });
+    let value = pick.as_ref().map_or(best, |p| p.2);
     let targets = targets(s, node);
     let can_make = matches!(o.inputs.get("image"), Some(Source::Ref(_)));
     // the choice kept between frames: a node's id, or "" for a new node
@@ -134,6 +158,14 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry, node: &str, salt: &str)
     let err_key = key.with("error");
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new(format!("best {parameter} = {best}")).strong());
+        if let Some((id, t, v)) = &pick {
+            ui.label(
+                RichText::new(format!("Chosen: {v}")).strong().color(crate::palette::seen(crate::theme::accent())),
+            );
+            if ui.button("Back to the best").clicked() {
+                crate::charts::set_score_pick(ui.ctx(), *id, t, None);
+            }
+        }
         if targets.is_empty() && !can_make {
             return;
         }
@@ -148,7 +180,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry, node: &str, salt: &str)
         });
         let hint = format!(
             "write {} into {} (one step of undo, in the Changes)",
-            writes(&o, &parameter, best),
+            writes(&o, &parameter, value),
             if chosen.is_empty() {
                 "a new node of the same segmenter, connected to the same image".into()
             } else {
@@ -157,7 +189,7 @@ pub fn panel(ui: &mut Ui, s: &mut Session, r: &Registry, node: &str, salt: &str)
         );
         if ui.button("Apply").on_hover_text(hint).clicked() {
             let to = (!chosen.is_empty()).then_some(chosen.as_str());
-            match apply(s, r, node, best, to) {
+            match apply_as(s, r, node, value, to, pick.is_none()) {
                 Ok(m) => {
                     s.notice = Some((m, Instant::now()));
                     ui.data_mut(|d| d.remove::<String>(err_key));

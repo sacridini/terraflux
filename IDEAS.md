@@ -4481,7 +4481,7 @@ dependências: 6, 2, 1, 4, 3, 7, 5, 8.
   menor; a tabela abre já como o gráfico); `optimize_view.rs` (`panel`, `apply`, `targets`) no ramo das tabelas do
   Viewer e no `node_view.rs`: "best scale = 4", *Apply to:* e *Apply*, grava o valor e os ajustes fixos do `params`
   num segmentador da mesma imagem ou num nó novo, um passo de desfazer. Testes: `charts.rs`, `optimize_view.rs` e
-  `tests/optimize_view.rs`. Não feito: clicar no gráfico para escolher outro valor que não o melhor.
+  `tests/optimize_view.rs`. Feito (2026-11-22): um clique no gráfico escolhe o valor candidato mais perto do ponteiro (`charts::nearest_value`, guardado por tabela e pelo hash dos scores em `score_pick`); o gráfico marca o escolhido com uma segunda linha no destaque, o painel diz "Chosen: v" (com "best" e *Back to the best*) e *Apply* grava o escolhido, num passo de desfazer chamado "<Parâmetro> v of <nó>".
 - **1. A segmentação ao vivo para todos (G).** O worker do `live_segment.rs` (`Request`, `spawn`, só o último pedido,
   `stale`) serve a qualquer pedido: `Job::Multires` (o de hoje, com a curva do ESP) e `Job::Op { op, params, extra }`.
   Uma tabela `knobs(op)` dos sliders (parâmetro, faixa, log, inteiro, unidade em valores ou em células): `size` e

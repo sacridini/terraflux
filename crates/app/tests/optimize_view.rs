@@ -97,3 +97,55 @@ fn the_best_value_of_the_scores_is_applied_to_a_new_node_in_one_step() {
     terraflux_app::builder::undo_redo(s, false);
     assert_eq!(s.source, before);
 }
+
+#[test]
+fn a_value_chosen_on_the_chart_is_the_one_applied_in_one_step() {
+    let mut h = harness("optimize-view-choose");
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &Registry::standard(), "opt");
+    }
+    h.state_mut().focus(terraflux_app::app::Pane::Viewer);
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Enter);
+    until(&mut h, "the run", |h| h.state().session.as_ref().unwrap().outputs.contains_key("opt"));
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let Some(Value::Table(scores)) = s.value_of("opt", "scores") else { panic!("the scores") };
+    let best = charts::best_value(&scores).unwrap();
+    let other = scores.rows.iter().map(|r| r[0]).find(|&v| v != best).unwrap();
+    let before = s.source.clone();
+    h.state_mut().session.as_mut().unwrap().preview = Some(("opt".into(), "scores".into()));
+    h.run_steps(4);
+    until(&mut h, "the chart", |h| h.query_by_label_contains("best scale = ").is_some());
+    let id = egui::Id::new(("table", "viewer", "opt", "scores")).with("chart");
+    until(&mut h, "the chart", |h| charts::score_screen(&h.ctx, id, other).is_some());
+    let at = charts::score_screen(&h.ctx, id, other).unwrap();
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(2);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(3);
+    assert_eq!(charts::score_pick(&h.ctx, id, &scores), Some(other));
+    until(&mut h, "the chosen value", |h| h.query_by_label_contains(&format!("Chosen: {other}")).is_some());
+    assert!(h.query_by_label_contains(&format!("best scale = {best}")).is_some());
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    let n = s.source.nodes.iter().find(|n| n.op == "segment.multiresolution").expect("the new node");
+    assert_eq!(n.params["scale"].as_f64(), Some(other));
+    let s = h.state_mut().session.as_mut().unwrap();
+    terraflux_app::builder::undo_redo(s, false);
+    assert_eq!(s.source, before, "one undo");
+    // back to the best
+    h.get_by_label("Back to the best").click();
+    h.run_steps(3);
+    assert_eq!(charts::score_pick(&h.ctx, id, &scores), None);
+}

@@ -8,6 +8,7 @@ version.
 ## [Unreleased]
 
 ### Added
+- **A click on the chart of a `segment.optimize`'s scores chooses another value than the best** (`crates/app/src/charts.rs`, `crates/app/src/optimize_view.rs`): the candidate value nearest the pointer is marked by a second line, the panel says *Chosen: v* (with the best and *Back to the best*), and *Apply* writes the chosen value in one step of undo. The choice is dropped when another run changes the scores.
 - **The SOM view has a button to the node's map, and a cell clicked again picks its node again** (`crates/app/src/builder.rs`, `crates/app/src/som_link.rs`, `crates/app/src/map_view.rs`): *Show the map of nodes* (*of groups* when the view colours by groups) shows the `nodes` (or `groups`) output of the `ml.som` node in the Viewer in one action; every click on a map's cell counts, so clicking the same cell after picking another node in the view picks that cell's node again.
 
 ## [1.61.0] - 2026-11-21
