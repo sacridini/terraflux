@@ -476,7 +476,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 76] = [
+pub const TEMPLATES: [Template; 77] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -5119,6 +5119,13 @@ params = { title = "Rivers, lakes, roads and buildings" }
         about: "an image cut into objects, many attributes measured, reduced to four principal components, and a random forest trained on a few clicked samples classing the objects by those components alone (the polygons, and the map of the classes)",
     },
     Template {
+        name: "Choose the segmentation by reference objects",
+        group: OBJECTS,
+        toml: "",
+        build: Some(obia_reference),
+        about: "the scale of a segmentation chosen by objects drawn as a reference, not by the variance: segment.optimize measures each scale against reference polygons (made here from the true regions of the drawn image, in their place the polygons you draw in the Viewer) and takes the one of the lowest ED2; the best segmentation measured again, its errors per object",
+    },
+    Template {
         name: "Water by Otsu on the NDWI",
         group: OBJECTS,
         build: None,
@@ -6177,6 +6184,72 @@ params = { title = "The variance of each component" }
         .expect("a template is a model")
 }
 
+/// "Choose the segmentation by reference objects": the scale of a multiresolution segmentation chosen by its ED2
+/// against reference polygons, the true regions of the image (every fourth of them).
+fn obia_reference() -> Model {
+    let text = r#"
+format = "terraflux/1"
+name = "Choose the segmentation by reference objects"
+description = "The scale of a segmentation chosen by objects drawn as a reference. segment.optimize runs the multiresolution segmentation at a range of scales and, with a reference, measures each result against it as segment.evaluate does (Clinton et al. 2010; Liu et al. 2012): its over-segmentation (a reference cut in pieces), its under-segmentation (an object that spans several), and ED2, the distance of the two from a perfect segmentation. The scale with the lowest ED2 wins. Here the image is drawn (nlm.image) of regions known to be there, and the reference is a polygon for every fourth of those regions: in its place, polygons drawn in the Viewer (Draw on the map, Add as reference objects) over the places that matter, 20 to 50 of them, or a vector.read of yours. The best segmentation is measured again by segment.evaluate: its objects have os and us, to draw on the map where it errs (red where a reference was cut, blue where it was swallowed)."
+
+[[nodes]]
+id = "land"
+op = "nlm.mosaic_gibbs"
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+note = "A map of five classes drawn by chance in patches: the regions the image is made of, and so the truth of what a segmentation should find."
+
+[[nodes]]
+id = "image"
+op = "nlm.image"
+inputs = { classes = "land.map" }
+params = { seed = 1 }
+note = "A synthetic image of six bands of the regions, with noise and a blur at the edges. In its place, a raster.read of your image as a stack of its bands."
+data = { what = "a multispectral image, a layer per band", kind = "stack" }
+
+[[nodes]]
+id = "regions"
+op = "segment.from_map"
+inputs = { map = "land.map" }
+note = "The regions of the map as objects, a connected region each: the truth."
+
+[[nodes]]
+id = "region_polygons"
+op = "objects.to_vector"
+inputs = { objects = "regions.objects" }
+note = "The regions as polygons, with their id."
+
+[[nodes]]
+id = "reference"
+op = "vector.filter"
+inputs = { vector = "region_polygons.vector" }
+params = { expression = "id % 4 == 0" }
+note = "A handful of the regions, every fourth: the reference objects. In their place, the polygons you draw in the Viewer over the places that matter (Draw on the map, then Add as reference objects), or a vector.read of polygons."
+why = "A reference is a sample, 20 to 50 objects drawn over the different looks of the image, not a map of it all: the segmentation is judged where it was drawn."
+
+[[nodes]]
+id = "scales"
+op = "segment.optimize"
+inputs = { image = "image.image", reference = "reference.vector" }
+params = { segmenter = "segment.multiresolution", parameter = "scale", from = 2, to = 40, step = 2, objective = "ed2" }
+note = "The segmentation at the scales 2 to 40 in steps of 2, each measured against the reference: the scales table has its os, us, d, ed2 and f_overlap, and the objective column is the ED2 scaled from 1 (the lowest) to 0. The objects are those of the scale of the lowest ED2."
+why = "The variance inside the objects falls as they get smaller, and Moran's I rises: they cannot say which objects are the right ones. A reference can. ED2 joins the over- and the under-segmentation, so a scale that cuts the references in pieces and one that merges them are both worse than the one between."
+refs = ["Clinton et al. 2010", "Liu et al. 2012"]
+
+[[nodes]]
+id = "best"
+op = "segment.evaluate"
+inputs = { objects = "scales.objects", reference = "reference.vector" }
+note = "The best segmentation measured again: the summary has its numbers, and the objects output its os and us, which the Viewer draws over the map (Show where it errs)."
+
+[[nodes]]
+id = "plot"
+op = "view.plot"
+inputs = { table = "scales.scores" }
+params = { title = "The scales: the objective (ED2 scaled), the variance and Moran's I" }
+"#;
+    Model::from_toml(text).expect("a template is a model")
+}
+
 /// The class hierarchy of the rules template: water, vegetation (forest, grassland) and the rest (cropland, urban),
 /// from the signatures of nlm.image's classes.
 const OBIA_HIERARCHY: &str = r##"[
@@ -6681,6 +6754,28 @@ mod tests {
         assert!(["pc1", "pc2", "pc3", "pc4", "mean_nir"].iter().all(|c| train.columns.iter().any(|t| t == c)));
         let Some(Value::Table(ex)) = out.get("pca.explained") else { panic!("no explained") };
         assert!(ex.rows.len() >= 20, "{} components", ex.rows.len());
+
+        // the scale chosen by the reference: the lowest ED2 of the scales, not at either end, and the objects of the
+        // true regions' number, near
+        let out = run("Choose the segmentation by reference objects");
+        let Some(Value::Table(sc)) = out.get("scales.scores") else { panic!("no scores") };
+        let Some(Value::Number(best)) = out.get("scales.value") else { panic!("no value") };
+        let (at, ed2) = (sc.column("value").unwrap(), sc.column("ed2").unwrap());
+        let (lowest, _) = at.iter().zip(&ed2).fold((f64::NAN, f64::INFINITY), |b, (&v, &e)| if e < b.1 { (v, e) } else { b });
+        println!("reference: best scale {best}, ed2 {ed2:.3?}");
+        assert_eq!(*best, lowest, "the scale chosen is the one of the lowest ED2");
+        assert!(*best > at[0] && *best < at[at.len() - 1], "{best} at an end of {at:?}");
+        let regions = objects(&out, "regions.objects").count as f64;
+        let chosen = objects(&out, "scales.objects").count as f64;
+        let near = |n: f64| (n / regions).max(regions / n);
+        println!("reference: {chosen} objects for {regions} regions");
+        assert!(near(chosen) < 3.0, "{chosen} objects for {regions} regions");
+        let k = at.iter().position(|v| v == best).unwrap();
+        assert!(ed2[k] < ed2[0] && ed2[k] < ed2[at.len() - 1] && ed2[k] < 0.5 * ed2[0].max(ed2[at.len() - 1]), "{ed2:?}");
+        let Some(Value::Table(sm)) = out.get("best.summary") else { panic!("no summary") };
+        assert!((sm.column("ed2").unwrap()[0] - ed2[k]).abs() < 1e-12);
+        let Some(Value::Objects(marked)) = out.get("best.objects") else { panic!("no objects") };
+        assert!(marked.table.column("os").is_some() && marked.table.column("us").is_some());
 
         // water by Otsu on the NDWI: the water class (1) is the drawn water (1)
         let out = run("Water by Otsu on the NDWI");

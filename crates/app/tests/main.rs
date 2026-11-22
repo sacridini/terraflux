@@ -17,6 +17,7 @@ mod objects_view;
 mod objects_viewer;
 mod optimize_view;
 mod prepare;
+mod reference_view;
 mod sam_first_time;
 mod segment_compare;
 mod som_view;

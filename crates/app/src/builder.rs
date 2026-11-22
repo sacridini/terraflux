@@ -5110,7 +5110,15 @@ fn attributes(ui: &mut Ui, d: &mut crate::draw::Sketch, salt: &str) {
     }
 }
 
-fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid: &terraflux_raster::Grid, salt: &str) {
+fn draw_section(
+    ui: &mut Ui,
+    s: &mut Session,
+    r: &Registry,
+    sh: &mut Shown,
+    grid: &terraflux_raster::Grid,
+    objects: Option<&(String, String)>,
+    salt: &str,
+) {
     use crate::draw::{Kind, Sketch};
     theme::section(ui, "Draw on the map");
     ui.horizontal_wrapped(|ui| {
@@ -5167,11 +5175,21 @@ fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid
     let name: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect();
     ui.data_mut(|m| m.insert_temp(id, name.clone()));
     let area = matches!(d.kind, Kind::Polygon | Kind::Rectangle);
-    let (add, fetch) = ui
+    let (add, fetch, reference) = ui
         .horizontal(|ui| {
             let add = ui
                 .add_enabled(n > 0 && !name.is_empty(), egui::Button::new("Add to the model"))
                 .on_hover_text("written as a GeoPackage beside the model (drawn/), read by a vector.read node");
+            // (the objects shown measured against what is drawn: a polygon is a reference object)
+            let reference = area
+                && objects.is_some()
+                && ui
+                    .add_enabled(n > 0 && !name.is_empty(), egui::Button::new("Add as reference objects"))
+                    .on_hover_text(
+                        "the polygons are the reference of the objects shown: a segment.evaluate measures them against it \
+                         (one step of undo)",
+                    )
+                    .clicked();
             let fetch = area
                 && ui
                     .add_enabled(n > 0 && !name.is_empty(), egui::Button::new("Add, and data for it..."))
@@ -5179,10 +5197,10 @@ fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid
                         "added, then the data catalog opened to download data cut to it (no data outside the area)",
                     )
                     .clicked();
-            (add.clicked(), fetch)
+            (add.clicked(), fetch, reference)
         })
         .inner;
-    if !add && !fetch {
+    if !add && !fetch && !reference {
         return;
     }
     // beside the model (a name not taken), or where asked when it is not saved yet
@@ -5203,7 +5221,10 @@ fn draw_section(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, grid
             .save_file(),
     };
     let Some(path) = path else { return };
-    let result = crate::draw::write(d, grid, &path).and_then(|()| add_file(s, r, &path, None));
+    let result = crate::draw::write(d, grid, &path).and_then(|()| match (reference, objects) {
+        (true, Some(key)) => crate::reference_link::add(s, r, key, &path),
+        _ => add_file(s, r, &path, None),
+    });
     match result {
         Ok(node) => {
             s.notice = Some((
@@ -5837,6 +5858,8 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     rasters.extend(crate::som_link::layers(ui.ctx(), s, &node, &port));
     // (the cell picked in an objects.accuracy's confusion matrix, lit on the objects it judges)
     rasters.extend(crate::confusion_link::layers(ui.ctx(), s, &node, &port));
+    // (where a segment.evaluate of the objects shown says they err, os less us)
+    rasters.extend(crate::reference_link::layers(ui.ctx(), s, &node, &port));
     if let Some(e) = s.view_vectors.take_error() {
         s.editor.message = Some(e);
     }
@@ -6436,7 +6459,12 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     sh.compare.with = None;
                 }
                 ui.add_space(8.0);
-                draw_section(ui, s, r, sh, maps[k].grid(), salt);
+                // the objects shown: their reference objects (the numbers of their evaluation, their errors on the map)
+                let reference_key = active.as_ref().map(|a| a.key.clone());
+                if let Some(key) = &reference_key {
+                    crate::reference_link::section(ui, s, r, key);
+                }
+                draw_section(ui, s, r, sh, maps[k].grid(), reference_key.as_ref(), salt);
             });
         });
     // the layers, in a panel of their own at the map's left (its button in the header hides it)

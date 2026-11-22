@@ -1050,6 +1050,16 @@
       "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/toy.csv",
       "/data/tutorials/object-based-image-analysis/roads-and-rivers-by-the-skeleton/toy_spur.csv"
      ]
+    },
+    {
+     "slug": "measuring-against-reference-objects",
+     "title": "Measuring a segmentation against reference objects",
+     "template": "Choose the segmentation by reference objects",
+     "models": [],
+     "files": [
+      "/data/tutorials/object-based-image-analysis/measuring-against-reference-objects/pairs_best.csv",
+      "/data/tutorials/object-based-image-analysis/measuring-against-reference-objects/scores.csv"
+     ]
     }
    ]
   },

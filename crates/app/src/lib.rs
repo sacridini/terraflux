@@ -106,6 +106,7 @@ pub mod sens_methods;
 pub mod series_drop;
 pub mod settings;
 pub mod shade;
+pub mod reference_link;
 pub mod som_link;
 pub mod stale;
 pub mod start_page;

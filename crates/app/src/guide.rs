@@ -382,7 +382,11 @@ Moran's I (USPO), the table of scores beside it. To judge a segmentation by obje
 (under-segmentation: an object spanning several), d, qr, afi, precision, recall, f_overlap and ed2 (the numbers of \
 the R package segmetric, but pse, nsr and ed2, which are Liu et al. 2012's), a row per pair in `table` and the os \
 and us of each object in `objects`, to paint on the map; give the same reference to segment.optimize as \
-`reference` and its objective d, ed2 or f_overlap chooses the value that matches what was drawn.
+`reference` and its objective d, ed2 or f_overlap chooses the value that matches what was drawn. In the application the polygons are drawn on the map \
+(Draw on the map, then Add as reference objects): a vector.read of them and a segment.evaluate of the objects shown \
+are made in one step, the Viewer shows the numbers (ED2, D, F) and, with Show where it errs, each object coloured by \
+os less us (red: the reference was cut; blue: the object holds what is outside it). Template: Choose the \
+segmentation by reference objects.
    Touching objects (crowns, buildings, cells) are divided by objects.split: by the distance to the object's border (the cut is at the neck) or by a surface whose peaks are the centres (a height model); `h`, `min_size` and `max_neck` decide how many pieces it makes, `classes` which objects it works on. The pieces keep the class.
    Objects grown, shrunk and smoothed cell by cell (eCognition's pixel-based resizing, morphology and border optimization) are objects.resize: `mode` grow, shrink, open, close, fill, smooth or refine, by `distance` (map units) or `steps` (cells); a `mask` (from raster.calc) or `into` (classes whose cells may be taken) makes growth geodesic, `max_hole` limits fill, refine needs the `image`. An object cut in two by shrink or open becomes two objects of its class.
    Objects cut too finely (a building in pieces) are joined by objects.fuse (eCognition's image object fusion): a seed takes a neighbour only when the object they make is good by `fitting`, an expression over the joined object (compactness with goal min, shape_index, length_width, mean_<band> and sd_<band> with the `image`); `improve` asks it to be as good as the seed's own value, `threshold` that it reach a value, `seeds` and `candidates` are class names, mode best or all, and it repeats up to `max_passes`. The result has the seed's class; texture, skeleton and context features cannot be derived for the joined object and are refused.
@@ -422,7 +426,7 @@ where the model hesitates: put samples there). A map of the objects' classes is 
 counted or measured), then vector.write.
 Templates: \"Classify an image by clicking samples\" (the main one), \"Classify an image by rules\", \
 \"Segment an image into polygons\", \"Land cover change by objects\", \
-\"Trees and buildings from a height model\", \"Classes by parcel\", \"Separate tree crowns\", \"Roads and rivers by the skeleton\", \"Unsupervised classes of objects\", \"Classify objects by principal components of their attributes\", \"Water by Otsu on the NDWI\", \
+\"Trees and buildings from a height model\", \"Classes by parcel\", \"Separate tree crowns\", \"Roads and rivers by the skeleton\", \"Unsupervised classes of objects\", \"Classify objects by principal components of their attributes\", \"Choose the segmentation by reference objects\", \"Water by Otsu on the NDWI\", \
 \"The scale chosen by itself\". Each draws its image (nlm.image): put the user's in its place with \
 Use my data (the node marked as data).
 The prompt \"classify this image into water, forest and city\": new_model from the samples template; replace the \

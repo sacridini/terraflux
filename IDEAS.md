@@ -4920,7 +4920,17 @@ Referências conferidas no Crossref antes de entrar no `methods.rs`.
     sobreposição; PSE as células deles fora da referência sobre as da referência; NSR |m - v| / m; ED2 a raiz da soma dos quadrados), sem
     referência para conferir. O Weidner 2008 não tem DOI no Crossref (os dados do artigo vêm de memória). Nas propriedades, "cortar cada referência
     em dois sobe o US e não o OS" vale quando o que se corta é a referência (cada objeto passa a ter duas); cortar a segmentação sobe o OS.
-  - No aplicativo: na seção dos objetos, *Draw reference objects* desenha polígonos com a ferramenta de desenho do
+  - **Feito (2026-11-22), a parte do aplicativo**: `reference_link.rs`. Em *Draw on the map*, com objetos no Viewer e polígonos desenhados, o botão
+    *Add as reference objects* grava o GeoPackage (`drawn/`) e faz, num só passo de desfazer, um `vector.read` e um `segment.evaluate` dos
+    objetos mostrados (se já há um `segment.evaluate` desses objetos, o leitor é trocado); o painel *Reference objects* mostra ED2, D, F, OS e US,
+    a caixa *Show where it errs* acende uma camada divergente de `os - us` por objeto (vermelho: a referência foi cortada; azul: o objeto engoliu o que
+    está fora) com legenda, e oferece *Use as the reference of <optimize>* para cada `segment.optimize` sem referência (um passo de desfazer). Template
+    "Choose the segmentation by reference objects" (a `nlm.image` com as regiões verdadeiras, um polígono para cada quarta região, `segment.optimize` de 2 a 40
+    de 2 em 2 com o objetivo `ed2`: escolhe 14, com 8 objetos para 15 regiões, e o ED2 mínimo). Parte 20 da série de tutoriais, "Measuring a segmentation
+    against reference objects", com doze polígonos desenhados à mão sobre o recorte do Sentinel-2: o ED2 escolhe a escala 6 (313 objetos), o D mínimo fica em 8 e o
+    USPO sem referência em 1,5. As figuras do `website/figures/object-based-image-analysis/measuring-against-reference-objects.py`, com o `terraflux` de release do worktree.
+    Os avisos `unknown operator [[segment.evaluate]]` do `build.py --check` somem quando o `website/data/ops.json` for refeito no release.
+  - No aplicativo, como estava planejado: na seção dos objetos, *Draw reference objects* desenha polígonos com a ferramenta de desenho do
     Viewer (os atributos do desenho já ficam no modelo) e liga ao `segment.evaluate` num passo de desfazer; a
     camada `os`/`us` com a rampa divergente (vermelho onde a referência foi cortada, azul onde foi engolida).
   - Template "Choose the segmentation by reference objects" (a `nlm.image` com polígonos de referência feitos dos
