@@ -4412,8 +4412,14 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    | multiresolution, tiles de 512, 8 threads | 0,96 | 0,92 | 3,35 | 2,90 |
 
    Falta: o que segue sequencial domina com 8 threads (a fila do SNIC, o union-find do Felzenszwalb, o flood e os
-   mínimos do watershed); com `compactness` 0 o flood pode usar uma fila de baldes (exata, mais rápida que o heap); a
+   mínimos do watershed); a
    costura do multiresolution (`from_source` e a preparação dos rótulos, uns 6% com 8 threads) ainda num só thread.
+   Feito: com `compactness` 0 o flood do watershed usa uma fila de baldes (um balde por valor distinto do gradiente, em
+   ordem de chegada, achados por um bitmap de três níveis; o rótulo vai no enfileiramento e cada célula entra uma vez),
+   com os mesmos rótulos do heap (mesmos hashes no bench e um teste com gradientes cheios de empates), e a ordenação do
+   gradiente é feita uma vez para os mínimos e para o flood. Watershed 1000² / 2000² (1 / 8 threads, mediana de 4
+   rodadas alternadas): 0,36 / 0,25 s e 1,67 / 1,19 s antes; 0,27 / 0,16 s e 1,32 / 0,96 s depois. O flood de 2000² em
+   1 thread foi de uns 0,9 s para 0,35 s; o que resta de sequencial é o suavizado, a ordenação e o union-find dos mínimos.
 9. Depois, o bloco seguinte do PCA, do k-means e do SOM (abaixo).
 
 ### Qualidade de vida do OBIA (pedido de 2026-11-19)

@@ -91,12 +91,22 @@ fn around_at(i: usize, r: usize, c: usize, w: usize, h: usize, eight: bool, out:
 /// of the meeting less its minimum. Each area cut off by cells without a value keeps its lowest minimum whatever its
 /// depth. The marker of a minimum is its cells at its lowest value (a plateau is one marker).
 pub(super) fn minima(p: &Prep, grad: &[f64], eight: bool, h: f64) -> Vec<Vec<usize>> {
-    let (w, hh) = (p.w, p.h);
-    let n = w * hh;
+    minima_in(p, &order_of(p, grad), eight, h)
+}
+
+/// The cells with a value, from the lowest gradient up (the ties by index): (the gradient's bits, the cell).
+pub(super) fn order_of(p: &Prep, grad: &[f64]) -> Vec<(u64, u32)> {
     let mut order: Vec<(u64, u32)> =
-        (0..n).into_par_iter().filter(|&i| p.valid[i]).map(|i| (grad[i].to_bits(), i as u32)).collect();
+        (0..p.w * p.h).into_par_iter().filter(|&i| p.valid[i]).map(|i| (grad[i].to_bits(), i as u32)).collect();
     // (the gradient is never negative, so its bits sort as the values)
     order.par_sort_unstable();
+    order
+}
+
+/// [`minima`] with the cells in the order of [`order_of`] already.
+pub(super) fn minima_in(p: &Prep, order: &[(u64, u32)], eight: bool, h: f64) -> Vec<Vec<usize>> {
+    let (w, hh) = (p.w, p.h);
+    let n = w * hh;
     let mut parent: Vec<u32> = Vec::new();
     let mut low: Vec<f64> = Vec::new();
     let mut depth: Vec<f64> = Vec::new();
@@ -200,6 +210,205 @@ fn given(p: &Prep, m: &[f64]) -> Vec<Vec<usize>> {
 /// that touch a labelled one, the gradient plus `compact` times its distance to the centre of the marker it would
 /// join, ties to the cell queued first. Returns the label of each cell (0 none).
 pub(super) fn flood(p: &Prep, grad: &[f64], markers: &[Vec<usize>], eight: bool, compact: f64) -> Vec<u32> {
+    if compact > 0.0 {
+        flood_heap(p, grad, markers, eight, compact)
+    } else {
+        flood_buckets(p, &order_of(p, grad), markers, eight)
+    }
+}
+
+/// [`flood`] with the cells in the order of [`order_of`] already.
+pub(super) fn flood_in(
+    p: &Prep,
+    grad: &[f64],
+    order: &[(u64, u32)],
+    markers: &[Vec<usize>],
+    eight: bool,
+    compact: f64,
+) -> Vec<u32> {
+    if compact > 0.0 { flood_heap(p, grad, markers, eight, compact) } else { flood_buckets(p, order, markers, eight) }
+}
+
+const NONE: u32 = u32::MAX;
+
+/// What the bucket flooding keeps of a cell, side by side (it reads them together, a cell at a time): its label (0 not
+/// yet, `NONE` no value), the bucket it goes in and the cell after it in that bucket.
+#[derive(Clone, Copy)]
+struct Slot {
+    lab: u32,
+    rank: u32,
+    next: u32,
+}
+
+/// A queue of cells in buckets, one a distinct priority (in order), each bucket a list in the order the cells went in;
+/// a cell goes in once. `marks` tell the buckets that are not empty (a bit each, and above them a bit for each word
+/// that has one set, and so on up to one word), so that the lowest is found in a few steps; `at` is at or below it.
+struct Buckets {
+    // per bucket: the first cell and the last
+    ends: Vec<[u32; 2]>,
+    marks: Vec<Vec<u64>>,
+    at: usize,
+}
+
+impl Buckets {
+    fn new(buckets: usize) -> Buckets {
+        let mut marks = Vec::new();
+        let mut n = buckets;
+        loop {
+            let words = n.div_ceil(64).max(1);
+            marks.push(vec![0u64; words]);
+            if words == 1 {
+                break;
+            }
+            n = words;
+        }
+        Buckets { ends: vec![[NONE; 2]; buckets], marks, at: usize::MAX }
+    }
+
+    #[inline]
+    fn push(&mut self, slots: &mut [Slot], cell: u32) {
+        let b = slots[cell as usize].rank as usize;
+        let e = &mut self.ends[b];
+        if e[1] == NONE {
+            *e = [cell, cell];
+            self.mark(b);
+        } else {
+            slots[e[1] as usize].next = cell;
+            e[1] = cell;
+        }
+        // (a priority lower than the last one out is fine: the search starts again from it)
+        self.at = self.at.min(b);
+    }
+
+    #[inline]
+    fn mark(&mut self, mut b: usize) {
+        for level in self.marks.iter_mut() {
+            let was = level[b / 64];
+            level[b / 64] = was | 1 << (b % 64);
+            if was != 0 {
+                break;
+            }
+            b /= 64;
+        }
+    }
+
+    #[inline]
+    fn unmark(&mut self, mut b: usize) {
+        for level in self.marks.iter_mut() {
+            level[b / 64] &= !(1 << (b % 64));
+            if level[b / 64] != 0 {
+                break;
+            }
+            b /= 64;
+        }
+    }
+
+    /// The lowest bucket not empty at or after `from`.
+    #[inline]
+    fn lowest(&self, from: usize) -> Option<usize> {
+        let (mut l, mut pos) = (0, from);
+        // up to a level with a bit set at or after the position
+        loop {
+            let m = *self.marks[l].get(pos / 64)? & (u64::MAX << (pos % 64));
+            if m != 0 {
+                pos = pos / 64 * 64 + m.trailing_zeros() as usize;
+                break;
+            }
+            pos = pos / 64 + 1;
+            l += 1;
+            if l == self.marks.len() {
+                return None;
+            }
+        }
+        // and down to the bucket
+        while l > 0 {
+            l -= 1;
+            pos = pos * 64 + self.marks[l][pos].trailing_zeros() as usize;
+        }
+        Some(pos)
+    }
+
+    /// The first cell of the lowest bucket, taken out.
+    #[inline]
+    fn pop(&mut self, slots: &[Slot]) -> Option<u32> {
+        let b = self.lowest(self.at)?;
+        self.at = b;
+        let e = &mut self.ends[b];
+        let cell = e[0];
+        let nx = slots[cell as usize].next;
+        if nx == NONE {
+            *e = [NONE; 2];
+            self.unmark(b);
+        } else {
+            e[0] = nx;
+        }
+        Some(cell)
+    }
+
+    /// The cell that comes out next if nothing goes in lower (a guess, to fetch its memory).
+    #[inline]
+    fn peek(&self) -> Option<u32> {
+        let b = self.lowest(self.at)?;
+        Some(self.ends[b][0])
+    }
+}
+
+/// [`flood`] with no compactness: the priority of a cell is its gradient, whichever marker reaches it, and it is
+/// queued once, so the label goes on at the queueing and the queue is one bucket a distinct gradient (no sorting of
+/// the queue, no heap). The same labels as the heap's, as a cell comes out by (gradient, the order it went in).
+fn flood_buckets(p: &Prep, order: &[(u64, u32)], markers: &[Vec<usize>], eight: bool) -> Vec<u32> {
+    let (w, h) = (p.w, p.h);
+    let n = w * h;
+    assert!(n < 1 << 28, "segment.watershed: an image of more than 2^28 cells");
+    let mut slots: Vec<Slot> =
+        (0..n).into_par_iter().map(|i| Slot { lab: if p.valid[i] { 0 } else { NONE }, rank: 0, next: NONE }).collect();
+    // the bucket of each cell with a value: the rank of its gradient among the distinct ones
+    let mut count = 0usize;
+    let mut last = u64::MAX;
+    for &(bits, i) in order {
+        if bits != last {
+            count += 1;
+            last = bits;
+        }
+        slots[i as usize].rank = count as u32 - 1;
+    }
+    for (k, m) in markers.iter().enumerate() {
+        for &i in m {
+            slots[i].lab = k as u32 + 1;
+        }
+    }
+    let mut q = Buckets::new(count);
+    let mut nb = [0usize; 8];
+    let mut put = |i: usize, k: u32, slots: &mut [Slot], q: &mut Buckets| {
+        let k8 = around_at(i, i / w, i % w, w, h, eight, &mut nb);
+        for &j in &nb[..k8] {
+            if slots[j].lab == 0 {
+                slots[j].lab = k;
+                q.push(slots, j as u32);
+            }
+        }
+    };
+    for (k, m) in markers.iter().enumerate() {
+        for &i in m {
+            put(i, k as u32 + 1, &mut slots, &mut q);
+        }
+    }
+    while let Some(j) = q.pop(&slots) {
+        // (the cell to come out after this one: its surroundings are fetched meanwhile)
+        if let Some(x) = q.peek() {
+            let x = x as usize;
+            prefetch(slots.as_ptr().wrapping_add(x));
+            prefetch(slots.as_ptr().wrapping_add(x).wrapping_sub(w));
+            prefetch(slots.as_ptr().wrapping_add(x + w));
+        }
+        let j = j as usize;
+        put(j, slots[j].lab, &mut slots, &mut q);
+    }
+    slots.par_iter().map(|s| if s.lab == NONE { 0 } else { s.lab }).collect()
+}
+
+/// [`flood`] by the heap (any compactness; the buckets do for 0).
+pub(super) fn flood_heap(p: &Prep, grad: &[f64], markers: &[Vec<usize>], eight: bool, compact: f64) -> Vec<u32> {
     let (w, h) = (p.w, p.h);
     // the queue numbers its pushes in 32 bits, at most 8 a cell (`run` refuses bigger images)
     assert!(w * h < 1 << 28, "segment.watershed: an image of more than 2^28 cells");
@@ -373,6 +582,8 @@ impl Operator for Watershed {
         }
         let grad = gradient(&p);
         let eight = nbs == 8;
+        // (the cells by gradient: the markers found and the flooding without compactness both go by it)
+        let order = (compact == 0.0 || args.get("markers").is_none()).then(|| order_of(&p, &grad));
         let markers = match args.get("markers") {
             Some(Value::Map(m)) => {
                 if !m.grid.same_as(&l.grid) {
@@ -386,10 +597,13 @@ impl Operator for Watershed {
                     .filter(|&i| p.valid[i])
                     .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), i| (a.min(grad[i]), b.max(grad[i])));
                 let h = hp.unwrap_or(if lo <= hi { 0.05 * (hi - lo) } else { 0.0 });
-                minima(&p, &grad, eight, h)
+                minima_in(&p, order.as_deref().unwrap_or_default(), eight, h)
             }
         };
-        let lab = flood(&p, &grad, &markers, eight, compact);
+        let lab = match order.as_deref() {
+            Some(o) => flood_in(&p, &grad, o, &markers, eight, compact),
+            None => flood_heap(&p, &grad, &markers, eight, compact),
+        };
         let region: Vec<u64> = (0..p.w * p.h)
             .map(|i| match (p.valid[i], lab[i]) {
                 (false, _) => NO_REGION,
@@ -398,5 +612,37 @@ impl Operator for Watershed {
             })
             .collect();
         finish(args, &l, &region)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bucket queue gives the heap's labels, on gradients with many ties and cells without a value.
+    #[test]
+    fn the_buckets_flood_as_the_heap_does() {
+        for (seed, levels) in [(1u64, 3u64), (2, 6), (3, 40), (4, 1_000_000)] {
+            let (w, h) = (53, 41);
+            let mut s = seed;
+            let mut rnd = move || {
+                s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                s >> 33
+            };
+            let valid: Vec<bool> = (0..w * h).map(|_| rnd() % 11 != 0).collect();
+            let grad: Vec<f64> = (0..w * h).map(|_| (rnd() % levels) as f64 / 4.0).collect();
+            let p = Prep { w, h, nb: 1, valid, x: Vec::new() };
+            for eight in [false, true] {
+                let order = order_of(&p, &grad);
+                for hh in [0.0, 0.5] {
+                    let markers = minima_in(&p, &order, eight, hh);
+                    assert!(!markers.is_empty());
+                    let a = flood_heap(&p, &grad, &markers, eight, 0.0);
+                    let b = flood_buckets(&p, &order, &markers, eight);
+                    assert_eq!(a, b, "seed {seed}, levels {levels}, eight {eight}, h {hh}");
+                    assert_eq!(a, flood(&p, &grad, &markers, eight, 0.0));
+                }
+            }
+        }
     }
 }
