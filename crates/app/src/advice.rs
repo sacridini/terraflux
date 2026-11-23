@@ -767,6 +767,21 @@ fn movement_advice(nodes: &[&Node], inputs: Option<&BTreeMap<String, Value>>) ->
             });
         }
     }
+    // every step of a simulated path draws n_control candidates (a million by default, amt's)
+    for n in nodes.iter().copied().filter(|n| n.op == "move.simulate_path") {
+        let steps = number_of(n, "n_steps").unwrap_or(100.0) * number_of(n, "n_paths").unwrap_or(1.0);
+        let draws = number_of(n, "n_control").unwrap_or(1.0e6) * steps;
+        if draws >= 1.0e8 {
+            out.push(Advice {
+                level: Level::Advice,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "the paths draw about {draws:.1e} candidate steps (n_control for every step of every path), which                      takes minutes to hours: a few thousand candidates (n_control 5000) are enough to try the model;                      raise it for the final run"
+                ),
+                guide: "movement",
+            });
+        }
+    }
     for n in nodes.iter().copied().filter(|n| n.op == "move.flag_speed") {
         let (v_max, mass, mode) = (given(n, "v_max"), given(n, "mass"), given(n, "mode"));
         if !v_max && !(mass && mode) {
@@ -1396,6 +1411,17 @@ mod tests {
         assert!(said(&a, Level::Advice, "restarts for each track"), "{a:?}");
         let a = movement(vec![fit().param("formula", "case_ ~ elev + strata(stratum_)")], None);
         assert!(!said(&a, Level::Advice, "restarts for each track"), "{a:?}");
+    }
+
+    #[test]
+    fn a_simulation_of_many_candidates_is_told() {
+        let sim = || Node::new("sim", "move.simulate_path").input("model", "$model");
+        let a = movement(vec![sim()], None);
+        assert!(said(&a, Level::Advice, "candidate steps"), "{a:?}");
+        let a = movement(vec![sim().param("n_control", 5000)], None);
+        assert!(!said(&a, Level::Advice, "candidate steps"), "{a:?}");
+        let a = movement(vec![sim().param("n_control", 100000).param("n_paths", 200)], None);
+        assert!(said(&a, Level::Advice, "candidate steps"), "{a:?}");
     }
 
     /// The movement templates follow the advice they give: nothing is told of them.

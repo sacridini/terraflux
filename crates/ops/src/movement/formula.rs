@@ -709,7 +709,7 @@ pub fn column<'a>(df: &'a Frame, name: &str) -> Res<&'a Col> {
 }
 
 /// The values of an arithmetic expression, one per row.
-fn arith(node: &Node, df: &Frame, n: usize) -> Res<Vec<f64>> {
+pub fn arith(node: &Node, df: &Frame, n: usize) -> Res<Vec<f64>> {
     match node {
         Node::Num(v) => Ok(vec![*v; n]),
         Node::Paren(e) | Node::Pos(e) => arith(e, df, n),
@@ -781,7 +781,7 @@ fn level_repr(l: &Level) -> String {
 }
 
 /// The 0-based level of each value, -1 for a missing one; a value that is none of the levels is an error.
-fn codes_of(raw: &Col, levels: &[Level], label: &str) -> Res<Vec<i64>> {
+pub fn codes_of(raw: &Col, levels: &[Level], label: &str) -> Res<Vec<i64>> {
     let mut out = Vec::with_capacity(raw.len());
     let mut new: Vec<Level> = Vec::new();
     for i in 0..raw.len() {
@@ -809,7 +809,7 @@ fn codes_of(raw: &Col, levels: &[Level], label: &str) -> Res<Vec<i64>> {
 }
 
 /// The values a factor() is made of: a column as it is, or the values of an expression.
-fn raw_of(node: &Node, df: &Frame, n: usize) -> Res<Col> {
+pub fn raw_of(node: &Node, df: &Frame, n: usize) -> Res<Col> {
     match node {
         Node::Name(name) => Ok(column(df, name)?.clone()),
         Node::Paren(e) => raw_of(e, df, n),

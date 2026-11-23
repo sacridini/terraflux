@@ -835,6 +835,10 @@ const PHRASES: &[(&str, &str)] = &[
          flagged.",
     ),
     (
+        "move.issf_model",
+        "A step selection model from the coefficients {coefficients}, to draw candidate steps from <sl_distr> and          <ta_distr>.",
+    ),
+    (
         "move.log_rss",
         "The log relative selection strength of the covariates x1 against x2 under <model>[, with a {ci} interval \
          at {level}].",
@@ -845,6 +849,7 @@ const PHRASES: &[(&str, &str)] = &[
     ),
     ("move.max_speed", "The maximum speed of a {mass} kg animal ({mode}), from Hirt et al.'s scaling law."),
     ("move.nsd", "The net squared displacement of each location of <tracks> from the first of its track."),
+    ("move.path_density", "The share of the positions of <paths> in each cell of <like>[, one band for each {by}]."),
     ("move.random_numbers", "{n} draws of the distribution <distribution>; seed {seed}."),
     (
         "move.random_steps",
@@ -852,8 +857,16 @@ const PHRASES: &[(&str, &str)] = &[
          <ta_distr>]; seed {seed}.",
     ),
     ("move.resample", "The locations of <tracks> resampled every {rate}, tolerance {tolerance}, in bursts."),
+    (
+        "move.resistance",
+        "A resistance surface (transform {transform}) from the habitat terms of <model> over the covariates.",
+    ),
     ("move.segments", "The steps of <tracks> as lines."),
     ("move.simulate_brownian", "{tracks} tracks of Brownian motion, diffusion {sigma}; seed {seed}."),
+    (
+        "move.simulate_path",
+        "{n_paths} path(s) of {n_steps} steps simulated from <model> over the covariates, {n_control} candidate steps          each; seed {seed}.",
+    ),
     ("move.speed", "The speed of each step of <tracks>[, in {units}]."),
     ("move.steps", "The steps between consecutive locations of <tracks>: their length, direction and turn angle."),
     (

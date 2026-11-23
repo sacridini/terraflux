@@ -10,8 +10,9 @@ interpolation, projection and Brownian tracks, amt's steps, bursts, summaries, f
 of day and covariates, the cleaning and thinning, the values along the steps, the corridors and the distances between
 UDs, amt's home ranges (MCP, KDE with its bandwidths, LoCoH, isopleths, UDs, overlaps) and the dynamic Brownian
 bridges (the dBBMM and the dBGB: variances, distributions, volumes, outer probabilities, window suggestions, masks)
-the length of steps on the relief (surface_distance) and the step selection functions (fit_issf and log_rss).
-`--only-relief` and `--only-issf` add just those keys to the files written.
+the length of steps on the relief (surface_distance), the step selection functions (fit_issf and log_rss) and
+the simulation from a step selection model (make_issf_model, simulate_path, resistance, path_density).
+`--only-relief`, `--only-issf` and `--only-sim` add just those keys to the files written.
 """
 
 from __future__ import annotations
@@ -996,6 +997,169 @@ def issf_reference(out: dict, meta: dict) -> None:
         meta["issf"]["cases"]["fishers_id"]["names"] = issf_put(out, "issf/fishers_id", M.fit_issf(rs, f2))
 
 
+SIM_DT = {"1h": 3600.0, "15min": 900.0, "2h": 7200.0, "30min": 1800.0}
+
+
+def sim_reference(out: dict, meta: dict) -> None:
+    """Simulation from a step selection model (make_issf_model, redistribution_kernel, simulate_path, resistance and
+    path_density) on the library's cases (tests/move_sim_cases.py: A, C, D, E, F and the fishers' B), a numeric-time
+    start with a kernel that stops, a fit of the fishers' random steps over the library's elevation, the resistance in
+    its four transformations and two scales and the density of three paths. New keys only: `in/sim/...` the inputs
+    (the library's R-made covariate maps in tests/data/reference/move/inputs_sim.npz), `sim/<case>/{x,y,t,dt,first}`
+    the path (`t` and `dt` in seconds), `sim/res/...` and `sim/dens/...`; the models, starts and arguments are in the
+    json (`sim`). A model's coefficients are a list of [term, value] pairs in the library's order, which the sum of
+    the weights follows."""
+    import cases_sim as cs  # noqa: F401  (the library's tests/move_sim_cases.py, imported below as `cases`)
+    raise NotImplementedError
+
+
+SIM_DT = {"1h": 3600.0, "15min": 900.0, "2h": 7200.0, "30min": 1800.0}
+SIM_EPOCH = pd.Timestamp("1970-01-01", tz="UTC")
+# a model with habitat terms of two covariates, terms of movement and one at the start of the step (resistance)
+SIM_RES = {"cov_end": 1.5, "wet": -0.4, "cov_end:wet": 0.2, "I(wet^2)": 0.1, "log(wet + 3)": 0.3,
+           "exp(cov_end)": -0.05, "sl_": -0.002, "cov_start": 0.1, "cov_end:log_sl_": 0.05}
+
+
+def sim_reference(out: dict, meta: dict) -> None:
+    """Simulation from a step selection model (make_issf_model, redistribution_kernel, simulate_path, resistance and
+    path_density) on the library's cases (tests/move_sim_cases.py: A, C, D, E, F and the fishers' B), a numeric-time
+    start whose kernel stops, a fit of the fishers' random steps over the library's elevation, the resistance in its
+    four transformations and two scales and the density of three paths. New keys only: `in/sim/...` the inputs (the
+    library's R-made covariate maps are in its tests/data/reference/move/inputs_sim.npz), `sim/<case>/{x,y,t,dt,first,
+    stopped}` the path (`t` and `dt` in seconds, or the numbers they are), `sim/res/<transform>_<scale>` and
+    `sim/dens/...`; the models, starts and arguments are in the json (`sim`). A model's coefficients are a list of
+    [term, value] pairs in the library's order, which the sum of the weights follows."""
+    import rioxarray as rx
+
+    data = LS / "tests" / "data" / "reference" / "move"
+    ins = dict(np.load(data / "inputs_sim.npz"))
+    ref = dict(np.load(data / "amt_sim.npz"))
+    import move_sim_cases as cs
+
+    meta["sim"] = {"cases": {}}
+    xs = np.arange(5.0, 1000.0, 10.0)
+
+    def raster_a(values, name="cov"):
+        return xr.DataArray(np.asarray(values, float).reshape(100, 100), dims=("y", "x"),
+                            coords={"y": xs[::-1], "x": xs}, name=name).rio.write_crs("EPSG:32633")
+
+    map_a = np.asarray(ins["sim_a/in_map"], float)
+    hole = map_a.copy()
+    hole[150:160] = np.nan
+    hole[4000:4100] = np.nan
+    wet = map_a.reshape(100, 100)[::-1, ::-1].ravel()
+    out["in/sim/map_a"], out["in/sim/map_hole"], out["in/sim/map_wet"] = map_a, hole, wet
+    ext = ins["sim_b/in_pd_ext"]
+    nr, nc = (int(v) for v in ins["sim_b/in_pd_dim"])
+    out["in/sim/pd_vals"], out["in/sim/pd_ext"] = np.asarray(ins["sim_b/in_pd_vals"], float), np.asarray(ext, float)
+    meta["sim"]["pd_dim"] = [nr, nc]
+    pd_x = ext[0] + (ext[1] - ext[0]) / nc * (np.arange(nc) + 0.5)
+    pd_y = ext[3] - (ext[3] - ext[2]) / nr * (np.arange(nr) + 0.5)
+    popden = xr.DataArray(out["in/sim/pd_vals"].reshape(nr, nc), dims=("y", "x"), coords={"y": pd_y, "x": pd_x},
+                          name="popden").rio.write_crs("EPSG:5070")
+
+    def model_of(c):
+        return M.make_issf_model(c["coefs"], M.make_distribution(c["sl"][0], **c["sl"][1]),
+                                 M.make_distribution(c["ta"][0], **c["ta"][1]))
+
+    def start_of(c):
+        return M.make_start(c["start"], c["ta0"], time=c["time"], dt=c["dt"])
+
+    def seconds(c):
+        return SIM_DT[c] if isinstance(c, str) else float(c)
+
+    def put(key, k, p):
+        t = p["t_"]
+        out[f"sim/{key}/x"], out[f"sim/{key}/y"] = p["x_"].to_numpy(np.float64), p["y_"].to_numpy(np.float64)
+        out[f"sim/{key}/t"] = ((t - SIM_EPOCH).dt.total_seconds() if pd.api.types.is_datetime64_any_dtype(t)
+                               else t).to_numpy(np.float64)
+        d = p["dt"]
+        out[f"sim/{key}/dt"] = (d.dt.total_seconds() if pd.api.types.is_timedelta64_dtype(d) else d).to_numpy(np.float64)
+        out[f"sim/{key}/first"] = (np.array([k.sample.x_[0], k.sample.y_[0]]) if k.sample is not None
+                                   else np.empty(0))
+        out[f"sim/{key}/stopped"] = np.array([float(k.stopped is not None)])
+
+    def case(key, c, cov, layer, model=None):
+        model = model if model is not None else model_of(c)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            k = M.redistribution_kernel(model, start_of(c), cov, n_control=c["n_control"], tolerance_outside=c["tol"],
+                                        seed=c["seed"])
+            p = M.simulate_path(k, c["n_steps"])
+        put(key, k, p)
+        meta["sim"]["cases"][key] = {
+            "layer": layer, "coefs": [[a, float(b)] for a, b in c["coefs"].items()] if "coefs" in c else None,
+            "sl": [c["sl"][0], c["sl"][1]], "ta": [c["ta"][0], c["ta"][1]], "start": [float(v) for v in c["start"]],
+            "ta0": c["ta0"], "time": c["time"], "dt": seconds(c["dt"]), "n_control": c["n_control"], "tol": c["tol"],
+            "n_steps": c["n_steps"], "seed": c["seed"]}
+        return k, p
+
+    for key, c in (("a", cs.A), ("c", cs.C), ("d", cs.D), ("e", cs.E), ("f", cs.F)):
+        case(key, c, raster_a(map_a), "cov")
+    b = cs.B
+    c_b = {"coefs": dict(zip(["popden_end", "sl_", "log_sl_", "cos_ta_"], (float(v) for v in ref["sim_b/coef"]))),
+           "sl": ("gamma", {"shape": float(ref["sim_b/sl_shape"][0]), "scale": float(ref["sim_b/sl_scale"][0])}),
+           "ta": ("vonmises", {"kappa": float(ref["sim_b/ta_kappa"][0])}),
+           "start": tuple(float(v) for v in ins["sim_b/in_start"]), "ta0": b["ta0"], "time": b["time"], "dt": b["dt"],
+           "n_control": b["n_control"], "tol": b["tol"], "n_steps": b["n_steps"], "seed": b["seed"]}
+    case("b", c_b, popden, "popden")
+    # a kernel that stops (the start at the edge, a tolerance of 1 %), then the path from where it left the generator,
+    # with a start in numbers (time 0, a step of 1)
+    c_g = {**cs.F, "start": (20.0, 500.0), "ta0": 3.0, "time": 0, "dt": 1, "n_control": 300, "tol": 0.01, "seed": 1,
+           "n_steps": 5}
+    k, _ = case("g", c_g, raster_a(map_a), "cov")
+    assert k.stopped is not None
+    # three paths of case A (the seeds seed, seed + 1, seed + 2) and their density over a map with a hole
+    paths = []
+    cov_a = raster_a(map_a)
+    for i in range(3):
+        c = {**cs.A, "seed": cs.A["seed"] + i}
+        _, p = case(f"a{i + 1}", c, cov_a, "cov")
+        paths.append(p.assign(track=f"path_{i + 1}"))
+    allp = pd.concat(paths, ignore_index=True)
+    like = raster_a(hole)
+    out["sim/dens/plain"] = np.asarray(M.path_density(allp, like).values, np.float64).ravel()
+    out["sim/dens/start"] = np.asarray(M.path_density(allp, like, include_start=True).values, np.float64).ravel()
+    out["sim/dens/by"] = np.asarray(M.path_density(allp, like, by="track").values, np.float64).ravel()
+    # the resistance of two covariates (one with a hole), every transformation and scale
+    cov2 = {"cov": raster_a(hole), "wet": raster_a(wet, "wet")}
+    model = M.make_issf_model(SIM_RES, M.make_distribution("gamma", shape=2, scale=50),
+                              M.make_distribution("vonmises", kappa=2))
+    meta["sim"]["res"] = {"coefs": [[a, float(v)] for a, v in SIM_RES.items()], "variants": []}
+    for transform in ("negexp", "linear", "inverse", "log"):
+        for scale in ("minmax", "max"):
+            for kw in ({}, {"c": 3.0, "r_max": 20.0}):
+                with warnings.catch_warnings(record=True) as w:
+                    warnings.simplefilter("always")
+                    r = M.resistance(model, cov2, transform=transform, scale=scale, **kw)
+                tag = f"{transform}_{scale}" + ("_c3" if kw else "")
+                out[f"sim/res/{tag}"] = np.asarray(r.values, np.float64).ravel()
+                meta["sim"]["res"]["variants"].append({"tag": tag, "transform": transform, "scale": scale, **kw})
+                meta["sim"]["res"]["warning"] = str(w[0].message)
+    # a fit of the fishers' random steps (as issf_reference makes them) over the library's elevation, simulated
+    elev = rx.open_rasterio(RELIEF_ELEVATION).isel(band=0, drop=True)
+    f = tf.load_tracks(LS / "tests" / "data" / "move" / "fishers.csv.gz", sort=False)
+    st = M.steps(f[~f.geometry.is_empty].to_crs(elev.rio.crs))
+    left, bottom, right, top = elev.rio.bounds()
+    trk = "individual-local-identifier"
+    keep = st.x1_.between(left, right) & st.y1_.between(bottom, top) & st[trk].isin(["F1", "M1", "M3"])
+    st = st[keep].reset_index(drop=True)
+    rs = M.extract_covariates(M.random_steps(st, n_control=5, seed=11), {"elevation": elev})
+    rs["stratum_"] = rs.groupby([trk, "step_id_"], sort=False).ngroup() + 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = M.fit_issf(rs, "case_ ~ elevation + log(sl_) + cos(ta_) + strata(stratum_)")
+    # (three tracks: the fit keeps no distributions, as the library says; they are given, fitted to all the steps)
+    sl_d, ta_d = M.fit_distr(st["sl_"].dropna(), "gamma"), M.fit_distr(st["ta_"].dropna(), "vonmises")
+    c_f = {"sl": (sl_d.name, {k: float(v) for k, v in sl_d.params.items()}),
+           "ta": (ta_d.name, {k: float(v) for k, v in ta_d.params.items()}),
+           "start": (float(st.x1_[0]), float(st.y1_[0])), "ta0": 0.3, "time": "2015-06-01 06:00:00", "dt": "1h",
+           "n_control": 2000, "tol": 1.0, "n_steps": 12, "seed": 17}
+    assert fit.sl_distr is None
+    fit.sl_distr, fit.ta_distr = sl_d, ta_d
+    case("fishers", c_f, {"elevation": elev}, "elevation", model=fit)
+
+
 def main() -> None:
     sets = track_sets()
     fishers_src = LS / "tests" / "data" / "move" / "fishers.csv.gz"
@@ -1198,5 +1362,7 @@ if __name__ == "__main__":
         only(relief_reference)
     elif sys.argv[1:] == ["--only-issf"]:
         only(issf_reference)
+    elif sys.argv[1:] == ["--only-sim"]:
+        only(sim_reference)
     else:
         main()

@@ -1038,6 +1038,14 @@ pub const TIPS: &[(&str, &str)] = &[
          values themselves (the step is its 1-based number), in terra's order (by cell number), not along the step.",
     ),
     (
+        "move.resistance",
+        "Only the habitat part of the model counts: a cell has no step, so the terms of movement (sl_, log_sl_,          cos_ta_, ta_), their interactions and the covariates at the start of the step are left out, and the          warning says which. The selection of a step-selection model is relative (it depends on the covariates          the animal could choose between, not on how many animals use a place) and a resistance surface made from          it is a hypothesis: Zeller et al. (2012) review how selection becomes resistance and Keeley et al. (2016)          find the shape of the transformation matters (a negative exponential of suitability, negexp, is what they          recommend; c bends it). Validate the surface against movement that was not used to fit the model.",
+    ),
+    (
+        "move.simulate_path",
+        "n_control candidate steps are drawn in every step of every path (a million by default, amt's): 100 steps          draw a hundred million candidates and take minutes; a few thousand are enough to try a model. The path          depends on the seed (path i of n_paths has the seed seed + i - 1): simulate many paths from many starts          and look at their use (move.path_density), not at one. The covariates must cover the area the animal can          reach: a path that leaves them stops, with a warning, unless tolerance_outside allows a fraction of the          candidates to fall outside. A start given as the first location of a track takes the track's time and the          direction of its first step; dt is the time each step takes, so the times of the path are the start's          plus dt for each step.",
+    ),
+    (
         "move.surface_distance",
         "The steps and the DEM must be in the same projected coordinate system in metres (project the tracks and \
          the DEM first: degrees do not add to metres of height). It lengthens a step by sqrt(1 + slope^2) along \
@@ -1067,6 +1075,14 @@ pub const TIPS: &[(&str, &str)] = &[
          column of names takes names the model saw. The intervals are those of the coefficients' uncertainty: se is \
          the Wald interval of the covariance of the fit, boot refits the model on bootstrap samples of the strata \
          (slower, n_boot refits) and needs the fit's data.",
+    ),
+    (
+        "move.issf_model",
+        "For a model whose coefficients come from a paper or a fit made elsewhere. The terms are those of the formula          the fit would have: the covariates by the names the rasters are connected with (forest_end for the value at          the end of the candidate step, forest_start for the start), sl_, log_sl_, ta_ and cos_ta_ for the movement.          The distributions must be the tentative ones of the fit (the ones the random steps were drawn from), not          the ones the coefficients adjust: a simulation draws candidates from them and the coefficients of the          movement terms (log_sl_, cos_ta_) correct them (Avgar et al. 2016). The setting's keys come in alphabetical          order: give a list of [term, value] pairs to keep the order the terms are summed in.",
+    ),
+    (
+        "move.path_density",
+        "Counts positions, not time: a long path from one start shows where the animal goes, but only the steady          state (a burn-in left out, or many starts) is the use of the landscape Signer et al. (2024) simulate it for.          It is not smoothed: the share of a cell is the share of the end points that fell in it, so few or short          paths give a speckled map; smooth it, or simulate more. Cells with no value in `like` take no positions and          are not in the total.",
     ),
     (
         "move.max_speed",

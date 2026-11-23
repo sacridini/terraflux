@@ -22,6 +22,7 @@ mod geometry;
 mod homerange;
 mod issf;
 mod relief;
+mod simulate;
 mod ssf;
 pub mod time;
 mod tracks;
@@ -51,6 +52,7 @@ pub fn register(r: &mut Registry) {
     homerange::register(r);
     issf::register(r);
     relief::register(r);
+    simulate::register(r);
     ud::register(r);
     validate::register(r);
 }

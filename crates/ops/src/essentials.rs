@@ -129,6 +129,7 @@ const ESSENTIALS: &[(&str, &[&str])] = &[
     ("move.distribution", &["shape", "scale", "rate", "kappa"]),
     ("move.flag_speed", &["v_max", "mass", "mode", "jitter", "remove"]),
     ("move.home_range", &["method", "levels", "bandwidth", "type", "n"]),
+    ("move.simulate_path", &["x", "y", "n_steps", "n_control", "n_paths", "tolerance_outside", "seed"]),
     ("move.ud_distance", &["method", "mask_quantile", "gc", "threshold"]),
     // neutral landscape models
     ("nlm.mosaic_field", &["rows", "columns", "resolution", "seed", "n", "mean", "sd"]),

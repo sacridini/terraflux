@@ -15827,5 +15827,599 @@
    "n_control": 5,
    "seed": 11
   }
+ },
+ "sim": {
+  "cases": {
+   "a": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "cov_end",
+      1.5
+     ],
+     [
+      "sl_",
+      -0.002
+     ],
+     [
+      "cos_ta_",
+      0.4
+     ]
+    ],
+    "sl": [
+     "gamma",
+     {
+      "shape": 2,
+      "scale": 50
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 2
+     }
+    ],
+    "start": [
+     500.0,
+     500.0
+    ],
+    "ta0": 0.0,
+    "time": "2020-01-01 00:00:00",
+    "dt": 3600.0,
+    "n_control": 1000,
+    "tol": 1.0,
+    "n_steps": 20,
+    "seed": 42
+   },
+   "c": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "cov_end",
+      1.2
+     ],
+     [
+      "I(cov_end^2)",
+      -0.3
+     ],
+     [
+      "log_sl_",
+      0.15
+     ],
+     [
+      "cov_end:sl_",
+      -0.004
+     ]
+    ],
+    "sl": [
+     "hnorm",
+     {
+      "sd": 60
+     }
+    ],
+    "ta": [
+     "unif",
+     {
+      "min": -3.141592653589793,
+      "max": 3.141592653589793
+     }
+    ],
+    "start": [
+     480.0,
+     520.0
+    ],
+    "ta0": 1.0,
+    "time": "2021-06-01 12:00:00",
+    "dt": 900.0,
+    "n_control": 500,
+    "tol": 1.0,
+    "n_steps": 15,
+    "seed": 7
+   },
+   "d": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "cov_end",
+      1.0
+     ],
+     [
+      "cov_start",
+      0.3
+     ],
+     [
+      "exp(cov_end)",
+      -0.2
+     ],
+     [
+      "cov_end:cos_ta_",
+      0.5
+     ],
+     [
+      "log_sl_",
+      -0.1
+     ]
+    ],
+    "sl": [
+     "lnorm",
+     {
+      "meanlog": 3.5,
+      "sdlog": 0.8
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 1.5
+     }
+    ],
+    "start": [
+     300.0,
+     700.0
+    ],
+    "ta0": -2.0,
+    "time": "2022-03-05 06:30:00",
+    "dt": 7200.0,
+    "n_control": 700,
+    "tol": 1.0,
+    "n_steps": 12,
+    "seed": 99
+   },
+   "e": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "cov_end",
+      1.5
+     ],
+     [
+      "sl_",
+      -0.002
+     ],
+     [
+      "cos_ta_",
+      0.4
+     ]
+    ],
+    "sl": [
+     "gamma",
+     {
+      "shape": 2,
+      "scale": 50
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 2
+     }
+    ],
+    "start": [
+     40.0,
+     500.0
+    ],
+    "ta0": 0.0,
+    "time": "2020-01-01 00:00:00",
+    "dt": 3600.0,
+    "n_control": 1000,
+    "tol": 0.0,
+    "n_steps": 10,
+    "seed": 5
+   },
+   "f": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "sl_",
+      -0.01
+     ],
+     [
+      "cos_ta_",
+      0.3
+     ]
+    ],
+    "sl": [
+     "gamma",
+     {
+      "shape": 2,
+      "scale": 50
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 1
+     }
+    ],
+    "start": [
+     500.0,
+     300.0
+    ],
+    "ta0": -1.5,
+    "time": "2020-01-01 00:00:00",
+    "dt": 3600.0,
+    "n_control": 1000,
+    "tol": 0.05,
+    "n_steps": 40,
+    "seed": 11
+   },
+   "b": {
+    "layer": "popden",
+    "coefs": [
+     [
+      "popden_end",
+      -0.0002999962856846732
+     ],
+     [
+      "sl_",
+      -8.678603240675246e-05
+     ],
+     [
+      "log_sl_",
+      -0.0071331884743544875
+     ],
+     [
+      "cos_ta_",
+      -0.29957057255998726
+     ]
+    ],
+    "sl": [
+     "gamma",
+     {
+      "shape": 0.4243635266852247,
+      "scale": 580.2888031841283
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 0.1518664601344833
+     }
+    ],
+    "start": [
+     1782673.3690995525,
+     2402296.711992982
+    ],
+    "ta0": 0.5,
+    "time": "2009-02-11 12:00:00",
+    "dt": 1800.0,
+    "n_control": 1000,
+    "tol": 1.0,
+    "n_steps": 20,
+    "seed": 2024
+   },
+   "g": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "sl_",
+      -0.01
+     ],
+     [
+      "cos_ta_",
+      0.3
+     ]
+    ],
+    "sl": [
+     "gamma",
+     {
+      "shape": 2,
+      "scale": 50
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 1
+     }
+    ],
+    "start": [
+     20.0,
+     500.0
+    ],
+    "ta0": 3.0,
+    "time": 0,
+    "dt": 1.0,
+    "n_control": 300,
+    "tol": 0.01,
+    "n_steps": 5,
+    "seed": 1
+   },
+   "a1": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "cov_end",
+      1.5
+     ],
+     [
+      "sl_",
+      -0.002
+     ],
+     [
+      "cos_ta_",
+      0.4
+     ]
+    ],
+    "sl": [
+     "gamma",
+     {
+      "shape": 2,
+      "scale": 50
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 2
+     }
+    ],
+    "start": [
+     500.0,
+     500.0
+    ],
+    "ta0": 0.0,
+    "time": "2020-01-01 00:00:00",
+    "dt": 3600.0,
+    "n_control": 1000,
+    "tol": 1.0,
+    "n_steps": 20,
+    "seed": 42
+   },
+   "a2": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "cov_end",
+      1.5
+     ],
+     [
+      "sl_",
+      -0.002
+     ],
+     [
+      "cos_ta_",
+      0.4
+     ]
+    ],
+    "sl": [
+     "gamma",
+     {
+      "shape": 2,
+      "scale": 50
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 2
+     }
+    ],
+    "start": [
+     500.0,
+     500.0
+    ],
+    "ta0": 0.0,
+    "time": "2020-01-01 00:00:00",
+    "dt": 3600.0,
+    "n_control": 1000,
+    "tol": 1.0,
+    "n_steps": 20,
+    "seed": 43
+   },
+   "a3": {
+    "layer": "cov",
+    "coefs": [
+     [
+      "cov_end",
+      1.5
+     ],
+     [
+      "sl_",
+      -0.002
+     ],
+     [
+      "cos_ta_",
+      0.4
+     ]
+    ],
+    "sl": [
+     "gamma",
+     {
+      "shape": 2,
+      "scale": 50
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 2
+     }
+    ],
+    "start": [
+     500.0,
+     500.0
+    ],
+    "ta0": 0.0,
+    "time": "2020-01-01 00:00:00",
+    "dt": 3600.0,
+    "n_control": 1000,
+    "tol": 1.0,
+    "n_steps": 20,
+    "seed": 44
+   },
+   "fishers": {
+    "layer": "elevation",
+    "coefs": null,
+    "sl": [
+     "gamma",
+     {
+      "shape": 0.5321353995365676,
+      "scale": 226.53207829619376
+     }
+    ],
+    "ta": [
+     "vonmises",
+     {
+      "kappa": 0.13288343297311545,
+      "mu": 0.0
+     }
+    ],
+    "start": [
+     1784403.0410444492,
+     2408630.6977569168
+    ],
+    "ta0": 0.3,
+    "time": "2015-06-01 06:00:00",
+    "dt": 3600.0,
+    "n_control": 2000,
+    "tol": 1.0,
+    "n_steps": 12,
+    "seed": 17
+   }
+  },
+  "pd_dim": [
+   18,
+   19
+  ],
+  "res": {
+   "coefs": [
+    [
+     "cov_end",
+     1.5
+    ],
+    [
+     "wet",
+     -0.4
+    ],
+    [
+     "cov_end:wet",
+     0.2
+    ],
+    [
+     "I(wet^2)",
+     0.1
+    ],
+    [
+     "log(wet + 3)",
+     0.3
+    ],
+    [
+     "exp(cov_end)",
+     -0.05
+    ],
+    [
+     "sl_",
+     -0.002
+    ],
+    [
+     "cov_start",
+     0.1
+    ],
+    [
+     "cov_end:log_sl_",
+     0.05
+    ]
+   ],
+   "variants": [
+    {
+     "tag": "negexp_minmax",
+     "transform": "negexp",
+     "scale": "minmax"
+    },
+    {
+     "tag": "negexp_minmax_c3",
+     "transform": "negexp",
+     "scale": "minmax",
+     "c": 3.0,
+     "r_max": 20.0
+    },
+    {
+     "tag": "negexp_max",
+     "transform": "negexp",
+     "scale": "max"
+    },
+    {
+     "tag": "negexp_max_c3",
+     "transform": "negexp",
+     "scale": "max",
+     "c": 3.0,
+     "r_max": 20.0
+    },
+    {
+     "tag": "linear_minmax",
+     "transform": "linear",
+     "scale": "minmax"
+    },
+    {
+     "tag": "linear_minmax_c3",
+     "transform": "linear",
+     "scale": "minmax",
+     "c": 3.0,
+     "r_max": 20.0
+    },
+    {
+     "tag": "linear_max",
+     "transform": "linear",
+     "scale": "max"
+    },
+    {
+     "tag": "linear_max_c3",
+     "transform": "linear",
+     "scale": "max",
+     "c": 3.0,
+     "r_max": 20.0
+    },
+    {
+     "tag": "inverse_minmax",
+     "transform": "inverse",
+     "scale": "minmax"
+    },
+    {
+     "tag": "inverse_minmax_c3",
+     "transform": "inverse",
+     "scale": "minmax",
+     "c": 3.0,
+     "r_max": 20.0
+    },
+    {
+     "tag": "inverse_max",
+     "transform": "inverse",
+     "scale": "max"
+    },
+    {
+     "tag": "inverse_max_c3",
+     "transform": "inverse",
+     "scale": "max",
+     "c": 3.0,
+     "r_max": 20.0
+    },
+    {
+     "tag": "log_minmax",
+     "transform": "log",
+     "scale": "minmax"
+    },
+    {
+     "tag": "log_minmax_c3",
+     "transform": "log",
+     "scale": "minmax",
+     "c": 3.0,
+     "r_max": 20.0
+    },
+    {
+     "tag": "log_max",
+     "transform": "log",
+     "scale": "max"
+    },
+    {
+     "tag": "log_max_c3",
+     "transform": "log",
+     "scale": "max",
+     "c": 3.0,
+     "r_max": 20.0
+    }
+   ],
+   "warning": "resistance: left out the terms of movement ['sl_', 'cov_end:log_sl_'] and the terms at the start of the step ['cov_start']: a cell has no step"
+  }
  }
 }

@@ -1146,6 +1146,18 @@ pub const REFERENCES: &[Reference] = &[
         "10.1111/2041-210X.13628"
     ),
     paper!(
+        "keeley2016",
+        ["Keeley, A. T. H.", "Beier, P.", "Gagnon, J. W."],
+        false,
+        2016,
+        "Estimating landscape resistance from habitat suitability: effects of data source and nonlinearities",
+        "Landscape Ecology",
+        "31",
+        "9",
+        "2151–2162",
+        "10.1007/s10980-016-0387-5"
+    ),
+    paper!(
         "kranstauber2012",
         ["Kranstauber, B.", "Kays, R.", "LaPoint, S. D.", "Wikelski, M.", "Safi, K."],
         false,
@@ -1474,6 +1486,26 @@ pub const REFERENCES: &[Reference] = &[
         "10.1002/ece3.4823"
     ),
     paper!(
+        "signer2024",
+        [
+            "Signer, J.",
+            "Fieberg, J.",
+            "Reineking, B.",
+            "Schlägel, U.",
+            "Smith, B.",
+            "Balkenhol, N.",
+            "Avgar, T."
+        ],
+        false,
+        2024,
+        "Simulating animal space use from fitted integrated Step-Selection Functions (iSSF)",
+        "Methods in Ecology and Evolution",
+        "15",
+        "1",
+        "43–50",
+        "10.1111/2041-210X.14263"
+    ),
+    paper!(
         "soaresfilho2002",
         ["Soares-Filho, B. S.", "Coutinho Cerqueira, G.", "Lopes Pennachin, C."],
         false,
@@ -1589,6 +1621,18 @@ pub const REFERENCES: &[Reference] = &[
         "1",
         "164–168",
         "10.2307/1938423"
+    ),
+    paper!(
+        "zeller2012",
+        ["Zeller, K. A.", "McGarigal, K.", "Whiteley, A. R."],
+        false,
+        2012,
+        "Estimating landscape resistance to movement: a review",
+        "Landscape Ecology",
+        "27",
+        "6",
+        "777–797",
+        "10.1007/s10980-012-9737-0"
     ),
     paper!(
         "zeller2018",
@@ -2132,6 +2176,20 @@ pub const METHODS: &[Method] = &[
         refs: &["fortin2005", "avgar2016", "gail1981", "avgar2017"],
         software: "amt and survival",
         software_refs: &["signer2019"],
+    },
+    Method {
+        ops: &["move.issf_model", "move.simulate_path", "move.path_density"],
+        name: "the simulation of animal movement and space use from a fitted step selection model (candidate steps                drawn from the step length and turn angle distributions, each weighted by the selection function,                and the use of the landscape as the share of the simulated positions in each cell)",
+        refs: &["signer2024", "avgar2016"],
+        software: "amt",
+        software_refs: &["signer2019"],
+    },
+    Method {
+        ops: &["move.resistance"],
+        name: "a resistance surface from the habitat part of a step selection model (the relative selection turned                into resistance by a negative exponential, a linear, an inverse or a logarithmic transformation)",
+        refs: &["zeller2012", "keeley2016"],
+        software: "",
+        software_refs: &[],
     },
     Method {
         ops: &["move.surface_distance"],

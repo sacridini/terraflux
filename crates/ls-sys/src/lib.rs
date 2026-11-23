@@ -1407,6 +1407,49 @@ pub mod ffi {
         iter: i32,
     }
 
+    /// A simulation from a step selection model (the library's move_sim_* spec): the distributions the candidate
+    /// steps are drawn from, the covariate layers (row-major from the top row, NaN for no data; `dims` ny, nx and
+    /// `grids` xmin, xmax, ymin, ymax, xres, yres for each), the study area (xmin, xmax, ymin, ymax) and the formula as
+    /// programs of reverse Polish operations (see the library's move/simulate.hpp).
+    struct MoveSimSpec {
+        sl_name: String,
+        ta_name: String,
+        sl_par: Vec<f64>,
+        ta_par: Vec<f64>,
+        bbox: Vec<f64>,
+        n_control: i64,
+        tolerance_outside: f64,
+        values: Vec<f64>,
+        dims: Vec<i64>,
+        grids: Vec<f64>,
+        var_ptr: Vec<i32>,
+        op: Vec<i32>,
+        arg: Vec<f64>,
+        var_factor: Vec<i32>,
+        level_ptr: Vec<i32>,
+        level: Vec<f64>,
+        col_ptr: Vec<i32>,
+        col_var: Vec<i32>,
+        col_level: Vec<i32>,
+        coef: Vec<f64>,
+    }
+
+    /// One cycle of redistribution_kernel: `status` 0 drawn, 1 candidates outside the study area, 2 no candidate with a
+    /// weight.
+    struct MoveSimKernel {
+        status: i32,
+        x: Vec<f64>,
+        y: Vec<f64>,
+    }
+
+    /// simulate_path: `status` as above, `done` the steps made; x and y have n_steps + 1 values (NaN after a stop).
+    struct MoveSimPath {
+        status: i32,
+        done: i64,
+        x: Vec<f64>,
+        y: Vec<f64>,
+    }
+
     /// suncalc's sunrise, sunset, dawn and dusk (seconds since 1970, NaN when the sun does not reach them).
     struct MoveSun {
         sunrise: Vec<f64>,
@@ -3625,6 +3668,25 @@ pub mod ffi {
         fn move_issf_pchisq(x: &[f64], df: f64, lower_tail: bool) -> Vec<f64>;
         /// R's qnorm(p).
         fn move_issf_qnorm(p: f64) -> f64;
+        /// One cycle of amt's redistribution_kernel (continuous space) from R's generator `rng`, which it leaves where
+        /// the next cycles go on (the library's move_sim_kernel).
+        fn move_sim_kernel(
+            rng: Pin<&mut RRng>,
+            x0: f64,
+            y0: f64,
+            ta0: f64,
+            n_sample: i64,
+            spec: &MoveSimSpec,
+        ) -> Result<MoveSimKernel>;
+        /// amt's simulate_path: n_steps cycles of one draw, each from the step before (the library's move_sim_path).
+        fn move_sim_path(
+            rng: Pin<&mut RRng>,
+            x0: f64,
+            y0: f64,
+            ta0: f64,
+            n_steps: i64,
+            spec: &MoveSimSpec,
+        ) -> Result<MoveSimPath>;
         /// The missing values of a location error filled (how 0 median, 1 mean, 2 zero, 3 approx).
         fn move_impute_loc_err(e: &[f64], how: i32) -> MoveImputed;
         /// ud_grid_probe: 8 numbers, the envelope of the kernel windows (min x, max x, min y, max y) and the extreme

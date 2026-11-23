@@ -68,6 +68,7 @@
 #include "move/locerr.hpp"
 #include "move/relief.hpp"
 #include "move/rnmath.hpp"
+#include "move/simulate.hpp"
 #include "move/track.hpp"
 #include "move/ud.hpp"
 #include "opt/actions.hpp"
@@ -5669,6 +5670,99 @@ double move_issf_qnorm(double p) {
     if (p == 0) return -std::numeric_limits<double>::infinity();
     if (p == 1) return std::numeric_limits<double>::infinity();
     return nlm::r_qnorm(p);
+}
+
+namespace {
+
+template <class T, class V>
+std::vector<T> vec_of(const V& v) {
+    return std::vector<T>(v.begin(), v.end());
+}
+
+// The library's read_spec (python_simulate.cpp) from the shared struct; the layers point into spec.values.
+move::SimSpec sim_spec(const MoveSimSpec& d) {
+    move::SimSpec s;
+    s.sl_name = std::string(d.sl_name);
+    s.ta_name = std::string(d.ta_name);
+    s.sl_par = vec_of<double>(d.sl_par);
+    s.ta_par = vec_of<double>(d.ta_par);
+    check(d.bbox.size() == 4, "bbox: xmin, xmax, ymin, ymax");
+    s.xmin = d.bbox[0];
+    s.xmax = d.bbox[1];
+    s.ymin = d.bbox[2];
+    s.ymax = d.bbox[3];
+    s.n_control = d.n_control;
+    s.tolerance_outside = d.tolerance_outside;
+    const std::size_t nl = d.dims.size() / 2;
+    check(d.dims.size() == 2 * nl && d.grids.size() == 6 * nl, "grids: (layers, 6), dims: (layers, 2)");
+    std::size_t at = 0;
+    for (std::size_t l = 0; l < nl; ++l) {
+        move::SimLayer lay;
+        lay.ny = d.dims[2 * l];
+        lay.nx = d.dims[2 * l + 1];
+        check(lay.ny >= 1 && lay.nx >= 1 && at + static_cast<std::size_t>(lay.ny * lay.nx) <= d.values.size(),
+              "layers: the values of each layer, ny x nx");
+        lay.v = d.values.data() + at;
+        at += static_cast<std::size_t>(lay.ny * lay.nx);
+        const double* g = d.grids.data() + 6 * l;
+        lay.xmin = g[0];
+        lay.xmax = g[1];
+        lay.ymin = g[2];
+        lay.ymax = g[3];
+        lay.xres = g[4];
+        lay.yres = g[5];
+        s.layers.push_back(lay);
+    }
+    s.f.var_ptr = vec_of<int>(d.var_ptr);
+    s.f.op = vec_of<int>(d.op);
+    s.f.arg = vec_of<double>(d.arg);
+    s.f.var_factor = vec_of<int>(d.var_factor);
+    s.f.level_ptr = vec_of<int>(d.level_ptr);
+    s.f.level = vec_of<double>(d.level);
+    s.f.col_ptr = vec_of<int>(d.col_ptr);
+    s.f.col_var = vec_of<int>(d.col_var);
+    s.f.col_level = vec_of<int>(d.col_level);
+    s.f.coef = vec_of<double>(d.coef);
+    const std::size_t nv = s.f.var_ptr.size() ? s.f.var_ptr.size() - 1 : 0;
+    check(s.f.op.size() == s.f.arg.size() && s.f.level_ptr.size() == nv + 1 && s.f.var_factor.size() == nv &&
+              s.f.col_ptr.size() == s.f.coef.size() + 1 && s.f.col_var.size() == s.f.col_level.size(),
+          "formula: arrays of inconsistent sizes");
+    for (int v : s.f.col_var) check(v >= 0 && static_cast<std::size_t>(v) < nv, "formula: a column uses an unknown variable");
+    for (std::size_t k = 0; k < s.f.op.size(); ++k)
+        check(!((s.f.op[k] == move::kOpEnd || s.f.op[k] == move::kOpStart) &&
+                (!(s.f.arg[k] >= 0) || static_cast<std::size_t>(s.f.arg[k]) >= s.layers.size())),
+              "formula: a covariate that is not among the layers");
+    return s;
+}
+
+}  // namespace
+
+MoveSimKernel move_sim_kernel(nlm::RRng& rng, double x0, double y0, double ta0, std::int64_t n_sample,
+                              const MoveSimSpec& spec) {
+    check(n_sample >= 1, "n_sample: 1 or more");
+    const move::SimSpec s = sim_spec(spec);
+    std::vector<double> ox(static_cast<std::size_t>(n_sample)), oy(static_cast<std::size_t>(n_sample));
+    MoveSimKernel out;
+    out.status = move::sim_cycle(rng, s, x0, y0, ta0, n_sample, ox.data(), oy.data());
+    if (out.status == move::kSimOk) {
+        out.x = to_rust<double>(ox);
+        out.y = to_rust<double>(oy);
+    }
+    return out;
+}
+
+MoveSimPath move_sim_path(nlm::RRng& rng, double x0, double y0, double ta0, std::int64_t n_steps,
+                          const MoveSimSpec& spec) {
+    check(n_steps >= 0, "n_steps: 0 or more");
+    const move::SimSpec s = sim_spec(spec);
+    std::vector<double> xs(static_cast<std::size_t>(n_steps) + 1), ys(static_cast<std::size_t>(n_steps) + 1);
+    std::int64_t done = 0;
+    MoveSimPath out;
+    out.status = move::sim_path(rng, s, x0, y0, ta0, n_steps, xs.data(), ys.data(), &done);
+    out.done = done;
+    out.x = to_rust<double>(xs);
+    out.y = to_rust<double>(ys);
+    return out;
 }
 
 MoveImputed move_impute_loc_err(rust::Slice<const double> e, std::int32_t how) {

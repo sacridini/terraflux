@@ -194,6 +194,31 @@ pub(super) const MAPPED: &[Py] = &[
         ["seed" = "1"],
         "table"
     ),
+    mv!("move.issf_model", "tf.move.make_issf_model", ["sl_distr" => "sl", "ta_distr" => "ta"], [], "model"),
+    mv!(
+        "move.simulate_path",
+        "tf.move.redistribution_kernel",
+        [
+            "model" => "", "sl_distr" => "sl_distr", "ta_distr" => "ta_distr", "n_control" => "n_control",
+            "n_sample" => "n_sample", "tolerance_outside" => "tolerance_outside"
+        ],
+        [],
+        "paths"
+    ),
+    mv!(
+        "move.resistance",
+        "tf.move.resistance",
+        ["model" => "", "transform" => "transform", "c" => "c", "r_max" => "r_max", "scale" => "scale"],
+        [],
+        "resistance"
+    ),
+    mv!(
+        "move.path_density",
+        "tf.move.path_density",
+        ["paths" => "", "like" => "like", "by" => "by", "include_start" => "include_start"],
+        [],
+        "density"
+    ),
     mv!(
         "move.max_speed",
         "tf.move.v_phys_estimate",
@@ -711,6 +736,125 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             args.retain(|a| a != "ci=\"none\"");
             let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
             (code, out(&[("table", var.to_string())]), Need::Flow)
+        }
+        "move.issf_model" => {
+            let py = entry(op)?;
+            // the coefficients: an object of terms, or a list of [term, value] pairs (the order they are summed in)
+            let coefs = match n.params.get("coefficients") {
+                Some(Value::Object(_)) => opt(n, "coefficients", sc)?.unwrap_or_default(),
+                Some(Value::Array(_)) => format!("dict({})", opt(n, "coefficients", sc)?.unwrap_or_default()),
+                Some(Value::String(s)) if s.starts_with('$') => opt(n, "coefficients", sc)?.unwrap_or_default(),
+                _ => return Err("its coefficients are not given".into()),
+            };
+            let (mut args, said) = arguments(n, py, sc, None, &["coefficients"])?;
+            args.insert(0, coefs);
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            (code, out(&[("model", var.to_string())]), Need::Nothing)
+        }
+        "move.simulate_path" => {
+            let py = entry(op)?;
+            let model = value_of(n, "model", sc)?.ok_or("its model is not connected")?;
+            // the covariates: the inputs of any other name, a layer each
+            let skip = ["model", "start", "sl_distr", "ta_distr"];
+            let names: Vec<&str> = n.inputs.keys().map(String::as_str).filter(|k| !skip.contains(k)).collect();
+            let mut layers = Vec::new();
+            for k in &names {
+                layers.push(format!("{}: {}", text(k), value_of(n, k, sc)?.ok_or("a raster is not connected")?));
+            }
+            if layers.is_empty() {
+                return Err("connect the covariates (rasters, inputs of any names: forest, elev...)".into());
+            }
+            let mut also = vec!["n_steps", "n_paths", "x", "y", "direction", "time", "dt", "seed", "start"];
+            also.extend(&names);
+            let (mut args, said) = arguments(n, py, sc, Some(model), &also)?;
+            let number =
+                |k: &str, d: &str| -> Result<String, String> { Ok(opt(n, k, sc)?.unwrap_or_else(|| d.to_string())) };
+            let (steps, paths, seed) = (number("n_steps", "100")?, number("n_paths", "1")?, number("seed", "1")?);
+            let (direction, when, dt) = (opt(n, "direction", sc)?, opt(n, "time", sc)?, opt(n, "dt", sc)?);
+            let mut code = said;
+            let starts = format!("{var}_starts");
+            if let Some(s) = value_of(n, "start", sc)? {
+                // the first location of each track, with its time and the direction of its first step
+                let names = terraflux_ops::movement::TRACK_NAMES.iter().map(|t| text(t)).collect::<Vec<_>>().join(", ");
+                let (tc, tt) = (format!("{var}_track"), format!("{var}_time"));
+                let kw = |k: &str, v: Option<String>, d: &str| match v {
+                    Some(v) => format!(", {k}={v}"),
+                    None if d.is_empty() => String::new(),
+                    None => format!(", {k}={d}"),
+                };
+                let dir = direction
+                    .unwrap_or_else(|| "float(np.arctan2(b.y - a.y, b.x - a.x)) if b is not None else 0.0".to_string());
+                let stamps = "(\"timestamp\", \"time\", \"datetime\", \"date_time\", \"t\")";
+                let time = kw("time", when, &format!("(g[{tt}].iloc[0] if {tt} else None)"));
+                code.push_str(&format!(
+                    "{tc} = next((c for c in ({names}) if c in {s}.columns), None)\n\
+                     {tt} = next((c for c in {stamps} if c in {s}.columns), None)\n\
+                     {starts} = []\n\
+                     for _, g in ({s}.groupby({tc}, sort=False) if {tc} else [(None, {s})]):\n    \
+                     a, b = g.geometry.iloc[0], (g.geometry.iloc[1] if len(g) > 1 else None)\n    \
+                     {starts}.append((g[{tc}].iloc[0] if {tc} else None, tf.move.make_start((a.x, a.y), {dir}{time}{})))\n",
+                    kw("dt", dt, ""),
+                ));
+            } else {
+                let (x, y) = (opt(n, "x", sc)?, opt(n, "y", sc)?);
+                let (Some(x), Some(y)) = (x, y) else {
+                    return Err(
+                        "give the start: a vector of locations as the input start, or the settings x and y".into()
+                    );
+                };
+                let mut extra = String::new();
+                if let Some(t) = when {
+                    extra.push_str(&format!(", time={t}"));
+                }
+                if let Some(d) = dt {
+                    extra.push_str(&format!(", dt={d}"));
+                }
+                code.push_str(&format!(
+                    "{starts} = [(None, tf.move.make_start(({x}, {y}), {}{extra}))]\n",
+                    direction.unwrap_or_else(|| "0.0".to_string())
+                ));
+            }
+            args.insert(1, format!("{var}_start"));
+            args.insert(2, format!("{{{}}}", layers.join(", ")));
+            args.push(format!("seed={seed} + {var}_i"));
+            let label =
+                format!("(str({var}_label) + \"_path_\" if {var}_label is not None else \"path_\") + str({var}_i + 1)");
+            code.push_str(&format!(
+                "import pandas as _pd\n\
+                 {var}_all = []\n\
+                 for {var}_label, {var}_start in {starts}:\n    \
+                 for {var}_i in range({paths}):\n        \
+                 {var}_k = {}({})\n        \
+                 {var}_all.append(tf.move.simulate_path({var}_k, {steps}).assign(track={label}))\n\
+                 {var} = _pd.concat({var}_all, ignore_index=True)\n",
+                py.call,
+                args.join(", ")
+            ));
+            (code, out(&[("paths", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
+        }
+        "move.resistance" => {
+            let py = entry(op)?;
+            let model = value_of(n, "model", sc)?.ok_or("its model is not connected")?;
+            let names: Vec<&str> = n.inputs.keys().map(String::as_str).filter(|k| *k != "model").collect();
+            let mut layers = Vec::new();
+            for k in &names {
+                layers.push(format!("{}: {}", text(k), value_of(n, k, sc)?.ok_or("a raster is not connected")?));
+            }
+            if layers.is_empty() {
+                return Err("connect the covariates (rasters, inputs of any names: forest, elev...)".into());
+            }
+            let (mut args, said) = arguments(n, py, sc, Some(model), &names)?;
+            args.insert(1, format!("{{{}}}", layers.join(", ")));
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            (code, out(&[("resistance", var.to_string())]), Need::Nothing)
+        }
+        "move.path_density" => {
+            let py = entry(op)?;
+            opt(n, "paths", sc)?.ok_or("its paths are not connected")?;
+            opt(n, "like", sc)?.ok_or("its like is not connected")?;
+            let (args, said) = arguments(n, py, sc, None, &[])?;
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            (code, out(&[("density", var.to_string())]), Need::Nothing)
         }
         "move.max_speed" => {
             let py = entry(op)?;
@@ -1889,6 +2033,130 @@ params = { path = "x.csv" }
             "{t}"
         );
         assert!(t.contains("rss_none = tf.move.log_rss(plain, x1=tab, x2=tab, seed=1)\n"), "{t}");
+        parses(t);
+    }
+
+    /// A simulation from a model of coefficients: the library's make_issf_model, redistribution_kernel and
+    /// simulate_path in a loop over the starts and the paths (the seeds one after the other), resistance and density.
+    #[test]
+    fn simulated_paths_their_resistance_and_their_density() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "sl"
+op = "move.distribution"
+params = { name = "gamma", shape = 2, scale = 50 }
+
+[[nodes]]
+id = "ta"
+op = "move.distribution"
+params = { name = "vonmises", kappa = 2 }
+
+[[nodes]]
+id = "model"
+op = "move.issf_model"
+inputs = { sl_distr = "sl.distribution", ta_distr = "ta.distribution" }
+params = { coefficients = { forest_end = 1.5, sl_ = -0.002 } }
+
+[[nodes]]
+id = "ordered"
+op = "move.issf_model"
+inputs = { sl_distr = "sl.distribution", ta_distr = "ta.distribution" }
+params = { coefficients = [["sl_", -0.002], ["forest_end", 1.5]] }
+
+[[nodes]]
+id = "forest"
+op = "raster.read"
+params = { path = "forest.tif" }
+
+[[nodes]]
+id = "tracks"
+op = "move.read_tracks"
+params = { path = "fishers.csv" }
+
+[[nodes]]
+id = "paths"
+op = "move.simulate_path"
+inputs = { model = "model.model", forest = "forest.map" }
+params = { x = 500, y = 500, direction = 0.5, time = "2020-01-01 00:00:00", dt = 1800, n_steps = 20, n_control = 1000, n_paths = 3, seed = 42, tolerance_outside = 1 }
+
+[[nodes]]
+id = "from_tracks"
+op = "move.simulate_path"
+inputs = { model = "model.model", forest = "forest.map", start = "tracks.tracks", sl_distr = "sl.distribution" }
+params = { n_steps = 5 }
+
+[[nodes]]
+id = "plain"
+op = "move.simulate_path"
+inputs = { model = "model.model", forest = "forest.map" }
+params = { x = 1, y = 2 }
+
+[[nodes]]
+id = "res"
+op = "move.resistance"
+inputs = { model = "model.model", forest = "forest.map" }
+params = { transform = "linear", r_max = 50 }
+
+[[nodes]]
+id = "res_plain"
+op = "move.resistance"
+inputs = { model = "model.model", forest = "forest.map" }
+
+[[nodes]]
+id = "use"
+op = "move.path_density"
+inputs = { paths = "paths.paths", like = "forest.map" }
+params = { by = "track", include_start = true }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
+        assert!(
+            t.contains("model = tf.move.make_issf_model({\"forest_end\": 1.5, \"sl_\": -0.002}, sl=sl, ta=ta)\n"),
+            "{t}"
+        );
+        assert!(
+            t.contains(
+                "ordered = tf.move.make_issf_model(dict([[\"sl_\", -0.002], [\"forest_end\", 1.5]]), sl=sl, ta=ta)\n"
+            ),
+            "{t}"
+        );
+        // a start from the settings, a path for each seed (seed, seed + 1...), the tracks named path_1...
+        assert!(
+            t.contains(
+                "paths_starts = [(None, tf.move.make_start((500, 500), 0.5, time=\"2020-01-01 00:00:00\", dt=1800))]\n"
+            ),
+            "{t}"
+        );
+        assert!(t.contains("for paths_label, paths_start in paths_starts:\n    for paths_i in range(3):\n"), "{t}");
+        assert!(
+            t.contains("paths_k = tf.move.redistribution_kernel(model, paths_start, {\"forest\": forest}, n_control=1000, tolerance_outside=1, seed=42 + paths_i)\n"),
+            "{t}"
+        );
+        assert!(t.contains("paths_all.append(tf.move.simulate_path(paths_k, 20).assign(track=(str(paths_label) + \"_path_\" if paths_label is not None else \"path_\") + str(paths_i + 1)))\n"), "{t}");
+        assert!(t.contains("paths = pd.concat(paths_all, ignore_index=True)\n"), "{t}");
+        // a start from tracks: the first location of each, its time and the direction of its first step
+        assert!(t.contains("from_tracks_starts = []\nfor _, g in (tracks.groupby(from_tracks_track, sort=False) if from_tracks_track else [(None, tracks)]):\n"), "{t}");
+        assert!(t.contains("float(np.arctan2(b.y - a.y, b.x - a.x)) if b is not None else 0.0, time=(g[from_tracks_time].iloc[0] if from_tracks_time else None)"), "{t}");
+        assert!(t.contains("sl_distr=sl, n_control") || t.contains("sl_distr=sl"), "{t}");
+        assert!(t.contains("plain_starts = [(None, tf.move.make_start((1, 2), 0.0))]\n"), "{t}");
+        assert!(!t.contains("__import__"), "{t}");
+        assert!(
+            t.contains("res = tf.move.resistance(model, {\"forest\": forest}, transform=\"linear\", r_max=50)\n"),
+            "{t}"
+        );
+        assert!(t.contains("res_plain = tf.move.resistance(model, {\"forest\": forest})\n"), "{t}");
+        assert!(
+            t.contains("use = tf.move.path_density(paths, like=forest, by=\"track\", include_start=True)\n"),
+            "{t}"
+        );
+        assert!(!t.contains("__import__"), "{t}");
         parses(t);
     }
 }

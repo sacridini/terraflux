@@ -3718,3 +3718,561 @@ fn a_separating_covariate_runs_out_of_iterations_and_says_so() {
     );
     assert!(!issf_model(&o).converged);
 }
+
+// simulation from a step selection model (tf.move.make_issf_model, redistribution_kernel, simulate_path, resistance
+// and path_density): keys `in/sim/...`, `sim/<case>/{x,y,t,dt}`, `sim/res/...` and `sim/dens/...`, the models and
+// arguments in move.json (`sim`)
+
+fn sim_meta() -> &'static serde_json::Value {
+    &reference().1["sim"]
+}
+
+/// A grid from (xmin, ymax) with the cell sizes given.
+fn sim_grid(nx: usize, ny: usize, xmin: f64, ymax: f64, dx: f64, dy: f64, crs: &str) -> Arc<Grid> {
+    let mut g = Grid::new(nx, ny);
+    g.transform = [xmin, dx, 0.0, ymax, 0.0, -dy];
+    g.geo.wkt = Some(crs.to_string());
+    Arc::new(g)
+}
+
+fn sim_map(key: &str) -> Value {
+    Value::Map(Map::new(sim_grid(100, 100, 0.0, 1000.0, 10.0, 10.0, "EPSG:32633"), want(key).to_vec()))
+}
+
+/// The covariates of a case as inputs: (name, map).
+fn sim_covariates(case: &str) -> Vec<(&'static str, Value)> {
+    match sim_meta()["cases"][case]["layer"].as_str().unwrap() {
+        "popden" => {
+            let (e, d) = (want("in/sim/pd_ext"), &sim_meta()["pd_dim"]);
+            let (nr, nc) = (d[0].as_u64().unwrap() as usize, d[1].as_u64().unwrap() as usize);
+            let g = sim_grid(nc, nr, e[0], e[3], (e[1] - e[0]) / nc as f64, (e[3] - e[2]) / nr as f64, "EPSG:5070");
+            vec![("popden", Value::Map(Map::new(g, want("in/sim/pd_vals").to_vec())))]
+        }
+        "elevation" => vec![("elevation", relief_elevation())],
+        _ => vec![("cov", sim_map("in/sim/map_a"))],
+    }
+}
+
+fn sim_distribution(d: &serde_json::Value) -> Value {
+    Value::StepDistribution(Arc::new(terraflux_ops::movement::Distribution {
+        name: d[0].as_str().unwrap().to_string(),
+        params: d[1].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_f64().unwrap())).collect(),
+        vcov: None,
+    }))
+}
+
+/// The model of a case of the reference (the library's order of terms), by move.issf_model.
+fn sim_model(c: &serde_json::Value) -> Value {
+    let o = go(
+        "move.issf_model",
+        vec![("sl_distr", sim_distribution(&c["sl"])), ("ta_distr", sim_distribution(&c["ta"]))],
+        serde_json::json!({"coefficients": c["coefs"]}),
+    );
+    Value::StepModel(issf_model(&o))
+}
+
+/// The settings of a simulation of a case.
+fn sim_params(c: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "x": c["start"][0], "y": c["start"][1], "direction": c["ta0"], "time": c["time"], "dt": c["dt"],
+        "n_steps": c["n_steps"], "n_control": c["n_control"], "tolerance_outside": c["tol"], "seed": c["seed"]
+    })
+}
+
+/// A run with its warnings.
+fn sim_warn(
+    op: &str,
+    ins: Vec<(&str, Value)>,
+    params: serde_json::Value,
+) -> (terraflux_ops::Result<Outputs>, Vec<String>) {
+    let params = params.as_object().cloned().unwrap_or_default();
+    let args = Args { node: "n", inputs: ins.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), params: &params };
+    let mut ctx = Ctx::default();
+    let r = registry().get(op).unwrap().run(&mut ctx, &args);
+    (r, ctx.warnings)
+}
+
+fn sim_run(case: &str, model: Value, extra: serde_json::Value) -> (Outputs, Vec<String>) {
+    let c = &sim_meta()["cases"][case];
+    let mut p = sim_params(c);
+    p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    let mut ins = vec![("model", model)];
+    ins.extend(sim_covariates(case));
+    let (r, w) = sim_warn("move.simulate_path", ins, p);
+    (r.unwrap_or_else(|e| panic!("{case}: {e}")), w)
+}
+
+/// The seconds of a column of times (datetimes as text, or numbers).
+fn sim_seconds(v: &Vector, rows: std::ops::Range<usize>) -> Vec<f64> {
+    match v.column("t_").unwrap() {
+        Column::Texts(t) => {
+            t[rows].iter().map(|s| terraflux_ops::movement::time::parse(s).unwrap() as f64 / 1e9).collect()
+        }
+        Column::Numbers(n) => n[rows].to_vec(),
+    }
+}
+
+/// The rows [from, from + n) of a path against the reference's `sim/<key>/...`.
+fn sim_same(what: &str, v: &Vector, from: usize, key: &str) {
+    let n = want(&format!("sim/{key}/x")).len();
+    let r = from..from + n;
+    let col = |c: &str| v.column(c).unwrap().numbers()[r.clone()].to_vec();
+    same(&format!("{what} x"), &col("x_"), want(&format!("sim/{key}/x")));
+    same(&format!("{what} y"), &col("y_"), want(&format!("sim/{key}/y")));
+    same(&format!("{what} t"), &sim_seconds(v, r.clone()), want(&format!("sim/{key}/t")));
+    same(&format!("{what} dt"), &col("dt"), want(&format!("sim/{key}/dt")));
+    let steps: Vec<f64> = (0..n).map(|i| i as f64).collect();
+    same(&format!("{what} step_"), &col("step_"), &steps);
+}
+
+fn texts(v: &Vector, c: &str) -> Vec<String> {
+    match v.column(c).unwrap() {
+        Column::Texts(t) => t.clone(),
+        _ => panic!("{c}: numbers"),
+    }
+}
+
+#[test]
+fn simulated_paths_are_the_librarys() {
+    for case in ["a", "b", "c", "d", "e", "f", "g"] {
+        let c = &sim_meta()["cases"][case];
+        let (o, warnings) = sim_run(case, sim_model(c), serde_json::json!({}));
+        let v = vector(&o, "paths");
+        sim_same(case, &v, 0, case);
+        let w = warnings.join("\n");
+        match case {
+            // the path leaves the study area after 10 steps, the rest has no value
+            "f" => {
+                assert!(w.contains("path_1: simulation stopped after 10 time steps"), "{w}");
+                let x = num(&v, "x_");
+                assert_eq!(x.iter().filter(|x| x.is_nan()).count(), 30);
+                assert!(v.geometries[11..].iter().all(|g| matches!(g, Geometry::Empty)));
+                assert!(matches!(v.geometries[10], Geometry::Point(_)));
+            }
+            // the kernel's first cycle stops, then the path goes on from the generator (a start in numbers)
+            "g" => {
+                assert!(
+                    w.contains("path_1: more than 1% of the candidate steps that could be drawn end outside"),
+                    "{w}"
+                );
+                assert!(w.contains("Terminating simulations here"), "{w}");
+                assert!(matches!(v.column("t_").unwrap(), Column::Numbers(_)));
+            }
+            _ => assert!(warnings.is_empty(), "{case}: {w}"),
+        }
+        assert_eq!(v.crs.as_deref().map(|c| c.contains("32633") || c.contains("5070")), Some(true), "{case}");
+        // the points are the positions
+        let (x, y) = (num(&v, "x_"), num(&v, "y_"));
+        for (i, g) in v.geometries.iter().enumerate() {
+            match g {
+                Geometry::Point(p) => assert!(p[0] == x[i] && p[1] == y[i]),
+                Geometry::Empty => assert!(x[i].is_nan()),
+                g => panic!("{g:?}"),
+            }
+        }
+        // the table of numbers
+        let Value::Table(t) = &o["table"] else { panic!() };
+        assert!(t.columns.contains(&"x_".to_string()) && t.columns.contains(&"step_".to_string()));
+    }
+}
+
+#[test]
+fn a_model_fitted_by_the_terraflux_gives_the_librarys_simulated_path_over_the_fishers() {
+    if !gdal() {
+        return;
+    }
+    let c = &sim_meta()["cases"]["fishers"];
+    let fit = go("move.fit_issf", vec![("steps", issf_fishers_data())], serde_json::json!({}));
+    let m = Value::StepModel(issf_model(&fit));
+    // three tracks: the fit keeps no distributions (the library says so too), and a simulation says what is missing
+    let (r, _) =
+        sim_warn("move.simulate_path", vec![("model", m.clone()), ("elevation", relief_elevation())], sim_params(c));
+    let e = r.map(|_| ()).unwrap_err().to_string();
+    assert!(e.contains("the model has no step length and turn angle distributions"), "{e}");
+    // given them, the library's path (its fit has the same numbers)
+    let ins = vec![
+        ("model", m),
+        ("sl_distr", sim_distribution(&c["sl"])),
+        ("ta_distr", sim_distribution(&c["ta"])),
+        ("elevation", relief_elevation()),
+    ];
+    let (r, w) = sim_warn("move.simulate_path", ins, sim_params(c));
+    let o = r.unwrap();
+    assert!(w.is_empty(), "{w:?}");
+    sim_same("fishers", &vector(&o, "paths"), 0, "fishers");
+}
+
+#[test]
+fn a_model_from_coefficients_is_the_librarys() {
+    let a = &sim_meta()["cases"]["a"];
+    let make = |coefs: serde_json::Value| {
+        let o = go(
+            "move.issf_model",
+            vec![("sl_distr", sim_distribution(&a["sl"])), ("ta_distr", sim_distribution(&a["ta"]))],
+            serde_json::json!({"coefficients": coefs}),
+        );
+        issf_model(&o)
+    };
+    let m = make(a["coefs"].clone());
+    // the library's order of the terms, its formula and the distributions
+    assert_eq!(m.names(), ["cov_end", "sl_", "cos_ta_"]);
+    assert_eq!(m.coef, [1.5, -0.002, 0.4]);
+    assert_eq!(m.formula, "case_ ~ cov_end + sl_ + cos_ta_ + strata(step_id_)");
+    assert!(m.vcov.iter().all(|v| v.is_nan()) && m.loglik.iter().all(|v| v.is_nan()) && m.converged);
+    assert_eq!(m.sl_distr.as_ref().unwrap().name, "gamma");
+    assert_eq!(m.ta_distr.as_ref().unwrap().name, "vonmises");
+    // an object's keys are sorted (I(slope^2), log_sl_, slope, slope:log_sl_); a list keeps the order, and an
+    // interaction can be given in either order (the column is named by the order its variables first appear in)
+    let by_object = make(serde_json::json!({"slope": -0.05, "log_sl_": 0.3, "slope:log_sl_": 0.01, "I(slope^2)": 0.1}));
+    assert_eq!(by_object.names(), ["I(slope^2)", "log_sl_", "slope", "log_sl_:slope"]);
+    assert_eq!(by_object.coef, [0.1, 0.3, -0.05, 0.01]);
+    let by_list =
+        make(serde_json::json!([["slope", -0.05], ["log_sl_", 0.3], ["log_sl_:slope", 0.01], ["I(slope^2)", 0.1]]));
+    assert_eq!(by_list.names(), ["slope", "log_sl_", "I(slope^2)", "slope:log_sl_"]);
+    assert_eq!(by_list.coef, [-0.05, 0.3, 0.1, 0.01]);
+    // saved as JSON and read back
+    let back: terraflux_ops::movement::StepModel =
+        serde_json::from_str(&serde_json::to_string(&*by_list).unwrap()).unwrap();
+    assert_eq!(back.names(), by_list.names());
+    same("json", &back.coef, &by_list.coef);
+}
+
+#[test]
+fn model_from_coefficients_errors_are_the_librarys() {
+    let a = &sim_meta()["cases"]["a"];
+    let fail = |coefs: serde_json::Value| {
+        run(
+            "move.issf_model",
+            vec![("sl_distr", sim_distribution(&a["sl"])), ("ta_distr", sim_distribution(&a["ta"]))],
+            serde_json::json!({"coefficients": coefs}),
+        )
+        .map(|_| ())
+        .unwrap_err()
+        .to_string()
+    };
+    assert!(fail(serde_json::json!({})).contains("coefficients: named numbers, one for each term"));
+    assert!(fail(serde_json::json!([["a", 1.0], ["a", 2.0]])).contains("coefficients: named numbers"));
+    assert!(fail(serde_json::json!({"a": null})).contains("coefficients: terms to numbers"));
+    assert!(fail(serde_json::json!({"a": "x"})).contains("coefficients: terms to numbers"));
+    assert!(fail(serde_json::json!([["a"]])).contains("coefficients: terms to numbers"));
+    assert!(fail(serde_json::json!({"factor(a)": 1.0})).contains("a factor term needs the levels of a fit"));
+    assert!(fail(serde_json::json!({"a:b": 1.0, "b:a": 2.0})).contains("repeat a term of the formula"));
+    assert!(fail(serde_json::json!({"tan(a)": 1.0})).contains("the function tan() is not supported"));
+    // the distributions are needed
+    let coefs = serde_json::json!({"coefficients": {"a": 1.0}});
+    let e = run("move.issf_model", vec![("sl_distr", sim_distribution(&a["sl"]))], coefs.clone())
+        .map(|_| ())
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("ta_distr"), "{e}");
+    let e = run("move.issf_model", vec![], coefs).map(|_| ()).unwrap_err().to_string();
+    assert!(e.contains("sl_distr"), "{e}");
+}
+
+#[test]
+fn three_paths_are_three_calls_with_the_seeds_one_after_the_other() {
+    let a = &sim_meta()["cases"]["a"];
+    let (o, w) = sim_run("a", sim_model(a), serde_json::json!({"n_paths": 3}));
+    assert!(w.is_empty(), "{w:?}");
+    let v = vector(&o, "paths");
+    let n = a["n_steps"].as_u64().unwrap() as usize + 1;
+    assert_eq!(v.len(), 3 * n);
+    let tracks = texts(&v, "track");
+    for i in 0..3 {
+        assert!(tracks[i * n..(i + 1) * n].iter().all(|t| *t == format!("path_{}", i + 1)));
+        // the library's call with the seed seed + i
+        sim_same(&format!("path {}", i + 1), &v, i * n, &format!("a{}", i + 1));
+        // and this operator's with that seed
+        let seed = a["seed"].as_i64().unwrap() + i as i64;
+        let (one, _) = sim_run("a", sim_model(a), serde_json::json!({"seed": seed}));
+        let one = vector(&one, "paths");
+        same("one call x", &num(&one, "x_"), &num(&v, "x_")[i * n..(i + 1) * n]);
+    }
+}
+
+#[test]
+fn several_starts_give_a_path_each_with_the_time_and_direction_of_their_track() {
+    let a = &sim_meta()["cases"]["a"];
+    // two tracks (F: 3 locations, M: 2) in the map's CRS
+    let x = [500.0, 600.0, 650.0, 300.0, 300.0];
+    let y = [500.0, 500.0, 520.0, 700.0, 800.0];
+    let stamps = [
+        "2020-01-01 00:00:00",
+        "2020-01-01 01:00:00",
+        "2020-01-01 02:00:00",
+        "2021-05-05 12:00:00",
+        "2021-05-05 13:00:00",
+    ];
+    let tracks = Value::Vector(Arc::new(Vector {
+        geometries: x.iter().zip(&y).map(|(&x, &y)| Geometry::Point([x, y])).collect(),
+        attributes: vec![
+            ("track".into(), Column::Texts(["F", "F", "F", "M", "M"].map(String::from).to_vec())),
+            ("time".into(), Column::Texts(stamps.map(String::from).to_vec())),
+        ],
+        crs: Some("EPSG:32633".into()),
+    }));
+    let mut p = sim_params(a);
+    let obj = p.as_object_mut().unwrap();
+    for k in ["x", "y", "direction", "time", "dt"] {
+        obj.remove(k);
+    }
+    obj.insert("n_steps".into(), 6.into());
+    obj.insert("n_control".into(), 500.into());
+    let (r, w) = sim_warn(
+        "move.simulate_path",
+        vec![("model", sim_model(a)), ("cov", sim_map("in/sim/map_a")), ("start", tracks)],
+        p.clone(),
+    );
+    let v = vector(&r.unwrap(), "paths");
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(v.len(), 14);
+    let track = texts(&v, "track");
+    assert_eq!(track[0], "F_path_1");
+    assert_eq!(track[7], "M_path_1");
+    let t = texts(&v, "t_");
+    assert_eq!(t[0], "2020-01-01 00:00:00");
+    assert_eq!(t[7], "2021-05-05 12:00:00");
+    assert_eq!(t[8], "2021-05-05 13:00:00"); // the default step: an hour
+    // F's path is the one of the settings with F's start, the time and the direction of its first step (east)
+    let mut q = p;
+    q.as_object_mut().unwrap().extend(
+        serde_json::json!({"x": 500.0, "y": 500.0, "direction": 0.0, "time": "2020-01-01 00:00:00"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let (r, _) = sim_warn("move.simulate_path", vec![("model", sim_model(a)), ("cov", sim_map("in/sim/map_a"))], q);
+    let one = vector(&r.unwrap(), "paths");
+    same("F x", &num(&v, "x_")[..7], &num(&one, "x_"));
+    // M's start is (300, 700)
+    assert_eq!(num(&v, "x_")[7], 300.0);
+    assert_eq!(num(&v, "y_")[7], 700.0);
+}
+
+#[test]
+fn one_and_four_threads_give_the_same_simulated_paths() {
+    let a = &sim_meta()["cases"]["a"];
+    // more than 20000 candidates: the loops run in parallel
+    let by = |n: usize| {
+        terraflux_ops::threads::set_kernel_threads(n);
+        let (o, _) = sim_run("a", sim_model(a), serde_json::json!({"n_control": 60000, "n_steps": 4}));
+        terraflux_ops::threads::set_kernel_threads(4);
+        let v = vector(&o, "paths");
+        (num(&v, "x_"), num(&v, "y_"))
+    };
+    let (one, four) = (by(1), by(4));
+    same("threads x", &one.0, &four.0);
+    same("threads y", &one.1, &four.1);
+    assert!(one.0.iter().all(|x| x.is_finite()));
+}
+
+#[test]
+fn simulation_errors_are_the_librarys() {
+    let a = &sim_meta()["cases"]["a"];
+    let model = sim_model(a);
+    let go_err = |ins: Vec<(&str, Value)>, p: serde_json::Value| {
+        run("move.simulate_path", ins, p).map(|_| ()).unwrap_err().to_string()
+    };
+    let cov = || ("cov", sim_map("in/sim/map_a"));
+    let base = sim_params(a);
+    let with = |k: &str, v: serde_json::Value| {
+        let mut p = base.clone();
+        p.as_object_mut().unwrap().insert(k.to_string(), v);
+        p
+    };
+    assert!(go_err(vec![("model", model.clone())], base.clone()).contains("connect the covariates"));
+    assert!(go_err(vec![cov()], base.clone()).contains("connect the model"));
+    let e = go_err(vec![("model", model.clone()), cov()], serde_json::json!({}));
+    assert!(e.contains("give the start"), "{e}");
+    let ins = || vec![("model", model.clone()), cov()];
+    assert!(go_err(ins(), with("n_steps", (-1).into())).contains("n_steps: 0 or more"));
+    assert!(go_err(ins(), with("n_control", 0.into())).contains("n_control and n_sample: 1 or more"));
+    assert!(go_err(ins(), with("n_sample", 0.into())).contains("n_control and n_sample: 1 or more"));
+    assert!(go_err(ins(), with("n_paths", 0.into())).contains("n_paths: 1 or more"));
+    assert!(go_err(ins(), with("tolerance_outside", 2.into())).contains("tolerance_outside: a fraction, from 0 to 1"));
+    assert!(go_err(ins(), with("time", "yesterday".into())).contains("is not a datetime"));
+    // a term that is no covariate nor a term of movement
+    let c = &sim_meta()["cases"]["c"];
+    let other = go(
+        "move.issf_model",
+        vec![("sl_distr", sim_distribution(&c["sl"])), ("ta_distr", sim_distribution(&c["ta"]))],
+        serde_json::json!({"coefficients": {"foo_end": 1.0, "sl_": 0.1}}),
+    );
+    let m = Value::StepModel(issf_model(&other));
+    let e = go_err(vec![("model", m), cov()], base.clone());
+    assert!(
+        e.contains("the term \"foo_end\" of the model is not a covariate (cov_end, cov_start) nor one of sl_, ta_, log_sl_, cos_ta_"),
+        "{e}"
+    );
+    // distributions that are not of steps
+    let bad = sim_distribution(&serde_json::json!(["vonmises", {"kappa": 1.0}]));
+    let e = go_err(vec![("model", model.clone()), cov(), ("sl_distr", bad)], base.clone());
+    assert!(e.contains("sl_distr: \"vonmises\" is not a distribution of step lengths"), "{e}");
+    let bad = sim_distribution(&serde_json::json!(["gamma", {"shape": 1.0}]));
+    let e = go_err(vec![("model", model.clone()), cov(), ("ta_distr", bad)], base.clone());
+    assert!(e.contains("ta_distr: \"gamma\" is not a distribution of turn angles"), "{e}");
+    // a start that is not points
+    let e = go_err(vec![("model", model.clone()), cov(), ("start", model.clone())], base.clone());
+    assert!(e.contains("start: tracks or points"), "{e}");
+    // no candidate with a weight: the covariate is missing everywhere
+    let holes = Value::Map(Map::new(sim_grid(100, 100, 0.0, 1000.0, 10.0, 10.0, "EPSG:32633"), vec![f64::NAN; 10000]));
+    let e = go_err(vec![("model", model), ("cov", holes)], base);
+    assert!(e.contains("too few positive probabilities"), "{e}");
+}
+
+fn sim_res_model(coefs: serde_json::Value) -> Value {
+    let sl = sim_distribution(&serde_json::json!(["gamma", {"shape": 2.0, "scale": 50.0}]));
+    let ta = sim_distribution(&serde_json::json!(["vonmises", {"kappa": 2.0}]));
+    let o = go("move.issf_model", vec![("sl_distr", sl), ("ta_distr", ta)], serde_json::json!({"coefficients": coefs}));
+    Value::StepModel(issf_model(&o))
+}
+
+#[test]
+fn resistances_are_the_librarys() {
+    let r = &sim_meta()["res"];
+    let m = sim_res_model(r["coefs"].clone());
+    let ins = || vec![("model", m.clone()), ("cov", sim_map("in/sim/map_hole")), ("wet", sim_map("in/sim/map_wet"))];
+    let map = |o: &Outputs, port: &str| match &o[port] {
+        Value::Map(m) => m.clone(),
+        v => panic!("{port}: {:?}", v.ty()),
+    };
+    for v in r["variants"].as_array().unwrap() {
+        let tag = v["tag"].as_str().unwrap();
+        let mut p = serde_json::json!({"transform": v["transform"], "scale": v["scale"]});
+        for k in ["c", "r_max"] {
+            if !v[k].is_null() {
+                p[k] = v[k].clone();
+            }
+        }
+        let (res, w) = sim_warn("move.resistance", ins(), p);
+        let o = res.unwrap_or_else(|e| panic!("{tag}: {e}"));
+        let got = map(&o, "resistance");
+        same(tag, &got.data, want(&format!("sim/res/{tag}")));
+        // the warning names the terms left out, as the library's
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].ends_with(r["warning"].as_str().unwrap()), "{} vs {}", w[0], r["warning"]);
+        // the grid of the covariates, and the selection used: 1 for the best cell, none where a covariate has none
+        assert_eq!((got.grid.width, got.grid.height), (100, 100));
+        let sel = map(&o, "selection");
+        let best = sel.data.iter().copied().filter(|v| !v.is_nan()).fold(f64::NAN, f64::max);
+        assert_eq!(best, 1.0, "{tag}");
+        assert!(sel.data.iter().zip(got.data.iter()).all(|(a, b)| a.is_nan() == b.is_nan()));
+        assert!(got.data[150..160].iter().all(|v| v.is_nan()) && got.data[4000..4100].iter().all(|v| v.is_nan()));
+        assert!(got.data[160..4000].iter().all(|v| v.is_finite()));
+        if tag.starts_with("negexp") || tag.starts_with("linear") {
+            let lo = got.data.iter().copied().filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min);
+            let hi = got.data.iter().copied().filter(|v| !v.is_nan()).fold(f64::NEG_INFINITY, f64::max);
+            // the best cell is 1; with the minmax scale the worst is r_max
+            assert!((lo - 1.0).abs() < 1e-12, "{tag} {lo}");
+            if tag.contains("minmax") {
+                assert!((hi - v["r_max"].as_f64().unwrap_or(100.0)).abs() < 1e-9, "{tag} {hi}");
+            }
+        }
+    }
+}
+
+#[test]
+fn resistance_errors() {
+    let r = &sim_meta()["res"];
+    let full = sim_res_model(r["coefs"].clone());
+    let cov = || ("cov", sim_map("in/sim/map_hole"));
+    let wet = || ("wet", sim_map("in/sim/map_wet"));
+    let err = |ins: Vec<(&str, Value)>, p: serde_json::Value| {
+        run("move.resistance", ins, p).map(|_| ()).unwrap_err().to_string()
+    };
+    let both = || vec![("model", full.clone()), cov(), wet()];
+    assert!(
+        err(both(), serde_json::json!({"transform": "sqrt"})).contains("transform: negexp, linear, inverse or log")
+    );
+    assert!(err(both(), serde_json::json!({"scale": "sum"})).contains("scale: minmax or max"));
+    assert!(err(both(), serde_json::json!({"c": 0})).contains("c: above 0; r_max: above 1"));
+    assert!(err(both(), serde_json::json!({"r_max": 1})).contains("c: above 0; r_max: above 1"));
+    assert!(err(vec![("model", full.clone())], serde_json::json!({})).contains("connect the covariates"));
+    // only terms of movement and of the start of the step: no habitat
+    let moves = sim_res_model(serde_json::json!({"sl_": 0.1, "cov_start": 0.2}));
+    assert!(
+        err(vec![("model", moves), cov()], serde_json::json!({})).contains("the model has no term of habitat left")
+    );
+    // a term of no covariate
+    let other = sim_res_model(serde_json::json!({"foo": 0.1}));
+    assert!(
+        err(vec![("model", other), cov()], serde_json::json!({}))
+            .contains("the term \"foo\" of the model is not a covariate")
+    );
+    // covariates on different grids
+    let small = Value::Map(Map::new(sim_grid(10, 10, 0.0, 1000.0, 100.0, 100.0, "EPSG:32633"), vec![1.0; 100]));
+    assert!(
+        err(vec![("model", full), cov(), ("wet", small)], serde_json::json!({}))
+            .contains("the rasters must share one grid")
+    );
+    assert!(err(vec![cov(), wet()], serde_json::json!({})).contains("connect the model"));
+}
+
+#[test]
+fn the_density_of_paths_is_the_librarys() {
+    let a = &sim_meta()["cases"]["a"];
+    let (o, _) = sim_run("a", sim_model(a), serde_json::json!({"n_paths": 3}));
+    let paths = Value::Vector(vector(&o, "paths"));
+    let like = || sim_map("in/sim/map_hole");
+    let dens = |p: serde_json::Value| go("move.path_density", vec![("paths", paths.clone()), ("like", like())], p);
+    let map = |o: &Outputs| match &o["density"] {
+        Value::Map(m) => m.data.to_vec(),
+        v => panic!("{:?}", v.ty()),
+    };
+    let plain = map(&dens(serde_json::json!({})));
+    same("plain", &plain, want("sim/dens/plain"));
+    let total: f64 = plain.iter().filter(|v| !v.is_nan()).sum();
+    assert!((total - 1.0).abs() < 1e-12, "{total}");
+    assert!(plain[150..160].iter().all(|v| v.is_nan()) && plain[4000..4100].iter().all(|v| v.is_nan()));
+    assert!(plain.contains(&0.0));
+    same("with the start", &map(&dens(serde_json::json!({"include_start": true}))), want("sim/dens/start"));
+    // one band per path, each summing to 1, in the order of the values
+    let by = dens(serde_json::json!({"by": "track"}));
+    let Value::Stack(s) = &by["density"] else { panic!("{:?}", by["density"].ty()) };
+    assert_eq!(s.names(), ["path_1", "path_2", "path_3"]);
+    let flat: Vec<f64> = s.layers.iter().flat_map(|l| l.iter().copied()).collect();
+    same("by", &flat, want("sim/dens/by"));
+    for l in &s.layers {
+        let t: f64 = l.iter().filter(|v| !v.is_nan()).sum();
+        assert!((t - 1.0).abs() < 1e-12);
+    }
+}
+
+#[test]
+fn path_density_errors() {
+    let a = &sim_meta()["cases"]["a"];
+    let (o, _) = sim_run("a", sim_model(a), serde_json::json!({"n_steps": 3}));
+    let paths = Value::Vector(vector(&o, "paths"));
+    let like = || sim_map("in/sim/map_a");
+    let err = |ins: Vec<(&str, Value)>, p: serde_json::Value| {
+        run("move.path_density", ins, p).map(|_| ()).unwrap_err().to_string()
+    };
+    assert!(
+        err(vec![("paths", paths.clone()), ("like", like())], serde_json::json!({"by": "nope"}))
+            .contains("by: the column \"nope\" is not in paths")
+    );
+    assert!(
+        err(vec![("paths", set("utm")), ("like", like())], serde_json::json!({}))
+            .contains("a table with the columns x_ and y_")
+    );
+    // a landscape the paths never reach
+    let far = Value::Map(Map::new(sim_grid(10, 10, 5000.0, 6000.0, 100.0, 100.0, "EPSG:32633"), vec![1.0; 100]));
+    assert!(
+        err(vec![("paths", paths), ("like", far)], serde_json::json!({}))
+            .contains("no position of the paths falls on a cell of like")
+    );
+    // only the start: nothing without include_start when the path has no step
+    let (o, _) = sim_run("a", sim_model(a), serde_json::json!({"n_steps": 0}));
+    let start_only = Value::Vector(vector(&o, "paths"));
+    assert!(
+        err(vec![("paths", start_only.clone()), ("like", like())], serde_json::json!({}))
+            .contains("no position of the paths")
+    );
+    let d = go(
+        "move.path_density",
+        vec![("paths", start_only), ("like", like())],
+        serde_json::json!({"include_start": true}),
+    );
+    let Value::Map(m) = &d["density"] else { panic!() };
+    assert_eq!(m.data.iter().filter(|v| **v == 1.0).count(), 1);
+}

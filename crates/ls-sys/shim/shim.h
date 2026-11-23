@@ -980,6 +980,9 @@ struct MoveDbbmmVariance;
 struct MoveDbgbVariance;
 struct MoveImputed;
 struct MoveIssfFit;
+struct MoveSimKernel;
+struct MoveSimPath;
+struct MoveSimSpec;
 MoveDbbmmVariance move_dbbmm_variance(rust::Slice<const double> x, rust::Slice<const double> y,
                                       rust::Slice<const double> time_lag, rust::Slice<const double> loc_err,
                                       std::int32_t window_size, std::int32_t margin, std::int32_t threads);
@@ -993,6 +996,10 @@ rust::Vec<double> move_surface_distance(rust::Slice<const double> x1, rust::Slic
 rust::Vec<double> cost_energy_landscape(rust::Slice<const double> dem, std::int64_t ny, std::int64_t nx, double mass,
                                         double res, std::int32_t neigh, bool human, double speed, bool kcal,
                                         std::int32_t threads);
+MoveSimKernel move_sim_kernel(nlm::RRng& rng, double x0, double y0, double ta0, std::int64_t n_sample,
+                              const MoveSimSpec& spec);
+MoveSimPath move_sim_path(nlm::RRng& rng, double x0, double y0, double ta0, std::int64_t n_steps,
+                          const MoveSimSpec& spec);
 MoveImputed move_impute_loc_err(rust::Slice<const double> e, std::int32_t how);
 MoveIssfFit move_issf_fit(rust::Slice<const double> x, std::int64_t n, std::int64_t p,
                           rust::Slice<const std::uint8_t> status, rust::Slice<const std::int32_t> stratum,
