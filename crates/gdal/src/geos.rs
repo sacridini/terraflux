@@ -7,9 +7,11 @@ use std::sync::OnceLock;
 
 use crate::Result;
 
+mod cluster;
 mod index;
 mod lines;
 mod shapes;
+pub use cluster::{delaunay, intersect, voronoi};
 pub use index::{GeosIndex, Predicate};
 pub use lines::{nearest_points, project};
 pub use shapes::{Unary, unary, union};
@@ -94,6 +96,8 @@ struct Api {
     GEOSNearestPoints_r: unsafe extern "C" fn(Ctx, G, G) -> Cs,
     GEOSCoordSeq_destroy_r: unsafe extern "C" fn(Ctx, Cs),
     GEOSProject_r: unsafe extern "C" fn(Ctx, G, G) -> c_double,
+    // vector.voronoi / delaunay
+    GEOSDelaunayTriangulation_r: unsafe extern "C" fn(Ctx, G, c_double, c_int) -> G,
 }
 
 pub(crate) type UnaryFn = unsafe extern "C" fn(Ctx, G) -> G;
@@ -235,6 +239,8 @@ fn load(path: &Path) -> Result<Geos> {
         GEOSNearestPoints_r: f!(GEOSNearestPoints_r),
         GEOSCoordSeq_destroy_r: f!(GEOSCoordSeq_destroy_r),
         GEOSProject_r: f!(GEOSProject_r),
+        // vector.voronoi / delaunay
+        GEOSDelaunayTriangulation_r: f!(GEOSDelaunayTriangulation_r),
     };
     let v = unsafe { (api.GEOSversion)() };
     let version = if v.is_null() { String::new() } else { unsafe { CStr::from_ptr(v) }.to_string_lossy().into_owned() };

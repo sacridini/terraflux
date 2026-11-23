@@ -58,14 +58,14 @@ unsafe fn geometry_of(s: &Session<'_>, writer: G, h: G) -> Result<Geometry> {
 }
 
 /// A WKB reader and writer of a session, destroyed when dropped.
-struct Codec<'s, 'a> {
+pub(super) struct Codec<'s, 'a> {
     s: &'s Session<'a>,
     reader: G,
     writer: G,
 }
 
 impl<'s, 'a> Codec<'s, 'a> {
-    fn new(s: &'s Session<'a>) -> Result<Self> {
+    pub(super) fn new(s: &'s Session<'a>) -> Result<Self> {
         let reader = unsafe { (s.a.GEOSWKBReader_create_r)(s.ctx) };
         if reader.is_null() {
             return Err("GEOS could not make the WKB reader".into());
@@ -84,11 +84,11 @@ impl<'s, 'a> Codec<'s, 'a> {
         matches!(g, Geometry::Empty) || g.bounds().is_none()
     }
 
-    unsafe fn read(&self, g: &Geometry) -> Result<G> {
+    pub(super) unsafe fn read(&self, g: &Geometry) -> Result<G> {
         unsafe { geos_of(self.s, self.reader, g) }
     }
 
-    unsafe fn write(&self, h: G) -> Result<Geometry> {
+    pub(super) unsafe fn write(&self, h: G) -> Result<Geometry> {
         unsafe { geometry_of(self.s, self.writer, h) }
     }
 }

@@ -460,6 +460,24 @@ pub const TIPS: &[(&str, &str)] = &[
         "The point lands on the nearest segment, not only on a vertex, so it can sit between the vertices of a \
          road. Give `max_distance` to leave alone the points too far from anything; `snapped` tells which moved.",
     ),
+    (
+        "vector.voronoi",
+        "Give `clip` (the study area) so the outer cells do not run to GEOS's arbitrary margin: an unclipped cell \
+         on the edge of the points is as large as the margin, not a real catchment. Reproject to a metric \
+         coordinate system first if the cells will be measured. Points at the same place share one cell.",
+    ),
+    (
+        "vector.delaunay",
+        "It triangulates every vertex of the layer, so give points (or polygons for their corners) and nothing \
+         else; the triangles have no attributes. Use `edges` for the network of neighbours as lines.",
+    ),
+    (
+        "vector.cluster",
+        "`distance` is in the layer's units: reproject to a metric coordinate system first, as 50 degrees would \
+         join everything. `min_points` 1 groups the features that chain within the distance, with no noise; raise \
+         it (4 to 5 is usual) to leave isolated features as -1, noise, and to cut thin bridges between groups. \
+         The column is a number: -1 is noise.",
+    ),
     // land change analysis
     (
         "change.suggest",
