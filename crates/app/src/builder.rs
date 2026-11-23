@@ -3028,23 +3028,20 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
     });
 }
 
-/// What a connection carries, in words: its type, and what its output gave in the last run (a map's size, cells,
-/// system and range of values; a number; a table's size...), or that it has not run, or changed since.
-fn wire_text(s: &Session, a: &crate::editor_view::WireAsk) -> String {
-    let value = if a.node.is_empty() {
-        None
-    } else if a.source {
-        s.inputs.as_ref().and_then(|i| i.get(&a.node)).cloned()
-    } else {
-        s.value_of(&a.node, &a.port)
-    };
-    let what = match value {
-        Some(v) if a.fresh => crate::metadata::brief(&v),
-        Some(_) => "changed since the last run".to_string(),
-        None => "not run yet".to_string(),
-    };
-    let into = if a.into.is_empty() { String::new() } else { format!("{}\n", a.into) };
-    format!("{into}{}\n{what}", a.ty.name())
+/// What a port or a connection carries: what its output gave in the last run (a map's size, cells and system; a
+/// table's rows and columns; a number...), or that it changed since, or has not run.
+fn wire_text(s: &Session, a: &crate::editor_view::WireAsk) -> crate::editor_view::Carried {
+    use crate::editor_view::Carried;
+    if !a.carries || a.node.is_empty() {
+        return Carried::Nothing;
+    }
+    let value =
+        if a.source { s.inputs.as_ref().and_then(|i| i.get(&a.node)).cloned() } else { s.value_of(&a.node, &a.port) };
+    match value {
+        Some(v) if a.fresh => Carried::Shape(crate::value_shape::describe(&v)),
+        Some(_) => Carried::Stale,
+        None => Carried::Nothing,
+    }
 }
 
 fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
@@ -3169,7 +3166,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 t
             }
         };
-        s.editor.wire_tooltip(&text);
+        s.editor.flow_tooltip(&ask, &text);
     }
     if let (Some((last, _)), Some(rect)) = (s.editor.path.split_last(), s.editor.canvas()) {
         inside(ui, rect, last, container_kind(s).as_deref().unwrap_or("a container"));

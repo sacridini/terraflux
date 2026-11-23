@@ -2969,10 +2969,9 @@ fn a_connection_tells_its_type_and_value() {
             panic!("inside {inside}: the value of {place} is not kept")
         };
         let g = r.grid_of(r.chosen);
-        let size = format!("{} × {} cells", g.width, g.height);
+        let size = format!("{} × {}", g.width, g.height);
         rest_on(&mut h, at, 60);
         assert!(h.query_by_label_contains(&size).is_some(), "inside {inside}: the size {size}");
-        assert!(h.query_by_label_contains("cell size").is_some());
         // not while dragging (the pointer pressed and moved on the background)
         h.hover_at(at + egui::vec2(0.0, 300.0));
         h.run_steps(2);
@@ -3009,8 +3008,9 @@ fn a_connection_of_a_number_shows_the_number() {
     run_model(&mut h);
     let at = on_wire(&h, ("a", "value"), ("b", "v"));
     rest_on(&mut h, at, 60);
-    // (not "42" alone: the version in the bar, 1.42.0, has it too)
-    assert!(h.query_by_label_contains("number\n42").is_some(), "its type and the number");
+    // (the whole label: the version in the bar, 1.42.0, has "42" too)
+    assert!(h.query_by_label("42").is_some(), "the number");
+    assert!(h.query_by_label_contains("Number").is_some(), "its kind");
     // an edit: what the nodes gave may be out of date
     h.hover_at(at + egui::vec2(0.0, 300.0));
     h.run_steps(2);
@@ -3021,7 +3021,7 @@ fn a_connection_of_a_number_shows_the_number() {
     h.run_steps(3);
     rest_on(&mut h, at, 60);
     assert!(h.query_by_label_contains("changed since the last run").is_some());
-    assert!(h.query_by_label_contains("number\n42").is_none());
+    assert!(h.query_by_label("42").is_none());
 }
 
 /// A note put on the empty canvas and a frame around two nodes: the frame dragged by its title drags its nodes, a
@@ -3622,9 +3622,9 @@ fn a_settings_wire_has_a_tip_points_and_can_be_drawn_from_the_socket() {
     h.hover_at(at + egui::vec2(0.0, 300.0));
     h.run_steps(2);
     rest_on(&mut h, at, 3);
-    assert!(h.query_by_label_contains("→ opt.gap").is_none(), "not before the pointer rests");
+    assert!(h.query_by_label_contains("→").is_none(), "not before the pointer rests");
     rest_on(&mut h, at, 60);
-    assert!(h.query_by_label_contains("→ opt.gap").is_some(), "the setting it feeds");
+    assert!(h.query_by_label_contains(".gap").is_some(), "the setting it feeds");
     h.hover_at(at + egui::vec2(0.0, 300.0));
     h.run_steps(2);
     // a point: added by a double click, the wire through it

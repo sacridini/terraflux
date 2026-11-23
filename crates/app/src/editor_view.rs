@@ -25,6 +25,10 @@
 //! A box is titled by what its node is for people: the operator's label ("Fragmentation (FOS)", `title`) while the
 //! node's id is the one the app gave it, the id itself when the user or a template named the node (the operator's
 //! dotted name stays on the line under it; the model keeps the id either way, the title's tooltip tells both).
+//! Resting the pointer on an output, on an input, on a setting's socket or on a connection tells what flows there
+//! (`flow_tooltip`): the port's shape and name in its type's colour, the kind of value, under it what it holds (a
+//! raster's size, system and cell, a table's rows and columns, a number) read from the last run, or "not run yet".
+//! The connection under the pointer is drawn a little brighter and thicker.
 //!
 //! A box shows the inputs its node needs and those given; its optional others are folded in a row ("+ 9
 //! optional") that a click unfolds. Under its ports a box shows its main settings, a row each (the name at the
@@ -1222,7 +1226,7 @@ pub struct EditorState {
     canvas_resp: Option<egui::Response>,
     wire_hit: Option<(Pos2, u64, Option<usize>)>,
     /// The words told about a connection, by what they were worked out for.
-    pub wire_text: Option<(u64, u64, WireAsk, String)>,
+    pub wire_text: Option<(u64, u64, WireAsk, Carried)>,
 }
 
 /// The pointer rests this long (seconds) before the connection under it is looked for.
@@ -1238,8 +1242,31 @@ pub struct WireAsk {
     pub ty: Type,
     pub source: bool,
     pub fresh: bool,
-    /// What it feeds, when it is the wire of a setting ("→ node.setting"); empty for a connection.
-    pub into: String,
+    /// The tooltip's first line: the port's name, or for a connection where it goes ("a.out → b.input").
+    pub head: String,
+    /// A word after the type, weak ("needed", "optional"); empty for none.
+    pub extra: String,
+    /// What can be done with it, a last line in small weak letters; empty for none.
+    pub hint: String,
+    /// Whether a value flows there (an input not connected has none to tell about).
+    pub carries: bool,
+}
+
+/// What a port or a connection carries, as the last run left it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Carried {
+    /// What the value is ([`crate::value_shape::describe`]).
+    Shape(String),
+    /// A value is kept, but the model changed since it was made.
+    Stale,
+    /// No value yet.
+    Nothing,
+}
+
+/// A text with its first letter in capital.
+fn capital(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
 }
 
 /// The inputs of a node a connection may go to, offered where it was let go.
@@ -1323,14 +1350,52 @@ fn start_edit(
 }
 
 impl EditorState {
-    /// Tell about the connection the pointer rests on, in a tooltip at the pointer (the canvas's own tooltip).
-    pub fn wire_tooltip(&self, text: &str) {
-        if let Some(r) = &self.canvas_resp {
-            r.clone().on_hover_ui_at_pointer(|ui| {
-                ui.set_max_width(ui.spacing().tooltip_width);
-                ui.add(egui::Label::new(text));
+    /// Tell about the port or connection the pointer rests on, in a tooltip at the pointer (the canvas's own): the
+    /// port's shape and name in its type's colour with what the value is, under it what it holds (or that it has
+    /// not run yet), and last a hint.
+    pub fn flow_tooltip(&self, ask: &WireAsk, carried: &Carried) {
+        let Some(r) = &self.canvas_resp else { return };
+        r.clone().on_hover_ui_at_pointer(|ui| {
+            ui.set_max_width(ui.spacing().tooltip_width);
+            let v = ui.visuals().clone();
+            let weak = v.weak_text_color();
+            let colour = type_colour(ask.ty, v.dark_mode).unwrap_or(weak);
+            // (a value that is told: its kind leads the first line, the rest is the second)
+            let (kind, rest) = match carried {
+                Carried::Shape(t) if ask.carries => match t.split_once(" · ") {
+                    Some((k, rest)) => (k.to_string(), Some(rest.to_string())),
+                    None => (capital(ask.ty.name()), Some(t.clone())),
+                },
+                _ => (capital(ask.ty.name()), None),
+            };
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let (g, _) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::hover());
+                paint_port(ui.painter(), ask.ty, g.center(), PORT, colour);
+                ui.label(egui::RichText::new(&ask.head).monospace().strong().color(colour));
+                let mut tail = kind;
+                if !ask.extra.is_empty() {
+                    tail = format!("{tail} · {}", ask.extra);
+                }
+                ui.label(egui::RichText::new(tail).color(weak));
             });
-        }
+            if ask.carries {
+                match (carried, rest) {
+                    (Carried::Shape(_), Some(rest)) => {
+                        ui.label(egui::RichText::new(rest).color(v.text_color()));
+                    }
+                    (Carried::Stale, _) => {
+                        ui.label(egui::RichText::new("changed since the last run").color(weak).italics());
+                    }
+                    _ => {
+                        ui.label(egui::RichText::new("not run yet").color(weak).italics());
+                    }
+                }
+            }
+            if !ask.hint.is_empty() {
+                ui.label(egui::RichText::new(&ask.hint).color(weak).size(11.0));
+            }
+        });
     }
 
     /// Unfold a node's optional inputs, or fold them.
@@ -5449,6 +5514,38 @@ pub fn show(
     if st.drag.is_none()
         && let Some(p) = resp.hover_pos()
     {
+        // what is asked of the session about an output (box, output): where its value is kept, and whether the node
+        // ran since the last change (inside a container, `status` is its nodes' by id, the top-level container's under
+        // "/"); `head` is the tooltip's first line
+        let ask_of = |from: (usize, usize), head: String, extra: &str, hint: &str| {
+            let b = &scene.boxes[from.0];
+            let place: String = path.iter().map(|q| format!("{q}/")).collect::<String>() + &b.key;
+            let top = if path.is_empty() { b.key.as_str() } else { "/" };
+            let ran = matches!(status.get(top), Some(NodeStatus::Done { .. }));
+            WireAsk {
+                node: if b.source && !path.is_empty() { String::new() } else { place },
+                port: b.outputs[from.1].0.clone(),
+                ty: b.outputs[from.1].1,
+                source: b.source,
+                fresh: ran || b.source,
+                head,
+                extra: extra.into(),
+                hint: hint.into(),
+                carries: true,
+            }
+        };
+        // (a port nothing flows through: only its name, type and hint)
+        let bare = |head: String, ty: Type, extra: &str, hint: &str| WireAsk {
+            node: String::new(),
+            port: String::new(),
+            ty,
+            source: false,
+            fresh: false,
+            head,
+            extra: extra.into(),
+            hint: hint.into(),
+            carries: false,
+        };
         let hovered = scene.hit(to_world(p, &cam), reach(&cam));
         // (the row of settings under the pointer, by arithmetic from the box)
         let row = match hovered {
@@ -5537,10 +5634,10 @@ pub fn show(
             }
             Some(Hit::Output(i, k)) => {
                 let b = &scene.boxes[i];
-                let (name, ty) = &b.outputs[k];
+                let name = &b.outputs[k].0;
                 let name = if name.is_empty() { editor::base_ref(&b.key) } else { name.as_str() };
                 let what = if b.source { "drag it to an input" } else { "a click shows it; drag it to an input" };
-                resp.clone().on_hover_text_at_pointer(format!("{name}: {}\n{what}", ty.name()));
+                wire_ask = Some(ask_of((i, k), name.to_string(), "", what));
             }
             // the file's whole path
             Some(Hit::Body(i)) if scene.boxes[i].foot().is_some_and(|f| f.contains(to_world(p, &cam))) => {
@@ -5554,7 +5651,12 @@ pub fn show(
                 } else {
                     "drop a connection here"
                 };
-                resp.clone().on_hover_text_at_pointer(format!("{}: {} ({need})\n{what}", p.name, p.ty.name()));
+                let ty = scene.boxes[i].input_type(k);
+                let feeder = scene.edges.iter().find(|e| e.to == (i, k)).map(|e| e.from);
+                wire_ask = Some(match feeder {
+                    Some(from) => WireAsk { ty, ..ask_of(from, p.name.clone(), need, what) },
+                    None => bare(p.name.clone(), ty, need, what),
+                });
             }
             Some(Hit::Input(i, k)) if scene.boxes[i].inputs[k].name.is_empty() => {
                 resp.clone().on_hover_text_at_pointer("drop a connection here (or on the node) for one more input");
@@ -5566,8 +5668,12 @@ pub fn show(
                 } else {
                     "drop a connection here: the setting reads that value"
                 };
-                let ty = row.feed.map_or("", |t| t.name());
-                resp.clone().on_hover_text_at_pointer(format!("{}: {ty}\n{what}", row.name));
+                let ty = scene.boxes[i].setting_type(k, row.feed.unwrap_or(Type::Any));
+                let feeder = scene.setting_wires.iter().find(|w| w.to == (i, k)).map(|w| w.from);
+                wire_ask = Some(match feeder {
+                    Some(from) => WireAsk { ty, ..ask_of(from, row.name.clone(), "setting", what) },
+                    None => bare(row.name.clone(), ty, "setting", what),
+                });
             }
             // on a connection (nothing else under the pointer): its type and value, once the pointer has rested
             None if near.is_none() => {
@@ -5585,29 +5691,32 @@ pub fn show(
                         }
                     };
                     if let Some(e) = found {
-                        let (from, _) = scene.wire_from(e);
-                        let b = &scene.boxes[from.0];
-                        let (port, ty) = &b.outputs[from.1];
+                        let ((fb, fo), colour) = scene.wire_from(e);
+                        // (the wire a little thicker and brighter than it is drawn)
+                        let ink = Color32::from_rgb(colour[0], colour[1], colour[2]).lerp_to_gamma(Color32::WHITE, 0.3);
+                        let route = match e.checked_sub(scene.edges.len()) {
+                            Some(w) => wire_path(&scene.setting_route(w)),
+                            None => scene.path(e),
+                        };
+                        let line: Vec<Pos2> = route.into_iter().map(screen).collect();
+                        painter.add(egui::Shape::line(line, Stroke::new((3.0 * cam.zoom).clamp(2.0, 4.5), ink)));
                         // (a setting's wire says which setting it feeds)
-                        let into = match e.checked_sub(scene.edges.len()) {
+                        let (to, into) = match e.checked_sub(scene.edges.len()) {
                             Some(w) => {
                                 let to = scene.setting_wires[w].to;
-                                format!("→ {}.{}", scene.boxes[to.0].key, scene.boxes[to.0].settings.rows[to.1].name)
+                                (to.0, scene.boxes[to.0].settings.rows[to.1].name.clone())
                             }
-                            None => String::new(),
+                            None => {
+                                let to = scene.edges[e].to;
+                                (to.0, scene.boxes[to.0].inputs[to.1].name.clone())
+                            }
                         };
-                        let place: String = path.iter().map(|q| format!("{q}/")).collect::<String>() + &b.key;
-                        // (inside a container, `status` is its nodes' by id, and the top-level container's under "/")
-                        let top = if path.is_empty() { b.key.as_str() } else { "/" };
-                        let ran = matches!(status.get(top), Some(NodeStatus::Done { .. }));
-                        wire_ask = Some(WireAsk {
-                            node: if b.source && !path.is_empty() { String::new() } else { place },
-                            port: port.clone(),
-                            ty: *ty,
-                            source: b.source,
-                            fresh: ran || b.source,
-                            into,
-                        });
+                        let from_box = &scene.boxes[fb];
+                        let out = &from_box.outputs[fo].0;
+                        let from_name =
+                            if out.is_empty() { from_box.title.clone() } else { format!("{}.{out}", from_box.title) };
+                        let head = format!("{from_name} → {}.{into}", scene.boxes[to].title);
+                        wire_ask = Some(ask_of((fb, fo), head, "", ""));
                     }
                 }
             }

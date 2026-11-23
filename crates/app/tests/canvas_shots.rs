@@ -163,6 +163,43 @@ fn canvas_shots() {
     println!("the pictures are in {}", out().display());
 }
 
+/// The tooltips of what flows: the pointer rests on an output port, then on a wire, of a model that was run.
+#[test]
+#[ignore = "pictures of the tooltips for a look: run with --ignored"]
+fn hover_shots() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
+        let mut h = harness(SIZE, 1.0, theme);
+        template(&mut h, "Fragmentation of a forest");
+        // a connection into the node "fos": its port, and where the value comes from
+        let (port, from, out) = {
+            let s = h.state().session.as_ref().unwrap();
+            let n = s.source.nodes.iter().find(|n| n.id == "fos").expect("the node");
+            n.inputs
+                .iter()
+                .find_map(|(port, src)| match src {
+                    terraflux_graph::Source::Ref(r) => match terraflux_graph::Ref::parse(r) {
+                        Ok(terraflux_graph::Ref::Port { node, port: out }) => Some((port.clone(), node, out)),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .expect("a connection")
+        };
+        let at = h.state().session.as_ref().unwrap().editor.screen_of_output(&from, &out).expect("the output");
+        h.hover_at(at);
+        h.run_steps(8);
+        save(&mut h, &format!("hover_port_{tag}.png"));
+        // the wire, half way along
+        let path = h.state().session.as_ref().unwrap().editor.wire("fos", &port).expect("the wire");
+        let mid = path[path.len() / 2];
+        let at = h.state().session.as_ref().unwrap().editor.screen_at(mid).expect("on the canvas");
+        h.hover_at(at);
+        h.run_steps(8);
+        save(&mut h, &format!("hover_wire_{tag}.png"));
+    }
+}
+
 #[test]
 #[ignore = "the icons of the families at several sizes, for a look: run with --ignored"]
 fn family_icons() {
