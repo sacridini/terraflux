@@ -7,6 +7,8 @@ version.
 
 ## [Unreleased]
 
+## [1.64.0] - 2026-11-23
+
 ### Added
 - **Vector analysis as in PostGIS: smoothing and polygon coverages** (`crates/ops/src/vector_cover.rs`, `crates/app/src/python.rs`): `vector.smooth` (corners cut `iterations` times, the ends kept with `preserve_ends`), `vector.coverage_simplify` (the polygons simplified together within `tolerance`, so neighbours keep sharing their edges; `preserve_boundary` keeps the outer boundary) and `vector.coverage_validate` (the edges where polygons overlap or leave gaps narrower than `gap_width`, with a `valid` column of 1 and 0), the counterparts of `tf.vector.smooth`, `coverage_simplify` and `coverage_validate`. The exported Python script calls them (`tf.vector.smooth(edges, iterations=3, preserve_ends=False)`, `tf.vector.coverage_simplify(ring, 15, preserve_boundary=True)`, `tf.vector.coverage_validate(ring, gap_width=2)`). They are in the subject Vector geometry.
 - **Vector analysis as in PostGIS: Voronoi, Delaunay and clusters by distance** (`crates/ops/src/vector_cluster.rs`, `crates/app/src/python.rs`): `vector.voronoi` (the Voronoi polygon of each point, with its attributes, cut by an optional `clip` layer), `vector.delaunay` (the triangles of the vertices of a layer, or their edges with `edges`) and `vector.cluster` (DBSCAN on the distance between geometries: `distance`, `min_points`, the cluster id in `column`), the counterparts of `tf.vector.voronoi`, `delaunay` and `cluster`. The exported Python script calls them (`tf.vector.voronoi(at, clip=ring, tolerance=0.5)`, `tf.vector.delaunay(at, edges=True)`, `tf.vector.cluster(at, 30, min_points=3, column="grp")`). They are in the subject Vector analysis.
