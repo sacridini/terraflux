@@ -5931,3 +5931,22 @@ cobre também estas).
     com GEOS mais antigo), e `coverage_validate(a, gap_width=0)` (`ST_CoverageInvalidEdges`: as arestas que não
     batem, como linhas, e a coluna `valid`).
   - Nós `vector.smooth`, `vector.coverage_simplify`, `vector.coverage_validate`.
+
+**Feito (2026-11-23), tudo.** Na biblioteca (terraflux-py, branch `vector` em `terraflux-py-vector`, sobre a 1.62.0,
+ainda fora do main da biblioteca e sem release): `tf.vector` com os predicados, `select`, `relate`, `count`,
+`distance`, `join`, `nearest`, a família do overlay, `union`, `clip`, `dissolve`, `buffer`, a geometria, `voronoi`,
+`delaunay`, `cluster`, a referência linear, `smooth` e as coberturas (167 testes). No aplicativo (main, sem push):
+A1 a A4 e A6 a A8 pelo GEOS direto (`crates/gdal/src/geos*`, STRtree e predicados preparados), cada nó comparado com
+`tf.vector` por uma referência em `tests/data/reference/vector_*.json` (bit a bit nos casos de teste, com GEOS 3.14.1
+no app e 3.13.1 na referência); a calculadora com `within(parks)`, `dwithin`, `count` e `distance`; o Python
+exportado chama `tf.vector`; o assunto "Vector geometry" no Builder; o template das ferramentas de vetor com
+`vector.nearest` e `vector.select_by_location`; A5: o tutorial em duas partes `tutorials/vector-analysis/` com a
+tabela de equivalência, `python/api/vector.md` e a seção da calculadora. Ficou para depois:
+  - a release: primeiro a biblioteca (fundir `vector` no main dela, release), depois o submódulo e o `ops.json`,
+    `python_api.json` refeitos;
+  - os dez predicados de `tf.vector` são criados por `_predicate_function`: o griffe não vê docstrings, por isso
+    estão à mão em `python/api/vector.md` (melhor virar `def` com docstring);
+  - os polígonos do `vector.polygonize` não são uma cobertura válida do GEOS (o canto de um cai no meio da aresta
+    do vizinho): um nó que "node" a camada (shapely `node` + `polygonize`) ou um `vector.polygonize` que já dê os
+    vértices partilhados deixaria usar `vector.coverage_simplify` direto;
+  - o Delaunay do GEOS 3.13 e 3.14 escolhe diagonais diferentes com quatro pontos cocirculares.
