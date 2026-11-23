@@ -3553,6 +3553,11 @@ fn step_selection_of_the_fishers_is_the_librarys() {
     let o2 = issf_model(&go("move.fit_issf", vec![("steps", data.clone())], formula));
     same("explicit formula", &o2.coef, &m.coef);
     same("explicit formula vcov", &o2.vcov, &m.vcov);
+    // the formula naming the track-step stratum itself: still made, the same fit
+    let named = serde_json::json!({"formula": "case_ ~ elevation + log(sl_) + cos(ta_) + strata(stratum_)"});
+    let o4 = issf_model(&go("move.fit_issf", vec![("steps", data.clone())], named));
+    same("strata(stratum_) in the formula", &o4.coef, &m.coef);
+    same("strata(stratum_) in the formula vcov", &o4.vcov, &m.vcov);
     // strata by the plain step_id_ (what amt fits when given it): the library's fit, and not the same as the default
     let o3 = go("move.fit_issf", vec![("steps", data)], serde_json::json!({"strata": "step_id_"}));
     issf_same("fishers step_id_", "issf/fishers_id", &issf_names(&cases["fishers_id"]["names"]), &o3);

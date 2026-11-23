@@ -467,16 +467,37 @@ the lags in their own way.
 Mises for the turns) and move.random_steps (n_control random steps for each observed one, case_ 1 and 0, \
 step_id_ the stratum), then move.extract_covariates from the rasters (where = end for the cells the steps end in; \
 where = along for the cells the step crosses, with the mean, min, max, ascent, descent and delta of each raster). \
-The conditional logistic regression itself is fitted outside Terraflux (amt's fit_issf). The covariates' grids \
-must be one grid, the steps in a projected system, and the covariates should be what the animal can sense at the \
-scale of a step.
-5. Home ranges: move.home_range, method mcp (the polygon of the share of the locations nearest the centre; \
+move.fit_issf fits the conditional logistic regression (amt's fit_issf, survival's clogit): a formula in R's \
+syntax, one stratum for each step by default, a table of the coefficients with their intervals, and the model as a \
+value. The covariates' grids must be one grid, the steps in a projected system, and the covariates should be what \
+the animal can sense at the scale of a step. Use the integrated form (iSSF, Avgar et al. 2016) when the animal's \
+step lengths and turns also depend on the habitat, or when you want to simulate: give the formula the movement \
+terms log(sl_) and cos(ta_) (and the sl_distr and ta_distr the random steps were drawn from, to keep them in the \
+model), because without them the coefficients of the habitat are biased. A habitat term that changes how the \
+animal moves goes as its interaction with the movement (log(sl_):slope, cos(ta_):forest).
+5. The relief: move.surface_distance gives the length of each step on the DEM (sl_surface_, never shorter than \
+the planar one: on a steep slope the planar length underestimates the distance walked, Signer et al. 2019) in a \
+projected system in metres. The slope and the ruggedness come from the DEM (surface.terrain, surface.tri); \
+cost.energy_landscape gives the energy of walking onto each cell for a body mass (Pontzer 2016 for animals, \
+Looney et al. 2019 for people, v the speed; the mass is the species', an adult's, from the literature). Put them \
+in the formula at the end of the step (energy, slope: the column is named for the raster's input) and along it \
+(move.extract_covariates with where = along: dem_along_ascent, the climb of the step, and the others of stats): \
+the end says where the animal arrived, the climb what it went through to get there. Terms along the step cannot \
+be simulated, so the model that simulates (move.simulate_path, move.resistance) uses the covariates at the ends. \
+Read the fit with move.log_rss (the selection of a step to x1 against one to x2, with the Wald interval ci = se or \
+a bootstrap): the coefficient of a term with an interaction is not its effect. A model from coefficients given by \
+hand is move.issf_model. move.simulate_path simulates paths from a model (n_control candidates for each step: \
+amt's default is a million, a few thousand are enough to try it), and move.path_density turns them into the use of \
+the cells; move.resistance turns the habitat terms alone (the terms of movement are left out, the model needs at \
+least one that is not) into a resistance (negexp, Keeley et al. 2016) for circuit.omniscape or the least-cost \
+paths, and move.validate checks it against tracks. Template \"Movement on the relief\".
+6. Home ranges: move.home_range, method mcp (the polygon of the share of the locations nearest the centre; \
 reported by most papers, so useful to compare), kde (amt's reference bandwidth by default; lscv or pi follow the \
 data closer; its UD sums to 1) or locoh (k, a or r hulls). `levels` 0.5 and 0.95 give the core and the home \
 range. Compare two tracks' overlap with move.home_range_overlap (hr, phr, vi, ba, udoi, hd), and the use inside \
 a polygon with move.intensity_use. The areas depend on the sample size, the method and the bandwidth: report \
 all three. Template \"Home range of a track\".
-6. Utilisation distributions that use time: move.dbbmm_variance and move.dbbmm_ud (the dynamic Brownian bridge), \
+7. Utilisation distributions that use time: move.dbbmm_variance and move.dbbmm_ud (the dynamic Brownian bridge), \
 move.dbgb_variance and move.dbgb_ud (directional, for persistent movement; they need long tracks). The \
 location_error (metres: a number, a column, or auto for Movebank's accuracy columns) is part of the method: leave \
 it out and the error is read as movement, and the distribution widens. window_size and margin are odd, \
@@ -486,11 +507,11 @@ widened by ext_factor; the cost is the cells times the steps, so run a coarse gr
 raster to compare UDs on one grid. move.mask_segments leaves out the bridges across long gaps; move.ud_volume \
 gives each cell's volume and the contours at `levels` (the 95 % contour of a UD that reaches the grid's edge is \
 an error: enlarge the grid, ext_factor). move.ud_outer_probability says how far outside the UD each location is.
-7. Corridors and how alike the UDs are: move.corridor marks the segments that are fast and go the same way as \
+8. Corridors and how alike the UDs are: move.corridor marks the segments that are fast and go the same way as \
 their neighbours (LaPoint et al. 2013; give speed_threshold and circvar_threshold, or the quantiles of each \
 track make the flag relative to the data), and gives them as lines. move.ud_distance is the earth mover's \
 distance between UDs of one grid (Sinkhorn, or exact on small grids).
-8. Validate a connectivity surface with the movement: move.validate (Zeller et al. 2018) takes a surface (a \
+9. Validate a connectivity surface with the movement: move.validate (Zeller et al. 2018) takes a surface (a \
 current from circuit.omniscape, circuit.pairwise or a cost-distance kernel; a resistance, with kind resistance; \
 a least-cost corridor, with kind binary) and the use (a UD, the tracks' points, or the corridor lines of \
 move.corridor) and gives, for each track and pooled, Spearman's rho between the use and the surface, the share \
@@ -499,8 +520,9 @@ than chance). There is no p-value (neighbouring cells are not independent): read
 validate on tracks the surface was not made from. Template \"Observed corridors against current\".
 Pitfalls: degrees where metres are needed; a UD without location error; an irregular sampling interval taken as \
 regular (thin first); fixes with a bad geometry or speed left in; a grid too coarse to hold a bridge or so fine \
-that the run takes hours; areas compared between animals with a different number of fixes. check_model advises \
-on several of these.",
+that the run takes hours; areas compared between animals with a different number of fixes; a step selection \
+without log(sl_) and cos(ta_); a resistance from a model of movement terms only; a body mass in grams for the \
+energy; simulated paths from a few candidates. check_model advises on several of these.",
     },
     Guide {
         name: "hydrology",

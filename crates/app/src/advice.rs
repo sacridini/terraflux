@@ -776,7 +776,99 @@ fn movement_advice(nodes: &[&Node], inputs: Option<&BTreeMap<String, Value>>) ->
                 level: Level::Advice,
                 at: vec![n.id.clone()],
                 message: format!(
-                    "the paths draw about {draws:.1e} candidate steps (n_control for every step of every path), which                      takes minutes to hours: a few thousand candidates (n_control 5000) are enough to try the model;                      raise it for the final run"
+                    "the paths draw about {draws:.1e} candidate steps (n_control for every step of every path), which \
+                     takes minutes to hours: a few thousand candidates (n_control 5000) are enough to try the model; \
+                     raise it for the final run"
+                ),
+                guide: "movement",
+            });
+        }
+    }
+    // a step selection function without the terms of movement: the habitat's coefficients are biased (Avgar et al. 2016)
+    for n in nodes.iter().copied().filter(|n| n.op == "move.fit_issf") {
+        let Some(formula) = n.params.get("formula").and_then(|v| v.as_str()).filter(|f| !f.trim().is_empty()) else {
+            continue;
+        };
+        let text = formula.replace(' ', "");
+        let missing: Vec<&str> = [("log(sl_)", "log_sl_"), ("cos(ta_)", "cos_ta_")]
+            .into_iter()
+            .filter(|(term, column)| !text.contains(term) && !text.contains(column))
+            .map(|(term, _)| term)
+            .collect();
+        if !missing.is_empty() {
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "the formula has no {}: the terms of movement belong in a step selection function (Avgar et \
+                     al. 2016): the random steps are drawn from distributions of the lengths and turns that are \
+                     not the animal's, and without log(sl_) and cos(ta_) to correct them the coefficients of the \
+                     habitat come out biased. Add them (the formula left out takes both, and the strata)",
+                    missing.join(" or ")
+                ),
+                guide: "movement",
+            });
+        }
+    }
+    // a resistance from a model that has nothing of the habitat in it
+    for n in nodes.iter().copied().filter(|n| n.op == "move.resistance") {
+        let Some(model) = reads(n, "model").and_then(|r| source(nodes, r)) else { continue };
+        let terms: Vec<String> = match model.op.as_str() {
+            "move.fit_issf" => match model.params.get("formula").and_then(|v| v.as_str()) {
+                Some(f) => formula_terms(f),
+                None => continue,
+            },
+            "move.issf_model" => match model.params.get("coefficients") {
+                Some(serde_json::Value::Object(o)) => o.keys().cloned().collect(),
+                Some(serde_json::Value::Array(a)) => {
+                    a.iter().filter_map(|p| p.get(0).and_then(|t| t.as_str()).map(String::from)).collect()
+                }
+                _ => continue,
+            },
+            _ => continue,
+        };
+        if !terms.is_empty() && terms.iter().all(|t| movement_term(t)) {
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "nothing of the habitat to turn into resistance: the terms of {} ({}) are all of movement \
+                     (the step's length and turn), which a cell does not have, and the operator stops without a \
+                     habitat term. Put the covariates the animal selects (the energy, the slope, the cover) in \
+                     the model",
+                    model.id,
+                    terms.join(", ")
+                ),
+                guide: "movement",
+            });
+        }
+    }
+    // the mass of the energy landscape: in kg, between a mouse's and a whale's (Pontzer 2016's allometry)
+    for n in nodes.iter().copied().filter(|n| n.op == "cost.energy_landscape") {
+        if let Some(mass) = number_of(n, "mass").filter(|m| *m > 0.0 && (*m < 0.01 || *m > 5000.0)) {
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "a body mass of {mass} kg is far outside what the cost of locomotion was measured on (Pontzer \
+                     2016: animals from a few grams to a few tonnes): the mass is in kilograms, so check that it \
+                     is not in grams or in tonnes, and that this is the animal's"
+                ),
+                guide: "movement",
+            });
+        }
+    }
+    // the simulated paths draw n_control candidates for each step: a few give coarse probabilities
+    for n in nodes.iter().copied().filter(|n| n.op == "move.simulate_path") {
+        if let Some(k) = number_of(n, "n_control").filter(|k| *k < 100.0) {
+            out.push(Advice {
+                level: Level::Warning,
+                at: vec![n.id.clone()],
+                message: format!(
+                    "n_control {k}: each step of a path is chosen among that many candidates by the weights of the \
+                     model (importance sampling), and with so few the probabilities of the cells are coarse (the \
+                     chosen step is one of a handful): the paths do not follow the model. A few thousand are \
+                     enough to try it, and amt's default is a million"
                 ),
                 guide: "movement",
             });
@@ -822,6 +914,45 @@ fn movement_advice(nodes: &[&Node], inputs: Option<&BTreeMap<String, Value>>) ->
         }
     }
     out
+}
+
+/// The terms of a formula's right-hand side (split at the `+` outside the parentheses; `- 1`, `+ 0` and `strata(...)`
+/// are not terms).
+fn formula_terms(formula: &str) -> Vec<String> {
+    let rhs = formula.split_once('~').map_or(formula, |(_, r)| r);
+    let (mut terms, mut depth, mut cur) = (Vec::new(), 0i32, String::new());
+    for c in rhs.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            '+' if depth == 0 => {
+                terms.push(std::mem::take(&mut cur));
+                continue;
+            }
+            _ => {}
+        }
+        cur.push(c);
+    }
+    terms.push(cur);
+    terms
+        .into_iter()
+        .map(|t| t.split_whitespace().collect::<String>())
+        .map(|t| t.strip_suffix("-1").map_or(t.clone(), String::from))
+        .filter(|t| !t.is_empty() && !t.starts_with("strata(") && t != "0" && t != "1")
+        .collect()
+}
+
+/// Whether a term of a model reads nothing but the movement (`sl_`, `log_sl_`, `cos(ta_)`, `log(sl_):cos(ta_)`...): no
+/// covariate of the habitat in it.
+fn movement_term(term: &str) -> bool {
+    const FUNCTIONS: [&str; 9] = ["log", "log1p", "exp", "sqrt", "abs", "sin", "cos", "I", "factor"];
+    const MOVEMENT: [&str; 4] = ["sl_", "ta_", "log_sl_", "cos_ta_"];
+    let names: Vec<&str> = term
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+        .filter(|w| w.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_'))
+        .filter(|w| !FUNCTIONS.contains(w))
+        .collect();
+    !names.is_empty() && names.iter().all(|w| MOVEMENT.contains(w))
 }
 
 /// The number of years of a step close to the one asked that divides the period (for the advice).
@@ -1422,6 +1553,88 @@ mod tests {
         assert!(!said(&a, Level::Advice, "candidate steps"), "{a:?}");
         let a = movement(vec![sim().param("n_control", 100000).param("n_paths", 200)], None);
         assert!(said(&a, Level::Advice, "candidate steps"), "{a:?}");
+    }
+
+    #[test]
+    fn a_step_selection_without_the_terms_of_movement_is_told() {
+        let fit = |formula: &str| Node::new("ssf", "move.fit_issf").input("steps", "$steps").param("formula", formula);
+        let a = movement(vec![fit("case_ ~ elev + slope")], None);
+        assert!(said(&a, Level::Warning, "no log(sl_) or cos(ta_)"), "{a:?}");
+        assert_eq!(a.iter().find(|a| a.message.contains("no log(sl_)")).unwrap().guide, "movement");
+        let a = movement(vec![fit("case_ ~ elev + log(sl_)")], None);
+        assert!(said(&a, Level::Warning, "no cos(ta_)") && !said(&a, Level::Warning, "log(sl_) or"), "{a:?}");
+        let a = movement(vec![fit("case_ ~ elev + cos(ta_)")], None);
+        assert!(said(&a, Level::Warning, "no log(sl_)"), "{a:?}");
+        // both (as the columns too), or no formula (the default has them): nothing
+        for ok in [
+            "case_ ~ elev + log(sl_) + cos(ta_)",
+            "case_ ~ elev + log( sl_ ) + cos(ta_) + elev:log(sl_)",
+            "case_ ~ elev + log_sl_ + cos_ta_",
+        ] {
+            let a = movement(vec![fit(ok)], None);
+            assert!(!said(&a, Level::Warning, "the terms of movement"), "{ok}: {a:?}");
+        }
+        let a = movement(vec![Node::new("ssf", "move.fit_issf").input("steps", "$steps")], None);
+        assert!(!said(&a, Level::Warning, "the terms of movement"), "{a:?}");
+    }
+
+    #[test]
+    fn a_resistance_from_the_terms_of_movement_alone_is_told() {
+        let res = || Node::new("res", "move.resistance").input("model", "ssf.model").input("elev", "$elev");
+        let fit = |formula: &str| Node::new("ssf", "move.fit_issf").input("steps", "$steps").param("formula", formula);
+        let a = movement(vec![fit("case_ ~ log(sl_) + cos(ta_) + sl_:cos(ta_) + strata(stratum_)"), res()], None);
+        assert!(said(&a, Level::Warning, "nothing of the habitat"), "{a:?}");
+        assert_eq!(a.iter().find(|a| a.message.contains("nothing of the habitat")).unwrap().at, ["res"]);
+        // one habitat term, or an interaction of the habitat with the movement: the operator has something
+        for ok in [
+            "case_ ~ elev + log(sl_) + cos(ta_)",
+            "case_ ~ log(sl_) + log(sl_):elev",
+            "case_ ~ log(sl_) + I(elev^2) - 1",
+        ] {
+            let a = movement(vec![fit(ok), res()], None);
+            assert!(!said(&a, Level::Warning, "nothing of the habitat"), "{ok}: {a:?}");
+        }
+        // a model given by hand: its coefficients' names, an object or a list of pairs
+        let hand = |coefficients: serde_json::Value| {
+            Node::new("ssf", "move.issf_model").input("sl_distr", "$sl").param("coefficients", coefficients)
+        };
+        let a = movement(vec![hand(serde_json::json!({"log_sl_": 0.3, "cos_ta_": 0.5})), res()], None);
+        assert!(said(&a, Level::Warning, "nothing of the habitat"), "{a:?}");
+        let a = movement(vec![hand(serde_json::json!([["energy", -0.5], ["log_sl_", 0.3]])), res()], None);
+        assert!(!said(&a, Level::Warning, "nothing of the habitat"), "{a:?}");
+        // (a model from an input: not told)
+        let a = movement(vec![res().input("model", "$model")], None);
+        assert!(!said(&a, Level::Warning, "nothing of the habitat"), "{a:?}");
+    }
+
+    #[test]
+    fn a_body_mass_far_from_what_was_measured_is_told() {
+        use serde_json::json;
+        let en =
+            |mass: serde_json::Value| Node::new("en", "cost.energy_landscape").input("dem", "$dem").param("mass", mass);
+        for odd in [0.001, 70000.0, 20000.0] {
+            let a = movement(vec![en(odd.into())], None);
+            assert!(said(&a, Level::Warning, "far outside"), "{odd}: {a:?}");
+            assert_eq!(a.iter().find(|a| a.message.contains("far outside")).unwrap().guide, "movement");
+        }
+        for ok in [json!(0.02), json!(70), json!(4000), json!("$mass")] {
+            let a = movement(vec![en(ok.clone())], None);
+            assert!(!said(&a, Level::Warning, "far outside"), "{ok}: {a:?}");
+        }
+    }
+
+    #[test]
+    fn a_simulation_of_a_few_candidates_is_told() {
+        let sim = || Node::new("sim", "move.simulate_path").input("model", "$model");
+        for few in [1, 20, 99] {
+            let a = movement(vec![sim().param("n_control", few)], None);
+            assert!(said(&a, Level::Warning, "coarse"), "{few}: {a:?}");
+        }
+        for ok in [100, 2000, 1000000] {
+            let a = movement(vec![sim().param("n_control", ok)], None);
+            assert!(!said(&a, Level::Warning, "coarse"), "{ok}: {a:?}");
+        }
+        assert!(!said(&movement(vec![sim()], None), Level::Warning, "coarse"));
     }
 
     /// The movement templates follow the advice they give: nothing is told of them.

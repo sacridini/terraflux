@@ -665,8 +665,10 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let mut code = said;
             let mut stratum = by.clone();
             let mut source = steps.clone();
-            if by == "track_step" && !in_formula {
+            let names_it = formula.as_ref().is_some_and(|f| f.contains("stratum_"));
+            if by == "track_step" && (!in_formula || names_it) {
                 // one stratum for each step of each track: the step_id_ of the random steps restarts for each track
+                // (also when the formula names stratum_ itself)
                 let track = match opt(n, "track", sc)? {
                     Some(t) => t,
                     None => format!("next(c for c in ({names}) if c in {steps}.columns)"),

@@ -476,7 +476,7 @@ fn swat_from_rasters() -> Model {
     m
 }
 
-pub const TEMPLATES: [Template; 79] = [
+pub const TEMPLATES: [Template; 80] = [
     Template {
         name: "MSPA of a forest",
         group: PATTERNS,
@@ -5587,6 +5587,18 @@ params = { title = "What each component reads (loadings)" }
                 (move.filter_gps_quality), steps faster than the animal can move (move.flag_speed, with the limit of \
                 its body mass), and thinned to a regular interval (move.thin_time)",
     },
+    Template {
+        name: "Movement on the relief",
+        group: MOVEMENT,
+        toml: "",
+        build: Some(move_relief),
+        about: "an animal that avoids the climbs, found from its track: a DEM's slope, ruggedness and energy cost of \
+                walking (Pontzer 2016), the steps of a track with the relief at their ends and along them, an \
+                integrated step selection function fitted (does the animal avoid the energy?) and the log-RSS over \
+                the slope, paths simulated from it and the map of their use, and the resistance it makes with the \
+                current of the circuit (the DEM and the track are drawn, in their place yours: Use my data and \
+                move.read_tracks)",
+    },
 ];
 
 /// The times of a simulated track, `n` of them `step` seconds apart, as a list for a setting.
@@ -5898,6 +5910,313 @@ inputs = { features = "thin.tracks" }
 params = { title = "The track cleaned and thinned" }
 "#
     .replace("TIMES", &move_times(200, 600));
+    Model::from_toml(&text).expect("a template is a model")
+}
+
+/// The coefficients of the animal of "Movement on the relief" (the model its track is simulated from): the energy at the
+/// end of a step (per kcal), the log of the step's length and the cosine of its turn.
+const RELIEF_TRUTH: [(&str, f64); 3] = [("energy", -0.3), ("log_sl_", 0.3), ("cos_ta_", 0.6)];
+
+/// Where the log-RSS of "Movement on the relief" holds the covariates other than the slope: about the median step
+/// of the track (its length in m), the energy of a cell by the degree of its slope (kcal), and the slope of the
+/// median step (degrees).
+const RELIEF_MEDIAN_LENGTH: f64 = 105.0;
+const RELIEF_ENERGY_PER_DEGREE: f64 = 0.23;
+const RELIEF_MEDIAN_SLOPE: f64 = 27.0;
+
+/// "Movement on the relief".
+fn move_relief() -> Model {
+    let truth: Vec<String> = RELIEF_TRUTH.iter().map(|(t, b)| format!("[\"{t}\", {b}]")).collect();
+    // log_rss's x1 needs a value of every covariate in each row: the slopes, the energy a slope of its own costs and
+    // the others at the median step's
+    let slopes: Vec<f64> = (0..=9).map(|i| 5.0 * i as f64).collect();
+    let column = |v: &[f64]| format!("[{}]", v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(", "));
+    let flat = |v: f64| column(&vec![v; slopes.len()]);
+    let energies: Vec<f64> = slopes.iter().map(|s| (s * RELIEF_ENERGY_PER_DEGREE * 100.0).round() / 100.0).collect();
+    let text = r#"
+format = "terraflux/1"
+name = "Movement on the relief"
+description = "Does an animal avoid the climbs, and what does it cost? The DEM gives the slope and the ruggedness (TRI), and cost.energy_landscape the energy of walking onto each cell for the animal's body mass (Pontzer 2016: the cost of locomotion, lowest on a gentle descent, which enerscape, Berti et al. 2022, turns into a landscape). A track of 400 steps is simulated from a step selection model whose coefficients are given by hand (an animal that avoids the energy: a negative coefficient on the energy at the end of the step, a longer and straighter step preferred), and then treated as data: its steps (move.steps), the distributions of its step lengths and turn angles, ten random steps for each (move.random_steps), the relief at the end of each step and along it (the climb, the sum of its rises), the length of the step on the relief (Signer et al. 2019), and an integrated step selection function (iSSF, Avgar et al. 2016) fitted by conditional logistic regression with the terms of the relief and of the movement, log(sl_) and cos(ta_) (without them the coefficients of the habitat are biased). The energy's coefficient comes out negative, as the one it was simulated with; the log-RSS says how much a step to a steeper (or gentler) slope is selected against one to the median slope, the energy of the cell going with it. Then the fitted model is the animal: ten paths simulated from it (Signer et al. 2024, amt's redistribution kernel) give a map of where it goes, and its habitat terms alone give a resistance (Keeley et al. 2016) and Omniscape's current. The DEM and the track are drawn: replace the DEM with yours (Use my data: metres, a projected coordinate system, square cells) and the track with move.read_tracks of your Movebank file (its time column is timestamp: leave out the setting time of the nodes that have it), the body mass with your animal's, and read the coefficients against what the animal does: the numbers here recover the ones given because the track comes from them."
+request = "Does an animal avoid steep ground? Fit a step selection function to a track over a DEM with the energy cost of walking, the slope and the climb, show the relative selection of the slope, simulate paths from the model and turn it into a resistance."
+summary = "A DEM (a Gaussian field scaled to 500 to 2500 m, cells of 30 m) with its slope, ruggedness and the energy of walking (a 70 kg ibex); a track simulated from a given step selection model; the steps with random steps, the relief at their ends and along them and the length on the relief; the iSSF fitted twice (the full relief terms; the terms a simulation can read) with the log-RSS over the slope; ten paths simulated from the fitted model and their density; the resistance of its habitat terms and the current of Omniscape."
+
+[[nodes]]
+id = "field"
+op = "nlm.fbm"
+params = { rows = 200, columns = 200, dimension = 1.8, resolution = 30, crs = "EPSG:32633", seed = 12 }
+note = "A smooth random surface from 0 to 1 on cells of 30 m (6 km a side) in a projected coordinate system, the shape of a mountain side. In its place, a raster.read of your DEM."
+
+[[nodes]]
+id = "smooth"
+op = "raster.calc"
+inputs = { q = "field.map" }
+params = { expression = "nbmean(q, 8)" }
+note = "The field averaged over the 17 x 17 cells around each cell: the fractal surface is rough from one cell to the next, which no mountain is (a DEM of yours needs no smoothing)."
+
+[[nodes]]
+id = "dem"
+op = "raster.calc"
+inputs = { s = "smooth.map" }
+params = { expression = "500 + 2000 * (s - s.min()) / (s.max() - s.min())" }
+note = "The smoothed field scaled to heights from 500 to 2500 m: a relief of 2000 m over 6 km. In its place, a raster.read of your DEM: metres, a projected coordinate system (not degrees), square cells."
+why = "The energy and the length on the relief need the heights in metres and the cell's side in the same unit; a DEM in feet or in degrees gives numbers that are not what they say."
+data = { what = "your DEM: the heights in metres, in a projected coordinate system, with square cells", kind = "values", expect = "metres" }
+
+[[nodes]]
+id = "slope"
+op = "surface.terrain"
+inputs = { map = "dem.map" }
+params = { v = "slope", unit = "degrees" }
+note = "The slope in degrees (Horn's 8 neighbours, as terra's terrain), no value on the edge cells."
+why = "Horn's slope is the usual of the step selection papers (Signer et al. 2019 take it from the DEM); the cells of 30 m average out what is finer than they are."
+
+[[nodes]]
+id = "tri"
+op = "surface.tri"
+inputs = { map = "dem.map" }
+params = { s = 3 }
+note = "The terrain ruggedness index in a window of 3 cells: how much a cell's height differs from its neighbours'."
+why = "A rugged ground is slow to cross even where its slope on average is gentle: the slope and the ruggedness say different things, and they are correlated, so a coefficient of each is read with care."
+
+[[nodes]]
+id = "relief"
+op = "surface.metrics"
+inputs = { map = "dem.map" }
+params = { metrics = ["sa", "sq", "sdr"] }
+note = "The DEM's roughness in numbers (ISO 25178): the average and the root mean square height from the mean, and the area of the surface over that of the plane (sdr, in %)."
+
+[[nodes]]
+id = "energy"
+op = "cost.energy_landscape"
+inputs = { dem = "dem.map" }
+params = { mass = 70, unit = "kcal", neigh = 8, model = "animal" }
+note = "The energy of walking onto each cell, in kcal, for an animal of 70 kg (an ibex, a female's weight): the average over the 8 neighbours of the cost of walking from each one onto the cell, Pontzer's allometric cost of locomotion over the distance in three dimensions and the slope. No value on the edge cells."
+why = "The body mass is the animal's (an adult's, from the literature): the cost grows with it, and the shape of the landscape, not only its scale, changes with the slope's effect. Pontzer's is the model for animals walking, Looney et al.'s for people (model = human, v the speed)."
+refs = ["Pontzer 2016, Economy of Transport in Birds and Mammals", "Berti et al. 2022, enerscape"]
+
+[[nodes]]
+id = "log_energy"
+op = "raster.calc"
+inputs = { e = "energy.energy" }
+params = { expression = "log(e)" }
+note = "The log of the energy, to see it: the cost has a long tail on the steep cells."
+
+[[nodes]]
+id = "sl_given"
+op = "move.distribution"
+params = { name = "gamma", shape = 2, scale = 60 }
+note = "The step lengths the animal's candidate steps are drawn from when its track is simulated: a gamma of shape 2 and scale 60 m (steps of 120 m on average, four cells)."
+
+[[nodes]]
+id = "ta_given"
+op = "move.distribution"
+params = { name = "vonmises", kappa = 1, mu = 0 }
+note = "The turn angles the candidates are drawn from: a von Mises distribution of kappa 1 (a mild persistence) centred on straight ahead."
+
+[[nodes]]
+id = "truth"
+op = "move.issf_model"
+inputs = { sl_distr = "sl_given.distribution", ta_distr = "ta_given.distribution" }
+params = { coefficients = [TRUTH] }
+note = "The animal as the track is simulated from it, its coefficients given by hand: avoiding the energy (energy, the cost of the cell the step ends in: a negative coefficient), a longer step preferred (log_sl_) and a straighter one (cos_ta_). The fit below should find the energy's sign, and about its size."
+why = "A track from a model whose coefficients are known is a test of the method: what the fit recovers is what it can recover. With your own track the coefficients are not known: read them against the log-RSS and the animal's biology."
+refs = ["Avgar et al. 2016, Integrated step selection analysis", "Signer et al. 2024, Simulating animal movement from a step selection function"]
+
+[[nodes]]
+id = "observed"
+op = "move.simulate_path"
+inputs = { model = "truth.model", energy = "energy.energy" }
+params = { x = 3000, y = 3000, direction = 0, time = "2024-03-01 00:00:00", dt = 3600, n_steps = 400, n_control = 5000, seed = 7 }
+note = "The track of the animal: 400 steps an hour apart from the middle of the DEM (candidates drawn from the given distributions and chosen with the weights of the model). The track is simulated: in its place, move.read_tracks of your Movebank file (its time column is timestamp, not t_)."
+why = "Importance sampling with 5000 candidates for every step is enough for the probabilities to be close to the model's; fewer make a coarser track."
+refs = ["Signer et al. 2024, Simulating animal movement from a step selection function"]
+
+[[nodes]]
+id = "lags"
+op = "move.time_lags"
+inputs = { tracks = "observed.paths" }
+params = { time = "t_", unit = "h" }
+note = "The time from each location to the next: one hour, always. The steps below read the lags as if they were regular, and these are; a real track needs this look (and move.thin_time where it is not)."
+
+[[nodes]]
+id = "steps"
+op = "move.steps"
+inputs = { tracks = "observed.paths" }
+params = { time = "t_" }
+note = "The steps of the track: a line each, with its length sl_ (m), direction and turn angle ta_ from the step before."
+
+[[nodes]]
+id = "sl_fit"
+op = "move.fit_distribution"
+inputs = { values = "steps.steps" }
+params = { name = "gamma" }
+note = "A gamma distribution fitted to the observed step lengths: the tentative one, from which the random steps are drawn and which the coefficient of log(sl_) then corrects."
+why = "The random steps must come from a distribution of the lengths the animal could take; the fit's coefficients of log(sl_) and sl_ adjust it to what the animal does (Avgar et al. 2016), and the simulation below takes the adjusted one."
+refs = ["Avgar et al. 2016, Integrated step selection analysis"]
+
+[[nodes]]
+id = "ta_fit"
+op = "move.fit_distribution"
+inputs = { values = "steps.steps" }
+params = { name = "vonmises" }
+note = "A von Mises distribution fitted to the turn angles: the tentative one the cos(ta_) term corrects."
+
+[[nodes]]
+id = "random"
+op = "move.random_steps"
+inputs = { steps = "steps.steps", sl_distr = "sl_fit.distribution", ta_distr = "ta_fit.distribution" }
+params = { n_control = 10, seed = 3 }
+note = "Ten random steps for each observed one (case_ 1 the step the animal took, 0 the ten it could have taken from the same start): the data of a step selection function. step_id_ names the stratum."
+why = "Ten per step is the usual start; Fortin et al. 2005 and Avgar et al. 2016 find the estimates settle with a few tens, so raise it for a final fit (the cost grows with it)."
+refs = ["Fortin et al. 2005, Wolves influence elk movements", "Avgar et al. 2016, Integrated step selection analysis"]
+
+[[nodes]]
+id = "ends"
+op = "move.extract_covariates"
+inputs = { tracks = "random.steps", energy = "energy.energy", slope = "slope.map", tri = "tri.map" }
+params = { where = "end" }
+note = "The energy, the slope and the ruggedness of the cell each step ends in, as the columns energy, slope and tri (the step selection function compares where the animal went with where it could have gone)."
+why = "The covariates are what the animal can sense at the scale of a step: cells of 30 m, steps of about three cells."
+
+[[nodes]]
+id = "climb"
+op = "move.extract_covariates"
+inputs = { tracks = "ends.tracks", dem = "dem.map" }
+params = { where = "along", stats = ["ascent", "delta"] }
+note = "The cells each step crosses, from its start to its end, summarised: the ascent (the sum of the rises between successive cells: the climb of the step, dem_along_ascent) and the net height gained or lost (dem_along_delta)."
+why = "The end of a step says where the animal arrived, not what it climbed to get there: two steps to the same cell, one over a ridge, are not the same. Terms along the step cannot be simulated (the simulation reads the covariates at the ends), so the model that simulates leaves them out."
+refs = ["Signer et al. 2019, Animal movement tools (amt)"]
+
+[[nodes]]
+id = "distance"
+op = "move.surface_distance"
+inputs = { steps = "climb.tracks", dem = "dem.map" }
+note = "The length of each step on the relief (sl_surface_, in m): the planar length sl_ with the heights, never shorter. On a steep slope the planar length underestimates the distance the animal walks, and with it its speed."
+why = "Signer et al. 2019 remark that the planar length underestimates the distance walked on a slope. It is not in the formula below (it would repeat log(sl_), which the simulation draws from); it is the length to take for a speed or an energy of the step."
+refs = ["Signer et al. 2019, Animal movement tools (amt)"]
+
+[[nodes]]
+id = "ssf_full"
+op = "move.fit_issf"
+inputs = { steps = "distance.steps", sl_distr = "sl_fit.distribution", ta_distr = "ta_fit.distribution" }
+params = { formula = "case_ ~ energy + slope + tri + dem_along_ascent + log(sl_) + cos(ta_) + log(sl_):slope" }
+note = "The integrated step selection function with the relief and the movement: the energy, the slope, the ruggedness and the climb of the step, log(sl_) and cos(ta_) (the step's length and turn, which correct the distributions the random steps came from) and log(sl_):slope (the animal's steps shorten on a slope). One stratum for each step (strata is track_step). The table has each coefficient with its interval."
+why = "log(sl_) and cos(ta_) belong in the model: without them the coefficients of the habitat are biased, as the random steps did not come from what the animal does (Avgar et al. 2016). The energy, the slope, the ruggedness and the climb say much alike: read the sign of the energy, which the animal was given, and let the others take what is left."
+refs = ["Avgar et al. 2016, Integrated step selection analysis", "Signer et al. 2019, Animal movement tools (amt)", "Therneau, survival: clogit with the exact partial likelihood"]
+alternatives = ["move.fit_issf without a formula: every covariate with log(sl_) and cos(ta_), the same without the interaction with the slope"]
+
+[[nodes]]
+id = "ssf"
+op = "move.fit_issf"
+inputs = { steps = "distance.steps", sl_distr = "sl_fit.distribution", ta_distr = "ta_fit.distribution" }
+params = { formula = "case_ ~ energy + slope + log(sl_) + cos(ta_) + log(sl_):slope" }
+note = "The model that simulates: the same without the terms along the step (the ruggedness and the climb), which a simulation cannot read. It keeps the distributions of the steps (sl_distr and ta_distr) for move.simulate_path."
+why = "A simulation reads the covariates at the end of each candidate step, and the start's: what is along the step is not in a raster the candidates could read."
+refs = ["Avgar et al. 2016, Integrated step selection analysis", "Signer et al. 2024, Simulating animal movement from a step selection function"]
+
+[[nodes]]
+id = "rss"
+op = "move.log_rss"
+inputs = { model = "ssf.model" }
+params = { x1 = { slope = SLOPES, energy = ENERGIES, sl_ = LENGTHS, ta_ = TURNS }, x2 = { slope = MEDIAN_SLOPE, energy = MEDIAN_ENERGY, sl_ = MEDIAN_LENGTH, ta_ = 0 }, ci = "se", level = 0.95 }
+note = "The log relative selection strength of a step ending on a slope of 0 to 45 degrees against one ending on the slope of the median step (27 degrees): below 0 the step is selected less. The energy of the cell goes with its slope (0.23 kcal a degree, about what the cells of this DEM cost), the step is the median one (105 m, straight on). The interval is Wald's, from the covariance of the coefficients (lwr, upr)."
+why = "The coefficient of the slope alone is not its effect: the energy goes up with it, the step's length changes its effect (the interaction), and the log-RSS puts it all together (Avgar et al. 2017). The model is the one that simulates, with the terms of the cell's end alone: terms along the step would need the climb of a step to each slope as well. The energy per degree is read off the cells of this DEM and is rounded: with your own DEM, look at the relation between your layers."
+refs = ["Avgar et al. 2017, Relative selection strength"]
+
+[[nodes]]
+id = "sim"
+op = "move.simulate_path"
+inputs = { model = "ssf.model", energy = "energy.energy", slope = "slope.map" }
+params = { x = 3000, y = 3000, direction = 0, dt = 3600, n_steps = 200, n_paths = 10, n_control = 2000, seed = 11 }
+note = "Ten paths of 200 steps from the middle of the DEM, simulated from the fitted model (the distributions it kept, its coefficients): the animal as the fit says it is. Path i takes the seed 11 + i - 1."
+why = "A model that fits is not a model that moves like the animal: the paths are the test (do they avoid the steep cells?) and the way to turn a step selection function into a use of the landscape. 2000 candidates for each step keep it to seconds; raise n_control (amt's default is a million) for a final run."
+refs = ["Signer et al. 2024, Simulating animal movement from a step selection function"]
+
+[[nodes]]
+id = "use"
+op = "move.path_density"
+inputs = { paths = "sim.paths", like = "dem.map" }
+note = "The share of the paths' positions in each cell: the use of the landscape by the simulated animal (the steady-state utilisation distribution of Signer et al. 2024, without smoothing). The cells sum to 1."
+why = "Ten paths of 200 steps are 2000 positions over 40000 cells: the map is grainy. More paths, longer ones and from other starts give it the shape; smooth it for a figure."
+
+[[nodes]]
+id = "resistance"
+op = "move.resistance"
+inputs = { model = "ssf.model", energy = "energy.energy", slope = "slope.map" }
+params = { transform = "negexp", c = 8, r_max = 100 }
+note = "The resistance of the habitat terms alone (the energy and the slope; the terms of movement are left out: a cell has no step): 1 where the selection is greatest, 100 where it is least, by the negative exponential Keeley et al. (2016) recommend."
+why = "The negative exponential of the selection makes the animal's avoidance count most where it is strongest; a linear one weighs the middle too much. A resistance turned from a selection is a hypothesis of the circuit, to check with the animals' paths (Observed corridors against current)."
+refs = ["Keeley et al. 2016, Generating Landscape Resistance Surfaces from Step Selection Functions"]
+
+[[nodes]]
+id = "current"
+op = "circuit.omniscape"
+inputs = { resistance = "resistance.resistance" }
+params = { radius = 10, block_size = 11 }
+note = "Omniscape's current over that resistance: where movement in every direction would flow, from every cell to those within 10 cells (a target every 11 cells)."
+
+[[nodes]]
+id = "plot_dem"
+op = "view.plot"
+inputs = { value = "dem.map" }
+params = { title = "The DEM (m)" }
+
+[[nodes]]
+id = "plot_slope"
+op = "view.plot"
+inputs = { value = "slope.map" }
+params = { title = "The slope (degrees)" }
+
+[[nodes]]
+id = "plot_energy"
+op = "view.plot"
+inputs = { value = "log_energy.map" }
+params = { title = "The log of the energy of walking onto each cell (kcal)" }
+
+[[nodes]]
+id = "plot_track"
+op = "view.plot"
+inputs = { features = "observed.paths", under = "plot_dem.shown" }
+params = { title = "The track over the DEM" }
+
+[[nodes]]
+id = "plot_coefficients"
+op = "view.plot"
+inputs = { table = "ssf_full.table" }
+params = { title = "The coefficients of the step selection function", chart = "bars", x = "term", y = "coef" }
+
+[[nodes]]
+id = "plot_rss"
+op = "view.plot"
+inputs = { table = "rss.table" }
+params = { title = "The log-RSS of the slope against the median slope, with its interval", chart = "lines", x = "slope_x1", y = "log_rss, lwr, upr" }
+
+[[nodes]]
+id = "plot_use"
+op = "view.plot"
+inputs = { value = "use.density" }
+params = { title = "The use of the landscape by the simulated paths" }
+
+[[nodes]]
+id = "plot_resistance"
+op = "view.plot"
+inputs = { value = "resistance.resistance" }
+params = { title = "The resistance of the habitat terms" }
+
+[[nodes]]
+id = "plot_current"
+op = "view.plot"
+inputs = { value = "current.current" }
+params = { title = "Current (Omniscape) over that resistance" }
+"#
+    .replace("TRUTH", &truth.join(", "))
+    .replace("SLOPES", &column(&slopes))
+    .replace("MEDIAN_SLOPE", &format!("{RELIEF_MEDIAN_SLOPE}"))
+    .replace("MEDIAN_ENERGY", &format!("{}", (RELIEF_MEDIAN_SLOPE * RELIEF_ENERGY_PER_DEGREE * 100.0).round() / 100.0))
+    .replace("MEDIAN_LENGTH", &format!("{RELIEF_MEDIAN_LENGTH}"))
+    .replace("ENERGIES", &column(&energies))
+    .replace("LENGTHS", &flat(RELIEF_MEDIAN_LENGTH))
+    .replace("TURNS", &flat(0.0));
     Model::from_toml(&text).expect("a template is a model")
 }
 
@@ -7974,6 +8293,48 @@ mod tests {
         assert!(quality < raw && speed < quality && thin < speed, "{raw} {quality} {speed} {thin}");
         let Some(Value::Number(v)) = out.get("limit.v_max") else { panic!("no limit") };
         assert!(*v > 1.0 && *v < 100.0, "{v}");
+
+        // the relief: the track comes from a model that avoids the energy (-0.3 a kcal), and the fit finds it
+        let started = std::time::Instant::now();
+        let out = run("Movement on the relief");
+        let took = started.elapsed();
+        assert!(took.as_secs_f64() < 20.0, "the template took {took:?}");
+        // (a coefficient of a term, with its 95 % interval)
+        let coef = |port: &str, term: &str| {
+            let t = table(&out, port);
+            let c = |n: &str| t.columns.iter().position(|c| c == n).unwrap();
+            let row = t.rows.iter().find(|r| t.label("term", r[c("term")]) == Some(term)).expect(term);
+            (row[c("coef")], row[c("lower")], row[c("upper")])
+        };
+        let given = RELIEF_TRUTH[0].1;
+        let (b, lower, upper) = coef("ssf.table", "energy");
+        assert!(b < 0.0 && upper < 0.0, "the energy's coefficient {b} ({lower}, {upper}) is not negative");
+        assert!(lower < given && given < upper, "the energy's {given} is not in ({lower}, {upper}): {b}");
+        // (with the slope, the ruggedness and the climb beside it, which say much alike: the sign, not the size)
+        let (b, ..) = coef("ssf_full.table", "energy");
+        assert!(b < 0.0, "with the relief's terms the energy's coefficient is {b}");
+        let (b, ..) = coef("ssf.table", "cos(ta_)");
+        assert!(b > 0.0, "the persistence's coefficient is {b}");
+        // the log-RSS of the slope falls with it (the energy rises), the median slope's own is 0
+        let rss = table(&out, "rss.table");
+        let (s, l) = (
+            rss.columns.iter().position(|c| c == "slope_x1").unwrap(),
+            rss.columns.iter().position(|c| c == "log_rss").unwrap(),
+        );
+        assert!(rss.rows.first().unwrap()[l] > 0.0 && rss.rows.last().unwrap()[l] < 0.0, "{:?}", rss.rows);
+        assert!(rss.rows.windows(2).all(|w| w[1][l] < w[0][l] && w[1][s] > w[0][s]), "{:?}", rss.rows);
+        // the paths: ten of 200 steps, the use a share (sums to 1) and the resistance from 1 to 100
+        let Some(Value::Vector(paths)) = out.get("sim.paths") else { panic!("no paths") };
+        assert_eq!(paths.len(), 10 * 201);
+        let Some(Value::Map(u)) = out.get("use.density") else { panic!("no use") };
+        let total: f64 = u.data.iter().filter(|v| v.is_finite()).sum();
+        assert!((total - 1.0).abs() < 1e-9, "the use sums to {total}");
+        let Some(Value::Map(r)) = out.get("resistance.resistance") else { panic!("no resistance") };
+        let rs: Vec<f64> = r.data.iter().copied().filter(|v| v.is_finite()).collect();
+        let (lo, hi) = rs.iter().fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        assert!((lo - 1.0).abs() < 1e-9 && (hi - 100.0).abs() < 1e-9, "{lo} to {hi}");
+        let Some(Value::Map(c)) = out.get("current.current") else { panic!("no current") };
+        assert!(c.data.iter().any(|v| v.is_finite() && *v > 0.0));
     }
 }
 

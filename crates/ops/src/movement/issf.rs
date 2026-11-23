@@ -667,7 +667,9 @@ impl Operator for FitIssf {
         // the stratum: the column the formula names, or the one made of the track and the step
         let stratum = if by == "track_step" { "stratum_".to_string() } else { by.clone() };
         let track = track_column(args, v);
-        if !in_formula && by == "track_step" {
+        // made also when the formula names it: strata(stratum_) written by hand
+        let names_it = given.as_ref().is_some_and(|f| f.contains("stratum_"));
+        if by == "track_step" && (!in_formula || names_it) && frame.get("stratum_").is_none() {
             let k = track.clone()?;
             if frame.get("step_id_").is_none() {
                 return Err(fail(node, "steps: the random steps of move.random_steps (no column step_id_)"));
