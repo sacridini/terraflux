@@ -483,15 +483,17 @@ pub const TIPS: &[(&str, &str)] = &[
         "Smoothing rounds the corners but also moves the line off its vertices and shrinks polygons, so it is for \
          drawing and for the stair steps of vector.polygonize, not for measuring: measure before it. Two or three \
          iterations are enough (the vertex count doubles each time); keep `preserve_ends` on so rivers still meet at \
-         their ends. Every polygon is smoothed alone, so the neighbours of a coverage (a polygonized map) stop fitting \
-         along their shared edges: use vector.coverage_simplify there.",
+         their ends. Every polygon is smoothed alone, so neighbouring polygons stop fitting along their shared edges: \
+         for a layer of polygons that tile an area, use vector.coverage_simplify there.",
     ),
     (
         "vector.coverage_simplify",
-        "Do not use vector.simplify on a coverage (parcels, districts, a polygonized map): it simplifies every polygon \
-         alone, so neighbours stop fitting and slivers and overlaps open along their shared edges. This simplifies the \
-         shared edges once for both. Check the layer with vector.coverage_validate first; give `preserve_boundary` to \
-         keep the outline of the whole area, and a tolerance in metres (reproject first).",
+        "Do not use vector.simplify on a coverage (parcels, districts): it simplifies every polygon alone, so \
+         neighbours stop fitting and slivers and overlaps open along their shared edges. This simplifies the shared \
+         edges once for both, but only where they match vertex for vertex: check the layer with \
+         vector.coverage_validate first. The polygons of vector.polygonize usually fail it (a corner of one polygon \
+         lies on a straight edge of its neighbour, without a vertex there). Give `preserve_boundary` to keep the \
+         outline of the whole area, and a tolerance in metres (reproject first).",
     ),
     (
         "vector.coverage_validate",
