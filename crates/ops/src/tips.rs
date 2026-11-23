@@ -391,6 +391,43 @@ pub const TIPS: &[(&str, &str)] = &[
          give distances that are not metres. A feature that meets one of the other layer has distance 0. Give \
          `max_distance` to leave without values those with nothing near.",
     ),
+    (
+        "vector.centroid",
+        "The centroid of a concave polygon (a C, an L, a river bend) can fall outside it: turn on `inside` for a \
+         label point that always lies on the feature.",
+    ),
+    (
+        "vector.hull",
+        "The convex hull is the outline of the points as a rubber band; the concave one hugs them tighter (`ratio` \
+         0.3 is a good start, 1 gives the convex hull). Give `by` for one hull per species or group. Reproject to \
+         a metric coordinate system first if the hulls will be measured.",
+    ),
+    (
+        "vector.simplify",
+        "The tolerance is in the layer's units: reproject to a metric coordinate system first, as 50 degrees \
+         would erase everything. Keep `preserve_topology` on unless you only draw: without it a thin polygon \
+         can collapse or two rings cross.",
+    ),
+    (
+        "vector.envelope",
+        "A point's envelope is the point itself and a horizontal or vertical line's a line, not a polygon with \
+         no area.",
+    ),
+    (
+        "vector.make_valid",
+        "Run it before an overlay, a dissolve or a clip that fails on a self-intersecting polygon (a bow-tie). \
+         Valid features are not touched; a bow-tie becomes two polygons.",
+    ),
+    (
+        "vector.explode",
+        "Each part becomes a feature with the attributes repeated: an area or a count column now repeats on \
+         every part, so measure or recompute after exploding.",
+    ),
+    (
+        "vector.boundary",
+        "A polygon's boundary is its rings as lines (holes included); a closed line or a point has no boundary \
+         and gives an empty feature.",
+    ),
     // land change analysis
     (
         "change.suggest",

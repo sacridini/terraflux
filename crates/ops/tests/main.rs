@@ -97,6 +97,7 @@ mod uncertainty;
 mod vector;
 mod vector_ops;
 mod vector_predicates;
+mod vector_shapes;
 mod vector_tiled;
 mod woe_edit;
 mod zonation;

@@ -116,6 +116,7 @@ pub mod value;
 pub mod values;
 pub mod vector;
 pub mod vector_algebra;
+pub mod vector_shapes;
 pub mod vector_tiled;
 pub mod vector_tools;
 pub mod view;
@@ -511,6 +512,7 @@ impl Registry {
         phenology::register(&mut r);
         raster_neighbours::register(&mut r);
         vector_tools::register(&mut r);
+        vector_shapes::register(&mut r);
         values::register(&mut r);
         checks::register(&mut r);
         raster_analysis::register(&mut r);

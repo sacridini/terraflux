@@ -8,7 +8,9 @@ use std::sync::OnceLock;
 use crate::Result;
 
 mod index;
+mod shapes;
 pub use index::{GeosIndex, Predicate};
+pub use shapes::{Unary, unary, union};
 
 type Ctx = *mut c_void;
 type G = *mut c_void;
@@ -71,7 +73,24 @@ struct Api {
     GEOSDistance_r: unsafe extern "C" fn(Ctx, G, G, *mut c_double) -> c_int,
     /// GEOS 3.10 and later.
     GEOSPreparedDistanceWithin_r: Option<unsafe extern "C" fn(Ctx, G, G, c_double) -> c_char>,
+    GEOSWKBWriter_create_r: unsafe extern "C" fn(Ctx) -> G,
+    GEOSWKBWriter_setOutputDimension_r: unsafe extern "C" fn(Ctx, G, c_int),
+    GEOSWKBWriter_write_r: unsafe extern "C" fn(Ctx, G, G, *mut usize) -> *mut u8,
+    GEOSWKBWriter_destroy_r: unsafe extern "C" fn(Ctx, G),
+    GEOSFree_r: unsafe extern "C" fn(Ctx, *mut c_void),
+    GEOSGetCentroid_r: UnaryFn,
+    GEOSPointOnSurface_r: UnaryFn,
+    GEOSEnvelope_r: UnaryFn,
+    GEOSBoundary_r: UnaryFn,
+    GEOSSimplify_r: unsafe extern "C" fn(Ctx, G, c_double) -> G,
+    GEOSTopologyPreserveSimplify_r: unsafe extern "C" fn(Ctx, G, c_double) -> G,
+    /// GEOS 3.8 and later.
+    GEOSMakeValid_r: Option<UnaryFn>,
+    /// GEOS 3.11 and later.
+    GEOSConcaveHull_r: Option<unsafe extern "C" fn(Ctx, G, c_double, c_uint) -> G>,
 }
+
+pub(crate) type UnaryFn = unsafe extern "C" fn(Ctx, G) -> G;
 
 pub(crate) type TreeCallback = unsafe extern "C" fn(*mut c_void, *mut c_void);
 pub(crate) type NearCallback = unsafe extern "C" fn(*const c_void, *const c_void, *mut c_double, *mut c_void) -> c_int;
@@ -193,6 +212,19 @@ fn load(path: &Path) -> Result<Geos> {
         GEOSEquals_r: f!(GEOSEquals_r),
         GEOSDistance_r: f!(GEOSDistance_r),
         GEOSPreparedDistanceWithin_r: opt!(GEOSPreparedDistanceWithin_r),
+        GEOSWKBWriter_create_r: f!(GEOSWKBWriter_create_r),
+        GEOSWKBWriter_setOutputDimension_r: f!(GEOSWKBWriter_setOutputDimension_r),
+        GEOSWKBWriter_write_r: f!(GEOSWKBWriter_write_r),
+        GEOSWKBWriter_destroy_r: f!(GEOSWKBWriter_destroy_r),
+        GEOSFree_r: f!(GEOSFree_r),
+        GEOSGetCentroid_r: f!(GEOSGetCentroid_r),
+        GEOSPointOnSurface_r: f!(GEOSPointOnSurface_r),
+        GEOSEnvelope_r: f!(GEOSEnvelope_r),
+        GEOSBoundary_r: f!(GEOSBoundary_r),
+        GEOSSimplify_r: f!(GEOSSimplify_r),
+        GEOSTopologyPreserveSimplify_r: f!(GEOSTopologyPreserveSimplify_r),
+        GEOSMakeValid_r: opt!(GEOSMakeValid_r),
+        GEOSConcaveHull_r: opt!(GEOSConcaveHull_r),
     };
     let v = unsafe { (api.GEOSversion)() };
     let version = if v.is_null() { String::new() } else { unsafe { CStr::from_ptr(v) }.to_string_lossy().into_owned() };
