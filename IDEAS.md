@@ -5664,6 +5664,19 @@ energético** (enerscape; Berti et al. 2022, Pontzer 2016). Depois deste bloco, 
    um DEM do `nlm.*` para rodar como está, pronto para o "Use my data". Mais o tópico `movement` do guia do MCP
    estendido com o relevo e uma parte nova da série de tutoriais de movimento.
 
+**Feito (2026-11-23), tudo.** Na biblioteca (terraflux-py, commits locais): `cost.energy_landscape` bit a bit com o
+enerscape 1.2.0 (3224217), `move.surface_distance` (51783b1), `fit_issf` e `log_rss` bit a bit com o amt 0.3.1 e o
+survival 3.7-0 (30b0e4d), `redistribution_kernel`, `simulate_path`, `resistance`, `path_density` e `issf` (7a38a01),
+e a correção da palavra de controle do RSP que derrubava os testes lado a lado (7acacbf). No Terraflux: os operadores
+`cost.energy_landscape` e `move.surface_distance` (38753b15), `move.fit_issf` e `move.log_rss` com o tipo `StepModel`
+(c8b8e462), `move.issf_model`, `move.simulate_path`, `move.resistance` e `move.path_density` (96a69b1e), o template
+"Movement on the relief", o guia `movement` e quatro conselhos (56ac4ad4), o Python do template rodando inteiro
+(1490958c), e a parte 9 da série, "Movement on the relief", com os íbex do Bargy (Marchand et al. 2025) sobre o DEM
+Copernicus, mais a parte 5 ajustando com `move.fit_issf` (d583d840). A resposta à pergunta, nos dados: os íbex
+escolhem passos que terminam na altura em que começaram (coeficiente da mudança líquida de altura −0,0086, IC −0,0100
+a −0,0072, negativo nos quatro), mas não evitam declividade, energia nem rugosidade. No release: refazer o
+`website/data/ops.json` (já refeito no d583d840 a partir da árvore).
+
 ## O Trace comparado: por que esta célula e não aquela (pedido de 2026-11-21)
 
 O Trace (`crates/app/src/trace.rs`, `trace_view.rs`) responde **como** o valor de uma célula foi calculado: a cadeia
