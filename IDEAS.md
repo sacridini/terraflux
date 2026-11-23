@@ -4401,7 +4401,7 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    watershed e o SNIC só põem uma célula na fila quando ela vence todas as prioridades já postas para ela, numa fila
    4-ária compacta; a suavização, o gradiente, os componentes conexos de `Objects` e as arestas entre objetos nos
    threads; os tiles do multiresolution numa fila contínua (sem barreira por lote), os núcleos postos na ordem dos
-   tiles. Segundos com 1 / 8 threads (medidos com outra compilação na máquina, a medir de novo com ela quieta):
+   tiles. Segundos com 1 / 8 threads (medidos com outra compilação na máquina; medidos de novo abaixo):
 
    | segmentador | 1000² antes | 1000² depois | 2000² antes | 2000² depois |
    |---|---|---|---|---|
@@ -4410,6 +4410,48 @@ Na ordem em que são feitos, um commit por fase, de uma para a outra sem parar:
    | felzenszwalb | 0,79 / 0,79 | 0,34 / 0,20 | 3,7 / 3,8 | 3,0 / 1,5 |
    | watershed | 1,74 / 1,72 | 0,65 / 0,39 | 9,3 / 9,0 | 2,9 / 1,8 |
    | multiresolution, tiles de 512, 8 threads | 0,96 | 0,92 | 3,35 | 2,90 |
+
+   **Medido de novo em 2026-11-23, com tudo o que foi feito acima** (a bateria completa, release, 8 threads de teto, nada
+   mais meu rodando; imagens de 4 bandas, segundos com 1 / 8 threads, o melhor de 5 rodadas: a máquina não ficou quieta
+   em todas, as rodadas 1, 2 e 5 levaram de 1,5 a 2 vezes o tempo das rodadas 3 e 4, e o melhor é o das quietas; a
+   mediana das rodadas 3 a 5 fica a até 10% dele nas linhas de 1000²). Os hashes dos rótulos foram os mesmos nas 5
+   rodadas e iguais aos de antes (por exemplo multiresolution 71a81c69746be0d9 / 9ee678ac1dfd31f5 / 761a9492149a440a em
+   1000², watershed e086c942b441a075, region growing t0.05 920c612a67b41154):
+
+   | segmentador | 1000² (1 / 8 threads) | 2000² (1 / 8 threads) |
+   |---|---|---|
+   | multiresolution scale20 | 1,27 / 1,23 | 6,02 / 5,89 |
+   | multiresolution scale50 | 1,30 / 1,26 | 6,10 / 5,81 |
+   | multiresolution scale50-tile512 | 1,91 / 1,07 | 9,36 / 5,17 |
+   | chessboard default | 0,02 / 0,01 | 0,07 / 0,04 |
+   | quadtree default | 0,20 / 0,14 | 0,81 / 0,55 |
+   | slic default | 0,25 / 0,07 | 0,98 / 0,24 |
+   | snic default | 0,31 / 0,29 | 1,90 / 1,82 |
+   | felzenszwalb default | 0,38 / 0,22 | 1,59 / 0,94 |
+   | watershed default | 0,26 / 0,14 | 1,18 / 0,71 |
+   | meanshift default | 1,81 / 0,34 | 7,83 / 1,41 |
+   | threshold otsu-3 | 0,02 / 0,01 | 0,10 / 0,05 |
+   | threshold otsu-5-1024 | 0,04 / 0,02 | 0,14 / 0,07 |
+   | threshold given-4 | 0,04 / 0,02 | 0,13 / 0,07 |
+   | spectral_difference chess4-d8 | 0,26 / 0,25 | 1,42 / 1,37 |
+   | spectral_difference slic-d8 | 0,04 / 0,03 | 0,14 / 0,10 |
+   | region_growing t0,02 | 1,93 / 1,85 | 40,4 / 40,0 |
+   | region_growing t0,05-min20 | 3,23 / 3,22 | 15,5 / 15,2 |
+   | region_growing t0,05-n8-manh | 3,14 / 3,16 | 15,6 / 15,1 |
+   | region_growing t0,05 | 3,30 / 3,33 | 15,5 / 15,4 |
+   | region_growing t0,05-tile512 | 5,00 / 3,31 | 20,8 / 11,9 |
+   | region_growing t0,05-min20-tile512 | 4,95 / 3,33 | 20,7 / 11,9 |
+   | quickshift default | 2,11 / 0,50 | 8,34 / 1,52 |
+   | quickshift k3-d8 | 1,00 / 0,22 | 4,04 / 0,76 |
+   | optimize ms-5-scales | 6,80 / 2,80 | 29,8 / 29,0 |
+
+   Contra as tabelas acima: o multiresolution sem tiles em 2000² foi de 11,1 / 11,3 s para 6,0 / 5,9 s (escala 20) e de
+   11,4 s para 6,1 / 5,8 s (escala 50); o watershed de 2,9 / 1,8 s para 1,18 / 0,71 s; o SLIC de 1,0 / 0,39 s para 0,98 /
+   0,24 s; o SNIC de 3,0 / 2,8 s para 1,90 / 1,82 s; o Felzenszwalb de 3,0 / 1,5 s para 1,59 / 0,94 s; o region growing
+   com `threshold` 0,05 em 2000² de 27 s para 15,5 s. Uma coisa está pior: o multiresolution com tiles de 512 em 2000² com 8 threads está em 5,2 s, contra 3,3 s da
+   tabela de antes (com 1 thread melhorou, de 13,6 para 9,4 s). Provavelmente é a costura que desfaz as peças que tocam as
+   bordas (o que tirou a emenda visível; `seam_band` corta essa parte quase pela metade), medida depois daquela tabela;
+   não medi a versão anterior para confirmar.
 
    Falta: o que segue sequencial domina com 8 threads (a fila do SNIC, o union-find do Felzenszwalb, os mínimos do
    watershed e, na costura do multiresolution, o `merge_all`, que é ~90% dela e não pode mudar a ordem; a soma das
