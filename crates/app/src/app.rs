@@ -737,6 +737,10 @@ pub struct Session {
     /// Counters of the changes of the model and of the nodes' states (the canvas is laid out again then).
     pub revision: u64,
     pub status_rev: u64,
+    /// When each top-level node last gave a new result (a counter's value: a node taken from the cache keeps its
+    /// number): the generation of the picture of what it gave on the canvas.
+    pub result_rev: BTreeMap<String, u64>,
+    result_clock: u64,
     /// The times the data was read, and the advice on the method worked out for a revision and a reading
     /// ([`Session::advice`]).
     loads: u64,
@@ -1040,6 +1044,8 @@ impl Session {
             timings: BTreeMap::new(),
             revision: 0,
             status_rev: 0,
+            result_rev: BTreeMap::new(),
+            result_clock: 0,
             loads: 0,
             advice_of: Mutex::new(None),
             disk_of: Mutex::new(None),
@@ -2100,6 +2106,10 @@ impl Session {
                     // a loop taken from the cache: its body as the run before kept it
                     if cached && let Some(b) = self.bodies_before.remove(&at) {
                         self.bodies.entry(at.clone()).or_insert(b);
+                    }
+                    if !cached {
+                        self.result_clock += 1;
+                        self.result_rev.insert(at.clone(), self.result_clock);
                     }
                     self.status.insert(at, NodeStatus::Done { cached });
                     self.status_rev += 1;
@@ -4410,6 +4420,10 @@ impl TerrafluxApp {
                     ui.add(theme::toggle(&mut st.node_settings, "a node's main settings on its box")).on_hover_text(
                         "the settings a node needs, those given and its essential ones in rows under its ports, \
                          the others counted in a row that unfolds them (off: the boxes show ports only)",
+                    );
+                    ui.add(theme::toggle(&mut st.node_thumbs, "thumbnails of results in the nodes")).on_hover_text(
+                        "a small picture of what a node gives (a map, a stack, a series, objects) in its box, \
+                         coloured as the Viewer shows it, once the node has run (off: the boxes show no pictures)",
                     );
                     ui.add(theme::toggle(&mut st.start_page, "a start page on the canvas of an empty model")).on_hover_text(
                         "the ways into a first model (your data, a template, a model of before) and into the \

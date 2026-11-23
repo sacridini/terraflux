@@ -3044,6 +3044,42 @@ fn wire_text(s: &Session, a: &crate::editor_view::WireAsk) -> crate::editor_view
     }
 }
 
+/// The pictures the boxes in view asked for this frame (`editor.thumb_asks`), sent to the thumbnail thread: the
+/// generation of a picture is when its top-level node last gave a new result ([`Session::result_rev`]), so a node
+/// taken from the cache keeps its picture and a new run makes it again; the value is cloned only when the thread
+/// has not been asked of that generation (or has dropped the picture), and not at all while it makes it.
+pub(crate) fn thumbs(s: &mut Session) {
+    let asks = std::mem::take(&mut s.editor.thumb_asks);
+    if asks.is_empty() {
+        return;
+    }
+    let path = s.editor.path.clone();
+    for a in asks {
+        // (a node that has not given a result, or lost it: nothing to look for)
+        if !matches!(s.status_at(&path, &a.node), Some(NodeStatus::Done { .. })) && !s.stale.contains(&a.key.0) {
+            continue;
+        }
+        let top = a.key.0.split('/').next().unwrap_or(&a.key.0);
+        let generation = s.result_rev.get(top).copied().unwrap_or(0);
+        let Some(t) = s.editor.thumbs.as_ref() else { return };
+        let sent = s.editor.thumb_sent.get(&a.key).copied();
+        match sent {
+            // (no picture for what it gave: not asked again until it gives something else)
+            Some((g, false)) if g == generation => continue,
+            Some((g, true)) if g == generation && (t.generation(&a.key) == Some(g) || t.busy()) => continue,
+            _ => {}
+        }
+        let Some(value) = shown_at(s, &path, &a.node, &a.port).and_then(|(n, p)| s.value_of(&n, &p)) else {
+            continue;
+        };
+        let picture = crate::thumbs::has_picture(&value);
+        s.editor.thumb_sent.insert(a.key.clone(), (generation, picture));
+        if picture && let Some(t) = s.editor.thumbs.as_ref() {
+            t.request(a.key, generation, value);
+        }
+    }
+}
+
 fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
     let shown = s.preview.clone();
     // the node running's share done, drawn along its bottom
@@ -3162,6 +3198,7 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
         &checks,
         &breakpoints,
     );
+    thumbs(s);
     // the type and value of the connection the pointer rests on
     if let Some(ask) = s.editor.wire_ask.clone() {
         let key = (s.revision, s.status_rev);

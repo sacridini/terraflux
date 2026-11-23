@@ -286,3 +286,93 @@ fn family_icons() {
     std::fs::create_dir_all(out()).unwrap();
     img.save(out().join("family_icons.png")).unwrap();
 }
+
+/// A template opened as `template` does, run or not (`run` false: the boxes as they are before any run).
+fn opened(h: &mut Harness<TerrafluxApp>, name: &str, run: bool) {
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == name).expect("the template");
+    let ctx = h.ctx.clone();
+    h.state_mut().start_template(&ctx, t);
+    h.state_mut().session.as_mut().unwrap().run_when_ready = run;
+    settled(h);
+    let a = h.state_mut();
+    a.dock = Some(egui_dock::DockState::new(vec![Pane::Model]));
+    a.session.as_mut().unwrap().my_data.hidden = true;
+    h.run_steps(6);
+}
+
+/// Until the thumbnails asked for are made (bounded).
+fn pictured(h: &mut Harness<TerrafluxApp>) {
+    let t = Instant::now();
+    h.run_steps(4);
+    while h.state().session.as_ref().unwrap().editor.thumbs_busy() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(30), "the pictures were not made");
+    }
+    h.run_steps(4);
+}
+
+/// The first node of the model with an area for a picture.
+fn pictured_node(h: &Harness<TerrafluxApp>, skip: usize) -> String {
+    let s = h.state().session.as_ref().unwrap();
+    s.source
+        .nodes
+        .iter()
+        .filter(|n| s.editor.thumb_of(&n.id).is_some())
+        .nth(skip)
+        .or_else(|| s.source.nodes.iter().find(|n| s.editor.thumb_of(&n.id).is_some()))
+        .expect("a node with a picture")
+        .id
+        .clone()
+}
+
+/// The pictures of the results in the boxes: run, before a run (the placeholders) and out of date, at 1.0 and 0.8,
+/// in both themes.
+#[test]
+#[ignore = "pictures of the canvas for a look: run with --ignored"]
+fn thumbs_shots() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
+        for (short, name, skip) in [
+            ("fragmentation", "Fragmentation of a forest", 1),
+            ("zonation", "Zonation", 1),
+            ("polygons", "Segment an image into polygons", 1),
+        ] {
+            for zoom in [1.0, 0.8] {
+                let mut h = harness(SIZE, 1.0, theme);
+                opened(&mut h, name, true);
+                s_fit(&mut h);
+                let node = pictured_node(&h, skip);
+                look_at(&mut h, &node, zoom);
+                pictured(&mut h);
+                save(&mut h, &format!("thumbs_{short}_{zoom}_{tag}.png"));
+            }
+        }
+        // before a run: the placeholders
+        let mut h = harness(SIZE, 1.0, theme);
+        opened(&mut h, "Fragmentation of a forest", false);
+        s_fit(&mut h);
+        let node = pictured_node(&h, 1);
+        look_at(&mut h, &node, 1.0);
+        save(&mut h, &format!("thumbs_before_{tag}.png"));
+        // out of date: an edit after the run, the pictures dimmer
+        let mut h = harness(SIZE, 1.0, theme);
+        opened(&mut h, "Fragmentation of a forest", true);
+        s_fit(&mut h);
+        let node = pictured_node(&h, 1);
+        look_at(&mut h, &node, 1.0);
+        pictured(&mut h);
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.auto = false;
+        terraflux_app::editor::set_param(&mut s.source, &[], "landscape", "seed", "8").unwrap();
+        s.edited();
+        save(&mut h, &format!("thumbs_stale_{tag}.png"));
+    }
+    println!("the pictures are in {}", out().display());
+}
+
+/// The graph fitted to the canvas.
+fn s_fit(h: &mut Harness<TerrafluxApp>) {
+    h.state_mut().session.as_mut().unwrap().editor.fit();
+    h.run_steps(4);
+}

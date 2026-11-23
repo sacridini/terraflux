@@ -67,6 +67,9 @@ pub struct Settings {
     pub wires_around: bool,
     /// On the model's canvas, a node's main settings in rows under its ports (on unless turned off).
     pub node_settings: bool,
+    /// On the model's canvas, a small picture of what a node gives (a map, a stack, a series, objects) in its box
+    /// (on unless turned off).
+    pub node_thumbs: bool,
     /// The Node pane's tab opened by itself beside the model with its first node (off unless turned on: a node's
     /// settings open in a panel beside its box on the canvas; the tab stays in the panes' menu).
     pub node_pane_opens: bool,
@@ -439,6 +442,7 @@ impl Default for Settings {
             minimap: true,
             wires_around: true,
             node_settings: true,
+            node_thumbs: true,
             node_pane_opens: false,
             operators_drawer: false,
             start_page: true,
@@ -620,6 +624,11 @@ pub fn threads() -> Option<usize> {
 /// Whether the canvas shows a node's main settings on its box (read without copying the settings).
 pub fn node_settings() -> bool {
     global().lock().unwrap().node_settings
+}
+
+/// Whether the canvas shows a small picture of a node's result in its box (read without copying the settings).
+pub fn node_thumbs() -> bool {
+    global().lock().unwrap().node_thumbs
 }
 
 /// Whether the Node pane's tab opens by itself with a model's first node (read without copying the settings).

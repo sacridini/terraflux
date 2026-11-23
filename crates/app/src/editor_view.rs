@@ -109,6 +109,10 @@ const CARD_LIGHT_AT: f32 = 9.0;
 const CARD_MARK: f32 = 16.0;
 /// What the icon takes before the name on a card, pixels.
 const CARD_ICON_ADVANCE: f32 = 20.0;
+/// The area of the picture of a node's result in its box (a setting's option): the space above it and its height,
+/// graph units; as wide as the box inside its padding.
+pub(crate) const THUMB_GAP: f32 = 6.0;
+pub(crate) const THUMB_H: f32 = 76.0;
 
 /// The card a box is drawn as at `zoom` (under [`PORTS_FROM`]): its width, `CARD_H` pixels tall at least, in the
 /// vertical middle of its box. By arithmetic from the box, nothing kept.
@@ -512,17 +516,31 @@ fn node_settings(n: &Node, r: &Registry, open: bool, on: bool) -> SettingRows {
 }
 
 /// The height of a box (graph units): its header, `ports` rows of ports, `settings` rows (the one that folds them
-/// included) under a line, and the row naming its file. The one place a box's height is worked out.
-fn box_height(ports: usize, settings: usize, file: bool) -> f32 {
+/// included) under a line, the area of its picture (`thumb`) and the row naming its file. The one place a box's
+/// height is worked out.
+fn box_height(ports: usize, settings: usize, file: bool, thumb: bool) -> f32 {
     let settings = if settings > 0 { SEP + settings as f32 * ROW } else { 0.0 };
-    HEAD + ports as f32 * ROW + settings + 6.0 + if file { FOOT } else { 0.0 }
+    let thumb = if thumb { THUMB_GAP + THUMB_H } else { 0.0 };
+    HEAD + ports as f32 * ROW + settings + thumb + 6.0 + if file { FOOT } else { 0.0 }
+}
+
+/// The output of an operator node whose result gets a picture in its box: its first of a type that can be pictured (a
+/// map, a stack, a series, objects), known before any run so that the layout does not move after one. None for
+/// a container, a group and the nodes that give nothing of the kind.
+pub(crate) fn thumb_output(n: &Node, r: &Registry) -> Option<usize> {
+    if n.body.is_some() || n.uses.is_some() || n.op == terraflux_graph::GROUP {
+        return None;
+    }
+    let outs = editor::output_ports(n, r);
+    outs.iter().position(|(_, t)| matches!(t, Type::Map | Type::Raster | Type::Stack | Type::Series | Type::Objects))
 }
 
 /// The height of a node's box, its optional inputs and its settings folded (for laying nodes out).
 pub(crate) fn node_height(n: &Node, r: &Registry) -> f32 {
     let (shown, folded) = shown_inputs(n, r, false);
     let ports = (shown.len() + usize::from(!folded.is_empty())).max(editor::output_ports(n, r).len()).max(1);
-    box_height(ports, node_settings(n, r, false, crate::settings::node_settings()).count(), file_of(n).is_some())
+    let thumb = crate::settings::node_thumbs() && thumb_output(n, r).is_some();
+    box_height(ports, node_settings(n, r, false, crate::settings::node_settings()).count(), file_of(n).is_some(), thumb)
 }
 
 /// The names of the input rows of a node's box, top down, its optional inputs folded (for laying nodes out: the
@@ -1250,6 +1268,21 @@ pub struct EditorState {
     wire_hit: Option<(Pos2, u64, Option<usize>)>,
     /// The words told about a connection, by what they were worked out for.
     pub wire_text: Option<(u64, u64, WireAsk, Carried)>,
+    /// The pictures of what the nodes give, drawn in their boxes (made when first wanted: they take the egui
+    /// context), what the boxes in view asked of the session this frame, and what was asked of the thread, by
+    /// key: its generation and whether the value had a picture.
+    pub thumbs: Option<crate::thumbs::Thumbs>,
+    pub thumb_asks: Vec<ThumbAsk>,
+    pub thumb_sent: HashMap<crate::thumbs::Key, (u64, bool)>,
+}
+
+/// A picture a box in view wants: the node (by its id in the scope) and the output, and the key of the picture
+/// (the scope's path and the node's id, the output).
+#[derive(Debug, Clone)]
+pub struct ThumbAsk {
+    pub node: String,
+    pub port: String,
+    pub key: crate::thumbs::Key,
 }
 
 /// The pointer rests this long (seconds) before the connection under it is looked for.
@@ -1433,6 +1466,23 @@ impl EditorState {
     pub fn rects_of(&self, ids: &[String]) -> Vec<(String, Rect)> {
         let Some(s) = &self.scene else { return Vec::new() };
         ids.iter().filter_map(|k| s.index.get(k).map(|&i| (k.clone(), s.boxes[i].rect))).collect()
+    }
+
+    /// The area of a box's picture (graph units) and the output it shows, if the box has one.
+    pub fn thumb_of(&self, node: &str) -> Option<(Rect, String)> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        Some((b.thumb_rect()?, b.outputs[b.thumb?].0.clone()))
+    }
+
+    /// The generation of the picture made of a node's output (top level), when it is.
+    pub fn thumb_made(&self, node: &str, port: &str) -> Option<u64> {
+        self.thumbs.as_ref()?.generation(&(node.to_string(), port.to_string()))
+    }
+
+    /// Whether a picture is still being made.
+    pub fn thumbs_busy(&self) -> bool {
+        self.thumbs.as_ref().is_some_and(|t| t.busy())
     }
 
     /// Build the scene again at the next frame (the wires from the copies of an input's box: the nearest, after
@@ -1784,6 +1834,8 @@ struct BoxAt {
     frozen: bool,
     /// The type of the output that feeds each setting row that reads a value (by row).
     setting_flow: Vec<(usize, Type)>,
+    /// The output whose picture its box has an area for ([`thumb_output`], when the option is on).
+    thumb: Option<usize>,
     /// The zoom it is drawn as a card at (under [`PORTS_FROM`]: its wires end at the card's sides, it is hit as the
     /// card), 0 when drawn whole. Set by the scene as the camera moves ([`Scene::set_zoom`]).
     far: Cell<f32>,
@@ -1922,6 +1974,17 @@ impl BoxAt {
     /// The row that unfolds its other settings, or folds them again, if it has some.
     fn more_settings(&self) -> Option<Rect> {
         (self.settings.folded > 0).then(|| self.setting_row(self.settings.rows.len()))
+    }
+
+    /// The area of its result's picture, if it has one: under its last row, inside its padding.
+    fn thumb_rect(&self) -> Option<Rect> {
+        self.thumb?;
+        let settings = if self.settings.count() > 0 { SEP + self.settings.count() as f32 * ROW } else { 0.0 };
+        let top = self.rect.top() + HEAD + self.rows as f32 * ROW + settings + THUMB_GAP;
+        Some(Rect::from_min_size(
+            Pos2::new(self.rect.left() + PAD, top),
+            Vec2::new((self.rect.width() - 2.0 * PAD).max(0.0), THUMB_H),
+        ))
     }
 
     /// The row naming its file, if it has one.
@@ -2549,7 +2612,7 @@ struct Cards {
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
 /// `ranges[box]`; the connections, as curves through their points, are made again when a box moves).
 struct Scene {
-    key: (u64, Vec<String>, u64, &'static str, bool, u64, bool, bool),
+    key: (u64, Vec<String>, u64, &'static str, bool, u64, bool, bool, bool),
     boxes: Vec<BoxAt>,
     index: HashMap<String, usize>,
     grid: Grid,
@@ -2690,6 +2753,7 @@ impl Scene {
         unfolded: &HashSet<String>,
         settings: Option<(&HashSet<String>, &HashMap<String, bool>)>,
         around: bool,
+        thumbs: bool,
         measure: &mut dyn FnMut(&str, &FontId) -> f32,
     ) -> Scene {
         let ids: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
@@ -2756,6 +2820,7 @@ impl Scene {
                     bypass: false,
                     frozen: false,
                     setting_flow: Vec::new(),
+                    thumb: None,
                     far: Cell::new(0.0),
                 });
                 if placed.is_none() {
@@ -2794,9 +2859,11 @@ impl Scene {
             let width = n.width.map_or(need, |w| w.max(need));
             // the file it reads or writes
             let file = file_of(n).map(String::from);
+            // (the area of its picture, for the option)
+            let thumb = thumbs.then(|| thumb_output(n, r)).flatten();
             let rect = Rect::from_min_size(
                 Pos2::new(p[0], p[1]),
-                Vec2::new(width, box_height(rows, set.count(), file.is_some())),
+                Vec2::new(width, box_height(rows, set.count(), file.is_some(), thumb.is_some())),
             );
             boxes.push(BoxAt {
                 key: n.id.clone(),
@@ -2823,6 +2890,7 @@ impl Scene {
                 bypass: n.bypass,
                 frozen: n.frozen,
                 setting_flow: Vec::new(),
+                thumb,
                 far: Cell::new(0.0),
             });
         }
@@ -2967,7 +3035,7 @@ impl Scene {
             vec![None; boxes.len()]
         };
         let mut scene = Scene {
-            key: (0, Vec::new(), 0, "", false, 0, around, settings.is_some()),
+            key: (0, Vec::new(), 0, "", false, 0, around, settings.is_some(), thumbs),
             boxes,
             index,
             grid,
@@ -3859,6 +3927,7 @@ pub(crate) fn figure_scene(
         &none,
         settings.then_some((&none, &bad)),
         true,
+        false,
         &mut measure,
     );
     let mut used = vec![false; scene.boxes.len()];
@@ -4068,11 +4137,12 @@ pub fn show(
         }
     }
     // (built again when the model, the place in it, the nodes' states or the theme change)
-    let (colours, minimap_on, around, on) = {
+    let (colours, minimap_on, around, on, thumbs) = {
         let s = crate::settings::get();
-        (s.node_colours, s.minimap, s.wires_around, s.node_settings)
+        (s.node_colours, s.minimap, s.wires_around, s.node_settings, s.node_thumbs)
     };
-    let key = (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds, around, on);
+    let key =
+        (revision, st.path.clone(), status_rev, crate::theme::current().name, colours, st.folds, around, on, thumbs);
     if st.scene.as_ref().is_none_or(|s| s.key != key) {
         // the texts measured in the fonts they are written in
         let v = ui.visuals().clone();
@@ -4087,7 +4157,20 @@ pub fn show(
                 }
             };
             let settings = on.then_some((&st.settings_open, bad_settings));
-            Scene::build(model, nodes, r, &st.path, status, &v, colours, &st.unfolded, settings, around, &mut measure)
+            Scene::build(
+                model,
+                nodes,
+                r,
+                &st.path,
+                status,
+                &v,
+                colours,
+                &st.unfolded,
+                settings,
+                around,
+                thumbs,
+                &mut measure,
+            )
         });
         st.generation = next_generation();
         scene.key = key;
@@ -4674,6 +4757,15 @@ pub fn show(
         match hit {
             Some(Hit::Output(i, k)) if !scene.boxes[i].source => {
                 actions.push(Action::Preview(scene.boxes[i].key.clone(), scene.boxes[i].outputs[k].0.clone()));
+            }
+            // a click on the picture of a result: what a click on its output does
+            Some(Hit::Body(i))
+                if cam.zoom >= PORTS_FROM && scene.boxes[i].thumb_rect().is_some_and(|t| t.contains(w)) =>
+            {
+                let b = &scene.boxes[i];
+                if let Some(k) = b.thumb {
+                    actions.push(Action::Preview(b.key.clone(), b.outputs[k].0.clone()));
+                }
             }
             Some(Hit::Fold(i)) => {
                 let key = scene.boxes[i].key.clone();
@@ -5389,6 +5481,61 @@ pub fn show(
             }
         }
     }
+    // the pictures of the results in the boxes whole in view: the one the thread made of the output (the family's icon
+    // on an inset until it is there, and for a node not run or failed), asked of the session by the key, once a result
+    // (drawn under the faded box of an out-of-date node: its picture dimmer)
+    if ports && scene.key.8 {
+        let prefix: String = st.path.iter().map(|q| format!("{q}/")).collect();
+        let thumbs = st.thumbs.get_or_insert_with(|| crate::thumbs::Thumbs::new(ui.ctx()));
+        let ppp = ui.ctx().pixels_per_point();
+        let snap = |p: Pos2| Pos2::new((p.x * ppp).round() / ppp, (p.y * ppp).round() / ppp);
+        let hair = v.widgets.noninteractive.bg_stroke.color;
+        for &i in &in_view {
+            let b = &scene.boxes[i];
+            let (Some(k), Some(t)) = (b.thumb, b.thumb_rect()) else { continue };
+            let area = Rect::from_min_max(snap(screen(t.min)), snap(screen(t.max)));
+            if area.width() < 8.0 || !area.intersects(rect) {
+                continue;
+            }
+            let state = status.get(&b.key).copied();
+            let (fill, _, _) = box_look(b, state, &v);
+            let clip = painter.with_clip_rect(area.expand(1.0).intersect(rect));
+            // the inset: a shade between the box and the canvas, a hairline of the box's stroke at its edge
+            clip.rect_filled(area, 4.0, fill.lerp_to_gamma(crate::theme::canvas(), 0.45));
+            let key = (format!("{prefix}{}", b.key), b.outputs[k].0.clone());
+            st.thumb_asks.push(ThumbAsk { node: b.key.clone(), port: b.outputs[k].0.clone(), key: key.clone() });
+            let texture = thumbs.get(ui.ctx(), &key).filter(|_| matches!(state, Some(s) if s != NodeStatus::Failed));
+            match texture {
+                Some(tex) => {
+                    // letterboxed in the area, centred, the corners round, sampled smoothly (the texture's own
+                    // filter); dimmer out of date (the faded box over it takes some more)
+                    let [w, h] = tex.size();
+                    let room = area.shrink(3.0);
+                    let k = (room.width() / w as f32).min(room.height() / h as f32);
+                    let size = Vec2::new(w as f32 * k, h as f32 * k);
+                    let at = Rect::from_center_size(room.center(), size);
+                    let at = Rect::from_min_max(snap(at.min), snap(at.max));
+                    let alpha = if state == Some(NodeStatus::Outdated) { 0.62 } else { 1.0 };
+                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                    clip.add(
+                        egui::epaint::RectShape::filled(at, 3.0, Color32::WHITE.gamma_multiply(alpha))
+                            .with_texture(tex.id(), uv),
+                    );
+                }
+                None => {
+                    let size = (26.0 * cam.zoom).clamp(14.0, 40.0);
+                    clip.text(
+                        area.center(),
+                        Align2::CENTER_CENTER,
+                        b.family.icon(),
+                        crate::family::icon_font(ui.ctx(), size),
+                        b.family.colour(v.dark_mode).gamma_multiply(0.3),
+                    );
+                }
+            }
+            clip.rect_stroke(area, 4.0, Stroke::new(1.0, hair.gamma_multiply(0.55)), egui::StrokeKind::Inside);
+        }
+    }
     // the nodes whose result is out of date: the box and its texts slightly faded into the canvas, a hollow amber
     // light where the state's light would be (what it tells on hover)
     for &i in &in_view {
@@ -5913,6 +6060,17 @@ pub fn show(
                     resp.clone().on_hover_cursor(icon);
                 }
             }
+            // the picture of a result: what the output holds, a click shows it
+            Some(Hit::Body(i))
+                if ports && scene.boxes[i].thumb_rect().is_some_and(|t| t.contains(to_world(p, &cam))) =>
+            {
+                if let Some(k) = scene.boxes[i].thumb {
+                    let name = &scene.boxes[i].outputs[k].0;
+                    let name = if name.is_empty() { editor::base_ref(&scene.boxes[i].key) } else { name.as_str() };
+                    wire_ask = Some(ask_of((i, k), name.to_string(), "", "a click shows it in the Viewer"));
+                    resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+                }
+            }
             Some(Hit::Head(i)) => {
                 let b = &scene.boxes[i];
                 let mut text: Vec<String> =
@@ -6339,8 +6497,20 @@ mod tests {
         let v = egui::Visuals::dark();
         let mut measure = |s: &str, _: &FontId| s.len() as f32 * 7.0;
         let status = BTreeStatus::new();
-        let scene =
-            Scene::build(&m, &m.nodes, standard(), &[], &status, &v, true, &HashSet::new(), None, true, &mut measure);
+        let scene = Scene::build(
+            &m,
+            &m.nodes,
+            standard(),
+            &[],
+            &status,
+            &v,
+            true,
+            &HashSet::new(),
+            None,
+            true,
+            false,
+            &mut measure,
+        );
         let (types, families) = legend_of(&scene.boxes);
         let want: HashSet<Family> = [Family::Synthetic, Family::Raster, Family::Conservation].into();
         assert_eq!(families, want);
@@ -6600,9 +6770,9 @@ mod tests {
         let all = node_settings(&given, r, true, true);
         assert!(all.open && all.rows.len() > set.rows.len() && all.label == "- fewer");
         // the height counts the rows
-        let (rows, with) = (1, box_height(1, set.count(), false));
-        assert_eq!(with, box_height(rows, 0, false) + SEP + set.count() as f32 * ROW);
-        assert_eq!(box_height(2, 0, true), HEAD + 2.0 * ROW + 6.0 + FOOT);
+        let (rows, with) = (1, box_height(1, set.count(), false, false));
+        assert_eq!(with, box_height(rows, 0, false, false) + SEP + set.count() as f32 * ROW);
+        assert_eq!(box_height(2, 0, true, false), HEAD + 2.0 * ROW + 6.0 + FOOT);
     }
 
     /// How a click edits a setting: a yes or no turns over, a few values are chosen from, a number or a text is
@@ -6673,7 +6843,20 @@ b"
         let status = BTreeStatus::new();
         let mut measure = |s: &str, _: &FontId| s.len() as f32 * 7.0;
         let mut build = |m: &Model| {
-            Scene::build(m, &m.nodes, standard(), &[], &status, &v, true, &HashSet::new(), None, true, &mut measure)
+            Scene::build(
+                m,
+                &m.nodes,
+                standard(),
+                &[],
+                &status,
+                &v,
+                true,
+                &HashSet::new(),
+                None,
+                true,
+                false,
+                &mut measure,
+            )
         };
         let mut scene = build(&m);
         assert!(scene.edges.iter().any(|e| !e.bend.is_empty()), "wires go around boxes");

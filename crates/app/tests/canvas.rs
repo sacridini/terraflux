@@ -3741,3 +3741,48 @@ fn a_settings_wire_has_a_tip_points_and_can_be_drawn_from_the_socket() {
     undo(&mut h);
     assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!({ "from": "ent.index" })));
 }
+
+/// A node that gives a map, a stack, a series or objects has an area for its picture under its last row (an option
+/// of the settings, on): the box is taller by the space and the area; once run, the picture is made (never again
+/// for the same result); a click on it shows the output in the Viewer; off, the area is gone.
+#[test]
+fn a_result_has_a_picture_in_its_box() {
+    let _settings = settings_lock();
+    let height = |h: &Harness<TerrafluxApp>, id: &str| editor(h).rects_of(&[id.to_string()])[0].1.height();
+    let mut h = harness(open(&map_model(false), "canvas-thumbs.toml"));
+    h.run_steps(3);
+    // on (the default): the area of the map the node gives, inside the box's padding
+    let on = height(&h, "calc");
+    let (area, port) = editor(&h).thumb_of("calc").expect("the node has an area");
+    assert_eq!(port, "map");
+    assert_eq!(area.height(), 76.0);
+    let rect = editor(&h).rects_of(&["calc".to_string()])[0].1;
+    assert_eq!((area.left() - rect.left(), rect.right() - area.right()), (9.0, 9.0));
+    // (6 units above it, the box's own 6 under it)
+    assert_eq!(rect.bottom() - area.bottom(), 6.0);
+    assert!(editor(&h).thumb_made("calc", "map").is_none(), "nothing before a run");
+    // run: the picture is asked for and made
+    run_model(&mut h);
+    let t = Instant::now();
+    while editor(&h).thumb_made("calc", "map").is_none() || editor(&h).thumbs_busy() {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(t.elapsed() < Duration::from_secs(20), "the picture was not made");
+    }
+    assert!(editor(&h).thumb_made("calc", "read").is_none());
+    let made = editor(&h).thumb_made("calc", "map");
+    h.run_steps(10);
+    assert_eq!(editor(&h).thumb_made("calc", "map"), made, "the same result is not made again");
+    // a click on the picture: what a click on its output does
+    let at = graph_to_screen(&h, editor(&h).thumb_of("calc").unwrap().0.center());
+    click(&mut h, at);
+    assert_eq!(h.state().session.as_ref().unwrap().preview, Some(("calc".to_string(), "map".to_string())));
+    // off: the box is shorter by the space and the area, and has none
+    terraflux_app::settings::update(|s| s.node_thumbs = false);
+    h.run_steps(3);
+    assert!(editor(&h).thumb_of("calc").is_none());
+    assert_eq!(on - height(&h, "calc"), 82.0);
+    terraflux_app::settings::update(|s| s.node_thumbs = true);
+    h.run_steps(3);
+    assert_eq!(height(&h, "calc"), on);
+}
