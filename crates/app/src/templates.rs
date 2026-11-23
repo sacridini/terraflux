@@ -6020,7 +6020,7 @@ inputs = { sl_distr = "sl_given.distribution", ta_distr = "ta_given.distribution
 params = { coefficients = [TRUTH] }
 note = "The animal as the track is simulated from it, its coefficients given by hand: avoiding the energy (energy, the cost of the cell the step ends in: a negative coefficient), a longer step preferred (log_sl_) and a straighter one (cos_ta_). The fit below should find the energy's sign, and about its size."
 why = "A track from a model whose coefficients are known is a test of the method: what the fit recovers is what it can recover. With your own track the coefficients are not known: read them against the log-RSS and the animal's biology."
-refs = ["Avgar et al. 2016, Integrated step selection analysis", "Signer et al. 2024, Simulating animal movement from a step selection function"]
+refs = ["Avgar et al. 2016, Integrated step selection analysis", "Signer et al. 2024, Simulating animal space use from fitted integrated step-selection functions (iSSF)"]
 
 [[nodes]]
 id = "observed"
@@ -6029,7 +6029,7 @@ inputs = { model = "truth.model", energy = "energy.energy" }
 params = { x = 3000, y = 3000, direction = 0, time = "2024-03-01 00:00:00", dt = 3600, n_steps = 400, n_control = 5000, seed = 7 }
 note = "The track of the animal: 400 steps an hour apart from the middle of the DEM (candidates drawn from the given distributions and chosen with the weights of the model). The track is simulated: in its place, move.read_tracks of your Movebank file (its time column is timestamp, not t_)."
 why = "Importance sampling with 5000 candidates for every step is enough for the probabilities to be close to the model's; fewer make a coarser track."
-refs = ["Signer et al. 2024, Simulating animal movement from a step selection function"]
+refs = ["Signer et al. 2024, Simulating animal space use from fitted integrated step-selection functions (iSSF)"]
 
 [[nodes]]
 id = "lags"
@@ -6112,7 +6112,7 @@ inputs = { steps = "distance.steps", sl_distr = "sl_fit.distribution", ta_distr 
 params = { formula = "case_ ~ energy + slope + log(sl_) + cos(ta_) + log(sl_):slope" }
 note = "The model that simulates: the same without the terms along the step (the ruggedness and the climb), which a simulation cannot read. It keeps the distributions of the steps (sl_distr and ta_distr) for move.simulate_path."
 why = "A simulation reads the covariates at the end of each candidate step, and the start's: what is along the step is not in a raster the candidates could read."
-refs = ["Avgar et al. 2016, Integrated step selection analysis", "Signer et al. 2024, Simulating animal movement from a step selection function"]
+refs = ["Avgar et al. 2016, Integrated step selection analysis", "Signer et al. 2024, Simulating animal space use from fitted integrated step-selection functions (iSSF)"]
 
 [[nodes]]
 id = "rss"
@@ -6130,7 +6130,7 @@ inputs = { model = "ssf.model", energy = "energy.energy", slope = "slope.map" }
 params = { x = 3000, y = 3000, direction = 0, dt = 3600, n_steps = 200, n_paths = 10, n_control = 2000, seed = 11 }
 note = "Ten paths of 200 steps from the middle of the DEM, simulated from the fitted model (the distributions it kept, its coefficients): the animal as the fit says it is. Path i takes the seed 11 + i - 1."
 why = "A model that fits is not a model that moves like the animal: the paths are the test (do they avoid the steep cells?) and the way to turn a step selection function into a use of the landscape. 2000 candidates for each step keep it to seconds; raise n_control (amt's default is a million) for a final run."
-refs = ["Signer et al. 2024, Simulating animal movement from a step selection function"]
+refs = ["Signer et al. 2024, Simulating animal space use from fitted integrated step-selection functions (iSSF)"]
 
 [[nodes]]
 id = "use"
@@ -6146,7 +6146,7 @@ inputs = { model = "ssf.model", energy = "energy.energy", slope = "slope.map" }
 params = { transform = "negexp", c = 8, r_max = 100 }
 note = "The resistance of the habitat terms alone (the energy and the slope; the terms of movement are left out: a cell has no step): 1 where the selection is greatest, 100 where it is least, by the negative exponential Keeley et al. (2016) recommend."
 why = "The negative exponential of the selection makes the animal's avoidance count most where it is strongest; a linear one weighs the middle too much. A resistance turned from a selection is a hypothesis of the circuit, to check with the animals' paths (Observed corridors against current)."
-refs = ["Keeley et al. 2016, Generating Landscape Resistance Surfaces from Step Selection Functions"]
+refs = ["Keeley et al. 2016, Estimating landscape resistance from habitat suitability: effects of data source and nonlinearities"]
 
 [[nodes]]
 id = "current"
