@@ -456,3 +456,118 @@ fn barriers_areas_mahal_and_path_inc_match_the_library() {
     inc(&sym, pts(0..4), vec![], serde_json::json!({"theta": 0.001}), "theta/sym");
     inc(&asym, pts(0..4), vec![], serde_json::json!({"theta": 0.001}), "theta/asym");
 }
+
+// the energy landscapes (tf.cost.energy_landscape, enerscape 1.2.0's): keys `<dem>/dem` and `<dem>/<case>[/c]` of
+// cost_energy.npz, the DEMs of the library's reference (the small one and Monte Sirente), to the bit
+
+fn energy_z() -> &'static BTreeMap<String, Array> {
+    static Z: std::sync::OnceLock<BTreeMap<String, Array>> = std::sync::OnceLock::new();
+    Z.get_or_init(|| terraflux_raster::npy::read_npz(root().join("tests/data/reference/cost_energy.npz")).unwrap())
+}
+
+/// A DEM of the reference as a map: rows from the top, cells of `res` metres, EPSG:32632 (or none).
+fn dem(name: &str, x0: f64, y1: f64, res: f64, ny: usize, nx: usize, crs: bool) -> Map {
+    let mut g = terraflux_raster::Grid::new(nx, ny);
+    g.transform = [x0, res, 0.0, y1, 0.0, -res];
+    if crs {
+        g.geo.wkt = Some("EPSG:32632".to_string());
+    }
+    Map::new(Arc::new(g), energy_z()[&format!("{name}/dem")].data.clone())
+}
+
+fn small() -> Map {
+    dem("small", 500000.0, 5000450.0, 30.0, 15, 20, true)
+}
+
+fn sirente() -> Map {
+    dem("sirente", 879340.0, 4676810.0, 10.0, 393, 594, true)
+}
+
+fn try_energy(m: &Map, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    let params = params.as_object().cloned().unwrap_or_default();
+    let args = Args { node: "n", inputs: [("dem".to_string(), Value::Map(m.clone()))].into(), params: &params };
+    Registry::standard().get("cost.energy_landscape").unwrap().run(&mut Ctx::default(), &args)
+}
+
+#[test]
+fn energy_landscapes_match_the_library() {
+    let z = energy_z();
+    let cases: [(&str, &str, Map, serde_json::Value); 8] = [
+        ("small", "j8", small(), serde_json::json!({"mass": 50})),
+        ("small", "j4", small(), serde_json::json!({"mass": 50, "neigh": 4})),
+        ("small", "kcal8", small(), serde_json::json!({"mass": 50, "unit": "kcal"})),
+        ("small", "human", small(), serde_json::json!({"mass": 70, "model": "human"})),
+        (
+            "small",
+            "human_v12_kcal",
+            small(),
+            serde_json::json!({"mass": 70, "model": "human", "v": 1.2, "unit": "kcal", "neigh": 4}),
+        ),
+        ("small", "j8", small(), serde_json::json!({"mass": 50, "model": "animal", "unit": "joule", "neigh": 8})),
+        ("sirente", "j8", sirente(), serde_json::json!({"mass": 10})),
+        ("sirente", "kcal4", sirente(), serde_json::json!({"mass": 10, "neigh": 4, "unit": "kcal"})),
+    ];
+    for (name, key, m, p) in cases {
+        let o = try_energy(&m, p).unwrap();
+        check(&format!("{name}/{key}"), &map(&o["energy"]), &z[&format!("{name}/{key}")]);
+        if let Some(c) = z.get(&format!("{name}/{key}/c")) {
+            check(&format!("{name}/{key}/c"), &map(&o["conductance"]), c);
+        }
+    }
+    // the grid is the DEM's
+    let o = try_energy(&small(), serde_json::json!({"mass": 50})).unwrap();
+    let Value::Map(e) = &o["energy"] else { panic!() };
+    assert!(e.grid.same_as(&small().grid));
+    // 1970 cells of Sirente have no energy (the border and the cells next to no data)
+    let o = try_energy(&sirente(), serde_json::json!({"mass": 10})).unwrap();
+    assert_eq!(map(&o["energy"]).iter().filter(|v| v.is_nan()).count(), 1970);
+}
+
+#[test]
+fn a_dem_without_a_crs_takes_its_cells_as_metres() {
+    let a = try_energy(&dem("small", 0.0, 450.0, 30.0, 15, 20, false), serde_json::json!({"mass": 50})).unwrap();
+    let b = try_energy(&small(), serde_json::json!({"mass": 50})).unwrap();
+    check("no crs", &map(&a["energy"]), &energy_z()["small/j8"]);
+    assert_eq!(map(&a["energy"]).len(), map(&b["energy"]).len());
+}
+
+#[test]
+fn one_and_four_threads_give_the_same_energy() {
+    let m = sirente();
+    let by = |n: usize| {
+        terraflux_ops::threads::set_kernel_threads(n);
+        let o = try_energy(&m, serde_json::json!({"mass": 10, "model": "human"})).unwrap();
+        terraflux_ops::threads::set_kernel_threads(4);
+        map(&o["energy"])
+    };
+    let (a, b) = (by(1), by(4));
+    assert!(a.iter().zip(&b).all(|(x, y)| same(*x, *y)));
+}
+
+#[test]
+fn energy_landscape_errors() {
+    let m = small();
+    let err = |m: &Map, p: serde_json::Value| try_energy(m, p).map(|_| ()).unwrap_err().to_string();
+    assert!(err(&m, serde_json::json!({"mass": 50, "neigh": 6})).contains("neigh must be 4 or 8"));
+    assert!(err(&m, serde_json::json!({"mass": 50, "neigh": 16})).contains("neigh"));
+    assert!(err(&m, serde_json::json!({})).contains("mass"));
+    assert!(err(&m, serde_json::json!({"mass": 0})).contains("mass must be a positive"));
+    assert!(err(&m, serde_json::json!({"mass": -3})).contains("mass must be a positive"));
+    assert!(err(&m, serde_json::json!({"mass": 50, "model": "human", "v": 0})).contains("v must be a positive"));
+    assert!(err(&m, serde_json::json!({"mass": 50, "v": 1.2})).contains("model human"));
+    assert!(err(&m, serde_json::json!({"mass": 50, "unit": "erg"})).contains("unit"));
+    assert!(err(&m, serde_json::json!({"mass": 50, "model": "bird"})).contains("model"));
+    // a CRS in degrees; cells that are not square (0.01 m is still square)
+    let mut g = (*m.grid).clone();
+    g.geo.wkt = Some("EPSG:4326".to_string());
+    let ll = Map::new(Arc::new(g), (*m.data).clone());
+    assert!(err(&ll, serde_json::json!({"mass": 50})).contains("degrees"));
+    let mut g = (*m.grid).clone();
+    g.transform[5] = -30.5;
+    let wide = Map::new(Arc::new(g), (*m.data).clone());
+    assert!(err(&wide, serde_json::json!({"mass": 50})).contains("square"));
+    let mut g = (*m.grid).clone();
+    g.transform[5] = -30.005;
+    let ok = Map::new(Arc::new(g), (*m.data).clone());
+    assert!(try_energy(&ok, serde_json::json!({"mass": 50})).is_ok());
+}

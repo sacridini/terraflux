@@ -3546,6 +3546,42 @@ pub mod ffi {
             margin: i32,
             threads: i32,
         ) -> Result<MoveDbgbVariance>;
+        /// The 3D length of each step (x1, y1) -> (x2, y2) over a DEM of nx x ny cells (rows from the top, NaN no
+        /// data; top left corner xmin, ymax; cells dx x dy): bilinear heights every `spacing` (<= 0: a quarter of the
+        /// smaller side) along the segment (the library's tf.move.surface_distance).
+        #[allow(clippy::too_many_arguments)]
+        fn move_surface_distance(
+            x1: &[f64],
+            y1: &[f64],
+            x2: &[f64],
+            y2: &[f64],
+            z: &[f64],
+            nx: i64,
+            ny: i64,
+            xmin: f64,
+            ymax: f64,
+            dx: f64,
+            dy: f64,
+            spacing: f64,
+            threads: i32,
+        ) -> Result<Vec<f64>>;
+        /// The energy landscape of a DEM (ny x nx, rows from the top, NaN no data) of square cells of `res` metres,
+        /// as the R package enerscape 1.2.0 computes it (Berti et al. 2022; Pontzer 2016, Looney et al. 2019): the
+        /// mean cost of walking onto each cell from its 4 or 8 neighbours, in J or kcal (the library's
+        /// tf.cost.energy_landscape).
+        #[allow(clippy::too_many_arguments)]
+        fn cost_energy_landscape(
+            dem: &[f64],
+            ny: i64,
+            nx: i64,
+            mass: f64,
+            res: f64,
+            neigh: i32,
+            human: bool,
+            speed: f64,
+            kcal: bool,
+            threads: i32,
+        ) -> Result<Vec<f64>>;
         /// The missing values of a location error filled (how 0 median, 1 mean, 2 zero, 3 approx).
         fn move_impute_loc_err(e: &[f64], how: i32) -> MoveImputed;
         /// ud_grid_probe: 8 numbers, the envelope of the kernel windows (min x, max x, min y, max y) and the extreme

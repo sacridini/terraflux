@@ -29,6 +29,7 @@
 #include "bio/perlmath.hpp"
 #include "bio/phylocom.hpp"
 #include "bio/randomise.hpp"
+#include "cost/energy.hpp"
 #include "cost/randomwalk.hpp"
 #include "cost/rsp.hpp"
 #include "lsm/extended.hpp"
@@ -64,6 +65,7 @@
 #include "move/geo.hpp"
 #include "move/homerange.hpp"
 #include "move/locerr.hpp"
+#include "move/relief.hpp"
 #include "move/track.hpp"
 #include "move/ud.hpp"
 #include "opt/actions.hpp"
@@ -5572,6 +5574,30 @@ MoveDbgbVariance move_dbgb_variance(rust::Slice<const double> x, rust::Slice<con
     out.orth_sd = to_rust<double>(r.orth_sd);
     out.n_estim = to_rust<std::int32_t>(r.n_estim);
     return out;
+}
+
+rust::Vec<double> move_surface_distance(rust::Slice<const double> x1, rust::Slice<const double> y1,
+                                        rust::Slice<const double> x2, rust::Slice<const double> y2,
+                                        rust::Slice<const double> z, std::int64_t nx, std::int64_t ny, double xmin,
+                                        double ymax, double dx, double dy, double spacing, std::int32_t threads) {
+    check(y1.size() == x1.size() && x2.size() == x1.size() && y2.size() == x1.size(),
+          "x1, y1, x2, y2: the same length");
+    check(nx >= 1 && ny >= 1 && static_cast<std::int64_t>(z.size()) == nx * ny, "z: nx x ny values");
+    check(dx > 0.0 && dy > 0.0, "dx, dy: positive cell sizes");
+    std::vector<double> out(x1.size());
+    move::surface_distance(x1.data(), y1.data(), x2.data(), y2.data(), static_cast<std::int64_t>(x1.size()), z.data(),
+                           nx, ny, xmin, ymax, dx, dy, spacing, threads, out.data());
+    return to_rust<double>(std::move(out));
+}
+
+rust::Vec<double> cost_energy_landscape(rust::Slice<const double> dem, std::int64_t ny, std::int64_t nx, double mass,
+                                        double res, std::int32_t neigh, bool human, double speed, bool kcal,
+                                        std::int32_t threads) {
+    check(neigh == 4 || neigh == 8, "neigh must be 4 or 8");
+    check(ny >= 1 && nx >= 1 && static_cast<std::int64_t>(dem.size()) == ny * nx, "dem: ny x nx values");
+    std::vector<double> out(dem.size());
+    cost::energy_landscape(dem.data(), ny, nx, mass, res, neigh, human, speed, kcal, threads, out.data());
+    return to_rust<double>(std::move(out));
 }
 
 MoveImputed move_impute_loc_err(rust::Slice<const double> e, std::int32_t how) {

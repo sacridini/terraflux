@@ -3201,3 +3201,142 @@ fn corridor_lines_go_on_once_buffered_or_burnt() {
     let Value::Map(s) = &o["solution"] else { panic!() };
     assert!(s.data.contains(&1.0));
 }
+
+// the length of a step on the relief (tf.move.surface_distance): keys `in/relief/<case>/...` and
+// `relief/<case>/<variant>`, the DEMs and variants in move.json (`relief`)
+
+fn relief_meta() -> &'static serde_json::Value {
+    &reference().1["relief"]["cases"]
+}
+
+/// The steps of a case of the library as move.steps gives them.
+fn relief_steps(case: &str, crs: Option<&str>) -> Value {
+    let z = &reference().0;
+    let col = |c: &str| z[&format!("in/relief/{case}/{c}")].data.clone();
+    let (x1, y1, x2, y2) = (col("x1"), col("y1"), col("x2"), col("y2"));
+    let geometries = (0..x1.len()).map(|i| Geometry::LineString(vec![[x1[i], y1[i]], [x2[i], y2[i]]])).collect();
+    let attributes = [("x1_", x1), ("y1_", y1), ("x2_", x2), ("y2_", y2)]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), Column::Numbers(v)))
+        .collect();
+    Value::Vector(Arc::new(Vector { geometries, attributes, crs: crs.map(str::to_string) }))
+}
+
+/// The DEM of a synthetic case of the reference.
+fn relief_dem(case: &str) -> Value {
+    let m = &relief_meta()[case];
+    let f = |k: &str| m[k].as_f64().unwrap();
+    let (nx, ny) = (m["nx"].as_u64().unwrap() as usize, m["ny"].as_u64().unwrap() as usize);
+    let mut g = Grid::new(nx, ny);
+    g.transform = [f("xmin"), f("dx"), 0.0, f("ymax"), 0.0, -f("dy")];
+    g.geo.wkt = m["crs"].as_str().map(str::to_string);
+    Value::Map(Map::new(Arc::new(g), want(&format!("in/relief/{case}/z")).to_vec()))
+}
+
+/// The library's elevation.tif, as the Terraflux reads it.
+fn relief_elevation() -> Value {
+    let path = root().join("extern/terraflux-py/src/terraflux/move/data/elevation.tif");
+    Value::Map(terraflux_ops::files::Rasters::open(path.to_str().unwrap(), None, None).unwrap().map().unwrap())
+}
+
+fn relief_run(steps: &Value, dem: &Value, params: serde_json::Value) -> terraflux_ops::Result<Outputs> {
+    run("move.surface_distance", vec![("steps", steps.clone()), ("dem", dem.clone())], params)
+}
+
+fn relief_variant(spacing: &serde_json::Value) -> serde_json::Value {
+    if spacing.is_null() { serde_json::json!({}) } else { serde_json::json!({"spacing": spacing}) }
+}
+
+#[test]
+fn surface_distances_are_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let cases = relief_meta().as_object().unwrap();
+    assert_eq!(cases.len(), 3);
+    for (case, m) in cases {
+        let dem = if case == "fishers" { relief_elevation() } else { relief_dem(case) };
+        let crs = m["crs"].as_str();
+        let steps = relief_steps(case, crs);
+        for (variant, spacing) in m["variants"].as_object().unwrap() {
+            let o =
+                relief_run(&steps, &dem, relief_variant(spacing)).unwrap_or_else(|e| panic!("{case} {variant}: {e}"));
+            let v = vector(&o, "steps");
+            same(&format!("{case} {variant}"), &num(&v, "sl_surface_"), want(&format!("relief/{case}/{variant}")));
+            // the steps keep their columns and the new one comes last
+            assert_eq!(v.len(), num(&v, "x1_").len());
+            assert_eq!(v.attributes.last().unwrap().0, "sl_surface_");
+        }
+    }
+}
+
+#[test]
+fn surface_distances_are_never_shorter_than_the_plane_and_have_a_name() {
+    if !gdal() {
+        return;
+    }
+    let steps = relief_steps("plane", Some("EPSG:32633"));
+    let o = relief_run(&steps, &relief_dem("plane"), serde_json::json!({"name": "len3d"})).unwrap();
+    let v = vector(&o, "steps");
+    let (x1, y1, x2, y2) = (num(&v, "x1_"), num(&v, "y1_"), num(&v, "x2_"), num(&v, "y2_"));
+    let d = num(&v, "len3d");
+    assert!(v.column("sl_surface_").is_none());
+    let mut inside = 0;
+    for i in 0..d.len() {
+        if !d[i].is_nan() {
+            inside += 1;
+            assert!(d[i] >= (x2[i] - x1[i]).hypot(y2[i] - y1[i]), "step {i}");
+        }
+    }
+    assert!(inside > 50 && inside < d.len());
+    assert!(matches!(&o["table"], Value::Table(_)));
+}
+
+#[test]
+fn one_and_four_threads_give_the_same_surface_distances() {
+    if !gdal() {
+        return;
+    }
+    let (steps, dem) = (relief_steps("fishers", relief_meta()["fishers"]["crs"].as_str()), relief_elevation());
+    let by = |n: usize| {
+        terraflux_ops::threads::set_kernel_threads(n);
+        let o = relief_run(&steps, &dem, serde_json::json!({})).unwrap();
+        terraflux_ops::threads::set_kernel_threads(4);
+        num(&vector(&o, "steps"), "sl_surface_")
+    };
+    same("threads", &by(1), &by(4));
+}
+
+#[test]
+fn surface_distance_errors() {
+    if !gdal() {
+        return;
+    }
+    let dem = relief_dem("plane");
+    let steps = relief_steps("plane", Some("EPSG:32633"));
+    let err = |s: &Value, d: &Value, p: serde_json::Value| relief_run(s, d, p).map(|_| ()).unwrap_err().to_string();
+    // steps in degrees, a DEM in degrees, another CRS
+    assert!(err(&relief_steps("plane", Some("EPSG:4326")), &dem, serde_json::json!({})).contains("projected"));
+    let Value::Map(m) = &dem else { panic!() };
+    let with_crs = |crs: &str| {
+        let mut g = (*m.grid).clone();
+        g.geo.wkt = Some(crs.to_string());
+        Value::Map(Map::new(Arc::new(g), (*m.data).clone()))
+    };
+    assert!(err(&steps, &with_crs("EPSG:4326"), serde_json::json!({})).contains("projected"));
+    assert!(err(&steps, &with_crs("EPSG:32632"), serde_json::json!({})).contains("same CRS"));
+    // no CRS on either side is accepted
+    assert!(relief_run(&relief_steps("plane", None), &dem, serde_json::json!({})).is_ok());
+    // spacing, steps without columns, a rotated DEM, a DEM south up
+    assert!(err(&steps, &dem, serde_json::json!({"spacing": 0})).contains("spacing"));
+    assert!(err(&steps, &dem, serde_json::json!({"spacing": -1.0})).contains("spacing"));
+    let points = set("utm");
+    assert!(err(&points, &dem, serde_json::json!({})).contains("steps"));
+    let tweak = |f: &dyn Fn(&mut Grid)| {
+        let mut g = (*m.grid).clone();
+        f(&mut g);
+        Value::Map(Map::new(Arc::new(g), (*m.data).clone()))
+    };
+    assert!(err(&steps, &tweak(&|g| g.transform[2] = 0.1), serde_json::json!({})).contains("rotated"));
+    assert!(err(&steps, &tweak(&|g| g.transform[5] = 10.0), serde_json::json!({})).contains("north up"));
+}

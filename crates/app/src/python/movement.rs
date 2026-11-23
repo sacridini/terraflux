@@ -180,6 +180,13 @@ pub(super) const MAPPED: &[Py] = &[
     ),
     mv!("move.extract_covariates", "tf.move.extract_covariates", ["tracks" => "", "where" => "where"], [], "tracks"),
     mv!(
+        "move.surface_distance",
+        "tf.move.surface_distance",
+        ["steps" => "", "dem" => "dem", "spacing" => "spacing", "name" => "name"],
+        [],
+        "steps"
+    ),
+    mv!(
         "move.max_speed",
         "tf.move.v_phys_estimate",
         ["mass" => "mass", "mode" => "mode", "ci_level" => "ci_level"],
@@ -438,6 +445,7 @@ const FRAMES: &[(&str, &str, &str)] = &[
     ("move.track_data", "tracks", ".reset_index()"),
     ("move.steps", "steps", ""),
     ("move.random_steps", "steps", ""),
+    ("move.surface_distance", "steps", ""),
 ];
 
 /// The operators of this family translated by code of their own (as `special` in python.rs); `None`: not one of them.
@@ -1640,6 +1648,50 @@ params = { name = "gamma", column = "dem" }
         // the values: extract_covariates_along, a row per cell with the step first
         assert!(t.contains("tf.move.extract_covariates_along(steps, {\"dem\": dem, \"slope\": slope})"), "{t}");
         assert!(t.contains(".assign(step=i + 1)"), "{t}");
+        parses(t);
+    }
+
+    /// The length of the steps on the relief: the library's surface_distance with the DEM, its spacing and name.
+    #[test]
+    fn steps_on_the_relief() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "tracks"
+op = "move.read_tracks"
+params = { path = "fishers.csv" }
+
+[[nodes]]
+id = "steps"
+op = "move.steps"
+inputs = { tracks = "tracks.tracks" }
+
+[[nodes]]
+id = "dem"
+op = "raster.read"
+params = { path = "dem.tif" }
+
+[[nodes]]
+id = "relief"
+op = "move.surface_distance"
+inputs = { steps = "steps.steps", dem = "dem.raster" }
+params = { spacing = 5, name = "len3d" }
+
+[[nodes]]
+id = "plain"
+op = "move.surface_distance"
+inputs = { steps = "steps.steps", dem = "dem.raster" }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
+        assert!(t.contains("relief = tf.move.surface_distance(steps, dem=dem, spacing=5, name=\"len3d\")\n"), "{t}");
+        assert!(t.contains("plain = tf.move.surface_distance(steps, dem=dem)\n"), "{t}");
         parses(t);
     }
 }

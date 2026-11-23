@@ -42,6 +42,7 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Areas));
     r.add(Arc::new(Mahal));
     r.add(Arc::new(PathInc));
+    r.add(Arc::new(EnergyLandscape));
 }
 
 /// A transition's layout and grid (the library's GridInfo): what its stack's grid carries.
@@ -1653,5 +1654,109 @@ impl Operator for PathInc {
         }
         let non = tables.pop().unwrap();
         Ok(outputs([("overlap", Value::Table(tables.pop().unwrap())), ("nonoverlap", Value::Table(non))]))
+    }
+}
+
+struct EnergyLandscape;
+
+impl Operator for EnergyLandscape {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "cost.energy_landscape",
+            "The energy cost of walking over a terrain (the R package enerscape 1.2.0, Berti et al. 2022, through \
+             terraflux-py's C++, bit for bit): the cost of getting onto each cell, averaged over its 4 or 8 \
+             neighbours, each the energy of walking from the neighbour onto the cell over the distance in three \
+             dimensions and the slope between their heights. The animal model is Pontzer's (2016) allometric cost \
+             of locomotion for a body mass in kg, lowest on a gentle descent; the human one is Looney et al.'s \
+             (2019) equation of the energy of walking at a speed v. A resistance surface for least-cost paths and \
+             circuit theory (log it to plot it). The border cells, cells with no height in their neighbourhood and \
+             costs of exactly 0 have no value. The DEM must be in metres, projected (or without a coordinate \
+             system), with square cells.",
+            Access::Global,
+        )
+        .input(PortSpec::new("dem", Type::Map, "the elevation, in metres"))
+        .output(PortSpec::new("energy", Type::Map, "the energy of walking onto each cell, in J or kcal"))
+        .output(PortSpec::new("conductance", Type::Map, "1 / energy (no value where the energy has none or is 0)"))
+        .param(PortSpec::new("mass", Type::Number, "the body mass, in kg (above 0)"))
+        .param(PortSpec::optional("unit", Type::Text, "joule (default) or kcal").choices(["joule", "kcal"]))
+        .param(PortSpec::optional("neigh", Type::Integer, "the neighbours of a cell: 4 or 8 (default)").choices([4, 8]))
+        .param(
+            PortSpec::optional("model", Type::Text, "animal (Pontzer 2016, default) or human (Looney et al. 2019)")
+                .choices(["animal", "human"]),
+        )
+        .param(PortSpec::optional("v", Type::Number, "model human: the walking speed in m/s (default 1.39)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let fail = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+        let dem = args.map("dem")?;
+        let unit: String = args.param("unit", "joule".to_string())?;
+        let model: String = args.param("model", "animal".to_string())?;
+        let neigh: i64 = args.param("neigh", 8)?;
+        if unit != "joule" && unit != "kcal" {
+            return Err(fail(format!("unit must be one of joule, kcal, got {unit:?}")));
+        }
+        if model != "animal" && model != "human" {
+            return Err(fail(format!("model must be one of animal, human, got {model:?}")));
+        }
+        if neigh != 4 && neigh != 8 {
+            return Err(fail(format!("neigh must be 4 or 8, got {neigh}")));
+        }
+        let Some(mass) = args.opt_param::<f64>("mass")? else {
+            return Err(fail("mass: the body mass in kg (a positive number)".into()));
+        };
+        if !(mass > 0.0 && mass.is_finite()) {
+            return Err(fail(format!("mass must be a positive number (kg), got {mass}")));
+        }
+        let v = args.opt_param::<f64>("v")?;
+        if model == "animal" && v.is_some() {
+            return Err(fail("v (the walking speed) is for model human".into()));
+        }
+        let speed = v.unwrap_or(1.39);
+        if !(speed > 0.0 && speed.is_finite()) {
+            return Err(fail(format!("v must be a positive speed (m/s), got {speed}")));
+        }
+        let g = &dem.grid;
+        let (lonlat, [xmin, xmax, ymin, ymax]) = {
+            let t = g.transform;
+            if t[2] != 0.0 || t[4] != 0.0 {
+                return Err(fail("rotated rasters are not supported".into()));
+            }
+            let crs = crate::prepare::crs_of(g);
+            let ll = crs
+                .as_deref()
+                .is_some_and(|c| c.contains("longlat") || terraflux_gdal::is_geographic(c).unwrap_or(false));
+            (ll, [t[0], t[0] + g.width as f64 * t[1], t[3] + g.height as f64 * t[5], t[3]])
+        };
+        if lonlat {
+            return Err(fail(
+                "dem: the CRS is in degrees; project it to metres first (the energies need metres)".into(),
+            ));
+        }
+        // the cell sizes as the library takes them, from the extent
+        let (dx, dy) = ((xmax - xmin) / g.width as f64, (ymax - ymin) / g.height as f64);
+        // (a NaN size is not square either)
+        if (dx - dy).abs().partial_cmp(&1e-2).is_none_or(|o| o.is_gt()) {
+            return Err(fail(format!(
+                "dem: the cells must be square (sizes {dx} x {dy}); resample it to square cells"
+            )));
+        }
+        let en = ffi::cost_energy_landscape(
+            &dem.data,
+            g.height as i64,
+            g.width as i64,
+            mass,
+            dx,
+            neigh as i32,
+            model == "human",
+            speed,
+            unit == "kcal",
+            crate::threads::current() as i32,
+        )?;
+        let cond: Vec<f64> = en.iter().map(|&e| if e != 0.0 { 1.0 / e } else { f64::NAN }).collect();
+        Ok(outputs([
+            ("energy", Value::Map(Map::new(g.clone(), en))),
+            ("conductance", Value::Map(Map::new(g.clone(), cond))),
+        ]))
     }
 }

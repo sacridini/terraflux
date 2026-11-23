@@ -159,6 +159,28 @@ Every function finds the time and the track in the usual columns (`timestamp`,
 
 ::: terraflux.move.extract_covariates
 
+::: terraflux.move.fit_issf
+
+::: terraflux.move.log_rss
+
+::: terraflux.move.ISSF
+
+::: terraflux.move.make_issf_model
+
+::: terraflux.move.issf
+
+::: terraflux.move.make_start
+
+::: terraflux.move.redistribution_kernel
+
+::: terraflux.move.RedistributionKernel
+
+::: terraflux.move.simulate_path
+
+::: terraflux.move.resistance
+
+::: terraflux.move.path_density
+
 ## Cleaning and thinning
 
 The simple part of move2utils' cleaning: a speed limit from the animal's mass and
@@ -199,6 +221,8 @@ and per-step summaries that tell a step up a hill from one along a contour line.
 ::: terraflux.move.extract_covariates_along
 
 ::: terraflux.move.along_summary
+
+::: terraflux.move.surface_distance
 
 ## Home ranges
 

@@ -12,7 +12,8 @@ the accumulated cost, the least costs and the paths across the 180th meridian. T
 matrix's algebra (cost_walk.npz): commute distances, passages with and without theta, randomised-shortest-path
 distances, normalize, sumReciprocal, sums of transitions, R's maths on the connections and the summaries of cells.
 Last the barriers, areas and Mahalanobis transitions and pathInc (cost_inc.npz) on maungawhau's classes and
-layers, written here (cost_classes.tif, cost_layers.tif).
+layers, written here (cost_classes.tif, cost_layers.tif). Last the energy landscapes of enerscape's DEMs
+(cost_energy.npz).
 
 Run with the library the submodule points at installed.
 """
@@ -202,7 +203,46 @@ def inc_cases() -> None:
     print(REF / "cost_inc.npz", len(out))
 
 
+def energy_cases() -> None:
+    """The energy landscapes (energy_landscape, enerscape 1.2.0's) of the library's reference DEMs
+    (tests/data/reference/cost/energy of its checkout): the small DEM (15 x 20 cells of 30 m) and Monte Sirente
+    (393 x 594 cells of 10 m) in the cases of the library's tests, written to cost_energy.npz: `<dem>/dem` (rows from
+    the top) and `<dem>/<case>` the energy, `<case>/c` the conductance."""
+    import xarray as xr
+
+    ref = Path(tf.__file__).resolve().parents[2] / "tests" / "data" / "reference" / "cost" / "energy"
+
+    def dem_of(z, x0, y1, res):
+        ny, nx = z.shape
+        da = xr.DataArray(z, dims=("y", "x"),
+                          coords={"y": y1 - res * (np.arange(ny) + 0.5), "x": x0 + res * (np.arange(nx) + 0.5)})
+        return da.rio.write_crs("EPSG:32632")
+
+    out: dict[str, np.ndarray] = {}
+    small = np.genfromtxt(ref / "small_dem.csv", delimiter=",")
+    sirente = np.load(ref / "sirente.npz")["dem"].astype(np.float64)
+    sets = {
+        "small": (small, 500000.0, 5000450.0, 30.0,
+                  {"j8": dict(mass=50), "j4": dict(mass=50, neigh=4), "kcal8": dict(mass=50, unit="kcal"),
+                   "human": dict(mass=70, model="human"), "human_v12_kcal": dict(mass=70, model="human", v=1.2,
+                                                                                  unit="kcal", neigh=4)}),
+        "sirente": (sirente, 879340.0, 4676810.0, 10.0,
+                    {"j8": dict(mass=10), "kcal4": dict(mass=10, neigh=4, unit="kcal")}),
+    }
+    for name, (z, x0, y1, res, cases) in sets.items():
+        out[f"{name}/dem"] = z
+        dem = dem_of(z, x0, y1, res)
+        for key, kw in cases.items():
+            both = C.energy_landscape(dem, output="both", **kw)
+            out[f"{name}/{key}"] = both["energy"].values
+            if name == "small" or key == "j8":  # the big DEM's conductance once: the files stay small
+                out[f"{name}/{key}/c"] = both["conductance"].values
+    np.savez_compressed(REF / "cost_energy.npz", **{k: np.ascontiguousarray(v, dtype=np.float64) for k, v in out.items()})
+    print(REF / "cost_energy.npz", len(out))
+
+
 if __name__ == "__main__":
     main()
     walk_cases()
     inc_cases()
+    energy_cases()

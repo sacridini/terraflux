@@ -932,6 +932,21 @@ pub const REFERENCES: &[Reference] = &[
         "10.4086/toc.2012.v008a019"
     ),
     paper!(
+        "berti2022",
+        [
+            "Berti, E.", "Davoli, M.", "Buitenwerf, R.", "Dyer, A.", "Hansen, O. L. P.", "Hirt, M.", "Svenning, J.-C.",
+            "Terlau, J. F.", "Brose, U.", "Vollrath, F."
+        ],
+        false,
+        2022,
+        "The r package enerscape: a general energy landscape framework for terrestrial movement ecology",
+        "Methods in Ecology and Evolution",
+        "13",
+        "1",
+        "60–67",
+        "10.1111/2041-210X.13734"
+    ),
+    paper!(
         "campolongo2007",
         ["Campolongo, F.", "Cariboni, J.", "Saltelli, A."],
         false,
@@ -1145,6 +1160,18 @@ pub const REFERENCES: &[Reference] = &[
         "10.21105/joss.02829"
     ),
     paper!(
+        "looney2019",
+        ["Looney, D. P.", "Santee, W. R.", "Hansen, E. O.", "Bonventre, P. J.", "Chalmers, C. R.", "Potter, A. W."],
+        false,
+        2019,
+        "Estimating energy expenditure during level, uphill, and downhill walking",
+        "Medicine & Science in Sports & Exercise",
+        "51",
+        "9",
+        "1954–1960",
+        "10.1249/mss.0000000000002002"
+    ),
+    paper!(
         "lapoint2013",
         ["LaPoint, S.", "Gallery, P.", "Wikelski, M.", "Kays, R."],
         false,
@@ -1287,6 +1314,18 @@ pub const REFERENCES: &[Reference] = &[
         "7",
         "887–893",
         "10.1111/ecog.03049"
+    ),
+    paper!(
+        "pontzer2016",
+        ["Pontzer, H."],
+        false,
+        2016,
+        "A unified theory for the energy cost of legged locomotion",
+        "Biology Letters",
+        "12",
+        "2",
+        "20150935",
+        "10.1098/rsbl.2015.0935"
     ),
     paper!(
         "rubner2000",
@@ -1635,6 +1674,15 @@ pub const METHODS: &[Method] = &[
         refs: &["mcrae2012", "mcrae2008"],
         software: "Linkage Mapper",
         software_refs: &[],
+    },
+    // before the family's: the first method that matches an operator is its own
+    Method {
+        ops: &["cost.energy_landscape"],
+        name: "the energy cost of walking over a terrain (animals: Pontzer's allometric cost of locomotion; people: \
+               Looney et al.'s walking equation)",
+        refs: &["pontzer2016", "looney2019"],
+        software: "enerscape",
+        software_refs: &["berti2022"],
     },
     Method {
         ops: &["cost."],
@@ -2028,6 +2076,14 @@ pub const METHODS: &[Method] = &[
         refs: &[],
         software: "amt",
         software_refs: &["signer2019"],
+    },
+    Method {
+        ops: &["move.surface_distance"],
+        name: "the length of animal steps measured on the relief (the sum of the 3D chords of each step over a DEM, \
+               with bilinear heights along it)",
+        refs: &[],
+        software: "",
+        software_refs: &[],
     },
     Method {
         ops: &["sensitivity.design", "sensitivity.analyze"],

@@ -10557,5 +10557,44 @@
     "note": "pooled: 27.9% of the use lies in the corridors, 28.9% of the area: 0.968 times its share, about what chance gives. Spearman's rho is -0.0194: no rank relation between the use and the surface. Only 56.6% of the use falls on cells with data."
    }
   }
+ },
+ "relief": {
+  "cases": {
+   "plane": {
+    "nx": 60,
+    "ny": 60,
+    "dx": 10.0,
+    "dy": 10.0,
+    "xmin": 0.0,
+    "ymax": 600.0,
+    "crs": "EPSG:32633",
+    "variants": {
+     "default": null,
+     "s3": 3.0,
+     "s40": 40.0
+    }
+   },
+   "rough": {
+    "nx": 70,
+    "ny": 50,
+    "dx": 7.5,
+    "dy": 12.0,
+    "xmin": 1000.0,
+    "ymax": 1100.0,
+    "crs": "EPSG:32633",
+    "variants": {
+     "default": null,
+     "s1": 1.0,
+     "s5": 5.0
+    }
+   },
+   "fishers": {
+    "crs": "EPSG:5070",
+    "variants": {
+     "default": null,
+     "s20": 20.0
+    }
+   }
+  }
  }
 }

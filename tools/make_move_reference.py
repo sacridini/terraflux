@@ -9,7 +9,8 @@ locations) and move2's fishers (tests/data/move/fishers.csv.gz, copied here): mo
 interpolation, projection and Brownian tracks, amt's steps, bursts, summaries, fits, random numbers and steps, time
 of day and covariates, the cleaning and thinning, the values along the steps, the corridors and the distances between
 UDs, amt's home ranges (MCP, KDE with its bandwidths, LoCoH, isopleths, UDs, overlaps) and the dynamic Brownian
-bridges (the dBBMM and the dBGB: variances, distributions, volumes, outer probabilities, window suggestions, masks).
+bridges (the dBBMM and the dBGB: variances, distributions, volumes, outer probabilities, window suggestions, masks)
+and the length of steps on the relief (surface_distance). `--only-relief` adds just those keys to the files written.
 """
 
 from __future__ import annotations
@@ -817,6 +818,68 @@ def validate_reference(out: dict, meta: dict) -> None:
         meta["validate"]["cases"][case] = {"use": kind, "surface": surf, "args": args, "tracks": t["track"].tolist(),
                                            "note": v.note}
 
+RELIEF_ELEVATION = LS / "src" / "terraflux" / "move" / "data" / "elevation.tif"
+
+
+def relief_dem(z: np.ndarray, dx: float, dy: float, x0: float, ymax: float, crs: str = "EPSG:32633") -> xr.DataArray:
+    """A (y, x) DEM of cells dx by dy with its top left corner at (x0, ymax)."""
+    ny, nx = z.shape
+    da = xr.DataArray(z, dims=("y", "x"), coords={"y": ymax - dy * (np.arange(ny) + 0.5),
+                                                   "x": x0 + dx * (np.arange(nx) + 0.5)}, name="dem")
+    return da.rio.write_crs(crs).rio.write_transform(Affine(dx, 0, x0, 0, -dy, ymax))
+
+
+def relief_reference(out: dict, meta: dict) -> None:
+    """The length of a step on the relief (surface_distance) on a plane (steps inside and outside the DEM, two
+    spacings), a rough DEM with a hole of no data (zero-length, NaN and outside steps), cells that are not square, and
+    the fishers' steps over the library's elevation.tif. New keys only: `in/relief/<case>/{x1,y1,x2,y2}` the steps,
+    `in/relief/<case>/z` the DEM (rows from the top) and `relief/<case>/<variant>` the lengths; the DEMs and the
+    variants are in the json (`relief`)."""
+    rng = np.random.default_rng(2024)
+    meta["relief"] = {"cases": {}}
+    cases = {}
+    # a plane: steps from beyond the extent (the outer half cell is clamped, further out is NaN)
+    n = 60
+    x = 10.0 * (np.arange(n) + 0.5)
+    y = n * 10.0 - 10.0 * (np.arange(n) + 0.5)
+    cases["plane"] = (0.37 * x[None, :] - 0.52 * y[:, None], 10.0, 10.0, 0.0, 600.0, rng.uniform(-30, 630, (4, 300)),
+                      {"default": None, "s3": 3.0, "s40": 40.0})
+    # a rough DEM with a hole, on cells of 7.5 by 12 m, with steps of zero length and a missing coordinate
+    ny, nx = 50, 70
+    z = 200 + 30 * np.sin(np.arange(nx) / 5)[None, :] + 25 * np.cos(np.arange(ny) / 4)[:, None] + rng.normal(0, 4, (ny, nx))
+    z[20:24, 30:36] = np.nan
+    z[0, 5] = np.nan
+    p = rng.uniform(0, 1, (4, 400))
+    p[0], p[2] = 1000 + p[0] * 525, 1000 + p[2] * 525
+    p[1], p[3] = 500 + p[1] * 600, 500 + p[3] * 600
+    p[2, 10], p[3, 10] = p[0, 10], p[1, 10]
+    p[0, 11] = np.nan
+    cases["rough"] = (z, 7.5, 12.0, 1000.0, 1100.0, p, {"default": None, "s1": 1.0, "s5": 5.0})
+    for name, (z, dx, dy, x0, ymax, p, variants) in cases.items():
+        dem = relief_dem(z, dx, dy, x0, ymax)
+        steps = pd.DataFrame({"x1_": p[0], "y1_": p[1], "x2_": p[2], "y2_": p[3]})
+        steps.attrs["terraflux.move"] = {"crs": "EPSG:32633", "lonlat": False}
+        for c, k in zip(("x1", "y1", "x2", "y2"), p):
+            out[f"in/relief/{name}/{c}"] = np.asarray(k, np.float64)
+        out[f"in/relief/{name}/z"] = np.asarray(z, np.float64).ravel()
+        for v, sp in variants.items():
+            out[f"relief/{name}/{v}"] = M.surface_distance(steps, dem, spacing=sp)["sl_surface_"].to_numpy(np.float64)
+        meta["relief"]["cases"][name] = {"nx": z.shape[1], "ny": z.shape[0],
+                                         "dx": dx, "dy": dy, "xmin": x0, "ymax": ymax, "crs": "EPSG:32633",
+                                         "variants": variants}
+    # the fishers over the library's elevation, in the raster's own CRS
+    import rioxarray as rx
+
+    elev = rx.open_rasterio(RELIEF_ELEVATION).isel(band=0, drop=True)
+    f = tf.load_tracks(LS / "tests" / "data" / "move" / "fishers.csv.gz", sort=False)
+    st = M.steps(f[~f.geometry.is_empty].to_crs(elev.rio.crs))
+    for c in ("x1", "y1", "x2", "y2"):
+        out[f"in/relief/fishers/{c}"] = st[c + "_"].to_numpy(np.float64)
+    variants = {"default": None, "s20": 20.0}
+    for v, sp in variants.items():
+        out[f"relief/fishers/{v}"] = M.surface_distance(st, elev, spacing=sp)["sl_surface_"].to_numpy(np.float64)
+    meta["relief"]["cases"]["fishers"] = {"crs": elev.rio.crs.to_string(), "variants": variants}
+
 
 def main() -> None:
     sets = track_sets()
@@ -995,11 +1058,26 @@ def main() -> None:
     hr_reference(out, meta)
     ud_reference(out, meta, fishers_ok)
     validate_reference(out, meta)
+    relief_reference(out, meta)
 
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
     print(REF / "move.npz", len(out))
 
 
+def only_relief() -> None:
+    """Adds the keys of relief_reference to the files already written (the rest unchanged)."""
+    with np.load(REF / "move.npz") as z:
+        out = {k: z[k] for k in z.files}
+    meta = json.loads((REF / "move.json").read_text(encoding="utf-8"))
+    relief_reference(out, meta)
+    np.savez_compressed(REF / "move.npz", **out)
+    (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
+    print(REF / "move.npz", len(out))
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--only-relief"]:
+        only_relief()
+    else:
+        main()

@@ -155,6 +155,17 @@ pub const TIPS: &[(&str, &str)] = &[
         "Of a conductance (1 / resistance), usually corrected for the cells' distances (cost.geo_correction) before \
          cost.acc_cost or cost.passage.",
     ),
+    (
+        "cost.energy_landscape",
+        "A cost of getting onto each cell, not of crossing it: it averages the cost of arriving from the 4 or 8 \
+         neighbours, so the border and the cells beside a gap in the DEM have none. The DEM must be in metres, \
+         projected, with square cells (a geographic one is an error: project it first), and as fine as the animal \
+         moves: a coarse DEM smooths slopes and the cost with them. The animal model is Pontzer's (2016) for any \
+         legged animal from the body mass alone, lowest on a gentle descent; the human one is Looney et al.'s \
+         (2019) at the speed v, for walking people. Joules or kcal only rescale it. The energy is skewed to the \
+         right (log it to look at it); the conductance (1 / energy) is what cost.transition and the circuit models \
+         take as a resistance's inverse.",
+    ),
     // connectivity on graphs
     (
         "conn.graph_from_raster",
@@ -1025,6 +1036,15 @@ pub const TIPS: &[(&str, &str)] = &[
          as much as the cells under it; mean, min and max leave the cells without data out, and a step wholly \
          outside the raster has missing values. All the rasters must share one grid; the table `along` gives the \
          values themselves (the step is its 1-based number), in terra's order (by cell number), not along the step.",
+    ),
+    (
+        "move.surface_distance",
+        "The steps and the DEM must be in the same projected coordinate system in metres (project the tracks and \
+         the DEM first: degrees do not add to metres of height). It lengthens a step by sqrt(1 + slope^2) along \
+         it, so it matters on steep ground and not on a flat one; the speed of a step on the relief is this \
+         length over its duration (not sl_ over it). A step with a point outside the DEM or over a gap in it has \
+         no value; the heights are interpolated bilinearly, so a DEM much coarser than the steps smooths the \
+         relief they cross.",
     ),
     (
         "move.max_speed",

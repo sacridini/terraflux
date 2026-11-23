@@ -487,6 +487,10 @@ const PHRASES: &[(&str, &str)] = &[
     ("cost.combine", "The transitions <a> and <b> combined by {operation}."),
     ("cost.commute_distance", "The commute distances of a random walk between the points <points> over <transition>."),
     ("cost.distance", "The least costs over <transition> from each point of <from>[ to each of <to>]."),
+    (
+        "cost.energy_landscape",
+        "The energy a {mass} kg animal spends walking over <dem>[ ({model} model)], {neigh} neighbours, in {unit}.",
+    ),
     ("cost.geo_correction", "<transition> corrected for the distances between the cells, type {type}."),
     ("cost.mahal", "The Mahalanobis transition of the maps <maps>, {directions} neighbours."),
     ("cost.math", "The function {function} of the values of <transition>[, with the value {value}]."),
@@ -846,6 +850,7 @@ const PHRASES: &[(&str, &str)] = &[
         "move.suggest_window",
         "A window size and margin for the motion variance of <tracks>, covering about {target_hours} hours.",
     ),
+    ("move.surface_distance", "The length of each step of <steps> measured on the relief <dem>."),
     (
         "move.thin_distance",
         "<tracks> thinned to locations about {distance} m of travel apart (method {method}[, tolerance {tolerance} m]).",

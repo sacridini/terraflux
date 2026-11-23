@@ -84,6 +84,15 @@ pub(super) const MAPPED: &[Py] = &[
         kind: Kind::Plain,
     },
     Py {
+        // both results of one call (output="both": a Dataset of the energy and its conductance)
+        op: "cost.energy_landscape",
+        call: "tf.cost.energy_landscape",
+        args: &[("dem", ""), ("mass", "mass"), ("unit", "unit"), ("neigh", "neigh"), ("model", "model"), ("v", "v")],
+        defaults: &[("output", "\"both\"")],
+        outs: &[("energy", "[\"energy\"]"), ("conductance", "[\"conductance\"]")],
+        kind: Kind::Plain,
+    },
+    Py {
         op: "cost.passage",
         call: "tf.cost.passage",
         args: &[
@@ -458,6 +467,49 @@ inputs = { transition = "norm.transition" }
             "p = tf.cost.passage(tr, origin=pts, goal=pts, theta=2.5)",
             "rsp_m = tf.cost.rsp_distance(tr, pts, pts, 1)",
             "back = norm.to_raster()",
+        ] {
+            assert!(s.text.contains(line), "{line}\n{}", s.text);
+        }
+        parses(&s.text);
+    }
+
+    #[test]
+    fn an_energy_landscape_and_its_conductance() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "dem"
+op = "raster.read"
+params = { path = "C:/data/dem.tif" }
+
+[[nodes]]
+id = "en"
+op = "cost.energy_landscape"
+inputs = { dem = "dem.raster" }
+params = { mass = 50, unit = "kcal", neigh = 4 }
+
+[[nodes]]
+id = "walk"
+op = "cost.energy_landscape"
+inputs = { dem = "dem.raster" }
+params = { mass = 70, model = "human", v = 1.2 }
+
+[[nodes]]
+id = "tr"
+op = "cost.transition"
+inputs = { map = "en.conductance" }
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        assert!(s.left.is_empty(), "{:?}\n{}", s.left, s.text);
+        for line in [
+            "en = tf.cost.energy_landscape(dem, mass=50, unit=\"kcal\", neigh=4, output=\"both\")",
+            "walk = tf.cost.energy_landscape(dem, mass=70, model=\"human\", v=1.2, output=\"both\")",
+            "tr = tf.cost.transition(en[\"conductance\"]",
         ] {
             assert!(s.text.contains(line), "{line}\n{}", s.text);
         }

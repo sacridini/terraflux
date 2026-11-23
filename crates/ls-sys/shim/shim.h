@@ -985,6 +985,13 @@ MoveDbbmmVariance move_dbbmm_variance(rust::Slice<const double> x, rust::Slice<c
 MoveDbgbVariance move_dbgb_variance(rust::Slice<const double> x, rust::Slice<const double> y,
                                     rust::Slice<const double> time_mins, rust::Slice<const double> loc_err,
                                     std::int32_t window_size, std::int32_t margin, std::int32_t threads);
+rust::Vec<double> move_surface_distance(rust::Slice<const double> x1, rust::Slice<const double> y1,
+                                        rust::Slice<const double> x2, rust::Slice<const double> y2,
+                                        rust::Slice<const double> z, std::int64_t nx, std::int64_t ny, double xmin,
+                                        double ymax, double dx, double dy, double spacing, std::int32_t threads);
+rust::Vec<double> cost_energy_landscape(rust::Slice<const double> dem, std::int64_t ny, std::int64_t nx, double mass,
+                                        double res, std::int32_t neigh, bool human, double speed, bool kcal,
+                                        std::int32_t threads);
 MoveImputed move_impute_loc_err(rust::Slice<const double> e, std::int32_t how);
 rust::Vec<double> move_ud_probe(std::int32_t model, rust::Slice<const double> x, rust::Slice<const double> y,
                                 rust::Slice<const double> s1, rust::Slice<const double> s2,

@@ -19,6 +19,7 @@ mod corridor;
 mod filters;
 mod geometry;
 mod homerange;
+mod relief;
 mod ssf;
 pub mod time;
 mod tracks;
@@ -45,6 +46,7 @@ pub fn register(r: &mut Registry) {
     clean::register(r);
     corridor::register(r);
     homerange::register(r);
+    relief::register(r);
     ud::register(r);
     validate::register(r);
 }

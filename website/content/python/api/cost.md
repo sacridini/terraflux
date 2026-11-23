@@ -38,6 +38,8 @@ conductance = tf.cost.geo_correction(speed)                                    #
 
 ::: terraflux.cost.sum_reciprocal
 
+::: terraflux.cost.energy_landscape
+
 ## Least-cost surfaces, distances and paths
 
 The cost of a step between neighbouring cells is the reciprocal of the

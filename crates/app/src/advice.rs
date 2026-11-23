@@ -68,8 +68,17 @@ const REPEATS: [&str; 5] =
     ["control.each", "batch.run", "uncertainty.monte_carlo", "sensitivity.design", "sensitivity.analyze"];
 
 /// The families of the operators that measure distances or areas on the cells.
-const MEASURES: [&str; 8] =
-    ["metrics.", "fragmentation.", "landscape.", "distance.", "cost.", "conn.", "circuit.", "restoration."];
+const MEASURES: [&str; 9] = [
+    "metrics.",
+    "fragmentation.",
+    "landscape.",
+    "distance.",
+    "cost.",
+    "conn.",
+    "circuit.",
+    "restoration.",
+    "move.surface_distance",
+];
 
 /// The families of the operators that take a map of classes.
 const OF_CLASSES: [&str; 3] = ["metrics.", "fragmentation.", "landscape."];
@@ -225,6 +234,20 @@ pub fn advise(m: &Model, r: &Registry, dir: &Path, inputs: Option<&BTreeMap<Stri
                 guide: "data-preparation",
             });
         }
+    }
+
+    // the energy of walking is a cost per kilogram of the animal: without its mass there is no landscape
+    let unweighed: Vec<&Node> = of(&["cost.energy_landscape"]).into_iter().filter(|n| !given(n, "mass")).collect();
+    if !unweighed.is_empty() {
+        out.push(Advice {
+            level: Level::Warning,
+            at: ids(&unweighed),
+            message: "no mass: the energy of walking depends on the body mass of the animal (kg), and the operator \
+                      stops without it; give the mass of the species (an adult's, from the literature) and say where \
+                      it comes from"
+                .into(),
+            guide: "movement",
+        });
     }
 
     // metrics of classes on a continuous map
@@ -1332,6 +1355,18 @@ mod tests {
         let gps = Node::new("gps", "move.filter_gps_quality").input("tracks", "read.tracks");
         let a = movement(vec![read, gps, speed().input("tracks", "gps.tracks")], None);
         assert!(a.is_empty(), "{a:?}");
+    }
+
+    #[test]
+    fn an_energy_landscape_needs_the_mass() {
+        let en = || Node::new("en", "cost.energy_landscape").input("dem", "$dem");
+        let a = movement(vec![en()], None);
+        assert!(said(&a, Level::Warning, "no mass"), "{a:?}");
+        assert_eq!(a.iter().find(|a| a.message.contains("no mass")).unwrap().guide, "movement");
+        for mass in [serde_json::json!(50), serde_json::json!("$mass")] {
+            let a = movement(vec![en().param("mass", mass)], None);
+            assert!(!said(&a, Level::Warning, "no mass"), "{a:?}");
+        }
     }
 
     /// The movement templates follow the advice they give: nothing is told of them.
