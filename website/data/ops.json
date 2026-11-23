@@ -13029,6 +13029,18 @@
     "type": "table",
     "required": true,
     "doc": "the importance of each predictor (they add up to 1)"
+   },
+   {
+    "name": "cv",
+    "type": "table",
+    "required": false,
+    "doc": "with fold or cv: the cross-validation, a row per fold and a last for all the predictions together: n, then for classes the accuracy, kappa, macro F1 and the F1 of each class (f1_<class>), for values the RMSE, MAE and R2"
+   },
+   {
+    "name": "cv_matrix",
+    "type": "table",
+    "required": false,
+    "doc": "with fold or cv, for classes: the confusion matrix of all the folds' predictions, a row per predicted class and a column per reference class, as objects.accuracy's matrix"
    }
   ],
   "params": [
@@ -13037,6 +13049,18 @@
     "type": "text",
     "required": false,
     "doc": "with a table: the target's column (default target)"
+   },
+   {
+    "name": "fold",
+    "type": "text",
+    "required": false,
+    "doc": "with a table: the column holding each row's fold (objects.folds makes it; left out of the predictors): the model is fitted with each fold out and tested on it, and the model itself on every row. The accuracy of folds that are not spatial is higher than the model's on other places"
+   },
+   {
+    "name": "cv",
+    "type": "integer",
+    "required": false,
+    "doc": "without fold: the folds (2 or more) drawn at random, stratified by class, for the cross-validation: not spatial, so the accuracy it gives is optimistic for neighbouring records"
    },
    {
     "name": "columns",
@@ -13384,7 +13408,7 @@
  },
  {
   "name": "ml.pca",
-  "doc": "The principal components of some variables (Pearson 1901, Hotelling 1933): the eigenvectors of their correlation (the default: each variable by its standard deviation, for variables in different units) or covariance, from one pass over the records of a table, or over the cells of a stack (a layer per variable; `cells` the cells to use) that have every variable; above a million records the fit uses a sample (said in a note). The scores are each record's coordinates on the components, from the mean and scale of the fit: the model scores other data with ml.predict. Each component's largest loading is positive, as scikit-learn's and metrics.pca's. A record with a variable none has no scores.",
+  "doc": "The principal components of some variables (Pearson 1901, Hotelling 1933): the eigenvectors of their correlation (the default: each variable by its standard deviation, for variables in different units) or covariance, from one pass over the records of a table, or over the cells of a stack (a layer per variable; `cells` the cells to use) that have every variable; above a million records the fit uses a sample (said in a note). The scores are each record's coordinates on the components, from the mean and scale of the fit: the model scores other data with ml.predict. Each component's largest loading is positive, as scikit-learn's and metrics.pca's. A record with a variable none has no scores. With maps of a later date (`later`, the same layers by name) it finds the change between two dates: stacked (Byrne, Crapper and Mayo 1980; Fung and LeDrew 1987) is the PCA of the layers of both dates (<layer>_1, <layer>_2), and the change column of the explained table tells how much each component is a difference of the dates; selective (Chavez and Kwarteng 1989) is a PCA of each layer's two dates, <layer>_pc1 the part that stayed and <layer>_pc2 the part that changed. A cell with a layer none at either date stays out. With `method` mnf (maps, one date; Green, Berman, Switzer and Craig 1988; Lee, Woodyatt and Berman 1990) the noise's covariance is taken from the differences between neighbouring cells, the bands are whitened by it and the components of the whitened bands come ordered by signal-to-noise ratio: `denoised` is the image rebuilt from the components kept.",
   "inputs": [
    {
     "name": "table",
@@ -13403,6 +13427,12 @@
     "type": "map",
     "required": false,
     "doc": "with maps: the cells to fit on (non-zero; default all)"
+   },
+   {
+    "name": "later",
+    "type": "stack",
+    "required": false,
+    "doc": "with maps: the same layers (by name) on the same grid at a later date: the two dates are analysed together, see `change`"
    }
   ],
   "outputs": [
@@ -13433,8 +13463,14 @@
    {
     "name": "model",
     "type": "ml_model",
-    "required": true,
-    "doc": "the PCA, for ml.predict on other data"
+    "required": false,
+    "doc": "the PCA, for ml.predict on other data (not with change selective: a fit per layer)"
+   },
+   {
+    "name": "denoised",
+    "type": "stack",
+    "required": false,
+    "doc": "with mnf: the layers (named as the predictors) rebuilt from the components kept, the noise left out"
    }
   ],
   "params": [
@@ -13467,11 +13503,41 @@
     "type": "integer",
     "required": false,
     "doc": "the seed of the sample's draw (numpy's; default 1)"
+   },
+   {
+    "name": "change",
+    "type": "text",
+    "required": false,
+    "doc": "with later: stacked (default), one PCA of the layers of both dates (<layer>_1, <layer>_2), whose explained table has a column change (1 a pure difference of the dates, 0 a pure sum); or selective, a PCA of each layer's pair of dates, scores <layer>_pc1 (what stayed) and <layer>_pc2 (what changed), and no model",
+    "choices": [
+     "stacked",
+     "selective"
+    ]
+   },
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "pca (default), or mnf, the minimum noise fraction (Green et al. 1988): the components ordered by signal-to-noise ratio, the noise being the difference between neighbouring cells; with maps (predictors) only. Its scores are mnf1, mnf2..., the variance of the explained table is the eigenvalue (the SNR plus 1), `components` a number or a share of the eigenvalues' sum, and `standardise` does not matter (the transform does not depend on the bands' units)",
+    "choices": [
+     "pca",
+     "mnf"
+    ]
+   },
+   {
+    "name": "noise",
+    "type": "text",
+    "required": false,
+    "doc": "with mnf: shift (default), the covariance of the difference between each cell and its right-hand neighbour, over 2 (as ENVI's and Spectral Python's); or shift_both, the mean of that and of the difference with the neighbour below",
+    "choices": [
+     "shift",
+     "shift_both"
+    ]
    }
   ],
   "access": "global",
   "container": false,
-  "advice": "Keep `standardise` on (the correlation) when the variables are in different units or ranges (a band in reflectance beside an elevation in metres), or the one with the largest numbers is the first component alone; turn it off for bands in the same unit, where their spread is the information. The default keeps the components that explain 95% of the variance: if the first few explain little (the `explained` table, the cumulative column), the variables are nearly independent and a PCA will not reduce them. The scores of other maps or a later date come from `ml.predict` with the model, which uses the means of this fit, not of the new data, so the same change means the same numbers. For a very large stack the fit uses a sample of a million cells (`sample` and `seed` to choose)."
+  "advice": "Keep `standardise` on (the correlation) when the variables are in different units or ranges (a band in reflectance beside an elevation in metres), or the one with the largest numbers is the first component alone; turn it off for bands in the same unit, where their spread is the information. The default keeps the components that explain 95% of the variance: if the first few explain little (the `explained` table, the cumulative column), the variables are nearly independent and a PCA will not reduce them. The scores of other maps or a later date come from `ml.predict` with the model, which uses the means of this fit, not of the new data, so the same change means the same numbers. For a very large stack the fit uses a sample of a million cells (`sample` and `seed` to choose). For change between two dates give the second date's maps as `later` (the same layer names, the same grid): `stacked` (the default) rotates the layers of both dates together, and the `change` column of the explained table says which component is a difference of the dates (near 1) and which a sum (near 0); `selective` takes each band's two dates apart and gives `<band>_pc1` (what stayed) and `<band>_pc2` (what changed), the better choice when the change is small beside what the dates share, but it gives no model. `method = \"mnf\"` (maps only) is the minimum noise fraction: the noise is read from the difference between neighbouring cells, so the components come ordered by signal-to-noise ratio, not by variance, which a noisy band can inflate; it suits noisy or hyperspectral bands (the `explained` table's snr column tells how many components hold signal), and `denoised` is the image rebuilt from the components kept. A band that repeats another, or that does not change between neighbours, has no noise of its own and is refused."
  },
  {
   "name": "ml.potential",
@@ -13701,11 +13767,59 @@
     "name": "table",
     "type": "table",
     "required": false,
-    "doc": "with a table: its columns, then prediction and the probability of each class (p_<class>), or a PCA's scores (pc1, pc2...), or a k-means model's cluster, or a map model's node (and group)"
+    "doc": "with a table: its columns, then prediction and the probability of each class (p_<class>), or a PCA's scores (pc1, pc2...), or a k-means model's cluster, or a map model's node (and group); then, for a model of ml.fit, mess (or mop) and novel"
+   },
+   {
+    "name": "novelty",
+    "type": "stack",
+    "required": false,
+    "doc": "with maps and a model of ml.fit: the layers mess (or mop) and novel (1 where a predictor is outside what the model was fitted on)"
    }
   ],
-  "params": [],
+  "params": [
+   {
+    "name": "novelty",
+    "type": "text",
+    "required": false,
+    "doc": "how far the records lie from the training of a model of ml.fit: mess (default, Elith's MESS: negative outside the range of a predictor), mop (the mean distance to the nearest training rows, and the records outside the ranges) or none. A warning says the share outside (from 5 %) and the predictors that weigh most, and when the scene's predictors are all higher or all lower than the training's (raster.match_histogram brings a scene to another's)",
+    "choices": [
+     "mess",
+     "mop",
+     "none"
+    ]
+   }
+  ],
   "access": "global",
+  "container": false
+ },
+ {
+  "name": "ml.read",
+  "doc": "A fitted model read from the JSON file ml.write made (or a model's JSON written by an output of a model): it classifies another scene's objects (objects.classify) or maps (ml.predict) as it is, without fitting again. A file written before the training summary was kept reads as well, and gives no novelty.",
+  "inputs": [
+   {
+    "name": "after",
+    "type": "any",
+    "required": false,
+    "doc": "anything that has to be done first, ml.write's path when the model of this graph writes the file it reads"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the fitted model"
+   }
+  ],
+  "params": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the file, relative to the model's folder"
+   }
+  ],
+  "access": "none",
   "container": false
  },
  {
@@ -13896,6 +14010,37 @@
   "access": "global",
   "container": false,
   "advice": "Keep `standardise` on when the variables are in different units or ranges, or the one with the largest numbers decides the map alone. The grid is about 5 sqrt(n) nodes (Vesanto's rule, said in the note): with fewer than a few records per node (the `count` of the `codebook`, the `empty_nodes` of `quality`) the nodes are filled by the neighbours and not by data, so give `rows` and `cols` for a smaller grid, or more records. A `topographic_error` high (above 0.3) says the map is folded: more `iterations`, or a larger `sigma`; the `quantisation_error` falls as the grid grows, so it only compares maps of the same size. The `umatrix` column of the `codebook` is large across the gap between two types of records, and small inside one: `clusters` k groups the nodes (Ward's method) and the groups are numbered by the first principal component of their centres, so the colours do not change between runs. Each node weighs the same in the grouping, however many records it holds: on a large grid of thinly filled nodes a small, distinct type (a lake among objects) can share a group with another, and a smaller grid keeps it apart. `training` online takes a record at a time and is slow for very many cells: batch (the default) uses all the threads. `ml.predict` with the model gives another image or date the nearest node of this fit, not of the new data."
+ },
+ {
+  "name": "ml.write",
+  "doc": "A fitted model written to a JSON file (ml.fit, ml.pca, ml.kmeans, ml.som, ml.potential): its parameters and trees and, for a model of ml.fit, the summary of what it was trained on (each predictor's range, quantiles, mean and deviation) and the training rows (a sample of 10 000 when there are more), which tell a second scene what lies outside. Read it in another model with ml.read.",
+  "inputs": [
+   {
+    "name": "model",
+    "type": "ml_model",
+    "required": true,
+    "doc": "the fitted model"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the file written"
+   }
+  ],
+  "params": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the file (.json), relative to the model's folder"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The model in a file (JSON) to carry to another model: ml.read gives it back with its trees and, for a model of ml.fit, what it was trained on (each attribute's range and quantiles, and the training rows), so the second scene's objects can be told from the ones the model knows. Give ml.read the `after` input (this node's path) when the same graph writes the file and reads it."
  },
  {
   "name": "molusce.step",
@@ -18468,6 +18613,12 @@
     "type": "table",
     "required": false,
     "doc": "the reference as a table instead: the columns id (the object) and class"
+   },
+   {
+    "name": "training",
+    "type": "any",
+    "required": false,
+    "doc": "the training objects (objects.samples' `objects`, or a table with their `id`): the reference objects that are also training objects, or touch one, are counted in `overall` and warned of: the accuracy of objects beside the ones the model learned from is higher than it is elsewhere"
    }
   ],
   "outputs": [
@@ -18481,7 +18632,7 @@
     "name": "overall",
     "type": "table",
     "required": true,
-    "doc": "overall_objects, overall_adjusted, overall_se, overall_ci, kappa (by objects), objects (sampled), cells, confidence"
+    "doc": "overall_objects, overall_adjusted, overall_se, overall_ci, kappa (by objects), objects (sampled), cells, confidence (and, with training, training_objects and touching_training: the sampled objects that are training objects, and those that touch one)"
    },
    {
     "name": "matrix",
@@ -18494,6 +18645,12 @@
     "type": "table",
     "required": true,
     "doc": "the misclassified sample objects: id, mapped class, reference class"
+   },
+   {
+    "name": "sampled",
+    "type": "table",
+    "required": true,
+    "doc": "every reference object: id, mapped class, reference class (errors are those that differ), for the Viewer to light a cell of the matrix"
    }
   ],
   "params": [
@@ -18524,7 +18681,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Judge the classification on objects that were not used to train it: draw the reference apart from the training samples (objects.sample draws them stratified, with the same chance in every object of a class). The area-adjusted estimates are the ones to report (Olofsson et al. 2014): the counts of the confusion matrix by objects ignore how large each class is. Say how the sample was drawn with `design`: `objects` (the default for a table or polygons, and for points one to an object, as objects.sample gives) weights each sampled object by its area, since objects differ in size (Radoux and Bogaert 2017, Stehman 2014); points thrown at random over the map need `area`, where an object's chance already is its area and each counts once. Aim at 50 objects or more per class; a class with none sampled is left out. The errors table lists the misclassified objects to look at."
+  "advice": "Judge the classification on objects that were not used to train it: draw the reference apart from the training samples (objects.sample draws them stratified, with the same chance in every object of a class). The area-adjusted estimates are the ones to report (Olofsson et al. 2014): the counts of the confusion matrix by objects ignore how large each class is. Say how the sample was drawn with `design`: `objects` (the default for a table or polygons, and for points one to an object, as objects.sample gives) weights each sampled object by its area, since objects differ in size (Radoux and Bogaert 2017, Stehman 2014); points thrown at random over the map need `area`, where an object's chance already is its area and each counts once. Aim at 50 objects or more per class; a class with none sampled is left out. The errors table lists the misclassified objects to look at. Connect the training objects (objects.samples' `objects`) as `training` and it counts the reference objects that are training objects or touch one, and warns: their accuracy is borrowed from the neighbours the model learned from."
  },
  {
   "name": "objects.calc",
@@ -18624,11 +18781,22 @@
     "type": "number",
     "required": false,
     "doc": "the least probability for a class, 0 to 1 (default 0: every object takes its most probable class)"
+   },
+   {
+    "name": "novelty",
+    "type": "text",
+    "required": false,
+    "doc": "for a model of ml.fit, how far each object lies from what the model was trained on: mess (default, Elith's MESS: negative outside the range of an attribute), mop (the mean distance to the nearest training objects, and the objects outside the ranges) or none. The columns mess (or mop) and novel (1 outside) go to the table and the objects' attributes, the Viewer hatches the novel ones, and a warning gives the share of the objects and of the area outside (from 5 %) and the attributes that weigh most; another warning tells a scene whose attributes are all higher or all lower than the training's, and points to raster.match_histogram",
+    "choices": [
+     "mess",
+     "mop",
+     "none"
+    ]
    }
   ],
   "access": "global",
   "container": false,
-  "advice": "The objects must carry the same attributes as those of the training: run objects.features with the same settings on the same image before. Pass the samples' table to name the classes. The margin (first minus second probability) is low where the model hesitates: look there for more samples. `min` leaves unclassified the objects whose best probability is under it."
+  "advice": "The objects must carry the same attributes as those of the training: run objects.features with the same settings on the same image before. Pass the samples' table to name the classes. The margin (first minus second probability) is low where the model hesitates: look there for more samples. `min` leaves unclassified the objects whose best probability is under it. A model of ml.fit remembers what it was trained on: the objects get the columns `mess` (or `mop`) and `novel` (1 where an attribute lies outside the training's range, the Viewer hatches them), and a warning tells the share of the objects and of the area outside and the attributes that weigh most. Their class is an extrapolation: add samples that cover them. When the scene's band means are all higher or all lower than the training's (another date or sensor), the warning points to raster.match_histogram: bring the second scene to the first's light before its objects are made. A model saved as a file (ml.write, ml.read) carries the same memory; one saved by an older version has none and gives no novelty (`novelty` none turns it off)."
  },
  {
   "name": "objects.edit",
@@ -18933,6 +19101,85 @@
   "advice": "`basic` (the default) is the usual start: the mean and standard deviation of each band, NDVI when the red and near infrared bands are found, the area and the compactness. Ask for more by name, or `all` for every group: it computes many columns, so on a large image with many objects name what you will use (texture, when it comes, is the expensive group). Give `red`, `nir`, `green` and `swir` when the bands' names do not say which they are. Put a DEM, a height model or another date in `more` (on the same grid: raster.match first). Give a map or vectors (lots, a land-use layer) as `thematic` and each object gets th_mode, the most common value under it, and th_share, its share of all the object's cells (cells outside every feature count as none; an object mostly outside has both missing); with vectors, `field` names the attribute (text too: its codes are named in the table). Rules read th_mode as any column. The `skeleton` group (not in `basic`) is for long thin things, roads, rivers, fields, crowns: skel_main_length and skel_width, a high skel_length_width with a low skel_width picks the linear ones, skel_branches and skel_junctions tell a network from a line, skel_curvature a winding river from a straight road (about 1 / radius for an arc, near 0 for a straight line at any slant). skel_width is the area over the main length, so a branching network gets a width inflated by its branches. skel_width and skel_length_width are missing (NaN) for an object of one cell and for main length 0, and a rule reads missing as 0: a compact object can then pass below(skel_length_width, ...) by mistake; guard it with a test on skel_main_length (above(skel_main_length, 5, 10) and below(skel_length_width, ...)). It thins the raster of each object, so the values differ a little from eCognition's polygon skeleton; `spur` (default 3 cells) cuts the small branches thinning leaves at ragged edges."
  },
  {
+  "name": "objects.folds",
+  "doc": "The folds of the training objects for a spatial cross-validation (ml.fit's `fold`). Neighbouring objects are nearly alike, so folds drawn at random put a twin of every test object in the training and the accuracy comes out too high (Ploton et al. 2020; Meyer and Pebesma 2022). The `method` is neighbours (the default: objects within `steps` steps of each other, through any object, are a group that is never split; the groups are spread over the `k` folds, the largest first, each to the fold that keeps the classes most even), blocks (squares of `size` map units over the objects' centroids given to the folds at random, blockCV's cv_spatial and Roberts et al. 2017), clusters (k-means of the centroids, blockCV's cv_cluster) or random (stratified by class: not spatial, to compare). `objects` and `samples` are objects.samples' objects and table: the table's rows are the marked objects, in order of id. The same `seed` gives the same folds on any number of threads.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects marked by objects.samples (its `objects`)"
+   },
+   {
+    "name": "samples",
+    "type": "table",
+    "required": true,
+    "doc": "the table of objects.samples: class and the attributes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the samples' table with the column fold (1 to k) added"
+   },
+   {
+    "name": "counts",
+    "type": "table",
+    "required": true,
+    "doc": "per fold: the objects and the cells, and the objects of each class"
+   }
+  ],
+  "params": [
+   {
+    "name": "method",
+    "type": "text",
+    "required": false,
+    "doc": "neighbours (default), blocks, clusters or random",
+    "choices": [
+     "neighbours",
+     "blocks",
+     "clusters",
+     "random"
+    ]
+   },
+   {
+    "name": "k",
+    "type": "integer",
+    "required": false,
+    "doc": "the folds (default 5)"
+   },
+   {
+    "name": "steps",
+    "type": "integer",
+    "required": false,
+    "doc": "with neighbours: the steps across the objects' neighbours within which two sample objects are a group (default 1: touching)"
+   },
+   {
+    "name": "size",
+    "type": "number",
+    "required": false,
+    "doc": "with blocks: the side of a block in map units (default a quarter of the longer side of the samples' extent)"
+   },
+   {
+    "name": "class",
+    "type": "text",
+    "required": false,
+    "doc": "the samples' column of the class (default class)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of the draws (default 1)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Neighbouring objects are nearly alike, so a cross-validation with folds drawn at random lends every test object a twin in the training and reports an accuracy that is too high (Ploton et al. 2020; Meyer and Pebesma 2022). Connect objects.samples' `objects` and `table` and give the result to ml.fit as `fold`: its `cv` table is then the accuracy by place. `neighbours` (the default) is the safest: objects within `steps` steps of each other never fall in different folds, and the classes are spread over the folds; it needs more groups than folds, so with few samples or a large `steps` lower `k` or turn to `blocks` (squares of `size` map units, given to the folds at random: the usual choice when the map is large and the samples spread out) or `clusters` (k-means of the centroids). A fold with no object of a class is warned of: its test or its training lacks the class. `random` is not spatial: use it to see how much the neighbours lend."
+ },
+ {
   "name": "objects.fuse",
   "doc": "Joins an object to a neighbour only when the object they make is better by a measure, as eCognition's image object fusion (objects.merge by condition looks at the two objects; this looks at the result). `fitting` is an expression over the joined object, written as objects.calc's: compactness (length x width over area: 1 for a rectangle, higher is less compact, so goal min), shape_index, border_index, length, width, length_width, area, cells, perimeter, and with the image mean_<band> and sd_<band> (mean_nir > 0.3, sd_red, compactness * 2 + sd_nir). Its attributes are derived from sums the groups keep, not computed again from the cells: the length and the width are the sides of the rotated minimum-area rectangle, from the convex hull the groups keep (the numbers objects.features gives for the result), and anything that needs the cells or the neighbours (texture, skeleton, context) is refused with the list of what works. `seeds` are the classes that take (default all), `candidates` the classes they take from (default all, `unclassified` counts as a class); the joined object has the seed's class. `goal` max (the default) or min says which is better; `improve` (the default) joins only when the joined object is at least as good as the seed's own value (a tie joins: two rectangles make a rectangle); `threshold` is the value the joined object must reach (at least for max, at most for min). Per pass each seed takes its best candidate (`mode` best, the default) or any that qualify (`all`), best first, a pair only when neither object has joined in this pass; it repeats until nothing joins or `max_passes`. An object may be seed and candidate (all classes): the pair's value is the same both ways and the bigger one gives the class. The level above is dropped (with a warning), as are the other attributes: the table is made again from the `image`, else the attributes are the means of the parts weighted by cells (objects.features again). `count` is the number of objects, `done` is true when nothing joined, `report` has a row per joined object: its id and its parts. The same result on every run, on any number of threads.",
   "inputs": [
@@ -19097,6 +19344,55 @@
   "access": "global",
   "container": false,
   "advice": "Grow a class into its neighbours for what is long and thin, as roads and rivers that a segmentation cut in pieces: the condition is read on the candidate neighbour (mean_nir > 0.2 and cls == \"unclassified\"), and it repeats, over the grown objects, up to `max_steps`. Keep the condition narrow, or the class eats the whole image."
+ },
+ {
+  "name": "objects.join",
+  "doc": "Columns of a table joined to the objects' attributes, matched by id: a row of the table for each object (the principal components of ml.pca's table, the scores of ml.predict, values counted by another operator), in any order. Every operator that reads the objects' attributes then sees them: objects.samples gives them in its training table, objects.classify reads them as the model's predictors. A table with an id that is no object's, an id twice, or no row for an object is refused, and the message names the ids.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with their attributes"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per object, with its id (column id) and the values to join"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with the columns added to their attributes"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the objects' table with the columns"
+   }
+  ],
+  "params": [
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "the columns to join (default: every numeric column of the table, but id, that the objects' table lacks)"
+   },
+   {
+    "name": "replace",
+    "type": "bool",
+    "required": false,
+    "doc": "replace a column the objects already have (default false: it is refused)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "For attributes that come from a table, not from the image: ml.pca's table (the components `pc1`... of the objects' attributes), ml.predict's scores, a table of your own with a column `id`. Name the `columns` to join (the components only, not the attributes they came from); the rows can come in any order, but each object needs one. Run it before objects.samples, so the training table has the columns, and give objects.classify the joined objects. A name the objects already have is refused: `replace` overwrites it."
  },
  {
   "name": "objects.merge",
@@ -19677,6 +19973,191 @@
   "access": "global",
   "container": false,
   "advice": "Give at least 10 objects per class (a few points or small polygons on each class, over its different looks): a point picks its object, a polygon every object it covers by half. Objects with samples of two classes are left out, so draw the samples inside one object. Fit the table with `column` = class: every other column is a predictor (the table has no id)."
+ },
+ {
+  "name": "objects.series",
+  "doc": "The time series of each object and its seasons, from a stack with a layer per date (an index or a band: NDVI of every scene of a year). The dates are in the layers' names (YYYY-MM-DD or YYYYMMDD anywhere in the name) or the setting `dates`, and increase. An object's value on a date is the mean of its cells with a value (a cloud leaves out the cells it covers); with fewer than `min_share` of its cells with one the whole date is missing. The groups, columns of the objects' table named `<variable>_...`: `values` (a column a date, `<variable>_YYYYMMDD`), `phenology` (max, min, amplitude, peak_doy, peak_date as days since 1970-01-01, integral in value times days, start_doy, start_date, end_doy, end_date, length, rise_rate and fall_rate: the season by TIMESAT's amplitude method, Jonsson and Eklundh 2004: each side of the peak from its own minimum, the start where the series, walked back from the peak, falls below left minimum + season_threshold (max - left minimum), the end below right minimum + season_threshold (max - right minimum) walking forward, by linear interpolation) and `harmonics` (the least squares fit of n harmonics of a one-year period, Jakubauskas et al. 2001: hmean, trend with trend, amp and phase of each harmonic, rmse; fewer than 2n + 2 values, 2n + 3 with a trend, give NaN). The season is measured on the series as it is (the dates with a value joined by straight lines) or smoothed: savgol (Savitzky and Golay 1964, window and order, on the dates with the holes filled; it reads the dates as evenly spaced) or harmonic. `series` is the long table (id, date, doy, value, smoothed) for a chart.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects"
+   },
+   {
+    "name": "series",
+    "type": "any",
+    "required": true,
+    "doc": "a stack: a layer per date, on the objects' grid"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with the columns of the groups"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the objects' table with the columns"
+   },
+   {
+    "name": "series",
+    "type": "table",
+    "required": true,
+    "doc": "the long table: id, date (days since 1970-01-01), doy, value, smoothed"
+   }
+  ],
+  "params": [
+   {
+    "name": "variable",
+    "type": "text",
+    "required": false,
+    "doc": "the prefix of the columns, `<variable>_max`... (default value; ndvi...; empty: none)"
+   },
+   {
+    "name": "dates",
+    "type": "any",
+    "required": false,
+    "doc": "the layers' dates, YYYY-MM-DD, a list in the layers' order (default: read in their names)"
+   },
+   {
+    "name": "groups",
+    "type": "any",
+    "required": false,
+    "doc": "values, phenology (default) and/or harmonics"
+   },
+   {
+    "name": "min_share",
+    "type": "number",
+    "required": false,
+    "doc": "the least share of an object's cells with a value for a date to count, 0 to 1 (default 0.5)"
+   },
+   {
+    "name": "smooth",
+    "type": "text",
+    "required": false,
+    "doc": "none (default), savgol or harmonic: the series the season is measured on",
+    "choices": [
+     "none",
+     "savgol",
+     "harmonic"
+    ]
+   },
+   {
+    "name": "window",
+    "type": "integer",
+    "required": false,
+    "doc": "savgol: the window, odd, in dates (default 7)"
+   },
+   {
+    "name": "order",
+    "type": "integer",
+    "required": false,
+    "doc": "savgol: the polynomial's order, below the window (default 2)"
+   },
+   {
+    "name": "n",
+    "type": "integer",
+    "required": false,
+    "doc": "the harmonics, 1 to 6 (default 2)"
+   },
+   {
+    "name": "trend",
+    "type": "bool",
+    "required": false,
+    "doc": "harmonics: a straight trend too (default false)"
+   },
+   {
+    "name": "season_threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the fraction of the amplitude above the base where the season starts and ends, 0 to 1 (default 0.5)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Give it the stack of a vegetation index (NDVI of every scene), a layer per date named by it (2024-03-05 or 20240305 in the name) or the `dates`, over the objects of a field map. Take `phenology` for the season (the peak, the start and the end where the series crosses half of the way from its base to its top, the integral) and `harmonics` for a fit of the year's curve (the mean, the amplitude and phase of each harmonic): both are columns the classifier can learn from, as any attribute. A cloud is a missing value: a date with fewer than `min_share` of an object's cells is missing, and the measures are made without it, so a series with few dates left gives NaN (the harmonics need 2n + 2 values). Smooth a noisy series with `savgol` (a window of dates, odd, and an order below it) or `harmonic` before the season is measured: the Savitzky-Golay filter reads the dates as evenly spaced, so use it on regular composites. The long table `series` is what a chart of an object's profile reads."
+ },
+ {
+  "name": "objects.similar",
+  "doc": "The objects that look like some examples: every object takes the similarity of its attributes to those of the nearest example (the best of them), in a column `similarity`, and the most similar (`top`) or those above a `threshold` are the selection. The examples are the ids in `examples`, or the rows of `samples` (a table with a column id), or, with neither, the objects that have a class (objects.samples' `objects`). The attributes are `columns`, else the embeddings of objects.embed (`emb_*`) when there are some, else the numeric attributes standardised (the output `used` says which). `metric` cosine (-1 to 1) or euclidean (1 / (1 + distance)). To label many objects of a class from a few: select them, and the Viewer lights the same result as the threshold moves.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects, with their attributes (objects.features, objects.embed)"
+   },
+   {
+    "name": "samples",
+    "type": "table",
+    "required": false,
+    "doc": "a table with a column id: the examples"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the same objects with the column similarity in their attributes"
+   },
+   {
+    "name": "selection",
+    "type": "table",
+    "required": true,
+    "doc": "id and similarity of the objects selected, the most similar first"
+   },
+   {
+    "name": "used",
+    "type": "text",
+    "required": true,
+    "doc": "the attributes the objects were compared on"
+   }
+  ],
+  "params": [
+   {
+    "name": "examples",
+    "type": "any",
+    "required": false,
+    "doc": "the ids of the examples, a list"
+   },
+   {
+    "name": "columns",
+    "type": "any",
+    "required": false,
+    "doc": "the attributes to compare on, a list of names"
+   },
+   {
+    "name": "metric",
+    "type": "text",
+    "required": false,
+    "doc": "cosine (default) or euclidean",
+    "choices": [
+     "cosine",
+     "euclidean"
+    ]
+   },
+   {
+    "name": "top",
+    "type": "integer",
+    "required": false,
+    "doc": "the selection: this many of the most similar (default 20 without a threshold)"
+   },
+   {
+    "name": "threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the selection: the objects with at least this similarity"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The way to label many objects of a class from a few: give a few examples (`examples`, a table of ids in `samples`, or the objects objects.samples classed) and take the `top` most similar or those above a `threshold`. Without `columns` it compares the embeddings of objects.embed when the objects have them, else the numeric attributes standardised (the output `used` says which): an attribute that every object shares tells nothing and is left out. Cosine looks at the direction of the attributes, euclidean at the distance (1 / (1 + distance)); try both on a few objects you know. In the Viewer, *Find similar* in the inspector lights the same objects as its threshold moves, and *Label all as...* writes them as samples."
  },
  {
   "name": "objects.split",
@@ -23777,6 +24258,42 @@
   "advice": "Put every map of a model on one reference grid (the land use of the start, in a projected coordinate system) before combining them. Resampling: near or mode for classes, bilinear or average for values (auto chooses by the data)."
  },
  {
+  "name": "raster.match_histogram",
+  "doc": "A scene brought to the radiometry of another, band by band (scikit-image's match_histograms): each value of the raster takes the value of the reference that has the same cumulative share, so the raster keeps its order and takes the reference's histogram. For a second date, sensor or processing before a model fitted on the first classes the second: a model reads the light as it reads the ground. The bands go by their names (a stack) or by their order. `mask` limits the cells that make the distributions to the area both scenes show, when they are on one grid (clouds, the part of one that the other lacks, what changed). A relative normalisation: it does not tell a change of the ground from a change of the light.",
+  "inputs": [
+   {
+    "name": "raster",
+    "type": "any",
+    "required": true,
+    "doc": "the scene to change: a map or a stack"
+   },
+   {
+    "name": "reference",
+    "type": "any",
+    "required": true,
+    "doc": "the scene whose histogram to take: a map or a stack"
+   },
+   {
+    "name": "mask",
+    "type": "map",
+    "required": false,
+    "doc": "on the raster's grid: the cells that make the distributions (non-zero), the area the two scenes share"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "raster",
+    "type": "any",
+    "required": true,
+    "doc": "the raster with the reference's histogram, as it came"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false,
+  "advice": "For a second scene (another date, sensor or processing) before a model fitted on the first classes it: the bands go to the first scene's histogram, and the model then reads the ground and not the light. Give the `mask` the area both scenes show alike (what did not change, the part without clouds): the cells of the mask make the distributions, and the rest follow them. It is a relative normalisation of the simple kind: a class the first scene lacks is drawn into the first scene's range, so look at the novelty columns (objects.classify) after it. Make the objects of the matched scene, not of the scene as it was."
+ },
+ {
   "name": "raster.mosaic",
   "doc": "The files of a series (a folder, a pattern: tiles of a region) joined into one raster (gdalwarp), in the CRS of the first unless another is given; where they overlap, the cells of the last.",
   "inputs": [
@@ -23840,6 +24357,84 @@
   ],
   "access": "global",
   "container": false
+ },
+ {
+  "name": "raster.phenology",
+  "doc": "The seasons of the time series of each cell (the same numbers objects.series gives each object): a stack with a layer per date, the dates in the layers' names (YYYY-MM-DD or YYYYMMDD) or the setting dates. Group phenology: max, min, amplitude, peak_doy and peak_date (days since 1970-01-01), integral (trapezoids, value times days), start and end of the season (start_doy, start_date, end_doy, end_date), length, rise_rate and fall_rate. The season is TIMESAT's amplitude method (Jonsson and Eklundh 2004): each side of the peak starts from its own minimum, the level of the start is left minimum + season_threshold (max - left minimum) and that of the end right minimum + season_threshold (max - right minimum), crossed on its side of the peak, found by linear interpolation. Group harmonics: the least squares fit of n harmonics of a one-year period (Jakubauskas et al. 2001): hmean, trend (with trend), amp and phase of each, rmse. A cell with NaN on a date is fitted without it; too few values give NaN. smooth savgol (window, order) or harmonic smooths the series first.",
+  "inputs": [
+   {
+    "name": "series",
+    "type": "any",
+    "required": true,
+    "doc": "a stack: a layer per date, the dates in their names"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "metrics",
+    "type": "stack",
+    "required": true,
+    "doc": "a layer per measure"
+   }
+  ],
+  "params": [
+   {
+    "name": "dates",
+    "type": "any",
+    "required": false,
+    "doc": "the layers' dates, YYYY-MM-DD, a list in the layers' order (default: read in their names)"
+   },
+   {
+    "name": "groups",
+    "type": "any",
+    "required": false,
+    "doc": "phenology (default) and/or harmonics"
+   },
+   {
+    "name": "smooth",
+    "type": "text",
+    "required": false,
+    "doc": "none (default), savgol or harmonic: the series the season is measured on",
+    "choices": [
+     "none",
+     "savgol",
+     "harmonic"
+    ]
+   },
+   {
+    "name": "window",
+    "type": "integer",
+    "required": false,
+    "doc": "savgol: the window, odd (default 7)"
+   },
+   {
+    "name": "order",
+    "type": "integer",
+    "required": false,
+    "doc": "savgol: the polynomial's order, below the window (default 2)"
+   },
+   {
+    "name": "n",
+    "type": "integer",
+    "required": false,
+    "doc": "the harmonics, 1 to 6 (default 2)"
+   },
+   {
+    "name": "trend",
+    "type": "bool",
+    "required": false,
+    "doc": "harmonics: a straight trend too (default false)"
+   },
+   {
+    "name": "season_threshold",
+    "type": "number",
+    "required": false,
+    "doc": "the fraction of the amplitude above the base where the season starts and ends, 0 to 1 (default 0.5)"
+   }
+  ],
+  "access": "local",
+  "container": false,
+  "advice": "The same measures as objects.series, for every cell: use it on the cells of a map to see where the seasons differ, and objects.series on the objects of a segmentation to classify them. A stack of 30 dates over a large map is large: read it in pieces or clip it."
  },
  {
   "name": "raster.read",
@@ -28362,6 +28957,55 @@
   "advice": "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. For objects that follow what the image holds, use segment.quadtree or segment.from_map. `bounds` (a map, vectors such as parcels, or objects) cuts the squares where they cross a zone."
  },
  {
+  "name": "segment.evaluate",
+  "doc": "A segmentation measured against reference objects (polygons drawn by hand, or objects made another way), as the R package segmetric measures it. The overlap of each reference with each object is counted in cells in one pass. Over the pairs of Clinton et al. 2010 (a reference and an object that hold each other's centroid or share more than half of one of them): os, the over-segmentation, 1 - overlap / reference; us, the under-segmentation, 1 - overlap / object; d, sqrt((os^2 + us^2) / 2) and qr, Weidner's quality rate, 1 - overlap / union. Over each reference and the object it shares the most with (Lucieer and Stein 2002): afi, the area fit index (reference - object) / reference, and the recall; over each object and its best reference, the precision; f_overlap is their F (Zhang et al. 2015). pse, nsr and ed2 follow Liu et al. 2012 (their objects are those with over half their cells in the reference): pse the cells of the corresponding objects outside the reference over those of the references, nsr the difference between the numbers of references and corresponding objects over the first, and ed2 sqrt(pse^2 + nsr^2). All are 0 for a segmentation equal to the reference, except f_overlap, which is 1. A polygon is laid on the grid as segment.from_vector does it (a cell to the polygon holding its centre), so the areas are exact for references made of whole cells. `summary` averages each measure over its pairs, as segmetric's summary does.",
+  "inputs": [
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the segmentation to measure"
+   },
+   {
+    "name": "reference",
+    "type": "any",
+    "required": true,
+    "doc": "the reference: polygons (a vector, in the objects' coordinate system or reprojected), or objects on the same grid"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "a row per pair of a reference and an object that is in a subset of the measures: reference, object, cells (the overlap), reference_cells, object_cells, matched (a pair of Clinton et al.: os, us, d and qr are averaged over these), best_for_reference (afi and the recall), best_for_object (the precision), and os, us, d, qr and afi of the pair"
+   },
+   {
+    "name": "summary",
+    "type": "table",
+    "required": true,
+    "doc": "a row: references, objects, matched (references with a matching object) and the measures asked for"
+   },
+   {
+    "name": "objects",
+    "type": "objects",
+    "required": true,
+    "doc": "the objects with the columns os and us against the reference each shares the most with (NaN where none), to show on a map where the segmentation errs by excess (os) or by lack (us)"
+   }
+  ],
+  "params": [
+   {
+    "name": "metrics",
+    "type": "any",
+    "required": false,
+    "doc": "the measures (a list of: os, us, d, qr, afi, precision, recall, f_overlap, pse, nsr, ed2; default all)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Draw 20 to 50 reference objects over the places that matter (polygons, or objects made another way) and the segmentation is measured by how its objects cover them. os is the over-segmentation, how much of a reference its object leaves out (a reference split in pieces); us is the under-segmentation, how much of an object lies outside the reference (an object spanning several); d, qr and ed2 join the two in one number, 0 the best, and f_overlap (1 the best) is the F of the precision and the recall. They are averaged over the pairs of a reference and an object that match (those that share the centroid or more than half of one), so look at the `table` for the references that fare badly, and paint the `os` and `us` of the objects output on the map to see where the segmentation errs, by excess or by lack. The numbers are those of the R package segmetric (Costa et al.), except pse, nsr and ed2 (Liu et al. 2012), which it does not have. Do not tune the segmentation on the reference you will judge the classification with."
+ },
+ {
   "name": "segment.felzenszwalb",
   "doc": "Objects as graph-based segments (Felzenszwalb & Huttenlocher 2004, as skimage's felzenszwalb): the cells are nodes, each joined to its 4 or 8 neighbours by an edge weighted with the distance of their bands (after a Gaussian smoothing of sigma cells). The edges are taken from the lowest weight up, and two components join when the edge is no heavier than the least of their inner weight (the heaviest edge in them) plus k / size: a small component is easy to join, a large one needs a closer match. Then components under min_size cells join, in the order of the edges. A constant area is one object. The objects are 4-connected: a component linked only by corners is cut first, then its pieces under min_size join along 4-neighbour edges. No object has fewer than min_size cells, unless the whole image, or a zone of `bounds` (or an area of valid cells cut off by the missing ones), is smaller. The bands are standardised (z-score over the cells with a value) by default, so that bands of different ranges (reflectance 0-1 beside 0-10000) weigh alike in the distance; standardise: false uses the raw values. A cell without a value in every band is no object. The same result on every run, on any number of threads.",
   "inputs": [
@@ -28695,6 +29339,12 @@
     "type": "integer",
     "required": false,
     "doc": "cells, the margin around each tile that is segmented with it for the context of its border; 0 (default) is automatic: 64 cells, at most half the tile"
+   },
+   {
+    "name": "seam_band",
+    "type": "integer",
+    "required": false,
+    "doc": "cells, with tiles: 0 (default) takes apart every piece that touches a tile border into single cells to merge them again across it; above 0 only the cells of those pieces within this many cells of a border are taken apart and the rest of each piece stays one region (faster, an experiment)"
    }
   ],
   "access": "global",
@@ -28703,13 +29353,19 @@
  },
  {
   "name": "segment.optimize",
-  "doc": "The best value of a segmenter's setting, by unsupervised parameter optimisation (USPO of Espindola et al. 2006, as GRASS's i.segment.uspo; the F-measure of Johnson & Xie 2011). The segmenter runs once for each value, in parallel; each result is scored by its intra-object variance (the mean over the bands of the variance inside the objects, weighted by their cells: low when the objects are homogeneous) and by Moran's I of the objects' means over the objects that touch (per band, the mean: low when the neighbours differ). Both are scaled over the runs from 1 (lowest) to 0 (highest) and the objective is their sum, or with objective f their F-measure (1 + alpha²) v i / (alpha² i + v). The value with the highest objective wins: too fine a segmentation is not different from its neighbours, too coarse a one is not homogeneous. Its objects are the result. Read the table of scores as well as the winner: it is a guide, as segment.scale is. Of the segmenter's other settings, `params` holds those that stay fixed.",
+  "doc": "The best value of a segmenter's setting, by unsupervised parameter optimisation (USPO of Espindola et al. 2006, as GRASS's i.segment.uspo; the F-measure of Johnson & Xie 2011). The segmenter runs once for each value, in parallel; each result is scored by its intra-object variance (the mean over the bands of the variance inside the objects, weighted by their cells: low when the objects are homogeneous) and by Moran's I of the objects' means over the objects that touch (per band, the mean: low when the neighbours differ). Both are scaled over the runs from 1 (lowest) to 0 (highest) and the objective is their sum, or with objective f their F-measure (1 + alpha²) v i / (alpha² i + v). The value with the highest objective wins: too fine a segmentation is not different from its neighbours, too coarse a one is not homogeneous. Its objects are the result. Read the table of scores as well as the winner: it is a guide, as segment.scale is. Of the segmenter's other settings, `params` holds those that stay fixed. With a `reference` (polygons or objects drawn by hand) each result is also measured against it, as segment.evaluate does, and the table of scores gains the columns os, us, d, ed2 and f_overlap; the objective d, ed2 or f_overlap then chooses the value that the reference favours (the lowest d or ed2, the highest F), and the table's objective column is that measure scaled from 1 (the best) to 0.",
   "inputs": [
    {
     "name": "image",
     "type": "any",
     "required": true,
     "doc": "a map, or a stack of bands, the colour (given to every run)"
+   },
+   {
+    "name": "reference",
+    "type": "any",
+    "required": false,
+    "doc": "reference objects, polygons or objects on the image's grid: each run is measured against them"
    }
   ],
   "outputs": [
@@ -28729,7 +29385,7 @@
     "name": "scores",
     "type": "table",
     "required": true,
-    "doc": "a row per value: value, objects, variance, moran, objective (NaN where a run has no score, e.g. one object)"
+    "doc": "a row per value: value, objects, variance, moran, objective (NaN where a run has no score, e.g. one object), and with a reference os, us, d, ed2 and f_overlap"
    },
    {
     "name": "value",
@@ -28785,10 +29441,13 @@
     "name": "objective",
     "type": "text",
     "required": false,
-    "doc": "sum (default: the scaled variance plus the scaled Moran's I, Espindola) or f (their F-measure, Johnson & Xie)",
+    "doc": "sum (default: the scaled variance plus the scaled Moran's I, Espindola) or f (their F-measure, Johnson & Xie); with a reference also d, ed2 (the lowest wins) or f_overlap (the highest wins), by the measures of segment.evaluate",
     "choices": [
      "sum",
-     "f"
+     "f",
+     "d",
+     "ed2",
+     "f_overlap"
     ]
    },
    {
@@ -28800,7 +29459,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "USPO: it runs a segmenter at each value you give (`values`, or `from`, `to` and `step`) and scores each result by the variance inside its objects (low: homogeneous objects) and Moran's I of the objects' means over the objects that touch (low: neighbours that differ), both scaled over the runs; the highest sum wins (`objective` f takes the F-measure of Johnson and Xie, `alpha` weighing the variance). Too fine a segmentation is alike its neighbours and too coarse a one is not homogeneous, so the best lies between. The segmenter is `segmenter` (multiresolution by default) and the setting varied is `parameter` (scale, threshold, size... by segmenter); its other settings go in `params`, an object. Look at the table of `scores` and at the objects, as for segment.scale: the score is a guide. The runs go in parallel, so try a range of 5 to 10 values on a part of a large image first."
+  "advice": "USPO: it runs a segmenter at each value you give (`values`, or `from`, `to` and `step`) and scores each result by the variance inside its objects (low: homogeneous objects) and Moran's I of the objects' means over the objects that touch (low: neighbours that differ), both scaled over the runs; the highest sum wins (`objective` f takes the F-measure of Johnson and Xie, `alpha` weighing the variance). Too fine a segmentation is alike its neighbours and too coarse a one is not homogeneous, so the best lies between. The segmenter is `segmenter` (multiresolution by default) and the setting varied is `parameter` (scale, threshold, size... by segmenter); its other settings go in `params`, an object. Look at the table of `scores` and at the objects, as for segment.scale: the score is a guide. The runs go in parallel, so try a range of 5 to 10 values on a part of a large image first. With a `reference` (20 to 50 objects drawn by hand, as polygons, over the places that matter) every run is also measured against it and the scores gain os, us, d, ed2 and f_overlap; the objective d, ed2 or f_overlap then picks the value by them (the lowest error, the highest overlap F), which is better than the variance when the objects must match what you drew."
  },
  {
   "name": "segment.quadtree",
@@ -29037,13 +29696,19 @@
  },
  {
   "name": "segment.sam",
-  "doc": "Objects by Segment Anything (SAM), automatic masks, simplified, run by ONNX Runtime (optional: it is loaded when this operator runs; if it is not found the error says how to install it and to set ORT_DYLIB_PATH, and every other operator works without it). With no `encoder` and `decoder` the weights              download on first use: SAM ViT-B as exported to ONNX by vietanhdev (Apache-2.0,              huggingface.co/vietanhdev/segment-anything-onnx-models), the quantised one of 75 MB by default or, with              `weights` full, the full-precision one of 348 MB, to Terraflux's cache folder (the SHA-256 checked;              later runs reuse the files; TERRAFLUX_CACHE moves the folder). Or give the ONNX files of SAM's image              encoder and mask decoder as the common SAM ONNX export makes them. The encoder takes a 1 x 3 x 1024 x              1024 float image (after SAM's normalisation) or, for the exports that do that inside (input_image), the              tile as height x width x 3 values of 0-255, and gives image_embeddings 1 x 256 x 64 x 64; the decoder takes image_embeddings, point_coords, point_labels, mask_input, has_mask_input and orig_im_size and gives masks and iou_predictions. The image is cut into tiles of 1024 x 1024 cells (clipped at the edges, resized so the longer side is 1024 and padded), the three bands stretched to 0-255 between their 2nd and 98th percentiles; a grid of `points` x `points` prompt points is run on each tile (a cell without a value is not prompted), the best mask of a point is kept when its predicted IoU is at least `iou`, its stability score (the IoU of the mask cut at logit +`stability_offset` and at minus it) is at least `stability_thresh` and it covers at most `max_area` of the tile (a bigger one is the background); then the masks are thinned by box non-maximum suppression at 0.7, ranked by stability x IoU, as SAM's automatic mask generator does, and painted one over the other, the larger first, so that the smaller ones on top survive. With `fill` the cells that no mask holds become objects too (each connected area). The masks of a tile are cut at its edge, so an object spanning tiles is one object for each. Each mask's cells that are not connected are different objects.",
+  "doc": "Objects by Segment Anything (SAM), automatic masks, simplified, run by ONNX Runtime (optional: it is loaded when this operator runs; if it is not found the error says how to install it and to set ORT_DYLIB_PATH, and every other operator works without it). With no `encoder` and `decoder` the weights              download on first use: SAM ViT-B as exported to ONNX by vietanhdev (Apache-2.0,              huggingface.co/vietanhdev/segment-anything-onnx-models), the quantised one of 75 MB by default or, with              `weights` full, the full-precision one of 348 MB, to Terraflux's cache folder (the SHA-256 checked;              later runs reuse the files; TERRAFLUX_CACHE moves the folder). Or give the ONNX files of SAM's image              encoder and mask decoder as the common SAM ONNX export makes them. The encoder takes a 1 x 3 x 1024 x              1024 float image (after SAM's normalisation) or, for the exports that do that inside (input_image), the              tile as height x width x 3 values of 0-255, and gives image_embeddings 1 x 256 x 64 x 64; the decoder takes image_embeddings, point_coords, point_labels, mask_input, has_mask_input and orig_im_size and gives masks and iou_predictions. The image is cut into tiles of 1024 x 1024 cells (clipped at the edges, resized so the longer side is 1024 and padded), the three bands stretched to 0-255 between their 2nd and 98th percentiles; a grid of `points` x `points` prompt points is run on each tile (a cell without a value is not prompted), the best mask of a point is kept when its predicted IoU is at least `iou`, its stability score (the IoU of the mask cut at logit +`stability_offset` and at minus it) is at least `stability_thresh` and it covers at most `max_area` of the tile (a bigger one is the background); then the masks are thinned by box non-maximum suppression at 0.7, ranked by stability x IoU, as SAM's automatic mask generator does, and painted one over the other, the larger first, so that the smaller ones on top survive. With `fill` the cells that no mask holds become objects too (each connected area). The masks of a tile are cut at its edge, so an object spanning tiles is one object for each. Each mask's cells that are not connected are different objects. With `prompts` there is no grid of points: each group of prompts is one object, as SAM gives it for those clicks and boxes (the points as 1 inside and 0 outside, a box by its two corners), the mask of the best predicted IoU, the connected area of it that holds the first point (or the middle of the box); only the tiles that hold a group's first point or the middle of its box are run through the encoder. Where two objects overlap the smaller stays. A group that gives no mask is told in a warning. With `fill` the cells of no object become the object of group 0. A group's class gives the object its class (and the classes of the objects, so objects.features and objects.classify take them as samples).",
   "inputs": [
    {
     "name": "image",
     "type": "any",
     "required": true,
     "doc": "a stack of bands holding the three colours (red, green, blue)"
+   },
+   {
+    "name": "prompts",
+    "type": "vector",
+    "required": false,
+    "doc": "points and boxes that say which objects to cut (any coordinate system): a point with label 1 (default) is inside the object and with 0 outside it, a polygon is a box (its extent); group says which object a feature is for (one object per group; without it each feature is one), class names the object's class"
    }
   ],
   "outputs": [
@@ -29057,7 +29722,7 @@
     "name": "table",
     "type": "table",
     "required": true,
-    "doc": "a row per object: id, cells, area (map units squared), mean_<band> and sd_<band> of the three bands"
+    "doc": "a row per object: id, cells, area (map units squared), mean_<band> and sd_<band> of the three bands (with prompts, also group: the prompt group of the object, 0 for the rest)"
    }
   ],
   "params": [
@@ -29134,7 +29799,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH to its shared library). With no `encoder` and `decoder` the weights of SAM ViT-B (Apache-2.0, exported to ONNX by vietanhdev, from huggingface.co) download on first use to the cache folder, 75 MB, or 348 MB with `weights` full; or give the ONNX files of SAM's encoder and decoder. It is slow on a CPU: one encoder run per 1024 x 1024 tile and one decoder run per prompt point, so start with `points` 8 on a small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks."
+  "advice": "Optional: it needs ONNX Runtime (pip install onnxruntime, then set ORT_DYLIB_PATH to its shared library). With no `encoder` and `decoder` the weights of SAM ViT-B (Apache-2.0, exported to ONNX by vietanhdev, from huggingface.co) download on first use to the cache folder, 75 MB, or 348 MB with `weights` full; or give the ONNX files of SAM's encoder and decoder. It is slow on a CPU: one encoder run per 1024 x 1024 tile and one decoder run per prompt point, so start with `points` 8 on a small area. Give three bands as red, green and blue; raise `iou` for fewer, surer masks. To cut chosen objects instead of every one, give `prompts`: a vector of points (label 1 inside the object, 0 outside it) and polygons (a box), with `group` saying which object each is for and `class` naming its class; the encoder runs only on the tiles the prompts touch, and no grid of points is run."
  },
  {
   "name": "segment.scale",
