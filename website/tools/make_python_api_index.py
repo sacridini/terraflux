@@ -25,6 +25,7 @@ from lib.pyapi import resolve_path  # noqa: E402
 PAGES = [
     ("data", "Data & configuration", "Read, write and reclassify rasters, collections, colour tables, threads."),
     ("download", "Data on demand", "WorldClim, CHELSA, Copernicus DEM, SoilGrids, MapBiomas, Hydrography90m, STAC, onto a map's grid."),
+    ("vector", "Vector analysis", "Predicates and selection by location, joins, nearest feature, overlay, clip, dissolve, buffer, geometry, lines, Voronoi, clusters, coverages (PostGIS-style)."),
     ("patterns", "Habitat patterns", "MSPA, SPA, objects by size, parcels and contortion."),
     ("fragmentation", "Fragmentation", "Density, fragmentation classes, landscape mosaics, contagion, entropy."),
     ("landscape-metrics", "Landscape metrics", "Patch, class and landscape metrics; windows, plots, zones, time series."),

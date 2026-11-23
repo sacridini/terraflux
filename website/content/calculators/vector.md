@@ -1,19 +1,21 @@
 ---
 title: The vector calculator
 short: Vector calculator
-description: "Scripts over vector features in vector.calc and vector.filter: attributes of numbers and texts, the geometry's measures, attributes given with out and features kept by a condition, with a playground computed in your browser by Terraflux's own engine over Sibuyan's patches."
+description: "Scripts over vector features in vector.calc and vector.filter: attributes of numbers and texts, the geometry's measures, spatial functions of other layers (within, dwithin, count, distance), attributes given with out and features kept by a condition, with a playground computed in your browser by Terraflux's own engine over Sibuyan's patches."
 order: 20
 level: beginner
 time: 30 min
-ops: [vector.calc, vector.filter, vector.geometry]
+ops: [vector.calc, vector.filter, vector.geometry, vector.select_by_location]
 ---
 
 The vector calculator is two operators that read the same scripts: [[vector.calc]] gives every feature new
 attributes computed from its others and from its geometry (the area in hectares, a class's name, a density), as
 QGIS's field calculator does; [[vector.filter]] keeps the features where a condition holds (the forest patches
 larger than 10 ha), as QGIS's Select by Expression or geopandas' `query`. Their language is the raster
-calculator's, with texts and the geometry's measures added. This page has a playground over real features, then
-the language, recipes and pitfalls.
+calculator's, with texts and the geometry's measures added, and, when other layers are connected, **spatial
+functions** that ask how each feature relates to them (`within(parks)`, `dwithin(rivers, 500)`,
+`count(trees, "contains")`, `distance(roads)`). This page has a playground over real features, then the language,
+the spatial functions, recipes and pitfalls.
 
 ## Try it
 
@@ -90,6 +92,13 @@ presets:
     - **The console** computes one line in the script's scope: `cover.count()`, `geometry.area.sum() / 1e6`.
     - **The node's inputs** (`wanted`, `min_ha`) have boxes at the top: a number, or a text in quotes.
 
+!!! note "The spatial functions are not in the playground"
+    The playground computes over one layer, Sibuyan's patches, and the engine in your browser has no GEOS (the
+    geometry library the application uses) and no second layer: a script that calls `within(parks)` or
+    `distance(roads)` there is answered that `parks` is not a connected layer (and the engine's own stub says the
+    spatial functions need another layer, connected to the node in the application). They are [described below](#spatial-functions-other-layers) and run in the application, with
+    `terraflux run` and in Python (`tf.vector.relate`, `count` and `distance`).
+
 ## The idea
 
 A vector layer is a table with a geometry in each row: one **feature** per row (a patch, a reserve, a road, a
@@ -108,7 +117,8 @@ Three things are new:
     - The **geometry** is read by its measures: `geometry.area`, `geometry.perimeter`, `geometry.length`,
       `geometry.x` and `geometry.y` (the centroid), in the features' units, as [[vector.geometry]] gives them.
     - There are **no neighbourhoods**: a feature has no cells around it, so `nbmean` and the like are for maps.
-      What is near a feature is a matter for [[vector.spatial_join]] or [[vector.distance]].
+      What is near a feature is asked of another layer, with the spatial functions below, or with
+      [[vector.spatial_join]] and [[vector.nearest]].
 
 ## vector.calc and vector.filter
 
@@ -201,6 +211,85 @@ number from every feature with a value, as over the cells of a map. They give sh
 geometry.area.sum()`), ranks of a kind (`x >= x.percentile(90)`, the top tenth) and totals. A number given to an
 attribute with `out` is given to every feature (`out total = people.sum()`).
 
+### Spatial functions: other layers {#spatial-functions-other-layers}
+
+A script can ask how each feature **relates to the features of another layer**: is it inside a park, near a river,
+how many trees does it hold, how far is the road. The other layers are **vectors connected to the node**, and the
+script names each by the name of its input port. Add the port with `+ new input` in the application (or write it in
+the model file's `inputs`) and connect the layer to it:
+
+```tfgraph
+#! caption: A script over the sites that reads three other layers by the names of their ports: parks, rivers and trees.
+#! highlight: sites_calc
+format = "terraflux/1"
+
+[[nodes]]
+id = "sites"
+op = "vector.read"
+params = { path = "sites.gpkg" }
+
+[[nodes]]
+id = "parks"
+op = "vector.read"
+params = { path = "parks.gpkg" }
+
+[[nodes]]
+id = "rivers"
+op = "vector.read"
+params = { path = "rivers.gpkg" }
+
+[[nodes]]
+id = "trees"
+op = "vector.read"
+params = { path = "trees.gpkg" }
+
+[[nodes]]
+id = "sites_calc"
+op = "vector.calc"
+inputs = { vector = "sites.vector", parks = "parks.vector", rivers = "rivers.vector", trees = "trees.vector" }
+params = { expression = """
+out in_park = within(parks)
+out near_river = dwithin(rivers, 500)
+out n_trees = count(trees, "contains")
+out river_m = distance(rivers)
+""" }
+note = "Four attributes, one value per site."
+```
+
+The functions take the layer as their **first value**; each gives one number per feature:
+
+| Function | Value for each feature |
+|---|---|
+| `within(parks)`, `contains(...)`, `intersects(...)`, `touches(...)`, `crosses(...)`, `overlaps(...)`, `covers(...)`, `covered_by(...)`, `contains_properly(...)`, `equals(...)`, `disjoint(...)` | 1 where the predicate holds with **at least one** feature of the layer, else 0; `disjoint` is 1 where it meets none |
+| `dwithin(rivers, 500)` | 1 where some feature of the layer is within 500 map units (inclusive) |
+| `count(trees, "contains")` | how many features of the layer the predicate holds with: `"within"`, `"intersects"`... (`intersects` if none is given); `count(rivers, "dwithin", 500)` takes the distance as a third value |
+| `distance(roads)` | the distance to the nearest feature of the layer (0 where they meet) |
+
+The predicate is read as `predicate(feature, layer)`, the feature first: `within(parks)` asks whether *the
+feature* is inside a park, and `contains(trees)` whether it holds a tree. They are the predicates of
+[[vector.select_by_location]], explained with a figure in
+[the tutorial on vector analysis](/tutorials/vector-analysis/select-join-overlay/); in Python they are
+`tf.vector.relate`, `tf.vector.count` and `tf.vector.distance`, and a script of the calculator computes the same
+values.
+
+A few rules:
+
+- A **distance** is a number (`500`) or a number input of the node, not an attribute: `dwithin(rivers, buffer_m)` with
+  `buffer_m` connected as a number is fine, `dwithin(rivers, width)` with `width` an attribute is refused. It is in
+  the units of the features' coordinates, so give the layers in a projected system (metres), not in degrees.
+- The other layer is **reprojected** to the features' system when both are known and differ.
+- A layer is not a value: `within(parks) + parks` or `parks > 1` is refused, and so is `within(width)` when `width`
+  is an attribute: the first value of a spatial function is a layer. A layer whose name is also an attribute's
+  or a script variable's cannot be read: rename the port.
+- The name of a port is made a valid name of the language: `my-trees` is read as `my_trees`.
+- A **table** has no geometry, so the functions are refused over a table.
+- The result is a number, so it can be combined (`within(parks) and geometry.area > 1e6`), chosen with `a if c else b`
+  and counted (`x.sum()`).
+- An **empty geometry** never meets anything: its predicate is 0, its count 0 (for `disjoint` too), and its distance
+  missing, as is every distance when the layer has no features.
+- Each distinct call is computed **once** (GEOS through a spatial index), so repeating `dwithin(rivers, 500)` in a
+  script costs nothing more.
+
 ### Missing values
 
 A feature without a value (`None`, an empty text) gives missing values in
@@ -225,6 +314,12 @@ them and `coalesce(x, y)` fills them.
 | features of a list of classes | `cover == "rice" or cover == "coconut"` |
 | a missing value filled | `coalesce(owner, "unknown")` |
 | a number per feature | `feature` (1, 2, ...) |
+| features inside a layer | `within(parks)` (a filter's last line) |
+| features near a layer | `dwithin(rivers, 500)` |
+| features that meet nothing | `disjoint(parks)` |
+| how many features of a layer a feature holds | `count(trees, "contains")` |
+| the distance to the nearest feature of a layer | `distance(roads)` |
+| patches near a road and with records | `dwithin(road, 500) and count(records, "contains") > 0` |
 
 ## In the application, the model file and the assistant
 
@@ -235,7 +330,8 @@ them and `coalesce(x, y)` fills them.
     pane: a box of one line for a short expression, of several lines once it is longer than 40 characters or has
     a line break (`;` also separates two statements on one line). A script with an error makes the run stop at
     the node, with the message and its line. Connect a number or a text to a `+ new input` to give the script an
-    input of that name.
+    input of that name; a **vector** connected to it is a layer the spatial functions read (`within(parks)` for a
+    vector connected to an input called `parks`).
 
 === "Model file"
 
@@ -288,11 +384,18 @@ them and `coalesce(x, y)` fills them.
   [[vector.calc]] without `out` needs its `column`.
 - **A missing value spreads**, through `and` and `or` too: fill it with `coalesce`, or test it with `isnull`.
 - **`round` and `%`** are not Python's for halves and negative numbers: `round(2.5)` is 3, `-7 % 3` is -1.
+- **Distances in degrees.** `dwithin(rivers, 500)` and `distance(roads)` are in the features' units: in longitude
+  and latitude 500 is 500 degrees. Reproject the layers ([[vector.reproject]]) first.
+- **The order of a predicate.** `within(parks)` asks about each feature of the script's layer, not about the
+  parks: to count the trees in each park, run the script over the parks with `count(trees, "contains")`.
+- **A layer where a value goes.** `parks + 1` is refused; the layer is the first value of a spatial function only.
 
 ## Going further
 
 - [The raster calculator](../raster/): the language over maps, with stacks and neighbourhoods.
 - [Vector data](../../tutorials/getting-started/vector-data/): reading features, burning them into a grid,
   statistics of a map in each polygon, values at points.
+- [Vector analysis, part 1](/tutorials/vector-analysis/select-join-overlay/): selection by location, joins, the
+  nearest feature and overlays, with the table of equivalents with PostGIS, GDAL and QGIS.
 - The operator reference: [[vector.calc]], [[vector.filter]], [[vector.geometry]], [[vector.zonal]],
-  [[vector.polygonize]], [[vector.spatial_join]].
+  [[vector.polygonize]], [[vector.spatial_join]], [[vector.select_by_location]], [[vector.nearest]].

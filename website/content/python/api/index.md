@@ -32,6 +32,7 @@ The pages, one per area:
 
 - **[Data & configuration](/python/api/data/)**: Read, write and reclassify rasters, collections, colour tables, threads.
 - **[Data on demand](/python/api/download/)**: WorldClim, CHELSA, Copernicus DEM, SoilGrids, MapBiomas, Hydrography90m, STAC, onto a map's grid.
+- **[Vector analysis](/python/api/vector/)**: Predicates and selection by location, joins, nearest feature, overlay, clip, dissolve, buffer, geometry, lines, Voronoi, clusters, coverages (PostGIS-style).
 - **[Habitat patterns](/python/api/patterns/)**: MSPA, SPA, objects by size, parcels and contortion.
 - **[Fragmentation](/python/api/fragmentation/)**: Density, fragmentation classes, landscape mosaics, contagion, entropy.
 - **[Landscape metrics](/python/api/landscape-metrics/)**: Patch, class and landscape metrics; windows, plots, zones, time series.
@@ -121,6 +122,48 @@ The pages, one per area:
 | [`tf.download.Environment90m`](/python/api/download/#terraflux.download.Environment90m) | The environment of Hydrography90m's sub-catchments (`environment90m`) |
 | [`tf.download.raster`](/python/api/download/#terraflux.download.raster) | Any raster GDAL reads (a URL, a file), or several, warped onto a grid; only the part the grid covers is read |
 | [`tf.download.stac`](/python/api/download/#terraflux.download.stac) | The scenes of a STAC catalogue over a grid, each asset warped onto it and the scenes combined |
+
+### Vector analysis
+
+| Name | Summary |
+|---|---|
+| [`tf.vector.select`](/python/api/vector/#terraflux.vector.select) | The features of ``a`` for which ``predicate`` holds with at least one feature of ``b`` (selection by location) |
+| [`tf.vector.disjoint`](/python/api/vector/#terraflux.vector.disjoint) | The features of ``a`` that meet **no** feature of ``b`` (not ``intersects`` with any) |
+| [`tf.vector.dwithin`](/python/api/vector/#terraflux.vector.dwithin) | The features of ``a`` within ``distance`` (in the CRS units, planar, inclusive) of at least one feature of ``b`` |
+| [`tf.vector.relate`](/python/api/vector/#terraflux.vector.relate) | Which features of ``a`` satisfy ``predicate`` with at least one feature of ``b``: a bool array, one per feature |
+| [`tf.vector.count`](/python/api/vector/#terraflux.vector.count) | How many features of ``b`` satisfy ``predicate`` with each feature of ``a``: an int64 array, one per feature |
+| [`tf.vector.distance`](/python/api/vector/#terraflux.vector.distance) | The distance from each feature of ``a`` to the nearest feature of ``b``: a float64 array, one per feature |
+| [`tf.vector.join`](/python/api/vector/#terraflux.vector.join) | Spatial join: attributes of ``b`` on the features of ``a`` that satisfy ``predicate`` with them |
+| [`tf.vector.nearest`](/python/api/vector/#terraflux.vector.nearest) | Each feature of ``a`` with the attributes of the nearest feature of ``b`` and the distance to it |
+| [`tf.vector.overlay`](/python/api/vector/#terraflux.vector.overlay) | Two layers overlaid: the pieces where their features meet, and the parts of one that the other does not cover |
+| [`tf.vector.intersection`](/python/api/vector/#terraflux.vector.intersection) | The pieces where the features of ``a`` and ``b`` meet, with both attributes: ``overlay(a, b, "intersection")`` |
+| [`tf.vector.difference`](/python/api/vector/#terraflux.vector.difference) | Each feature of ``a`` less the ``b`` it meets, attributes of ``a``: ``overlay(a, b, "difference")`` |
+| [`tf.vector.symmetric_difference`](/python/api/vector/#terraflux.vector.symmetric_difference) | What is in ``a`` or in ``b`` but not both: ``overlay(a, b, "symmetric_difference")`` |
+| [`tf.vector.identity`](/python/api/vector/#terraflux.vector.identity) | All of ``a``, cut where ``b`` meets it, with ``b``'s attributes there: ``overlay(a, b, "identity")`` |
+| [`tf.vector.union`](/python/api/vector/#terraflux.vector.union) | With two layers, their overlay union; with one, all its features merged into one (``dissolve(a)``) |
+| [`tf.vector.clip`](/python/api/vector/#terraflux.vector.clip) | Each feature of ``a`` cut to the area of ``mask`` (the union of its polygons); those outside it are left out |
+| [`tf.vector.dissolve`](/python/api/vector/#terraflux.vector.dissolve) | The features merged: all into one, or one per value of the column ``by``, with its value and ``count`` |
+| [`tf.vector.buffer`](/python/api/vector/#terraflux.vector.buffer) | The area within ``distance`` of every feature (``segments`` per quarter circle), its attributes kept |
+| [`tf.vector.measures`](/python/api/vector/#terraflux.vector.measures) | The features with the columns ``area``, ``perimeter``, ``length``, ``x`` and ``y``, as the app's ``vector.geometry`` (QGIS's *Add geometry attributes*), in the units of the CRS |
+| [`tf.vector.centroid`](/python/api/vector/#terraflux.vector.centroid) | The centroid of each feature, as a point |
+| [`tf.vector.hull`](/python/api/vector/#terraflux.vector.hull) | The convex or concave hull of each feature |
+| [`tf.vector.simplify`](/python/api/vector/#terraflux.vector.simplify) | Each geometry simplified (Douglas-Peucker) with ``tolerance``, in the units of the CRS |
+| [`tf.vector.envelope`](/python/api/vector/#terraflux.vector.envelope) | The bounding box of each feature, as a polygon |
+| [`tf.vector.make_valid`](/python/api/vector/#terraflux.vector.make_valid) | Each invalid geometry repaired (GEOS's linework method: a bow-tie polygon becomes a multipolygon); valid ones are kept as they are |
+| [`tf.vector.explode`](/python/api/vector/#terraflux.vector.explode) | Multi-part features split into single parts, one feature per part with the attributes repeated, in the order of the features and, in each, of the parts |
+| [`tf.vector.boundary`](/python/api/vector/#terraflux.vector.boundary) | The boundary of each feature: the rings of a polygon as lines, the end points of a line as points (a closed line has none: an empty geometry); the boundary of a point is empty |
+| [`tf.vector.points_along`](/python/api/vector/#terraflux.vector.points_along) | Points along each line, at a fixed spacing or in a fixed number |
+| [`tf.vector.substring`](/python/api/vector/#terraflux.vector.substring) | Each line (each part of a MultiLineString) cut between the measures ``start`` and ``end`` |
+| [`tf.vector.split_lines`](/python/api/vector/#terraflux.vector.split_lines) | Each line cut into consecutive pieces of at most ``length`` |
+| [`tf.vector.locate`](/python/api/vector/#terraflux.vector.locate) | For each feature of ``a``, the nearest line of ``lines`` and the measure along it of the closest point |
+| [`tf.vector.shortest_line`](/python/api/vector/#terraflux.vector.shortest_line) | The line from each feature of ``a`` to its nearest feature of ``b`` |
+| [`tf.vector.closest_point`](/python/api/vector/#terraflux.vector.closest_point) | Each point of ``a`` moved to the nearest point of the nearest feature of ``b`` |
+| [`tf.vector.voronoi`](/python/api/vector/#terraflux.vector.voronoi) | The Voronoi polygon of each point: one polygon per point, with the attributes of ``a``, in its order |
+| [`tf.vector.delaunay`](/python/api/vector/#terraflux.vector.delaunay) | The Delaunay triangulation of all the vertices of ``a``: triangles, or the edges as lines with ``edges=True`` |
+| [`tf.vector.cluster`](/python/api/vector/#terraflux.vector.cluster) | The features of ``a`` with an int64 column of cluster ids: DBSCAN on the distance between geometries |
+| [`tf.vector.smooth`](/python/api/vector/#terraflux.vector.smooth) | Lines and polygons smoothed by Chaikin's corner cutting, ``iterations`` times (1 to 10) |
+| [`tf.vector.coverage_simplify`](/python/api/vector/#terraflux.vector.coverage_simplify) | The polygons of a coverage simplified together (Visvalingam-Whyatt, GEOS), in the units of the CRS |
+| [`tf.vector.coverage_validate`](/python/api/vector/#terraflux.vector.coverage_validate) | The edges of a polygon coverage that overlap or leave a gap with their neighbours, per feature |
 
 ### Habitat patterns
 

@@ -156,6 +156,47 @@
    ]
   },
   {
+   "slug": "vector-analysis",
+   "title": "Vector analysis",
+   "tutorials": [
+    {
+     "slug": "select-join-overlay",
+     "title": "Vector analysis, part 1: select, join and overlay",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/vector-analysis/select-join-overlay/cover.gpkg",
+      "/data/tutorials/vector-analysis/select-join-overlay/forest.gpkg",
+      "/data/tutorials/vector-analysis/select-join-overlay/records.gpkg",
+      "/data/tutorials/vector-analysis/select-join-overlay/reserves.gpkg",
+      "/data/tutorials/vector-analysis/select-join-overlay/road.gpkg",
+      "/data/tutorials/vector-analysis/select-join-overlay/stations.gpkg",
+      "/data/tutorials/vector-analysis/select-join-overlay/towns.gpkg",
+      "/data/tutorials/vector-analysis/select-join-overlay/water.gpkg",
+      "/data/tutorials/vector-analysis/select-join-overlay/window.gpkg"
+     ]
+    },
+    {
+     "slug": "shapes-lines-clusters",
+     "title": "Vector analysis, part 2: shapes, lines, Voronoi cells and clusters",
+     "template": null,
+     "models": [],
+     "files": [
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/cover.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/cover_raw.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/forest.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/records.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/reserves.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/road.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/stations.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/towns.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/water.gpkg",
+      "/data/tutorials/vector-analysis/shapes-lines-clusters/window.gpkg"
+     ]
+    }
+   ]
+  },
+  {
    "slug": "habitat-patterns",
    "title": "Habitat patterns",
    "tutorials": [

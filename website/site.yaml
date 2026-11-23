@@ -108,6 +108,7 @@ redirects:
 tutorial_categories:
   - { slug: getting-started, title: Getting started, cells: "111100100", blurb: "Open and look at maps and vectors, reproject and resample them, save them, and build your first graph." }
   - { slug: building-models, title: Building models, cells: "110011001", prefixes: [map, stack, control, rng, plugin, view], blurb: "Map algebra, stacks, loops, groups, submodels and plugins: the pieces every model is made of." }
+  - { slug: vector-analysis, title: Vector analysis, cells: "110111010", blurb: "Features compared, joined and cut as PostGIS, GDAL and QGIS do: predicates, nearest neighbours, overlays, lines, Voronoi cells, clusters and polygon coverages." }
   - { slug: habitat-patterns, title: Habitat patterns, cells: "111101111", prefixes: [landscape, patterns], blurb: "GuidosToolbox's morphological spatial pattern analysis: cores, edges, bridges and corridors." }
   - { slug: fragmentation, title: Fragmentation, cells: "101010101", prefixes: [fragmentation], blurb: "How fragmented a habitat is at many scales: density, connectivity, contagion and entropy." }
   - { slug: landscape-metrics, title: Landscape metrics, cells: "110110001", prefixes: [metrics], blurb: "FRAGSTATS' and landscapemetrics' metrics per patch, class and landscape, in windows and signatures." }
