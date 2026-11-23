@@ -5877,3 +5877,44 @@ sub-agentes.
   geopandas, `tf.vector`, o nó), a referência Python de `tf.vector`, o guia `data-preparation` do MCP, o template das
   ferramentas de vetor com um predicado e o vizinho mais próximo, o CHANGELOG, o README e as marcas de **Feito**
   aqui. O `ops.json` é refeito na release.
+
+### Mais funções do PostGIS (pedido de 2026-11-23: "pode implementar de 1 até 5 tb")
+
+As que interessam ao Terraflux (ocorrências, rios, estradas, polígonos vindos de raster), na mesma forma: a função em
+`tf.vector` e o nó com o mesmo nome. Entram depois de A4 e antes da documentação (A5 passa a ser a última fase e
+cobre também estas).
+
+- **L4 / A6. Voronoi, Delaunay e agrupamento.**
+  - `voronoi(a, clip=None, tolerance=0)`: um polígono por ponto, com os atributos do ponto, na ordem de `a`
+    (`ST_VoronoiPolygons`; o GEOS 3.12 dá as células na ordem dos pontos, antes disso pela posição do ponto em cada
+    célula), recortado a `clip` (polígonos) ou à caixa dos pontos alargada como o GEOS faz. `delaunay(a, edges=False,
+    tolerance=0)`: os triângulos (ou as arestas) de `ST_DelaunayTriangles`.
+  - `cluster(a, distance, min_points=1)`: a coluna `cluster` (0, 1, ... na ordem da primeira feição de cada grupo; -1
+    para o ruído), o DBSCAN do `ST_ClusterDBSCAN` sobre a distância entre geometrias (uma feição central tem
+    `min_points` feições a até `distance`, ela inclusa; a de borda fica com o primeiro grupo que a alcança, na ordem
+    das feições). Com `min_points=1` é o `ST_ClusterWithin` (as feições ligadas por distâncias até `distance`). Sem
+    k-means aqui: as coordenadas vão ao `stats.kmeans` das tabelas.
+  - Nós `vector.voronoi`, `vector.delaunay`, `vector.cluster`.
+- **L5 / A7. Referência linear, linha mais curta e ponto mais próximo.**
+  - `points_along(a, spacing=None, n=None, start=0.0)`: pontos ao longo de cada linha a cada `spacing` (ou `n`
+    pontos igualmente espaçados), com os atributos da linha e a coluna `measure` (a distância ao longo dela);
+    `ST_LineInterpolatePoints`, QGIS "Points along geometry".
+  - `substring(a, start, end, normalized=False)` (`ST_LineSubstring`) e `split_lines(a, length)` (trechos de até
+    `length`, QGIS "Split lines by maximum length", a coluna `part`).
+  - `locate(a, lines)`: para cada feição de `a`, a linha mais próxima (`line`, o índice), a posição ao longo dela
+    (`measure`, `ST_LineLocatePoint` em unidades de comprimento) e a distância (`distance`).
+  - `shortest_line(a, b)`: a linha de cada feição de `a` à mais próxima de `b` (`ST_ShortestLine`), com os atributos
+    de `a`, os de `b` (sufixo) e `distance`. `closest_point(a, b, max_distance=None)`: os pontos de `a` levados ao
+    ponto mais próximo de `b` (`ST_ClosestPoint`; ocorrências ajustadas ao rio), os longe demais como estão, a coluna
+    `moved` (a distância andada).
+  - Nós `vector.points_along`, `vector.substring`, `vector.split_lines`, `vector.locate`, `vector.shortest_line`,
+    `vector.closest_point`.
+- **L6 / A8. Suavizar e simplificar uma cobertura.**
+  - `smooth(a, iterations=1, preserve_ends=True)`: o Chaikin do `ST_ChaikinSmoothing` (cada segmento cortado a 1/4 e
+    3/4, os anéis fechados mantidos fechados), o mesmo algoritmo escrito na biblioteca (numpy) e no aplicativo
+    (Rust), bit a bit. É o que tira os degraus do `vector.polygonize`.
+  - `coverage_simplify(a, tolerance, preserve_boundary=False)`: a simplificação de uma cobertura sem abrir buracos
+    nem sobreposições entre vizinhos (`ST_CoverageSimplify`, GEOS 3.12+, `GEOSCoverageSimplifyVW_r`; um erro claro
+    com GEOS mais antigo), e `coverage_validate(a, gap_width=0)` (`ST_CoverageInvalidEdges`: as arestas que não
+    batem, como linhas, e a coluna `valid`).
+  - Nós `vector.smooth`, `vector.coverage_simplify`, `vector.coverage_validate`.
