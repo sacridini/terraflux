@@ -932,6 +932,30 @@ pub const REFERENCES: &[Reference] = &[
         "10.4086/toc.2012.v008a019"
     ),
     paper!(
+        "avgar2016",
+        ["Avgar, T.", "Potts, J. R.", "Lewis, M. A.", "Boyce, M. S."],
+        false,
+        2016,
+        "Integrated step selection analysis: bridging the gap between resource selection and animal movement",
+        "Methods in Ecology and Evolution",
+        "7",
+        "5",
+        "619–630",
+        "10.1111/2041-210X.12528"
+    ),
+    paper!(
+        "avgar2017",
+        ["Avgar, T.", "Lele, S. R.", "Keim, J. L.", "Boyce, M. S."],
+        false,
+        2017,
+        "Relative selection strength: quantifying effect size in habitat- and step-selection inference",
+        "Ecology and Evolution",
+        "7",
+        "14",
+        "5322–5330",
+        "10.1002/ece3.3122"
+    ),
+    paper!(
         "berti2022",
         [
             "Berti, E.", "Davoli, M.", "Buitenwerf, R.", "Dyer, A.", "Hansen, O. L. P.", "Hirt, M.", "Svenning, J.-C.",
@@ -982,6 +1006,30 @@ pub const REFERENCES: &[Reference] = &[
         "4",
         "1346–1359",
         "10.2193/0022-541X(2005)69[1346:QHOTIO]2.0.CO;2"
+    ),
+    paper!(
+        "fortin2005",
+        ["Fortin, D.", "Beyer, H. L.", "Boyce, M. S.", "Smith, D. W.", "Duchesne, T.", "Mao, J. S."],
+        false,
+        2005,
+        "Wolves influence elk movements: behavior shapes a trophic cascade in Yellowstone National Park",
+        "Ecology",
+        "86",
+        "5",
+        "1320–1330",
+        "10.1890/04-0953"
+    ),
+    paper!(
+        "gail1981",
+        ["Gail, M. H.", "Lubin, J. H.", "Rubinstein, L. V."],
+        false,
+        1981,
+        "Likelihood calculations for matched case-control studies and survival studies with tied death times",
+        "Biometrika",
+        "68",
+        "3",
+        "703–707",
+        "10.1093/biomet/68.3.703"
     ),
     paper!(
         "getz2007",
@@ -2075,6 +2123,14 @@ pub const METHODS: &[Method] = &[
         name: "the intensity of use of a track",
         refs: &[],
         software: "amt",
+        software_refs: &["signer2019"],
+    },
+    Method {
+        ops: &["move.fit_issf", "move.log_rss"],
+        name: "a step selection function (conditional logistic regression with the exact partial likelihood, and the \
+               log relative selection strength of covariates)",
+        refs: &["fortin2005", "avgar2016", "gail1981", "avgar2017"],
+        software: "amt and survival",
         software_refs: &["signer2019"],
     },
     Method {

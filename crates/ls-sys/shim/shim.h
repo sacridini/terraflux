@@ -979,6 +979,7 @@ MoveContour move_hr_contour_lines(rust::Slice<const double> v, std::int64_t nr, 
 struct MoveDbbmmVariance;
 struct MoveDbgbVariance;
 struct MoveImputed;
+struct MoveIssfFit;
 MoveDbbmmVariance move_dbbmm_variance(rust::Slice<const double> x, rust::Slice<const double> y,
                                       rust::Slice<const double> time_lag, rust::Slice<const double> loc_err,
                                       std::int32_t window_size, std::int32_t margin, std::int32_t threads);
@@ -993,6 +994,15 @@ rust::Vec<double> cost_energy_landscape(rust::Slice<const double> dem, std::int6
                                         double res, std::int32_t neigh, bool human, double speed, bool kcal,
                                         std::int32_t threads);
 MoveImputed move_impute_loc_err(rust::Slice<const double> e, std::int32_t how);
+MoveIssfFit move_issf_fit(rust::Slice<const double> x, std::int64_t n, std::int64_t p,
+                          rust::Slice<const std::uint8_t> status, rust::Slice<const std::int32_t> stratum,
+                          std::int32_t iter_max, double eps, double toler_chol, bool nocenter);
+double move_issf_wald(rust::Slice<const double> var, rust::Slice<const double> b);
+rust::Vec<double> move_issf_fn(rust::Str name, rust::Slice<const double> x);
+rust::Vec<double> move_issf_pow(rust::Slice<const double> x, rust::Slice<const double> y);
+double move_issf_sum(rust::Slice<const double> x);
+rust::Vec<double> move_issf_pchisq(rust::Slice<const double> x, double df, bool lower_tail);
+double move_issf_qnorm(double p);
 rust::Vec<double> move_ud_probe(std::int32_t model, rust::Slice<const double> x, rust::Slice<const double> y,
                                 rust::Slice<const double> s1, rust::Slice<const double> s2,
                                 rust::Slice<const double> t, rust::Slice<const double> le,

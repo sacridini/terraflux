@@ -806,6 +806,11 @@ const PHRASES: &[(&str, &str)] = &[
     ("move.filter_per_interval", "One location of <tracks> per {unit} (criterion {criterion})."),
     ("move.fit_distribution", "A {name} distribution fitted to <values>."),
     (
+        "move.fit_issf",
+        "A step selection function fitted to <steps>[ with the formula {formula}][ and the strata {strata}], by \
+         conditional logistic regression.",
+    ),
+    (
         "move.home_range",
         "The {method} home range of each track of <tracks>, levels {levels}[, kernel bandwidth {bandwidth}][ ({type} \
          neighbourhoods of {n})][ on the cells of <like>].",
@@ -828,6 +833,11 @@ const PHRASES: &[(&str, &str)] = &[
         "move.flag_speed",
         "The locations of <tracks> next to a step faster than [{v_max} m/s][the maximum speed of a {mass} kg animal] \
          flagged.",
+    ),
+    (
+        "move.log_rss",
+        "The log relative selection strength of the covariates x1 against x2 under <model>[, with a {ci} interval \
+         at {level}].",
     ),
     (
         "move.mask_segments",

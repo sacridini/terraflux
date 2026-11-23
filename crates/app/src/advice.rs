@@ -751,6 +751,22 @@ fn movement_advice(nodes: &[&Node], inputs: Option<&BTreeMap<String, Value>>) ->
             guide: "movement",
         });
     }
+    // the ids of the random steps restart for each track: the steps of several tracks share strata when they are the strata
+    for n in nodes.iter().copied().filter(|n| n.op == "move.fit_issf") {
+        let text = |k: &str| n.params.get(k).and_then(|v| v.as_str()).unwrap_or("").replace(' ', "");
+        if text("strata") == "step_id_" || text("formula").contains("strata(step_id_)") {
+            out.push(Advice {
+                level: Level::Advice,
+                at: vec![n.id.clone()],
+                message: "the strata are the step_id_ of move.random_steps, which restarts for each track: with \
+                          several tracks their first steps share a stratum and the fit is not conditional on each step (amt fits \
+                          the ids it is given). Leave strata at its default (track_step: a stratum for each step of each track) \
+                          unless the tracks are one"
+                    .into(),
+                guide: "movement",
+            });
+        }
+    }
     for n in nodes.iter().copied().filter(|n| n.op == "move.flag_speed") {
         let (v_max, mass, mode) = (given(n, "v_max"), given(n, "mass"), given(n, "mode"));
         if !v_max && !(mass && mode) {
@@ -1367,6 +1383,19 @@ mod tests {
             let a = movement(vec![en().param("mass", mass)], None);
             assert!(!said(&a, Level::Warning, "no mass"), "{a:?}");
         }
+    }
+
+    #[test]
+    fn a_step_selection_on_the_plain_step_ids_is_told() {
+        let fit = || Node::new("ssf", "move.fit_issf").input("steps", "$steps");
+        let a = movement(vec![fit()], None);
+        assert!(!said(&a, Level::Advice, "restarts for each track"), "{a:?}");
+        let a = movement(vec![fit().param("strata", "step_id_")], None);
+        assert!(said(&a, Level::Advice, "restarts for each track"), "{a:?}");
+        let a = movement(vec![fit().param("formula", "case_ ~ elev + strata(step_id_)")], None);
+        assert!(said(&a, Level::Advice, "restarts for each track"), "{a:?}");
+        let a = movement(vec![fit().param("formula", "case_ ~ elev + strata(stratum_)")], None);
+        assert!(!said(&a, Level::Advice, "restarts for each track"), "{a:?}");
     }
 
     /// The movement templates follow the advice they give: nothing is told of them.

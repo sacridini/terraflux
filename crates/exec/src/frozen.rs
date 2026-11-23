@@ -154,6 +154,7 @@ pub fn freeze(folder: &Path, node: &str, outputs: &Outputs) -> Result<()> {
                 Value::SdmModel(_) => part("sdm_model", file(write_value(v, &at, None)?)),
                 Value::MlModel(_) => part("ml_model", file(write_value(v, &at, None)?)),
                 Value::StepDistribution(_) => part("step_distribution", file(write_value(v, &at, None)?)),
+                Value::StepModel(_) => part("step_model", file(write_value(v, &at, None)?)),
                 Value::SwatProject(_) => part("swat_project", file(write_value(v, &at, None)?)),
                 Value::SwatWatershed(_) => part("swat_watershed", file(write_value(v, &at, None)?)),
                 Value::Objects(o) => {
@@ -303,6 +304,7 @@ pub fn read(folder: &Path, node: &str) -> Result<(Outputs, u64)> {
             "sdm_model" => Value::SdmModel(model(&path()?)?),
             "ml_model" => Value::MlModel(model(&path()?)?),
             "step_distribution" => Value::StepDistribution(model(&path()?)?),
+            "step_model" => Value::StepModel(model(&path()?)?),
             "swat_project" => Value::SwatProject(model(&path()?)?),
             "swat_watershed" => Value::SwatWatershed(model(&path()?)?),
             "objects" => Value::Objects(Arc::new(

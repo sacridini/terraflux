@@ -456,6 +456,8 @@ pub enum Value {
     MlModel(Arc<crate::ml::Model>),
     /// A distribution of step lengths or turn angles.
     StepDistribution(Arc<crate::movement::Distribution>),
+    /// A fitted step selection function.
+    StepModel(Arc<crate::movement::StepModel>),
     /// A SWAT+ project (the files of a TxtInOut folder).
     SwatProject(Arc<crate::swat::Project>),
     /// A watershed divided as QSWAT+ divides it.
@@ -493,6 +495,7 @@ impl Value {
             Value::SdmModel(_) => Type::SdmModel,
             Value::MlModel(_) => Type::MlModel,
             Value::StepDistribution(_) => Type::StepDistribution,
+            Value::StepModel(_) => Type::StepModel,
             Value::SwatProject(_) => Type::SwatProject,
             Value::SwatWatershed(_) => Type::SwatWatershed,
             Value::Objects(_) => Type::Objects,

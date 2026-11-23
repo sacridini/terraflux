@@ -58,6 +58,8 @@ pub enum Type {
     MlModel,
     /// A distribution of step lengths or turn angles (amt's, `move.*`).
     StepDistribution,
+    /// A fitted step selection function (`move.fit_issf`).
+    StepModel,
     /// A SWAT+ project: the files of a TxtInOut folder (`swat.*`).
     SwatProject,
     /// A watershed divided as QSWAT+ divides it: its tables and grids (`swat.watershed`).
@@ -96,6 +98,7 @@ impl Type {
             Type::SdmModel => "distribution model",
             Type::MlModel => "fitted model",
             Type::StepDistribution => "step distribution",
+            Type::StepModel => "step selection model",
             Type::SwatProject => "SWAT+ project",
             Type::SwatWatershed => "SWAT+ watershed",
             Type::Objects => "objects",

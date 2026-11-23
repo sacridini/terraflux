@@ -186,6 +186,14 @@ pub(super) const MAPPED: &[Py] = &[
         [],
         "steps"
     ),
+    mv!("move.fit_issf", "tf.move.fit_issf", ["steps" => "", "formula" => "formula", "strata" => "strata"], [], "model"),
+    mv!(
+        "move.log_rss",
+        "tf.move.log_rss",
+        ["model" => "", "ci" => "ci", "level" => "ci_level", "n_boot" => "n_boot", "seed" => "seed"],
+        ["seed" = "1"],
+        "table"
+    ),
     mv!(
         "move.max_speed",
         "tf.move.v_phys_estimate",
@@ -611,6 +619,98 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             );
             let outs = out(&[("tracks", var.to_string()), ("table", frame_table(var)), ("along", values)]);
             (code, outs, Need::Nothing)
+        }
+        "move.fit_issf" => {
+            let py = entry(op)?;
+            let steps = value_of(n, "steps", sc)?.ok_or("its steps are not connected")?;
+            let text_of = |k: &str| -> Result<Option<String>, String> {
+                match n.params.get(k) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(Value::String(s)) if s.trim().is_empty() => Ok(None),
+                    Some(Value::String(s)) if !s.starts_with('$') => Ok(Some(s.clone())),
+                    Some(_) => Err(format!("its {k}: write it in the node, not as a reference")),
+                }
+            };
+            let formula = text_of("formula")?;
+            let by = text_of("strata")?.unwrap_or_else(|| "track_step".to_string());
+            let in_formula = formula.as_ref().is_some_and(|f| f.contains("strata("));
+            // (the library takes the distributions from the random steps themselves)
+            let (_, said) = arguments(n, py, sc, None, &["formula", "strata", "track", "sl_distr", "ta_distr"])?;
+            let names = terraflux_ops::movement::TRACK_NAMES.iter().map(|t| text(t)).collect::<Vec<_>>().join(", ");
+            let mut code = said;
+            let mut stratum = by.clone();
+            let mut source = steps.clone();
+            if by == "track_step" && !in_formula {
+                // one stratum for each step of each track: the step_id_ of the random steps restarts for each track
+                let track = match opt(n, "track", sc)? {
+                    Some(t) => t,
+                    None => format!("next(c for c in ({names}) if c in {steps}.columns)"),
+                };
+                let by_step = format!("{steps}.groupby([{track}, \"step_id_\"], sort=False).ngroup() + 1");
+                code.push_str(&format!("{var}_data = {steps}.assign(stratum_={by_step})\n"));
+                stratum = "stratum_".to_string();
+                source = format!("{var}_data");
+            }
+            let call = match &formula {
+                Some(f) if in_formula => format!("{}({source}, {})", py.call, text(f)),
+                Some(f) => format!("{}({source}, {}, strata={})", py.call, text(f), text(&stratum)),
+                None => {
+                    // every covariate extract_covariates added: the numbers whose names do not end in _, but the track
+                    let track = match opt(n, "track", sc)? {
+                        Some(t) => t,
+                        None => format!("next((c for c in ({names}) if c in {source}.columns), None)"),
+                    };
+                    let name = "c if _re.fullmatch(r\"[A-Za-z.][A-Za-z0-9._]*\", c) else f\"`{c}`\"";
+                    let keep = format!(
+                        "{source}[c].dtype.kind in \"iuf\" and not c.endswith(\"_\") and c not in ({track}, \"direction_p\")"
+                    );
+                    code.push_str(&format!(
+                        "import re as _re\n{var}_terms = [{name} for c in {source}.columns if {keep}]\n"
+                    ));
+                    let all =
+                        format!("[*{var}_terms, \"log(sl_)\", \"cos(ta_)\", \"strata(\" + {} + \")\"]", text(&stratum));
+                    format!("{}({source}, \"case_ ~ \" + \" + \".join({all}))", py.call)
+                }
+            };
+            code.push_str(&format!("{var} = {call}\n"));
+            let table = format!(
+                "_pd.concat([{var}.summary(), {var}.confint().set_axis([\"lower\", \"upper\"], axis=1)], axis=1)\
+                 .rename_axis(\"term\").reset_index()"
+            );
+            let fit = format!(
+                "_pd.DataFrame([{{\"loglik_null\": {var}.loglik[0], \"loglik\": {var}.loglik[1], \"aic\": {var}.aic, \
+                 \"n\": {var}.n, \"nevent\": {var}.nevent, \"iter\": {var}.iter, \"converged\": float({var}.converged), \
+                 \"n_omitted\": {var}.n_omitted, \"wald\": {var}.wald, \"score\": {var}.score}}])"
+            );
+            (code, out(&[("model", var.to_string()), ("table", table), ("fit", fit)]), Need::Flow)
+        }
+        "move.log_rss" => {
+            let py = entry(op)?;
+            let model = value_of(n, "model", sc)?.ok_or("its model is not connected")?;
+            // x1 and x2: the table connected, or the setting's columns as a data frame
+            let frame = |port: &str, one: bool| -> Result<String, String> {
+                if n.inputs.contains_key(port) {
+                    return value_of(n, port, sc)?.ok_or_else(|| format!("its {port} is not connected"));
+                }
+                let index = if one { ", index=[0]" } else { "" };
+                match n.params.get(port) {
+                    Some(Value::Object(_)) => {
+                        Ok(format!("_pd.DataFrame({}{index})", opt(n, port, sc)?.unwrap_or_default()))
+                    }
+                    Some(Value::String(s)) if s.starts_with('$') => {
+                        Ok(format!("_pd.DataFrame({}{index})", opt(n, port, sc)?.unwrap_or_default()))
+                    }
+                    _ => Err(format!("its {port} is not given: connect a table or give the columns")),
+                }
+            };
+            let (x1, x2) = (frame("x1", false)?, frame("x2", true)?);
+            let (mut args, said) = arguments(n, py, sc, Some(model), &["x1", "x2"])?;
+            args.insert(1, format!("x1={x1}"));
+            args.insert(2, format!("x2={x2}"));
+            // the library's None is Terraflux's "none"
+            args.retain(|a| a != "ci=\"none\"");
+            let code = format!("{said}{var} = {}({})\n", py.call, args.join(", "));
+            (code, out(&[("table", var.to_string())]), Need::Flow)
         }
         "move.max_speed" => {
             let py = entry(op)?;
@@ -1692,6 +1792,103 @@ inputs = { steps = "steps.steps", dem = "dem.raster" }
         assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
         assert!(t.contains("relief = tf.move.surface_distance(steps, dem=dem, spacing=5, name=\"len3d\")\n"), "{t}");
         assert!(t.contains("plain = tf.move.surface_distance(steps, dem=dem)\n"), "{t}");
+        parses(t);
+    }
+
+    /// A step selection function and its log-RSS: the stratum made of the track and the step, the formula as given or
+    /// made of the covariates, the interval's arguments.
+    #[test]
+    fn a_step_selection_function_and_its_log_rss() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "tracks"
+op = "move.read_tracks"
+params = { path = "fishers.csv" }
+
+[[nodes]]
+id = "steps"
+op = "move.steps"
+inputs = { tracks = "tracks.tracks" }
+
+[[nodes]]
+id = "random"
+op = "move.random_steps"
+inputs = { steps = "steps.steps" }
+
+[[nodes]]
+id = "plain"
+op = "move.fit_issf"
+inputs = { steps = "random.steps" }
+
+[[nodes]]
+id = "given"
+op = "move.fit_issf"
+inputs = { steps = "random.steps" }
+params = { formula = "case_ ~ elev + log(sl_)" }
+
+[[nodes]]
+id = "by_id"
+op = "move.fit_issf"
+inputs = { steps = "random.steps" }
+params = { formula = "case_ ~ elev + strata(step_id_)", track = "id" }
+
+[[nodes]]
+id = "column"
+op = "move.fit_issf"
+inputs = { steps = "random.steps" }
+params = { strata = "burst_" }
+
+[[nodes]]
+id = "rss"
+op = "move.log_rss"
+inputs = { model = "plain.model" }
+params = { x1 = { elev = [100, 200], sl_ = [10, 20] }, x2 = { elev = 100, sl_ = 10 }, ci = "boot", level = 0.9, n_boot = 50, seed = 3 }
+
+[[nodes]]
+id = "rss_none"
+op = "move.log_rss"
+inputs = { model = "plain.model", x1 = "tab.table", x2 = "tab.table" }
+params = { ci = "none" }
+
+[[nodes]]
+id = "tab"
+op = "table.read"
+params = { path = "x.csv" }
+"#,
+        )
+        .unwrap();
+        let s = super::super::script(&m, &r, None);
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
+        // the stratum of each step of each track, then the formula of the covariates
+        assert!(
+            t.contains(
+                "plain_data = random.assign(stratum_=random.groupby([next(c for c in (\"individual-tag-local-identifier\""
+            ),
+            "{t}"
+        );
+        assert!(t.contains("\"step_id_\"], sort=False).ngroup() + 1)\n"), "{t}");
+        assert!(t.contains("import re as _re\nplain_terms = [c if _re.fullmatch("), "{t}");
+        assert!(
+            t.contains("plain = tf.move.fit_issf(plain_data, \"case_ ~ \" + \" + \".join([*plain_terms, \"log(sl_)\", \"cos(ta_)\", \"strata(\" + \"stratum_\" + \")\"]))\n"),
+            "{t}"
+        );
+        assert!(
+            t.contains("given = tf.move.fit_issf(given_data, \"case_ ~ elev + log(sl_)\", strata=\"stratum_\")\n"),
+            "{t}"
+        );
+        // a formula with its own strata is passed as it is, the track named in the node
+        assert!(t.contains("by_id = tf.move.fit_issf(random, \"case_ ~ elev + strata(step_id_)\")\n"), "{t}");
+        assert!(t.contains("\"strata(\" + \"burst_\" + \")\"]))\n"), "{t}");
+        assert!(
+            t.contains("rss = tf.move.log_rss(plain, x1=_pd.DataFrame({\"elev\": [100, 200], \"sl_\": [10, 20]}), x2=_pd.DataFrame({\"elev\": 100, \"sl_\": 10}, index=[0]), ci=\"boot\", ci_level=0.9, n_boot=50, seed=3)\n"),
+            "{t}"
+        );
+        assert!(t.contains("rss_none = tf.move.log_rss(plain, x1=tab, x2=tab, seed=1)\n"), "{t}");
         parses(t);
     }
 }

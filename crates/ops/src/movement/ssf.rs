@@ -243,7 +243,7 @@ impl Operator for Fit {
     }
 }
 
-fn distribution_of<'a>(args: &'a Args, port: &str) -> Result<Option<&'a Arc<Distribution>>> {
+pub(super) fn distribution_of<'a>(args: &'a Args, port: &str) -> Result<Option<&'a Arc<Distribution>>> {
     match args.get(port) {
         None => Ok(None),
         Some(Value::StepDistribution(d)) => Ok(Some(d)),

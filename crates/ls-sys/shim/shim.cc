@@ -59,6 +59,7 @@
 #include "move/amt.hpp"
 #include "move/bridge.hpp"
 #include "move/clean.hpp"
+#include "move/clogit.hpp"
 #include "move/corridor.hpp"
 #include "move/distr.hpp"
 #include "move/emd.hpp"
@@ -66,6 +67,7 @@
 #include "move/homerange.hpp"
 #include "move/locerr.hpp"
 #include "move/relief.hpp"
+#include "move/rnmath.hpp"
 #include "move/track.hpp"
 #include "move/ud.hpp"
 #include "opt/actions.hpp"
@@ -5598,6 +5600,75 @@ rust::Vec<double> cost_energy_landscape(rust::Slice<const double> dem, std::int6
     std::vector<double> out(dem.size());
     cost::energy_landscape(dem.data(), ny, nx, mass, res, neigh, human, speed, kcal, threads, out.data());
     return to_rust<double>(std::move(out));
+}
+
+MoveIssfFit move_issf_fit(rust::Slice<const double> x, std::int64_t n, std::int64_t p,
+                          rust::Slice<const std::uint8_t> status, rust::Slice<const std::int32_t> stratum,
+                          std::int32_t iter_max, double eps, double toler_chol, bool nocenter) {
+    check(n >= 0 && p >= 0 && static_cast<std::int64_t>(x.size()) == n * p, "x: n x p values");
+    check(static_cast<std::int64_t>(status.size()) == n && static_cast<std::int64_t>(stratum.size()) == n,
+          "status and stratum: n values");
+    const move::ClogitFit f =
+        move::clogit_fit(x.data(), n, p, stratum.data(), status.data(), iter_max, eps, toler_chol, nocenter);
+    MoveIssfFit out;
+    out.coef = to_rust<double>(f.coef);
+    out.var = to_rust<double>(f.var);
+    out.coef_scaled = to_rust<double>(f.coef_scaled);
+    out.var_scaled = to_rust<double>(f.var_scaled);
+    out.u = to_rust<double>(f.u);
+    out.means = to_rust<double>(f.means);
+    out.rescale = to_rust<double>(f.rescale);
+    out.loglik0 = f.loglik0;
+    out.loglik1 = f.loglik1;
+    out.score = f.score;
+    out.flag = f.flag;
+    out.iter = f.iter;
+    return out;
+}
+
+double move_issf_wald(rust::Slice<const double> var, rust::Slice<const double> b) {
+    const auto k = static_cast<int>(b.size());
+    check(k >= 1 && var.size() == static_cast<std::size_t>(k) * static_cast<std::size_t>(k), "var: (k, k), b: k");
+    return move::clogit_wald(var.data(), b.data(), k, 1.8189894035458565e-12);
+}
+
+rust::Vec<double> move_issf_fn(rust::Str name, rust::Slice<const double> x) {
+    const std::string nm(name);
+    double (*f)(double) = nullptr;
+    if (nm == "log") f = [](double v) { return lsm::r_log(v); };
+    else if (nm == "exp") f = [](double v) { return lsm::r_exp(v); };
+    else if (nm == "sin") f = [](double v) { return lsm::r_sin(v); };
+    else if (nm == "cos") f = [](double v) { return lsm::r_cos(v); };
+    else if (nm == "log1p") f = [](double v) { return lsm::r_log1p(v); };
+    else if (nm == "sqrt") f = [](double v) { return lsm::r_sqrt(v, false); };
+    else if (nm == "sqrt1") f = [](double v) { return lsm::r_sqrt(v, true); };
+    else throw std::invalid_argument("unknown function " + nm);
+    std::vector<double> out(x.size());
+    for (std::size_t i = 0; i < x.size(); ++i) out[i] = f(x[i]);
+    return to_rust<double>(out);
+}
+
+rust::Vec<double> move_issf_pow(rust::Slice<const double> x, rust::Slice<const double> y) {
+    check(y.size() == x.size(), "x and y: the same length");
+    std::vector<double> out(x.size());
+    for (std::size_t i = 0; i < x.size(); ++i) out[i] = lsm::r_pow(x[i], y[i]);
+    return to_rust<double>(out);
+}
+
+double move_issf_sum(rust::Slice<const double> x) { return lsm::r_sum(x.data(), static_cast<i64>(x.size())); }
+
+rust::Vec<double> move_issf_pchisq(rust::Slice<const double> x, double df, bool lower_tail) {
+    std::vector<double> out(x.size());
+    for (std::size_t i = 0; i < x.size(); ++i) out[i] = move::r_pchisq(x[i], df, lower_tail);
+    return to_rust<double>(out);
+}
+
+double move_issf_qnorm(double p) {
+    if (std::isnan(p)) return p;
+    if (p < 0 || p > 1) return std::numeric_limits<double>::quiet_NaN();
+    if (p == 0) return -std::numeric_limits<double>::infinity();
+    if (p == 1) return std::numeric_limits<double>::infinity();
+    return nlm::r_qnorm(p);
 }
 
 MoveImputed move_impute_loc_err(rust::Slice<const double> e, std::int32_t how) {

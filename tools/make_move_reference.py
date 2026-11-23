@@ -10,7 +10,8 @@ interpolation, projection and Brownian tracks, amt's steps, bursts, summaries, f
 of day and covariates, the cleaning and thinning, the values along the steps, the corridors and the distances between
 UDs, amt's home ranges (MCP, KDE with its bandwidths, LoCoH, isopleths, UDs, overlaps) and the dynamic Brownian
 bridges (the dBBMM and the dBGB: variances, distributions, volumes, outer probabilities, window suggestions, masks)
-and the length of steps on the relief (surface_distance). `--only-relief` adds just those keys to the files written.
+the length of steps on the relief (surface_distance) and the step selection functions (fit_issf and log_rss).
+`--only-relief` and `--only-issf` add just those keys to the files written.
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "data" / "reference"
 LS = Path(tf.__file__).resolve().parents[2]
 sys.path.insert(0, str(LS / "tests"))
+from move_issf_cases import (BOOT_A, BOOT_B, F_A, F_B, F_BOOT, F_BOOT_LOG, F_COL, F_FAC, F_ONE, F_TIES_NUM,  # noqa: E402
+                             F_TIES_TXT, LR_A, LR_BOOT, LR_BOOT1, LR_COL, LR_FAC, issf_track_sets)
 from move_cases import (ALONG_CASES, ALONG_LAYERS, ALONG_RASTERS, CORRIDOR, EXTRACT_RASTER, M2U_SYNTHETIC,  # noqa: E402
                         SPEED, SPEED_MASS, SPEED_MODE, THIN_DISTANCE, THIN_TIME, along_raster, along_track_sets,
                         corridor_track_sets, hr_track_sets, m2u_track_sets, track_sets, ud_track_sets)
@@ -881,6 +884,118 @@ def relief_reference(out: dict, meta: dict) -> None:
     meta["relief"]["cases"]["fishers"] = {"crs": elev.rio.crs.to_string(), "variants": variants}
 
 
+def issf_put(out: dict, key: str, fit) -> list:
+    """The numbers of a fit under `key/...` (the covariance row-major, the scalars in a fixed order) and the names of
+    its coefficients."""
+    names = [str(n) for n in fit.coef.index]
+    s, ci = fit.summary(), fit.confint()
+    out[f"{key}/coef"] = fit.coef.to_numpy(np.float64)
+    out[f"{key}/vcov"] = fit.vcov.to_numpy(np.float64).ravel()
+    out[f"{key}/means"] = fit.means.to_numpy(np.float64)
+    out[f"{key}/scalars"] = np.array([fit.loglik[0], fit.loglik[1], fit.iter, fit.n, fit.nevent, fit.n_omitted, fit.wald,
+                                      fit.score, fit.aic, fit.edf, float(fit.converged)], np.float64)
+    for c in ("exp_coef", "se", "z", "p"):
+        out[f"{key}/{c}"] = s[c].to_numpy(np.float64)
+    out[f"{key}/lower"], out[f"{key}/upper"] = (ci.iloc[:, k].to_numpy(np.float64) for k in (0, 1))
+    return names
+
+
+def issf_lr(out: dict, key: str, fit, x1: dict, x2: dict, **kw) -> None:
+    """The log-RSS of a fit under `key/{log_rss,lwr,upr}`."""
+    r = M.log_rss(fit, pd.DataFrame(x1), pd.DataFrame(x2), **kw)
+    for c in ("log_rss", "lwr", "upr"):
+        if c in r:
+            out[f"{key}/{c}"] = r[c].to_numpy(np.float64)
+
+
+def issf_reference(out: dict, meta: dict) -> None:
+    """Step selection functions (fit_issf, log_rss) on the library's synthetic sets (tests/move_issf_cases.py) and on the
+    fishers' random steps over the library's elevation.tif. New keys only: `in/issf/<set>/<column>` the inputs,
+    `issf/<case>/...` the fits (see issf_put), `issf/<case>/<lr>/...` the log-RSS and `issf/<case>/matrix` the model
+    matrix (n x p, row-major); the formulas, names and arguments are in the json (`issf`). The factor column of the
+    harness has its levels sorted (Terraflux has no categories)."""
+    sets = issf_track_sets()
+    meta["issf"] = {"sets": {}, "cases": {}}
+    frames = {}
+    for name, s in sets.items():
+        cols = {"step_id_": s["x"], "case_": s["case_"], "elevation": s["elevation"], "sl_": s["sl_"], "ta_": s["ta_"],
+                "landuse": s["landuse"]}
+        for c, v in cols.items():
+            out[f"in/issf/{name}/{c}"] = np.asarray(v, np.float64)
+        meta["issf"]["sets"][name] = {"step_txt": [str(v) for v in s["track"]]}
+        frames[name] = pd.DataFrame({**cols, "step_txt": s["track"]})
+
+    def prep(name: str, extra: str | None) -> pd.DataFrame:
+        d = frames[name].copy()
+        if extra == "lu":
+            d["lu"] = d["landuse"].astype(int).astype(str)
+        if extra == "col":
+            d["elev2"], d["k1"] = 2 * d["elevation"], 1.0
+        return d
+
+    def case(key, set_name, formula, x1=None, x2=None, extra=None, lrs=(), matrix=True):
+        d = prep(set_name, extra)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = M.fit_issf(d, formula)
+            m = {"set": set_name, "formula": formula, "extra": extra, "names": issf_put(out, f"issf/{key}", fit),
+                 "x1": x1, "x2": x2, "lr": []}
+            if matrix:
+                out[f"issf/{key}/matrix"] = fit.model_matrix(d).to_numpy(np.float64).ravel()
+            for tag, kw in lrs:
+                issf_lr(out, f"issf/{key}/{tag}", fit, x1, x2, **kw)
+                m["lr"].append({"tag": tag, **kw})
+        meta["issf"]["cases"][key] = m
+
+    ses = (("none", {}), ("se", {"ci": "se"}), ("se90", {"ci": "se", "ci_level": 0.9}))
+    case("a", "issf_a", F_A, LR_A["x1"], LR_A["x2"], lrs=ses)
+    case("b", "issf_a", F_B)
+    case("fac", "issf_a", F_FAC, LR_FAC["x1"], LR_FAC["x2"], "lu", lrs=ses[:2])
+    case("ties_t", "issf_ties", F_TIES_TXT)
+    case("ties_n", "issf_ties", F_TIES_NUM)
+    case("col", "issf_a", F_COL, LR_COL["x1"], LR_COL["x2"], "col", lrs=ses[1:2])
+    case("one", "issf_a", F_ONE, extra="col")
+    boot_a = ("boot", {"ci": "boot", "seed": BOOT_A["seed"], "n_boot": BOOT_A["n_boot"], "ci_level": BOOT_A["ci_level"]})
+    boot_b = ("boot", {"ci": "boot", "seed": BOOT_B["seed"], "n_boot": BOOT_B["n_boot"], "ci_level": BOOT_B["ci_level"]})
+    case("boot_a", "issf_a", F_BOOT, LR_BOOT["x1"], LR_BOOT["x2"], lrs=(boot_a,), matrix=False)
+    case("boot_b", "issf_a", F_BOOT_LOG, LR_BOOT1["x1"], LR_BOOT["x2"], lrs=(boot_b,), matrix=False)
+    # the fishers of three animals over the library's elevation: their steps (as move.steps gives them) are the input,
+    # the random steps and the covariate are the Terraflux's own in the test
+    import rioxarray as rx
+
+    elev = rx.open_rasterio(RELIEF_ELEVATION).isel(band=0, drop=True)
+    f = tf.load_tracks(LS / "tests" / "data" / "move" / "fishers.csv.gz", sort=False)
+    st = M.steps(f[~f.geometry.is_empty].to_crs(elev.rio.crs))
+    left, bottom, right, top = elev.rio.bounds()
+    trk = "individual-local-identifier"
+    keep = st.x1_.between(left, right) & st.y1_.between(bottom, top) & st[trk].isin(["F1", "M1", "M3"])
+    st = st[keep].reset_index(drop=True)
+    for c in ("x1_", "y1_", "x2_", "y2_", "sl_", "direction_p", "ta_"):
+        out[f"in/issf/fishers/{c}"] = st[c].to_numpy(np.float64)
+    meta["issf"]["fishers"] = {"track": st[trk].tolist(), "crs": elev.rio.crs.to_string(), "n_control": 5, "seed": 11}
+    rs = M.random_steps(st, n_control=5, seed=11)
+    rs = M.extract_covariates(rs, {"elevation": elev})
+    for c in ("x2_", "y2_", "sl_", "ta_", "case_", "step_id_", "elevation"):
+        out[f"issf/fishers/in/{c}"] = rs[c].to_numpy(np.float64)
+    rs["stratum_"] = rs.groupby([trk, "step_id_"], sort=False).ngroup() + 1
+    f1 = "case_ ~ elevation + log(sl_) + cos(ta_) + strata(stratum_)"
+    f2 = "case_ ~ elevation + log(sl_) + cos(ta_) + strata(step_id_)"
+    q = rs["elevation"].dropna().quantile([0.1, 0.5, 0.9]).tolist()
+    x1 = {"elevation": q, "sl_": [30.0, 120.0, 500.0], "ta_": [0.0, 1.0, -2.0]}
+    x2 = {"elevation": [float(rs["elevation"].mean())], "sl_": [100.0], "ta_": [0.0]}
+    meta["issf"]["cases"]["fishers"] = {"formula": f1, "x1": x1, "x2": x2, "lr": []}
+    meta["issf"]["cases"]["fishers_id"] = {"formula": f2, "lr": []}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = M.fit_issf(rs, f1)
+        meta["issf"]["cases"]["fishers"]["names"] = issf_put(out, "issf/fishers", fit)
+        for tag, kw in (("none", {}), ("se", {"ci": "se"}),
+                        ("boot", {"ci": "boot", "seed": 5, "n_boot": 30, "ci_level": 0.9})):
+            issf_lr(out, f"issf/fishers/{tag}", fit, x1, x2, **kw)
+            meta["issf"]["cases"]["fishers"]["lr"].append({"tag": tag, **kw})
+        meta["issf"]["cases"]["fishers_id"]["names"] = issf_put(out, "issf/fishers_id", M.fit_issf(rs, f2))
+
+
 def main() -> None:
     sets = track_sets()
     fishers_src = LS / "tests" / "data" / "move" / "fishers.csv.gz"
@@ -1059,18 +1174,20 @@ def main() -> None:
     ud_reference(out, meta, fishers_ok)
     validate_reference(out, meta)
     relief_reference(out, meta)
+    issf_reference(out, meta)
 
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
     print(REF / "move.npz", len(out))
 
 
-def only_relief() -> None:
-    """Adds the keys of relief_reference to the files already written (the rest unchanged)."""
+def only(*steps) -> None:
+    """Adds the keys of the given references to the files already written (the rest unchanged)."""
     with np.load(REF / "move.npz") as z:
         out = {k: z[k] for k in z.files}
     meta = json.loads((REF / "move.json").read_text(encoding="utf-8"))
-    relief_reference(out, meta)
+    for step in steps:
+        step(out, meta)
     np.savez_compressed(REF / "move.npz", **out)
     (REF / "move.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
     print(REF / "move.npz", len(out))
@@ -1078,6 +1195,8 @@ def only_relief() -> None:
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--only-relief"]:
-        only_relief()
+        only(relief_reference)
+    elif sys.argv[1:] == ["--only-issf"]:
+        only(issf_reference)
     else:
         main()

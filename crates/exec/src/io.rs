@@ -221,6 +221,7 @@ pub fn write_value(value: &Value, path: &Path, dtype: Option<&str>) -> Result<Pa
         Value::SdmModel(m) => write_text(path, "json", &json(&**m)?),
         Value::MlModel(m) => write_text(path, "json", &json(&**m)?),
         Value::StepDistribution(d) => write_text(path, "json", &json(&**d)?),
+        Value::StepModel(m) => write_text(path, "json", &json(&**m)?),
         Value::SwatProject(p) => write_text(path, "json", &json(&**p)?),
         Value::SwatWatershed(w) => write_text(path, "json", &json(&**w)?),
         Value::Objects(o) => {

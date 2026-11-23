@@ -17,8 +17,10 @@ mod amt;
 mod clean;
 mod corridor;
 mod filters;
+pub mod formula;
 mod geometry;
 mod homerange;
+mod issf;
 mod relief;
 mod ssf;
 pub mod time;
@@ -35,6 +37,7 @@ use terraflux_raster::vector::{Column, Geometry, Vector};
 use crate::vector::attribute_table;
 use crate::{Args, Error, Outputs, Registry, Result, Value, outputs};
 
+pub use issf::{FitData, StepModel};
 pub use ssf::Distribution;
 
 pub fn register(r: &mut Registry) {
@@ -46,13 +49,14 @@ pub fn register(r: &mut Registry) {
     clean::register(r);
     corridor::register(r);
     homerange::register(r);
+    issf::register(r);
     relief::register(r);
     ud::register(r);
     validate::register(r);
 }
 
 const TIME_NAMES: [&str; 5] = ["timestamp", "time", "datetime", "date_time", "t"];
-const TRACK_NAMES: [&str; 8] = [
+pub const TRACK_NAMES: [&str; 8] = [
     "individual-tag-local-identifier",
     "individual-local-identifier",
     "individual_local_identifier",

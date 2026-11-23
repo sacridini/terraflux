@@ -1390,6 +1390,23 @@ pub mod ffi {
         status: i32,
     }
 
+    /// survival's coxexact.fit of a conditional logistic regression (the library's move_issf_fit): the matrices are
+    /// column-major (p x p).
+    struct MoveIssfFit {
+        coef: Vec<f64>,
+        var: Vec<f64>,
+        coef_scaled: Vec<f64>,
+        var_scaled: Vec<f64>,
+        u: Vec<f64>,
+        means: Vec<f64>,
+        rescale: Vec<f64>,
+        loglik0: f64,
+        loglik1: f64,
+        score: f64,
+        flag: i32,
+        iter: i32,
+    }
+
     /// suncalc's sunrise, sunset, dawn and dusk (seconds since 1970, NaN when the sun does not reach them).
     struct MoveSun {
         sunrise: Vec<f64>,
@@ -3582,6 +3599,32 @@ pub mod ffi {
             kcal: bool,
             threads: i32,
         ) -> Result<Vec<f64>>;
+        /// survival's coxexact.fit on the rows of x (n x p, column-major), their cases (0 / 1) and strata (integer
+        /// codes), in R's arithmetic (the library's tf.move.fit_issf).
+        #[allow(clippy::too_many_arguments)]
+        fn move_issf_fit(
+            x: &[f64],
+            n: i64,
+            p: i64,
+            status: &[u8],
+            stratum: &[i32],
+            iter_max: i32,
+            eps: f64,
+            toler_chol: f64,
+            nocenter: bool,
+        ) -> Result<MoveIssfFit>;
+        /// survival's coxph.wtest: b' var^-1 b through the Cholesky factors (var k x k, column-major).
+        fn move_issf_wald(var: &[f64], b: &[f64]) -> Result<f64>;
+        /// R's log, exp, sin, cos, log1p and sqrt (sqrt1: of one number) of each value.
+        fn move_issf_fn(name: &str, x: &[f64]) -> Result<Vec<f64>>;
+        /// R's x^y.
+        fn move_issf_pow(x: &[f64], y: &[f64]) -> Result<Vec<f64>>;
+        /// R's sum() of doubles (long double).
+        fn move_issf_sum(x: &[f64]) -> f64;
+        /// R's pchisq(x, df, lower.tail).
+        fn move_issf_pchisq(x: &[f64], df: f64, lower_tail: bool) -> Vec<f64>;
+        /// R's qnorm(p).
+        fn move_issf_qnorm(p: f64) -> f64;
         /// The missing values of a location error filled (how 0 median, 1 mean, 2 zero, 3 approx).
         fn move_impute_loc_err(e: &[f64], how: i32) -> MoveImputed;
         /// ud_grid_probe: 8 numbers, the envelope of the kernel windows (min x, max x, min y, max y) and the extreme

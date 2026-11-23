@@ -3340,3 +3340,381 @@ fn surface_distance_errors() {
     assert!(err(&steps, &tweak(&|g| g.transform[2] = 0.1), serde_json::json!({})).contains("rotated"));
     assert!(err(&steps, &tweak(&|g| g.transform[5] = 10.0), serde_json::json!({})).contains("north up"));
 }
+
+// step selection functions (tf.move.fit_issf and log_rss): keys `in/issf/<set>/...`, `issf/<case>/...` and
+// `issf/<case>/<lr>/...`, the formulas, names and arguments in move.json (`issf`)
+
+fn issf_meta() -> &'static serde_json::Value {
+    &reference().1["issf"]
+}
+
+/// The steps of a harness set (and the columns a case adds) as a table of features.
+fn issf_steps(set: &str, extra: Option<&str>) -> Value {
+    let z = &reference().0;
+    let col = |c: &str| z[&format!("in/issf/{set}/{c}")].data.clone();
+    let n = col("case_").len();
+    let mut attributes: Vec<(String, Column)> = ["step_id_", "case_", "elevation", "sl_", "ta_", "landuse"]
+        .iter()
+        .map(|c| (c.to_string(), Column::Numbers(col(c))))
+        .collect();
+    let txt = issf_meta()["sets"][set]["step_txt"].as_array().unwrap();
+    attributes.push(("step_txt".into(), Column::Texts(txt.iter().map(|v| v.as_str().unwrap().to_string()).collect())));
+    match extra {
+        Some("lu") => attributes
+            .push(("lu".into(), Column::Texts(col("landuse").iter().map(|v| format!("{}", *v as i64)).collect()))),
+        Some("col") => {
+            attributes.push(("elev2".into(), Column::Numbers(col("elevation").iter().map(|v| 2.0 * v).collect())));
+            attributes.push(("k1".into(), Column::Numbers(vec![1.0; n])));
+        }
+        _ => {}
+    }
+    Value::Vector(Arc::new(Vector { geometries: vec![Geometry::Empty; n], attributes, crs: None }))
+}
+
+type IssfModel = Arc<terraflux_ops::movement::StepModel>;
+
+fn issf_model(o: &Outputs) -> IssfModel {
+    match &o["model"] {
+        Value::StepModel(m) => m.clone(),
+        v => panic!("model: {:?}", v.ty()),
+    }
+}
+
+fn issf_names(v: &serde_json::Value) -> Vec<String> {
+    v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
+}
+
+fn issf_table(o: &Outputs, port: &str) -> Table {
+    match &o[port] {
+        Value::Table(t) => t.clone(),
+        v => panic!("{port}: {:?}", v.ty()),
+    }
+}
+
+/// A fit's numbers against the library's (`issf_put`).
+fn issf_same(what: &str, key: &str, names: &[String], o: &Outputs) {
+    let m = issf_model(o);
+    assert_eq!(m.names(), names, "{what}: the names of the columns");
+    same(&format!("{what} coef"), &m.coef, want(&format!("{key}/coef")));
+    same(&format!("{what} vcov"), &m.vcov, want(&format!("{key}/vcov")));
+    same(&format!("{what} means"), &m.means, want(&format!("{key}/means")));
+    let s = want(&format!("{key}/scalars"));
+    let got = [
+        m.loglik[0],
+        m.loglik[1],
+        m.iter as f64,
+        m.n as f64,
+        m.nevent as f64,
+        m.n_omitted as f64,
+        m.wald,
+        m.score,
+        m.aic(),
+        m.edf() as f64,
+        f64::from(u8::from(m.converged)),
+    ];
+    same(&format!("{what} loglik, iter, n, nevent, n_omitted, wald, score, aic, edf, converged"), &got, s);
+    let t = issf_table(o, "table");
+    assert_eq!(t.columns, ["term", "coef", "exp_coef", "se", "z", "p", "lower", "upper"]);
+    assert_eq!(t.rows.len(), names.len());
+    for c in ["coef", "exp_coef", "se", "z", "p", "lower", "upper"] {
+        same(&format!("{what} table {c}"), &t.column(c).unwrap(), want(&format!("{key}/{c}")));
+    }
+    let terms: Vec<&str> = (0..t.rows.len()).map(|i| t.label("term", t.rows[i][0]).unwrap()).collect();
+    assert_eq!(terms, names);
+    let f = issf_table(o, "fit");
+    assert_eq!(f.columns[0], "loglik_null");
+    same(&format!("{what} fit table"), &f.rows[0][..2], &s[..2]);
+    same(&format!("{what} fit table aic"), &f.rows[0][2..3], &s[8..9]);
+}
+
+/// The settings of a log-RSS case of the reference (its x1 and x2, and the interval it asks for).
+fn issf_lr_params(lr: &serde_json::Value, x1: &serde_json::Value, x2: &serde_json::Value) -> serde_json::Value {
+    let mut p = serde_json::json!({"x1": x1, "x2": x2});
+    for (k, v) in lr.as_object().unwrap() {
+        match k.as_str() {
+            "tag" => {}
+            "ci_level" => p["level"] = v.clone(),
+            _ => p[k.as_str()] = v.clone(),
+        }
+    }
+    p
+}
+
+/// The log-RSS of a case against the library's, with the interval its arguments ask for.
+fn issf_lr_same(what: &str, key: &str, m: &IssfModel, case: &serde_json::Value) {
+    for lr in case["lr"].as_array().unwrap() {
+        let tag = lr["tag"].as_str().unwrap();
+        let p = issf_lr_params(lr, &case["x1"], &case["x2"]);
+        let o = go("move.log_rss", vec![("model", Value::StepModel(m.clone()))], p);
+        let t = issf_table(&o, "table");
+        for c in ["log_rss", "lwr", "upr"] {
+            match reference().0.get(&format!("{key}/{tag}/{c}")) {
+                Some(w) => same(&format!("{what} {tag} {c}"), &t.column(c).unwrap(), &w.data),
+                None => assert!(t.column(c).is_none(), "{what} {tag}: a column {c} the library has not"),
+            }
+        }
+        assert!(t.columns[0].ends_with("_x1"), "{:?}", t.columns);
+    }
+}
+
+#[test]
+fn step_selection_fits_are_the_librarys() {
+    let cases = issf_meta()["cases"].as_object().unwrap();
+    for (key, c) in cases.iter().filter(|(k, _)| !k.starts_with("fishers")) {
+        let steps = issf_steps(c["set"].as_str().unwrap(), c["extra"].as_str());
+        let o = go("move.fit_issf", vec![("steps", steps.clone())], serde_json::json!({"formula": c["formula"]}));
+        let names = issf_names(&c["names"]);
+        issf_same(key, &format!("issf/{key}"), &names, &o);
+        let m = issf_model(&o);
+        assert_eq!(m.formula, c["formula"].as_str().unwrap());
+        // the model matrix: the names, the order of the columns and every cell
+        if let Some(w) = reference().0.get(&format!("issf/{key}/matrix")) {
+            let Value::Vector(v) = &steps else { panic!() };
+            let df = terraflux_ops::movement::formula::Frame::from_vector(v);
+            let (cols, mnames) =
+                terraflux_ops::movement::formula::model_matrix(&df, c["formula"].as_str().unwrap()).unwrap();
+            assert_eq!(mnames, names, "{key}: matrix names");
+            let (n, p) = (df.len(), cols.len());
+            assert_eq!(w.data.len(), n * p);
+            let flat: Vec<f64> = (0..n).flat_map(|i| cols.iter().map(move |c| c[i])).collect();
+            same(&format!("{key} matrix"), &flat, &w.data);
+        }
+        if !c["lr"].as_array().unwrap().is_empty() {
+            issf_lr_same(key, &format!("issf/{key}"), &m, c);
+        }
+    }
+}
+
+#[test]
+fn a_collinear_column_has_no_coefficient_and_the_model_roundtrips_as_json() {
+    let c = &issf_meta()["cases"]["col"];
+    let steps = issf_steps("issf_a", Some("col"));
+    let o = go("move.fit_issf", vec![("steps", steps)], serde_json::json!({"formula": c["formula"]}));
+    let m = issf_model(&o);
+    assert!(m.coef.iter().any(|v| v.is_nan()));
+    assert!(m.edf() < m.coef.len());
+    // the model as JSON (NaN as null) comes back the same, and gives the same log-RSS
+    let a = serde_json::to_string(&*m).unwrap();
+    let back: terraflux_ops::movement::StepModel = serde_json::from_str(&a).unwrap();
+    assert_eq!(serde_json::to_string(&back).unwrap(), a);
+    assert!(back.coef.iter().zip(&m.coef).all(|(x, y)| x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan())));
+    issf_lr_same("col", "issf/col", &Arc::new(back), c);
+}
+
+/// The fishers' steps of three animals, as move.steps gives them.
+fn issf_fishers_steps() -> Value {
+    let z = &reference().0;
+    let m = &issf_meta()["fishers"];
+    let col = |c: &str| z[&format!("in/issf/fishers/{c}")].data.clone();
+    let (x1, y1, x2, y2) = (col("x1_"), col("y1_"), col("x2_"), col("y2_"));
+    let geometries = (0..x1.len()).map(|i| Geometry::LineString(vec![[x1[i], y1[i]], [x2[i], y2[i]]])).collect();
+    let mut attributes = vec![("individual-local-identifier".to_string(), Column::Texts(issf_names(&m["track"])))];
+    let (sl, dir, ta) = (col("sl_"), col("direction_p"), col("ta_"));
+    for (k, v) in [("x1_", x1), ("x2_", x2), ("y1_", y1), ("y2_", y2), ("sl_", sl), ("direction_p", dir), ("ta_", ta)] {
+        attributes.push((k.to_string(), Column::Numbers(v)));
+    }
+    Value::Vector(Arc::new(Vector { geometries, attributes, crs: m["crs"].as_str().map(str::to_string) }))
+}
+
+/// The random steps of the fishers and the elevation at their ends, as the Terraflux makes them.
+fn issf_fishers_data() -> Value {
+    let m = &issf_meta()["fishers"];
+    let o = go(
+        "move.random_steps",
+        vec![("steps", issf_fishers_steps())],
+        serde_json::json!({"n_control": m["n_control"], "seed": m["seed"]}),
+    );
+    let rs = Value::Vector(vector(&o, "steps"));
+    let o =
+        go("move.extract_covariates", vec![("tracks", rs), ("elevation", relief_elevation())], serde_json::json!({}));
+    let v = vector(&o, "tracks");
+    for c in ["x2_", "y2_", "sl_", "ta_", "case_", "step_id_", "elevation"] {
+        same(&format!("fishers {c}"), &num(&v, c), want(&format!("issf/fishers/in/{c}")));
+    }
+    Value::Vector(v)
+}
+
+#[test]
+fn step_selection_of_the_fishers_is_the_librarys() {
+    if !gdal() {
+        return;
+    }
+    let data = issf_fishers_data();
+    let cases = &issf_meta()["cases"];
+    // the default formula (the covariate extract_covariates added, log(sl_), cos(ta_)) and the track-step strata
+    let o = go("move.fit_issf", vec![("steps", data.clone())], serde_json::json!({}));
+    let c = &cases["fishers"];
+    issf_same("fishers", "issf/fishers", &issf_names(&c["names"]), &o);
+    let m = issf_model(&o);
+    assert_eq!(m.formula, c["formula"].as_str().unwrap());
+    issf_lr_same("fishers", "issf/fishers", &m, c);
+    // a formula without strata and the same default setting: the same fit
+    let formula = serde_json::json!({"formula": "case_ ~ elevation + log(sl_) + cos(ta_)"});
+    let o2 = issf_model(&go("move.fit_issf", vec![("steps", data.clone())], formula));
+    same("explicit formula", &o2.coef, &m.coef);
+    same("explicit formula vcov", &o2.vcov, &m.vcov);
+    // strata by the plain step_id_ (what amt fits when given it): the library's fit, and not the same as the default
+    let o3 = go("move.fit_issf", vec![("steps", data)], serde_json::json!({"strata": "step_id_"}));
+    issf_same("fishers step_id_", "issf/fishers_id", &issf_names(&cases["fishers_id"]["names"]), &o3);
+    let a = issf_model(&o3);
+    assert_eq!(a.formula, cases["fishers_id"]["formula"].as_str().unwrap());
+    // three tracks share the step ids: their strata merge, so the fits differ
+    assert_ne!(a.coef[0].to_bits(), m.coef[0].to_bits());
+    assert_ne!(a.loglik[1].to_bits(), m.loglik[1].to_bits());
+}
+
+#[test]
+fn the_distributions_are_kept_in_the_model() {
+    let sl = Value::StepDistribution(Arc::new(terraflux_ops::movement::Distribution {
+        name: "gamma".into(),
+        params: vec![("shape".into(), 2.0), ("scale".into(), 30.0)],
+        vcov: None,
+    }));
+    let o = go(
+        "move.fit_issf",
+        vec![("steps", issf_steps("issf_a", None)), ("sl_distr", sl)],
+        serde_json::json!({"formula": "case_ ~ elevation + strata(step_id_)"}),
+    );
+    let m = issf_model(&o);
+    assert_eq!(m.sl_distr.as_ref().unwrap().name, "gamma");
+    assert!(m.ta_distr.is_none());
+    assert!(m.data.is_some());
+}
+
+fn issf_fit_error(steps: &Value, p: serde_json::Value) -> String {
+    run("move.fit_issf", vec![("steps", steps.clone())], p).map(|_| ()).unwrap_err().to_string()
+}
+
+#[test]
+fn step_selection_errors_are_the_librarys() {
+    let steps = issf_steps("issf_a", None);
+    let fit = |f: &str| issf_fit_error(&steps, serde_json::json!({"formula": f}));
+    assert!(fit("case_ ~ tan(elevation) + strata(step_id_)").contains(
+        "formula: the function tan() is not supported (only log, exp, sqrt, sin, cos, log1p, abs, I, factor and \
+         strata; tan, poly, ns, scale, offset and cluster are left out)"
+    ));
+    assert!(
+        fit("case_ ~ elevation + strata(step_id_) + strata(sl_)").contains("formula: only one strata(...) is allowed")
+    );
+    assert!(fit("case_ ~ elevation:strata(step_id_)").contains("formula: strata(...) cannot be in an interaction"));
+    assert!(fit("case_ ~ 2 + elevation").contains("formula: the number 2 is not a term"));
+    assert!(fit("case_ ~ elevation +").contains("formula: the expression ends where a term is expected"));
+    assert!(fit("case_ ~ zzz + strata(step_id_)").contains("the column 'zzz' of the formula is not in the data"));
+    assert!(
+        fit("case_ ~ log(step_txt) + strata(step_id_)")
+            .contains("the column 'step_txt' is not a number: it cannot be used in an expression")
+    );
+    assert!(fit("case_ ~ log(sl_ - sl_) + strata(step_id_)").contains("data contains an infinite predictor"));
+    assert!(fit("gone ~ elevation + strata(step_id_)").contains("the column 'gone' of the formula is not in the data"));
+    assert!(
+        fit("step_txt ~ elevation + strata(step_id_)").contains("step_txt: the cases must be True / False or 0 / 1")
+    );
+    assert!(fit("sl_ ~ elevation + strata(step_id_)").contains("sl_: the cases must be True / False or 0 / 1"));
+    // a column of one value other than 0, 1 or -1: R fails in scale
+    let e = fit("case_ ~ elevation + I(2 + 0 * sl_) + strata(step_id_)");
+    assert!(e.contains("have a constant value other than 0, 1 and -1"), "{e}");
+    // steps that are not random steps, and a strata column that is not there
+    assert!(run("move.fit_issf", vec![("steps", set("utm"))], serde_json::json!({})).is_err());
+    let e = issf_fit_error(&steps, serde_json::json!({"formula": "case_ ~ elevation", "strata": "nope"}));
+    assert!(e.contains("the column 'nope' of the formula is not in the data"), "{e}");
+}
+
+#[test]
+fn log_rss_errors_are_the_librarys() {
+    let formula = "case_ ~ elevation + log(sl_) + strata(step_id_)";
+    let o = go("move.fit_issf", vec![("steps", issf_steps("issf_a", None))], serde_json::json!({"formula": formula}));
+    let m = Value::StepModel(issf_model(&o));
+    let lr =
+        |p: serde_json::Value| run("move.log_rss", vec![("model", m.clone())], p).map(|_| ()).unwrap_err().to_string();
+    let ok = serde_json::json!({"elevation": [100.0, 120.0], "sl_": [10.0, 20.0]});
+    let one = serde_json::json!({"elevation": 100.0, "sl_": 10.0});
+    assert!(
+        lr(serde_json::json!({"x1": ok, "x2": {"elevation": [1.0, 2.0], "sl_": [1.0, 2.0]}}))
+            .contains("The data.frame provided as 'x2' should have exactly 1 row (it has 2).")
+    );
+    assert!(
+        lr(serde_json::json!({"x1": {"elevation": [1.0]}, "x2": one}))
+            .contains("x1: the column 'sl_' of the formula is not in the data")
+    );
+    assert!(
+        lr(serde_json::json!({"x1": ok, "x2": {"elevation": 1.0}}))
+            .contains("x2: the column 'sl_' of the formula is not in the data")
+    );
+    assert!(lr(serde_json::json!({"x1": ok, "x2": one, "ci": "bad"})).contains("ci: none, se or boot"));
+    assert!(
+        lr(serde_json::json!({"x1": ok, "x2": one, "ci": "se", "level": 2.0}))
+            .contains("ci_level: a number between 0 and 1")
+    );
+    assert!(
+        lr(serde_json::json!({"x1": ok, "x2": one, "ci": "boot", "n_boot": 0}))
+            .contains("n_boot: a whole number, 1 or more")
+    );
+    assert!(lr(serde_json::json!({"x1": ok})).contains("x2"));
+    // a new level of a factor
+    let f = go(
+        "move.fit_issf",
+        vec![("steps", issf_steps("issf_a", Some("lu")))],
+        serde_json::json!({"formula": "case_ ~ lu + elevation + strata(step_id_)"}),
+    );
+    let m = Value::StepModel(issf_model(&f));
+    let e = run(
+        "move.log_rss",
+        vec![("model", m)],
+        serde_json::json!({"x1": {"lu": ["999"], "elevation": [1.0]}, "x2": {"lu": ["0"], "elevation": [1.0]}}),
+    )
+    .map(|_| ())
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("x1: lu: new levels ['999'] (the fit has ['0', '210', '30', '50', '70'])"), "{e}");
+}
+
+#[test]
+fn x1_and_x2_as_tables_give_the_same_log_rss_as_as_settings() {
+    let c = &issf_meta()["cases"]["a"];
+    let steps = issf_steps("issf_a", None);
+    let o = go("move.fit_issf", vec![("steps", steps)], serde_json::json!({"formula": c["formula"]}));
+    let m = Value::StepModel(issf_model(&o));
+    let table = |v: &serde_json::Value| {
+        let obj = v.as_object().unwrap();
+        let mut t = Table::new(obj.keys().cloned().collect());
+        let cols: Vec<Vec<f64>> =
+            obj.values().map(|c| c.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()).collect();
+        t.rows = (0..cols[0].len()).map(|i| cols.iter().map(|c| c[i]).collect()).collect();
+        Value::Table(t)
+    };
+    let tables = vec![("model", m.clone()), ("x1", table(&c["x1"])), ("x2", table(&c["x2"]))];
+    let by_table = issf_table(&go("move.log_rss", tables, serde_json::json!({"ci": "se"})), "table");
+    let json = serde_json::json!({"x1": c["x1"], "x2": c["x2"], "ci": "se"});
+    let by_json = issf_table(&go("move.log_rss", vec![("model", m)], json), "table");
+    for col in ["log_rss", "lwr", "upr"] {
+        same(col, &by_table.column(col).unwrap(), &by_json.column(col).unwrap());
+    }
+    assert_eq!(by_table.columns, ["elevation_x1", "sl_x1", "ta_x1", "log_rss", "lwr", "upr"]);
+}
+
+#[test]
+fn a_separating_covariate_runs_out_of_iterations_and_says_so() {
+    // x is 1 for every case and 0 for every other row: the likelihood has no maximum, the iterations run out
+    let n = 40;
+    let case: Vec<f64> = (0..n).map(|i| f64::from(u8::from(i % 4 == 0))).collect();
+    let id: Vec<f64> = (0..n).map(|i| (i / 4) as f64).collect();
+    let noise: Vec<f64> = (0..n).map(|i| ((i * 7919) % 13) as f64).collect();
+    let attributes = vec![
+        ("case_".to_string(), Column::Numbers(case.clone())),
+        ("step_id_".to_string(), Column::Numbers(id)),
+        ("x".to_string(), Column::Numbers(case)),
+        ("z".to_string(), Column::Numbers(noise)),
+    ];
+    let v = Value::Vector(Arc::new(Vector { geometries: vec![Geometry::Empty; n], attributes, crs: None }));
+    let params = serde_json::json!({"formula": "case_ ~ x + z + strata(step_id_)"});
+    let p = params.as_object().unwrap().clone();
+    let args = Args { node: "n", inputs: [("steps".to_string(), v)].into_iter().collect(), params: &p };
+    let mut ctx = Ctx::default();
+    let o = registry().get("move.fit_issf").unwrap().run(&mut ctx, &args).unwrap();
+    assert!(
+        ctx.warnings.iter().any(|w| w.contains("Ran out of iterations and did not converge")),
+        "{:?}",
+        ctx.warnings
+    );
+    assert!(!issf_model(&o).converged);
+}

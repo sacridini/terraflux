@@ -1047,6 +1047,28 @@ pub const TIPS: &[(&str, &str)] = &[
          relief they cross.",
     ),
     (
+        "move.fit_issf",
+        "The strata are what makes it a step selection function: the observed step and its random steps. The \
+         step_id_ of move.random_steps restarts for each track, and amt fits the ids it is given, so the steps of \
+         several tracks would share strata; the default (track_step) gives each step of each track its own \
+         (use strata = step_id_ only for one track, to match amt). Fit it on the covariates the animal could meet \
+         at the end of a step (move.extract_covariates) and on the step's own movement terms (log(sl_), cos(ta_)): \
+         the habitat coefficients are only unbiased when the movement ones are in the model (Avgar et al. 2016). \
+         Rows with no value for a term are left out (n_omitted); a coefficient shown as NaN is a column made of the \
+         others (collinear). A coefficient that grows without end, or iterations that run out, are warnings: the \
+         covariate separates the cases from the controls, or too few steps. The numbers are survival's, but the \
+         concordance coxph prints is not computed.",
+    ),
+    (
+        "move.log_rss",
+        "The log of how many times more likely a step ending at x1 is than one ending at x2 when the rest is equal \
+         (exp of it is the relative selection strength): it is not a probability, and it compares only the \
+         covariates given. Give every covariate of the formula, the movement terms (sl_, ta_) too, in x1 and x2; a \
+         column of names takes names the model saw. The intervals are those of the coefficients' uncertainty: se is \
+         the Wald interval of the covariance of the fit, boot refits the model on bootstrap samples of the strata \
+         (slower, n_boot refits) and needs the fit's data.",
+    ),
+    (
         "move.max_speed",
         "A ceiling for speeds that cannot be real, not a cruising speed: the scaling law of Hirt et al. (2017) is for \
          horizontal bursts, and its interval is the uncertainty of the fit, not the scatter between species (about a \

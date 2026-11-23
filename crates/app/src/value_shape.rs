@@ -193,6 +193,10 @@ pub fn describe(v: &Value) -> String {
         Value::SdmModel(_) => "Distribution model · fitted".into(),
         Value::MlModel(_) => "Model · fitted".into(),
         Value::StepDistribution(_) => "Step distribution".into(),
+        Value::StepModel(m) => line(
+            "Step selection model",
+            vec![count(m.coef.len(), "coefficient", "coefficients"), count(m.nevent, "step", "steps")],
+        ),
         Value::SwatProject(_) => "SWAT+ project".into(),
         Value::SwatWatershed(_) => "SWAT+ watershed".into(),
     }
