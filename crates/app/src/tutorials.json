@@ -1441,6 +1441,31 @@
       "/data/tutorials/animal-movement/cleaning-and-thinning/thin-distance.csv",
       "/data/tutorials/animal-movement/cleaning-and-thinning/thin-time.csv"
      ]
+    },
+    {
+     "slug": "movement-on-the-relief",
+     "title": "Movement on the relief",
+     "template": "Movement on the relief",
+     "models": [],
+     "files": [
+      "/data/tutorials/animal-movement/movement-on-the-relief/README.md",
+      "/data/tutorials/animal-movement/movement-on-the-relief/animals.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/bargy_ibex_2013.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/body-mass.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/coefficients-end.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/coefficients-full.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/coefficients-sim.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/controls.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/correlations.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/log-rss-height.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/log-rss-slope.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/one-at-a-time.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/simulation.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/use-comparison.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/used-available.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/validation.csv",
+      "/data/tutorials/animal-movement/movement-on-the-relief/write.R"
+     ]
     }
    ]
   },
