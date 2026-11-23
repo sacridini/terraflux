@@ -15914,7 +15914,7 @@
   ],
   "access": "none",
   "container": false,
-  "advice": "For a model whose coefficients come from a paper or a fit made elsewhere. The terms are those of the formula          the fit would have: the covariates by the names the rasters are connected with (forest_end for the value at          the end of the candidate step, forest_start for the start), sl_, log_sl_, ta_ and cos_ta_ for the movement.          The distributions must be the tentative ones of the fit (the ones the random steps were drawn from), not          the ones the coefficients adjust: a simulation draws candidates from them and the coefficients of the          movement terms (log_sl_, cos_ta_) correct them (Avgar et al. 2016). The setting's keys come in alphabetical          order: give a list of [term, value] pairs to keep the order the terms are summed in."
+  "advice": "For a model whose coefficients come from a paper or a fit made elsewhere. The terms are those of the formula the fit would have: the covariates by the names the rasters are connected with (forest_end for the value at the end of the candidate step, forest_start for the start), sl_, log_sl_, ta_ and cos_ta_ for the movement. The distributions must be the tentative ones of the fit (the ones the random steps were drawn from), not the ones the coefficients adjust: a simulation draws candidates from them and the coefficients of the movement terms (log_sl_, cos_ta_) correct them (Avgar et al. 2016). The setting's keys come in alphabetical order: give a list of [term, value] pairs to keep the order the terms are summed in."
  },
  {
   "name": "move.log_rss",
@@ -16225,7 +16225,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Counts positions, not time: a long path from one start shows where the animal goes, but only the steady          state (a burn-in left out, or many starts) is the use of the landscape Signer et al. (2024) simulate it for.          It is not smoothed: the share of a cell is the share of the end points that fell in it, so few or short          paths give a speckled map; smooth it, or simulate more. Cells with no value in `like` take no positions and          are not in the total."
+  "advice": "Counts positions, not time: a long path from one start shows where the animal goes, but only the steady state (a burn-in left out, or many starts) is the use of the landscape Signer et al. (2024) simulate it for. It is not smoothed: the share of a cell is the share of the end points that fell in it, so few or short paths give a speckled map; smooth it, or simulate more. Cells with no value in `like` take no positions and are not in the total."
  },
  {
   "name": "move.random_numbers",
@@ -16494,7 +16494,7 @@
   "access": "global",
   "container": false,
   "extra": "any",
-  "advice": "Only the habitat part of the model counts: a cell has no step, so the terms of movement (sl_, log_sl_,          cos_ta_, ta_), their interactions and the covariates at the start of the step are left out, and the          warning says which. The selection of a step-selection model is relative (it depends on the covariates          the animal could choose between, not on how many animals use a place) and a resistance surface made from          it is a hypothesis: Zeller et al. (2012) review how selection becomes resistance and Keeley et al. (2016)          find the shape of the transformation matters (a negative exponential of suitability, negexp, is what they          recommend; c bends it). Validate the surface against movement that was not used to fit the model."
+  "advice": "Only the habitat part of the model counts: a cell has no step, so the terms of movement (sl_, log_sl_, cos_ta_, ta_), their interactions and the covariates at the start of the step are left out, and the warning says which. The selection of a step-selection model is relative (it depends on the covariates the animal could choose between, not on how many animals use a place) and a resistance surface made from it is a hypothesis: Zeller et al. (2012) review how selection becomes resistance and Keeley et al. (2016) find the shape of the transformation matters (a negative exponential of suitability, negexp, is what they recommend; c bends it). Validate the surface against movement that was not used to fit the model."
  },
  {
   "name": "move.segments",
@@ -16705,7 +16705,7 @@
   "access": "global",
   "container": false,
   "extra": "any",
-  "advice": "n_control candidate steps are drawn in every step of every path (a million by default, amt's): 100 steps          draw a hundred million candidates and take minutes; a few thousand are enough to try a model. The path          depends on the seed (path i of n_paths has the seed seed + i - 1): simulate many paths from many starts          and look at their use (move.path_density), not at one. The covariates must cover the area the animal can          reach: a path that leaves them stops, with a warning, unless tolerance_outside allows a fraction of the          candidates to fall outside. A start given as the first location of a track takes the track's time and the          direction of its first step; dt is the time each step takes, so the times of the path are the start's          plus dt for each step."
+  "advice": "n_control candidate steps are drawn in every step of every path (a million by default, amt's): 100 steps draw a hundred million candidates and take minutes; a few thousand are enough to try a model. The path depends on the seed (path i of n_paths has the seed seed + i - 1): simulate many paths from many starts and look at their use (move.path_density), not at one. The covariates must cover the area the animal can reach: a path that leaves them stops, with a warning, unless tolerance_outside allows a fraction of the candidates to fall outside. A start given as the first location of a track takes the track's time and the direction of its first step; dt is the time each step takes, so the times of the path are the start's plus dt for each step."
  },
  {
   "name": "move.speed",
@@ -20269,7 +20269,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "mode grow takes the free cells within `distance` (map units; or `steps` cells) of the objects, each to the          nearest, and shrink gives them back; open (shrink, then grow back over what the object had) cuts thin necks          and drops specks, close (grow, then shrink the cells added) fills slits and small gaps, fill closes the holes          one object encloses (`max_hole` limits their size), smooth rounds spikes and notches. A `mask` (raster.calc,          say ndvi > 0.3) or `into` (class names whose cells grow may take, eCognition's candidates) makes the growth          geodesic, ring by ring, so it follows the condition and cannot jump over a barrier. refine, the border          optimization, needs the image: each border cell goes to the adjacent object of the closest band means,          `steps` times. `classes` limits the objects that change. Pieces cut off by shrink or open become objects of          the same class; the level above and the other attributes are dropped, so run objects.features after it."
+  "advice": "mode grow takes the free cells within `distance` (map units; or `steps` cells) of the objects, each to the nearest, and shrink gives them back; open (shrink, then grow back over what the object had) cuts thin necks and drops specks, close (grow, then shrink the cells added) fills slits and small gaps, fill closes the holes one object encloses (`max_hole` limits their size), smooth rounds spikes and notches. A `mask` (raster.calc, say ndvi > 0.3) or `into` (class names whose cells grow may take, eCognition's candidates) makes the growth geodesic, ring by ring, so it follows the condition and cannot jump over a barrier. refine, the border optimization, needs the image: each border cell goes to the adjacent object of the closest band means, `steps` times. `classes` limits the objects that change. Pieces cut off by shrink or open become objects of the same class; the level above and the other attributes are dropped, so run objects.features after it."
  },
  {
   "name": "objects.resolve",
@@ -20787,7 +20787,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "For crowns, buildings, cells and mounds that were segmented as one object. by distance cuts at the necks:          a centre must stand `h` (default one cell) above the saddle that joins it to a higher one, so raise `h` if          round objects split and lower it if a pinched one does not. by surface floods a map instead (a canopy height          model, the brightness: smooth it with `sigma` first when it is noisy) and `invert` is for dark centres.          `max_neck` keeps the objects whose parts are joined by a wide neck (a cut longer than max_neck times the          smaller piece's width is undone: 0.5 to 1 is usual), `min_size` sends the crumbs back to a neighbour piece,          and `classes` limits it to the objects of some classes. The pieces keep the class; the level above and the          other attributes are dropped, so run objects.features after it."
+  "advice": "For crowns, buildings, cells and mounds that were segmented as one object. by distance cuts at the necks: a centre must stand `h` (default one cell) above the saddle that joins it to a higher one, so raise `h` if round objects split and lower it if a pinched one does not. by surface floods a map instead (a canopy height model, the brightness: smooth it with `sigma` first when it is noisy) and `invert` is for dark centres. `max_neck` keeps the objects whose parts are joined by a wide neck (a cut longer than max_neck times the smaller piece's width is undone: 0.5 to 1 is usual), `min_size` sends the crumbs back to a neighbour piece, and `classes` limits it to the objects of some classes. The pieces keep the class; the level above and the other attributes are dropped, so run objects.features after it."
  },
  {
   "name": "objects.temporal",
@@ -35502,6 +35502,36 @@
   "extra": "any"
  },
  {
+  "name": "vector.boundary",
+  "doc": "The boundary of every feature (PostGIS's ST_Boundary, QGIS's Boundary): the rings of a polygon as lines, the end points of a line as points (a closed line has none: it is empty); the boundary of a point is empty. The attributes are kept.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the boundaries"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false,
+  "advice": "A polygon's boundary is its rings as lines (holes included); a closed line or a point has no boundary and gives an empty feature."
+ },
+ {
   "name": "vector.buffer",
   "doc": "The area within a distance of every feature (GEOS through GDAL, as shapely's buffer): circles around points, corridors along lines, polygons grown (or shrunk, with a negative distance); the features' attributes kept, or every buffer merged into one (dissolve).",
   "inputs": [
@@ -35546,7 +35576,7 @@
  },
  {
   "name": "vector.calc",
-  "doc": "Attributes computed for every feature from a script over the others, as QGIS's field calculator, in map algebra's language (Python's syntax): the attributes by their names (the characters other than letters, digits and _ as _: individual-local-identifier as individual_local_identifier), numbers and texts (\"high\" if pop > 100 else \"low\"; uso == \"forest\"; float(code) reads a text as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the number 1..), x.sum() and the other methods over all the features, the node's other inputs (numbers and texts) by their names. One statement a line (# a comment): name = value, name[where] = value, and out name = value (or out name) for each attribute given; without out, the last value is the attribute `column`. An attribute of the same name is replaced, else it is added.",
+  "doc": "Attributes computed for every feature from a script over the others, as QGIS's field calculator, in map algebra's language (Python's syntax): the attributes by their names (the characters other than letters, digits and _ as _: individual-local-identifier as individual_local_identifier), numbers and texts (\"high\" if pop > 100 else \"low\"; uso == \"forest\"; float(code) reads a text as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the number 1..), x.sum() and the other methods over all the features, the node's other inputs (numbers and texts) by their names. A vector connected to an extra input is a layer by its port's name, for the spatial functions: within(parks), contains, intersects, touches, crosses, overlaps, covers, covered_by, contains_properly, equals, disjoint, dwithin(rivers, 500) (true when it holds with at least one feature of the layer), count(trees, \"within\") (how many) and distance(roads) (to the nearest). One statement a line (# a comment): name = value, name[where] = value, and out name = value (or out name) for each attribute given; without out, the last value is the attribute `column`. An attribute of the same name is replaced, else it is added.",
   "inputs": [
    {
     "name": "vector",
@@ -35588,6 +35618,43 @@
   "extra": "any"
  },
  {
+  "name": "vector.centroid",
+  "doc": "The centroid of every feature as a point (GEOS's, as PostGIS's ST_Centroid and QGIS's Centroids), with their attributes; with `inside`, a point guaranteed to lie on the feature (PostGIS's ST_PointOnSurface, QGIS's Point on surface): the centroid of a concave polygon (a C, an L) can fall outside it. Empty features stay empty.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "inside",
+    "type": "bool",
+    "required": false,
+    "doc": "a point on the feature, not its centroid (false)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The centroid of a concave polygon (a C, an L, a river bend) can fall outside it: turn on `inside` for a label point that always lies on the feature."
+ },
+ {
   "name": "vector.clip",
   "doc": "Features cut to the area of a mask (the union of its polygons; GEOS through GDAL, as geopandas' clip): each feature's part inside it, those outside it left out, their attributes kept.",
   "inputs": [
@@ -35615,6 +35682,221 @@
   "params": [],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "vector.closest_point",
+  "doc": "Each point moved to the nearest point of the nearest feature of another layer (PostGIS's ST_ClosestPoint, QGIS's Snap geometries to layer, point to segment): the target is the point of a segment, not only a vertex. With `max_distance` a point farther from its target stays where it is. Adds `moved` (the distance moved, 0 for a point left as it is) and `snapped` (1 when the point was set on a target, even if it already lay on it). The other layer is reprojected to the first's.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points to move"
+   },
+   {
+    "name": "other",
+    "type": "vector",
+    "required": true,
+    "doc": "the features to move them onto"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points, with moved and snapped"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "max_distance",
+    "type": "number",
+    "required": false,
+    "doc": "the farthest a point is moved (none: any)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The point lands on the nearest segment, not only on a vertex, so it can sit between the vertices of a road. Give `max_distance` to leave alone the points too far from anything; `snapped` tells which moved."
+ },
+ {
+  "name": "vector.cluster",
+  "doc": "The features with a column of cluster ids: DBSCAN on the distance between geometries (PostGIS's ST_ClusterDBSCAN and ST_ClusterWithin, QGIS's DBSCAN clustering). The neighbours of a feature are those within `distance` of it (inclusive, itself included), whatever their type; a feature with at least `min_points` neighbours is a core, which starts a cluster that grows through the cores' neighbours; a feature reached but not a core joins the first cluster that reaches it, and one in no cluster is noise, -1. Clusters are numbered 0, 1, 2... by their lowest feature. `min_points` 1 is ST_ClusterWithin: the connected groups, with no noise. Empty features are noise. The result is deterministic. An existing column of that name is overwritten.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with the cluster column"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "distance",
+    "type": "number",
+    "required": true,
+    "doc": "the neighbourhood, in the layer's units"
+   },
+   {
+    "name": "min_points",
+    "type": "number",
+    "required": false,
+    "doc": "neighbours (itself included) of a core (1)"
+   },
+   {
+    "name": "column",
+    "type": "text",
+    "required": false,
+    "doc": "the name of the cluster column (cluster)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "`distance` is in the layer's units: reproject to a metric coordinate system first, as 50 degrees would join everything. `min_points` 1 groups the features that chain within the distance, with no noise; raise it (4 to 5 is usual) to leave isolated features as -1, noise, and to cut thin bridges between groups. The column is a number: -1 is noise."
+ },
+ {
+  "name": "vector.coverage_simplify",
+  "doc": "The polygons of a coverage simplified together with Visvalingam-Whyatt (GEOS 3.12's, as PostGIS's ST_CoverageSimplify and QGIS's Simplify coverage): neighbours keep sharing their edges, so no gap or overlap opens, which simplifying each polygon alone (vector.simplify) cannot promise. The layer must be polygons that form a valid coverage (see vector.coverage_validate). `tolerance` is in the layer's units; with `preserve_boundary` the outer boundary of the coverage is left as it is and only the edges between polygons are simplified. The attributes are kept.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons of the coverage"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the simplified polygons"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "tolerance",
+    "type": "number",
+    "required": true,
+    "doc": "the simplification tolerance, in the layer's units"
+   },
+   {
+    "name": "preserve_boundary",
+    "type": "bool",
+    "required": false,
+    "doc": "leave the outer boundary as it is (false)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Do not use vector.simplify on a coverage (parcels, districts): it simplifies every polygon alone, so neighbours stop fitting and slivers and overlaps open along their shared edges. This simplifies the shared edges once for both, but only where they match vertex for vertex: check the layer with vector.coverage_validate first. The polygons of vector.polygonize usually fail it (a corner of one polygon lies on a straight edge of its neighbour, without a vertex there). Give `preserve_boundary` to keep the outline of the whole area, and a tolerance in metres (reproject first)."
+ },
+ {
+  "name": "vector.coverage_validate",
+  "doc": "The edges of a polygon coverage that overlap or leave a gap with their neighbours (GEOS 3.12's, as PostGIS's ST_CoverageInvalidEdges and QGIS's Validate coverage), per feature: the features with their attributes, a column `valid` (1 when the feature has no invalid edge, else 0) and as geometry the invalid edges of the feature as lines (empty when valid). `gap_width` also flags edges closer than that to a neighbour, the narrow gaps (in the layer's units; 0 flags overlaps and unmatched edges only).",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons of the coverage"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with their invalid edges"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes and valid"
+   }
+  ],
+  "params": [
+   {
+    "name": "gap_width",
+    "type": "number",
+    "required": false,
+    "doc": "also flag edges closer than this to a neighbour (0)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Valid coverage means no overlaps and shared edges that match vertex for vertex. Keep the features with `valid` 0 to see where the problems are (their geometry is the invalid edges); `gap_width` (in the layer's units) also flags slivers narrower than that. Fix them before vector.coverage_simplify."
+ },
+ {
+  "name": "vector.delaunay",
+  "doc": "The Delaunay triangulation of all the vertices of the features (GEOS's, as PostGIS's ST_DelaunayTriangles and QGIS's Delaunay triangulation): one polygon per triangle, or with `edges` one line per edge, in the order GEOS gives them. The features have no attributes besides the geometry; the coordinate system is the layer's. Fewer than three vertices, or all on a line, give no features. `tolerance` is GEOS's snapping tolerance.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features whose vertices are triangulated"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the triangles or edges"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes (none)"
+   }
+  ],
+  "params": [
+   {
+    "name": "edges",
+    "type": "bool",
+    "required": false,
+    "doc": "the edges as lines, not the triangles (false)"
+   },
+   {
+    "name": "tolerance",
+    "type": "number",
+    "required": false,
+    "doc": "GEOS's snapping tolerance (0)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "It triangulates every vertex of the layer, so give points (or polygons for their corners) and nothing else; the triangles have no attributes. Use `edges` for the network of neighbours as lines."
  },
  {
   "name": "vector.density",
@@ -35762,6 +36044,36 @@
   "container": false
  },
  {
+  "name": "vector.envelope",
+  "doc": "The bounding box of every feature as a polygon (PostGIS's ST_Envelope, QGIS's Bounding boxes), with their attributes. As GEOS does, the envelope of a point is the point and that of a horizontal or vertical line a line.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the bounding boxes"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false,
+  "advice": "A point's envelope is the point itself and a horizontal or vertical line's a line, not a polygon with no area."
+ },
+ {
   "name": "vector.exact_sum",
   "doc": "The coverage-weighted sum of a map (or of every layer of a stack) over every polygon, exactextractr's exact_extract(fun = \"sum\"): every cell weighted by the share of it the polygon covers, exactly (the amounts of features in planning units of polygons). Out of core (block_rows, or rasters on disk of more than 250 million cells) the windows under every polygon read from disk, the same sums.",
   "inputs": [
@@ -35796,6 +36108,36 @@
   ],
   "access": "global",
   "container": false
+ },
+ {
+  "name": "vector.explode",
+  "doc": "Multi-part features split into single parts (PostGIS's ST_Dump, QGIS's Multipart to singleparts): one feature per part with the attributes repeated, in the order of the features and, in each, of the parts. Single-part features are kept as they are, and an empty feature stays one empty feature.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the parts"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false,
+  "advice": "Each part becomes a feature with the attributes repeated: an area or a count column now repeats on every part, so measure or recompute after exploding."
  },
  {
   "name": "vector.extract",
@@ -35869,7 +36211,7 @@
  },
  {
   "name": "vector.filter",
-  "doc": "The features where an expression over their attributes is true, as QGIS's Select by Expression or geopandas' query, in map algebra's language (Python's syntax): the attributes by their names (the characters other than letters, digits and _ as _: individual-local-identifier as individual_local_identifier), numbers and texts (area > 10000 and uso == \"forest\"; float(code) reads a text as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the number 1..), the node's other inputs (numbers and texts) by their names. A script of several lines gives names values (density = pop / geometry.area) and ends with the condition. A feature where it is missing is left out.",
+  "doc": "The features where an expression over their attributes is true, as QGIS's Select by Expression or geopandas' query, in map algebra's language (Python's syntax): the attributes by their names (the characters other than letters, digits and _ as _: individual-local-identifier as individual_local_identifier), numbers and texts (area > 10000 and uso == \"forest\"; float(code) reads a text as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the number 1..), the node's other inputs (numbers and texts) by their names. A vector connected to an extra input is a layer by its port's name, for the spatial functions: within(parks), contains, intersects, touches, crosses, overlaps, covers, covered_by, contains_properly, equals, disjoint, dwithin(rivers, 500) (true when it holds with at least one feature of the layer), count(trees, \"within\") and distance(roads) (to the nearest). A script of several lines gives names values (density = pop / geometry.area) and ends with the condition. A feature where it is missing is left out.",
   "inputs": [
    {
     "name": "vector",
@@ -36019,6 +36361,71 @@
   "container": false
  },
  {
+  "name": "vector.hull",
+  "doc": "The convex or concave hull of every feature (PostGIS's ST_ConvexHull and ST_ConcaveHull, QGIS's Convex hull and Concave hull), with their attributes. With `by`, one hull per value of an attribute over the union of its features, in the order of their first appearance, with that value and count (the features of the group, as vector.dissolve); with `dissolve`, one hull of every feature (only count). The concave hull needs GEOS 3.11: its `ratio` is 1 for the convex hull and 0 for the tightest, `allow_holes` lets it have holes.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the hulls"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "kind",
+    "type": "text",
+    "required": false,
+    "doc": "convex or concave (convex)",
+    "choices": [
+     "convex",
+     "concave"
+    ]
+   },
+   {
+    "name": "ratio",
+    "type": "number",
+    "required": false,
+    "doc": "the concave hull's ratio, 0 to 1 (0.3)"
+   },
+   {
+    "name": "allow_holes",
+    "type": "bool",
+    "required": false,
+    "doc": "the concave hull may have holes (false)"
+   },
+   {
+    "name": "by",
+    "type": "text",
+    "required": false,
+    "doc": "the attribute: one hull per value of it"
+   },
+   {
+    "name": "dissolve",
+    "type": "bool",
+    "required": false,
+    "doc": "one hull of every feature (false); not with `by`"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The convex hull is the outline of the points as a rubber band; the concave one hugs them tighter (`ratio` 0.3 is a good start, 1 gives the convex hull). Give `by` for one hull per species or group. Reproject to a metric coordinate system first if the hulls will be measured."
+ },
+ {
   "name": "vector.join",
   "doc": "A table's columns as attributes of features: every feature takes the row whose key column equals its attribute `on` (its number 1.. by default), e.g. the cluster of every zone of metrics.cluster on vector.grid_zones' squares (key zone); no value where no row matches. Attributes of the same name are replaced.",
   "inputs": [
@@ -36061,14 +36468,129 @@
   "container": false
  },
  {
-  "name": "vector.overlay",
-  "doc": "Two layers of polygons overlaid, as geopandas' overlay or QGIS's Intersection, Union and Difference (GEOS through GDAL): the intersection (a polygon where a feature of each meets, with the attributes of both), the union (those, and the parts of each layer the other does not cover, with only their own attributes) or the difference (each feature of the first less the second's). The second layer is reprojected to the first's.",
+  "name": "vector.locate",
+  "doc": "For each feature, the nearest line of another layer and the measure along it of the closest point (PostGIS's ST_LineLocatePoint, QGIS's Join by nearest): `line` (the feature of the lines, -1 for none; the first on a tie), `measure` (GEOS's, of the point of the line closest to the feature; along a multi-line its parts in sequence) and `distance` (the layer's units). An empty feature, or no lines, gives -1 and NaN. The lines are reprojected to the first layer's coordinate system.",
   "inputs": [
    {
     "name": "vector",
     "type": "vector",
     "required": true,
-    "doc": "the first layer of polygons"
+    "doc": "the features to locate"
+   },
+   {
+    "name": "lines",
+    "type": "vector",
+    "required": true,
+    "doc": "the lines to measure along"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with line, measure and distance"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false,
+  "advice": "`measure` is the distance along the line from its start to the closest point, in the layer's units; along a multi-line GEOS counts its parts in sequence. `line` is the row of the lines layer (-1 where there is none), so join it back with vector.nearest when you need its attributes."
+ },
+ {
+  "name": "vector.make_valid",
+  "doc": "Every invalid geometry repaired (GEOS's linework method, as PostGIS's ST_MakeValid and QGIS's Fix geometries): a bow-tie polygon becomes a multipolygon of its two parts. Valid geometries are kept as they are. Where the repair leaves a mix (a polygon and a line), the parts of the highest dimension are kept.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the repaired features"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false,
+  "advice": "Run it before an overlay, a dissolve or a clip that fails on a self-intersecting polygon (a bow-tie). Valid features are not touched; a bow-tie becomes two polygons."
+ },
+ {
+  "name": "vector.nearest",
+  "doc": "Each feature joined to the nearest feature of another layer, as geopandas' sjoin_nearest, QGIS's Join Attributes by Nearest and PostGIS's ORDER BY a.geom <-> b.geom LIMIT 1 (GEOS's distance, through a spatial index): it takes that feature's attributes and `distance` (map units, 0 where they meet); a tie goes to the first feature of the other layer. None within `max_distance`: no values and a NaN distance. The other layer is reprojected to the first's.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features joined to"
+   },
+   {
+    "name": "other",
+    "type": "vector",
+    "required": true,
+    "doc": "the features to find the nearest of"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with the nearest one's attributes and distance"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "max_distance",
+    "type": "number",
+    "required": false,
+    "doc": "the farthest a feature may be (map units; none: any)"
+   },
+   {
+    "name": "suffix",
+    "type": "text",
+    "required": false,
+    "doc": "after a name of the other layer the first has (_2)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The distance is in the layers' units: reproject both to a metric coordinate system first, as degrees give distances that are not metres. A feature that meets one of the other layer has distance 0. Give `max_distance` to leave without values those with nothing near."
+ },
+ {
+  "name": "vector.overlay",
+  "doc": "Two layers overlaid, as geopandas' overlay, PostGIS's ST_Intersection, ST_Difference and ST_SymDifference and QGIS's Intersection, Union, Difference, Symmetrical difference and Identity (GEOS through GDAL): the intersection (a piece where a feature of each meets, with the attributes of both), the union (those, and the parts of each layer the other does not cover, with only their own attributes), the difference (each feature of the first less the second's), the symmetric difference (the parts of each layer the other does not cover, without the pieces) or the identity (the pieces, and the parts of the first layer the second does not cover). The second layer is polygons; the first may also be lines or points for the intersection, difference and identity (the parts of a line inside the polygons, the points inside), and a piece that is not of the first layer's kind is dropped. The second layer is reprojected to the first's.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the first layer (polygons, or lines or points: see how)"
    },
    {
     "name": "other",
@@ -36082,7 +36604,7 @@
     "name": "vector",
     "type": "vector",
     "required": true,
-    "doc": "the polygons overlaid"
+    "doc": "the pieces overlaid"
    },
    {
     "name": "table",
@@ -36096,11 +36618,13 @@
     "name": "how",
     "type": "text",
     "required": false,
-    "doc": "intersection (default), union or difference",
+    "doc": "intersection (default), union, difference, symmetric_difference or identity",
     "choices": [
      "intersection",
      "union",
-     "difference"
+     "difference",
+     "symmetric_difference",
+     "identity"
     ]
    },
    {
@@ -36112,7 +36636,7 @@
   ],
   "access": "none",
   "container": false,
-  "advice": "The intersection keeps the attributes of both layers; the union keeps, for the parts of one layer the other does not cover, only that layer's own; the difference is the first layer less the second. The second layer is reprojected to the first's coordinate system."
+  "advice": "The intersection keeps the attributes of both layers; the union keeps, for the parts of one layer the other does not cover, only that layer's own; the difference is the first layer less the second; the symmetric difference is the union without the pieces; the identity is the first layer, cut where the second meets it, with the second's attributes there. The first layer may be lines or points (not for the union or symmetric difference): the pieces are the parts of a line inside the polygons, the points inside. The second layer is reprojected to the first's coordinate system."
  },
  {
   "name": "vector.points",
@@ -36171,6 +36695,55 @@
   ],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "vector.points_along",
+  "doc": "Points along each line, at a fixed `spacing` or in a fixed number `n` (PostGIS's ST_LineInterpolatePoints, QGIS's Points along geometry). With `spacing` they lie at the measures start + k * spacing while those are within the length; with `n` (1 or more) at length * k / (n - 1), the first at the start and the last at the end (n = 1: the midpoint). A multi-line is taken part by part, its measures restarting at 0 on each. One feature per point with the attributes of its line repeated and `part` (the part of the line) and `measure` (along it).",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the lines"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "spacing",
+    "type": "number",
+    "required": false,
+    "doc": "the distance between points, in the layer's units"
+   },
+   {
+    "name": "n",
+    "type": "number",
+    "required": false,
+    "doc": "the number of points on each line (instead of spacing)"
+   },
+   {
+    "name": "start",
+    "type": "number",
+    "required": false,
+    "doc": "spacing: the measure of the first point (0)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Measures are in the layer's units, so reproject to a metric coordinate system first (a spacing of 100 in degrees is not 100 m). A multi-line restarts its measure at 0 on each part: `part` tells them apart."
  },
  {
   "name": "vector.polygonize",
@@ -36375,8 +36948,206 @@
   "container": false
  },
  {
+  "name": "vector.select_by_location",
+  "doc": "The features of a layer that meet those of another by a spatial predicate, as QGIS's Select by Location and Extract by Location or PostGIS's WHERE ST_Within(a.geom, b.geom) (GEOS through a spatial index): kept when the predicate holds with at least one feature of the other layer (`disjoint`: when it meets none), or the others with `invert`. The other layer is reprojected to the first's.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features to select from"
+   },
+   {
+    "name": "other",
+    "type": "vector",
+    "required": true,
+    "doc": "the features they are compared to"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features selected"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "predicate",
+    "type": "text",
+    "required": false,
+    "doc": "intersects (default), within, contains, touches, disjoint...",
+    "choices": [
+     "intersects",
+     "within",
+     "contains",
+     "contains_properly",
+     "touches",
+     "crosses",
+     "overlaps",
+     "covers",
+     "covered_by",
+     "equals",
+     "dwithin",
+     "disjoint"
+    ]
+   },
+   {
+    "name": "distance",
+    "type": "number",
+    "required": false,
+    "doc": "dwithin: the distance (map units)"
+   },
+   {
+    "name": "invert",
+    "type": "bool",
+    "required": false,
+    "doc": "keep the features that do not meet (false)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "`within` keeps the features inside the other layer's (a point on a border is not within, but it is covered_by); `intersects` also keeps those that only touch. Distances (`dwithin`) are in the layers' units: reproject to a metric coordinate system first, not degrees."
+ },
+ {
+  "name": "vector.shortest_line",
+  "doc": "The line from each feature to the nearest feature of another layer (PostGIS's ST_ShortestLine, QGIS's Shortest line between features): GEOS's nearest points of the two, the first of them on the feature. Each keeps its attributes and takes those of the other feature (a name the first has gets `suffix`) and `distance`; the first feature on a tie. An empty feature, or an empty other layer, gives an empty line and no values. The other layer is reprojected to the first's.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features the lines start from"
+   },
+   {
+    "name": "other",
+    "type": "vector",
+    "required": true,
+    "doc": "the features they end on"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the lines, with both layers' attributes and distance"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "suffix",
+    "type": "text",
+    "required": false,
+    "doc": "after a name of the other layer the first has (_2)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The line runs from the feature to the other layer's: its length is the `distance` column. A feature that touches the other has a line of zero length. Reproject to a metric coordinate system first, as degrees give distances that are not metres."
+ },
+ {
+  "name": "vector.simplify",
+  "doc": "Every geometry simplified with Douglas-Peucker (GEOS's, as PostGIS's ST_SimplifyPreserveTopology and ST_Simplify, QGIS's Simplify): the vertices that deviate less than `tolerance` (in the units of the layer) from the line between their neighbours are dropped. With `preserve_topology` (the default) the result stays valid: no ring collapses or crosses another.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the simplified features"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "tolerance",
+    "type": "number",
+    "required": true,
+    "doc": "the largest deviation dropped, in the layer's units"
+   },
+   {
+    "name": "preserve_topology",
+    "type": "bool",
+    "required": false,
+    "doc": "keep the geometries valid (true)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The tolerance is in the layer's units: reproject to a metric coordinate system first, as 50 degrees would erase everything. Keep `preserve_topology` on unless you only draw: without it a thin polygon can collapse or two rings cross."
+ },
+ {
+  "name": "vector.smooth",
+  "doc": "Lines and polygons smoothed by Chaikin's corner cutting (PostGIS's ST_ChaikinSmoothing, QGIS's Smooth): each iteration replaces every segment by the two points at a quarter and three quarters of it, so the corners are rounded and the vertex count doubles. An open line keeps its first and last vertex with `preserve_ends` (the default); lines of fewer than 3 vertices stay. Polygon rings (holes too) are smoothed all around, the closing segment included, and start at the first cut of their first segment. Points and empty features are kept, multi-part features are smoothed part by part, and the attributes are kept. The area of a polygon shrinks, so a very narrow shape may stop being valid.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the smoothed features"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "iterations",
+    "type": "integer",
+    "required": false,
+    "doc": "the times the corners are cut, 1 to 10 (1)"
+   },
+   {
+    "name": "preserve_ends",
+    "type": "bool",
+    "required": false,
+    "doc": "keep the first and last vertex of a line (true)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Smoothing rounds the corners but also moves the line off its vertices and shrinks polygons, so it is for drawing and for the stair steps of vector.polygonize, not for measuring: measure before it. Two or three iterations are enough (the vertex count doubles each time); keep `preserve_ends` on so rivers still meet at their ends. Every polygon is smoothed alone, so neighbouring polygons stop fitting along their shared edges: for a layer of polygons that tile an area, use vector.coverage_simplify there."
+ },
+ {
   "name": "vector.spatial_join",
-  "doc": "The features of a layer joined to those of another where they meet, as geopandas' sjoin or QGIS's Join Attributes by Location (GEOS's intersects through GDAL): each feature takes the attributes of the first feature of the other layer it meets (`attributes`: the polygon holding a point), or the count of those it meets and the sum and mean of their attributes `fields` (`summary`: the points in every polygon counted). The other layer is reprojected to the first's.",
+  "doc": "The features of a layer joined to those of another where a spatial predicate holds (`predicate`, intersects by default; GEOS through a spatial index), as geopandas' sjoin, PostGIS's join on ST_Within and QGIS's Join Attributes by Location: each feature takes the attributes of the first feature of the other layer it meets (`attributes`: the polygon holding a point), or a feature for each pair that meets, in the order of the first layer then the other (`all`; a feature that meets none stays once, without values), or the count of those it meets and the sum and mean of their attributes `fields` (`summary`: the points in every polygon counted). The other layer is reprojected to the first's.",
   "inputs": [
    {
     "name": "vector",
@@ -36410,11 +37181,37 @@
     "name": "mode",
     "type": "text",
     "required": false,
-    "doc": "attributes (default) or summary",
+    "doc": "attributes (default), all or summary",
     "choices": [
      "attributes",
+     "all",
      "summary"
     ]
+   },
+   {
+    "name": "predicate",
+    "type": "text",
+    "required": false,
+    "doc": "which features meet: intersects (default), within...",
+    "choices": [
+     "intersects",
+     "within",
+     "contains",
+     "contains_properly",
+     "touches",
+     "crosses",
+     "overlaps",
+     "covers",
+     "covered_by",
+     "equals",
+     "dwithin"
+    ]
+   },
+   {
+    "name": "distance",
+    "type": "number",
+    "required": false,
+    "doc": "dwithin: the distance (map units)"
    },
    {
     "name": "fields",
@@ -36431,7 +37228,136 @@
   ],
   "access": "none",
   "container": false,
-  "advice": "Each feature takes the attributes of the first feature of the other layer it meets: a point on borders or overlaps gets one of them only. To count what falls in each polygon (the points in each) use `summary`, which gives the count and the sum and mean of `fields`."
+  "advice": "Each feature takes the attributes of the first feature of the other layer it meets: a point on borders or overlaps gets one of them only (`mode` all gives a feature for each pair). To count what falls in each polygon (the points in each) use `summary`, which gives the count and the sum and mean of `fields`."
+ },
+ {
+  "name": "vector.split_lines",
+  "doc": "Each line cut into consecutive pieces of at most `length` (QGIS's Split lines by maximum length; in PostGIS ST_LineSubstring over a generate_series): each part is cut at the measures k * length, the last piece being the shorter, and no piece has zero length. One feature per piece with the attributes repeated and `part` (the number of the piece within its line, over all its parts); a line without length gives none.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the lines"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the pieces"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "length",
+    "type": "number",
+    "required": true,
+    "doc": "the longest piece, in the layer's units"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The last piece of a line is the remainder, shorter than `length`. Use vector.points_along for stations at a spacing instead of pieces, and measure the pieces again after splitting, as their lengths changed."
+ },
+ {
+  "name": "vector.substring",
+  "doc": "Each line (each part of a multi-line) cut between the measures `start` and `end` (PostGIS's ST_LineSubstring, QGIS's Line substring); with `normalized` they are fractions of the length of the part. Both are clamped to the part, and start must not exceed end. The piece is the point at start, every vertex strictly between and the point at end; a piece of no length stays a line of two equal points. A multi-line of several parts gives a multi-line. Empty features stay as they are.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the lines"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the pieces"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "start",
+    "type": "number",
+    "required": true,
+    "doc": "the measure where the piece starts"
+   },
+   {
+    "name": "end",
+    "type": "number",
+    "required": true,
+    "doc": "the measure where the piece ends"
+   },
+   {
+    "name": "normalized",
+    "type": "bool",
+    "required": false,
+    "doc": "start and end are fractions of the length (false)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Give `start` and `end` as fractions with `normalized` to cut every line in the same proportion (the middle half is 0.25 to 0.75); in map units they are clamped to the length of each part."
+ },
+ {
+  "name": "vector.voronoi",
+  "doc": "The Voronoi polygon of every point (GEOS's, as PostGIS's ST_VoronoiPolygons and QGIS's Voronoi polygons): the area closer to that point than to any other, one polygon per point in the order of the points, with their attributes. The extent is GEOS's own (the envelope of the points enlarged by a margin, so the outer cells are finite); with `clip` (polygons, reprojected to the points') every cell is cut by the union of its polygons, and a point whose cell is cut away keeps an empty one. Points at the same place share one cell. Empty points, and the points of a set with a single distinct place, get an empty geometry. `tolerance` is GEOS's snapping tolerance.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the points"
+   },
+   {
+    "name": "clip",
+    "type": "vector",
+    "required": false,
+    "doc": "polygons the cells are cut by"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the cells"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "tolerance",
+    "type": "number",
+    "required": false,
+    "doc": "GEOS's snapping tolerance (0)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Give `clip` (the study area) so the outer cells do not run to GEOS's arbitrary margin: an unclipped cell on the edge of the points is as large as the margin, not a real catchment. Reproject to a metric coordinate system first if the cells will be measured. Points at the same place share one cell."
  },
  {
   "name": "vector.write",
