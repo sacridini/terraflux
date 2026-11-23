@@ -7,6 +7,8 @@ version.
 
 ## [Unreleased]
 
+## [1.62.0] - 2026-11-23
+
 ### Added
 - **The SAM tool in the Viewer** (`crates/app/src/sam_tool.rs`, `crates/app/src/map_view.rs`, `crates/app/src/builder.rs`): with objects shown, *SAM tool* in the side panel runs SAM's encoder once on the part of the image in view (in a thread; the status bar says so), then each click runs only the decoder and draws the mask live: left click inside, right click outside, drag a box. Enter keeps the object, writing its prompts into the model in one step of undo (a GeoPackage beside the model read by a `vector.read` that feeds a `segment.sam` node's `prompts`; later objects join the same file and node), Esc drops it; a class chosen goes with the object. The objects are the SAM node's own.
 - **`segment.sam` takes `prompts`: the objects you point at** (`crates/ops/src/objects/deep.rs`): a vector of points (`label` 1 inside the object, 0 outside) and polygons (a box), with `group` for which object each is for (without it each feature is one) and `class` for its class. Each group is one object, the mask of the best predicted IoU kept to the connected area that holds the first point; the encoder runs only on the 1024-cell tiles the groups are anchored in and no grid of points is run; the overlaps go to the smaller object; a group that gives no mask is a warning; the table has a `group` column and the groups' classes become the objects' classes. The masks are the same cells as onnxruntime's in Python with the same weights (`tools/make_sam_prompts_reference.py`).
