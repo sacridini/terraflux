@@ -343,9 +343,9 @@ fn draw_box(b: &FigBox, items: &mut Vec<Item>) {
     };
     let strong = if b.group { Color32::from_rgb(17, 17, 17) } else { INK };
     if b.source {
-        text(items, r.min.x + 8.0, r.min.y + 24.0, NAME, &fit(&b.key, NAME, r.width() - 16.0), strong);
+        text(items, r.min.x + 8.0, r.min.y + 24.0, NAME, &fit(&b.title, NAME, r.width() - 16.0), strong);
     } else {
-        text(items, r.min.x + 8.0, r.min.y + 17.0, NAME, &fit(&b.key, NAME, r.width() - 16.0), strong);
+        text(items, r.min.x + 8.0, r.min.y + 17.0, NAME, &fit(&b.title, NAME, r.width() - 16.0), strong);
         let mut op = b.label.clone();
         if b.container {
             op = format!("{op} \u{b7} {} node{}", b.inside, if b.inside == 1 { "" } else { "s" });
@@ -781,8 +781,9 @@ mod tests {
         let f = build(&m, &Options::default()).unwrap();
         let svg = f.svg();
         assert!(svg.starts_with("<?xml") && svg.trim_end().ends_with("</svg>"));
-        // the ids and operators as the boxes name them
-        for t in ["dem", "slope", "calc", "raster.reclassify", "raster.calc", "nlm.random_cluster"] {
+        // the titles and operators as the boxes name them (the id the app gave, "calc", as the operator's label)
+        let calc = crate::op_label::label("raster.calc");
+        for t in ["dem", "slope", calc.as_str(), "raster.reclassify", "raster.calc", "nlm.random_cluster"] {
             assert!(svg.contains(&format!(">{t}</text>")), "{t}\n{svg}");
         }
         // a path for each wire (the rules over the settings and the files left out: two connections, two paths

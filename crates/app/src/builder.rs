@@ -2943,7 +2943,13 @@ fn bar(ui: &mut Ui, s: &mut Session, r: &Registry) {
             // (the path cut short by a click this frame)
             let Some(name) = s.editor.path.get(k).cloned() else { break };
             ui.label(RichText::new("›").color(ui.visuals().weak_text_color()));
-            if crumb(ui, &name, k + 1 == depth) {
+            // (a container the app named shows as its operator's label, as on the canvas)
+            let shown = s
+                .source
+                .scope(&s.editor.path[..k])
+                .and_then(|v| v.iter().find(|n| n.id == name))
+                .map_or_else(|| name.clone(), crate::editor_view::title);
+            if crumb(ui, &shown, k + 1 == depth) {
                 go_up(s, k + 1);
             }
         }

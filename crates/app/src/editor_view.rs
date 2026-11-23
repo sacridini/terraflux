@@ -22,6 +22,10 @@
 //! until it reads a value. The button beside the zoom (bottom right) opens the legend, a card of the shapes and
 //! colours of the types and the icons of the families present in the scope.
 //!
+//! A box is titled by what its node is for people: the operator's label ("Fragmentation (FOS)", `title`) while the
+//! node's id is the one the app gave it, the id itself when the user or a template named the node (the operator's
+//! dotted name stays on the line under it; the model keeps the id either way, the title's tooltip tells both).
+//!
 //! A box shows the inputs its node needs and those given; its optional others are folded in a row ("+ 9
 //! optional") that a click unfolds. Under its ports a box shows its main settings, a row each (the name at the
 //! left, the value at the right, a default in grey; those the operator needs, those given and its essential
@@ -180,6 +184,16 @@ fn shown_inputs(n: &Node, r: &Registry, unfolded: bool) -> (Vec<Port>, Vec<(Stri
 /// What a node's box names under its id: its operator, or the node of the user's library it is (`ndvi@3`).
 pub fn op_label(n: &Node) -> String {
     n.uses.as_ref().map_or_else(|| n.op.clone(), |u| u.label())
+}
+
+/// What a node's box names itself: the operator's label for people ("Fragmentation (FOS)") while its id is the one
+/// the app gave it, else its id (the user's own name for it stays). The model keeps the id either way.
+pub fn title(n: &Node) -> String {
+    if n.uses.is_none() && crate::op_label::is_auto_id(&n.id, &n.op) {
+        crate::op_label::label(&n.op)
+    } else {
+        n.id.clone()
+    }
 }
 
 /// The words of the row that folds a node's optional inputs: how many there are, or that a click folds them.
@@ -500,7 +514,7 @@ pub fn node_width(n: &Node, r: &Registry) -> f32 {
     let (i, o): (Vec<&str>, Vec<&str>) =
         (inputs.iter().map(String::as_str).collect(), outputs.iter().map(String::as_str).collect());
     let set = node_settings(n, r, false, crate::settings::node_settings());
-    let w = fitted(&n.id, &op_label(n), &i, &o, &setting_texts(&set), true, &mut estimate);
+    let w = fitted(&title(n), &op_label(n), &i, &o, &setting_texts(&set), true, &mut estimate);
     n.width.map_or(w, |u| u.max(w))
 }
 
@@ -1639,6 +1653,8 @@ struct Port {
 /// A box of the canvas: a node, or something its scope reads (on the left, one output).
 struct BoxAt {
     key: String,
+    /// What its header names it ([`title`]; a model input's name).
+    title: String,
     op: String,
     /// What its operator is of (its icon and the colour of its band).
     family: crate::family::Family,
@@ -2502,6 +2518,7 @@ impl Scene {
                     Vec2::new(sources_w, HEAD + ROW + foot),
                 );
                 boxes.push(BoxAt {
+                    title: editor::base_ref(&key).to_string(),
                     key,
                     op: String::new(),
                     family: crate::family::Family::ModelFlow,
@@ -2554,7 +2571,8 @@ impl Scene {
             names.extend(fold.as_deref());
             let outs: Vec<&str> = outputs.iter().map(|(p, _)| p.as_str()).collect();
             let label = op_label(n);
-            let need = fitted(&n.id, &label, &names, &outs, &setting_texts(&set), true, measure);
+            let title = title(n);
+            let need = fitted(&title, &label, &names, &outs, &setting_texts(&set), true, measure);
             let width = n.width.map_or(need, |w| w.max(need));
             // the file it reads or writes
             let file = file_of(n).map(String::from);
@@ -2564,6 +2582,7 @@ impl Scene {
             );
             boxes.push(BoxAt {
                 key: n.id.clone(),
+                title,
                 op: n.op.clone(),
                 family: crate::family::of(&n.op),
                 label,
@@ -3482,6 +3501,8 @@ fn stages_and_notes(
 /// canvas's own, without a window or a font.
 pub(crate) struct FigBox {
     pub key: String,
+    /// What its header names it (the label of its operator while its id is the app's own).
+    pub title: String,
     pub label: String,
     pub rect: Rect,
     pub source: bool,
@@ -3557,6 +3578,7 @@ pub(crate) fn figure_scene(
         .filter(|(i, b)| !b.source || used[*i])
         .map(|(_, b)| FigBox {
             key: b.key.clone(),
+            title: b.title.clone(),
             label: b.label.clone(),
             rect: b.rect,
             source: b.source,
@@ -4806,7 +4828,7 @@ pub fn show(
             let shift = if icon { icon_w } else { 0.0 };
             let room = on_screen.width() - 16.0 * cam.zoom.max(0.5) - if ports { 14.0 * cam.zoom } else { 0.0 } - shift;
             // (a copy of an input's box is named as the input)
-            let name = if b.source { editor::base_ref(&b.key) } else { b.key.as_str() };
+            let name = b.title.as_str();
             let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), font.clone(), v.strong_text_color());
             job.wrap = egui::text::TextWrapping {
                 max_width: room.max(8.0),
@@ -5073,11 +5095,11 @@ pub fn show(
             let drawn = painter.text(at, Align2::RIGHT_TOP, &text, FontId::monospace(size(10.5).max(9.0)), colour);
             if pointer.is_some_and(|p| drawn.expand(2.0).contains(p)) {
                 let tip = if *cached {
-                    format!("{}: taken from the cache in the last run", b.key)
+                    format!("{}: taken from the cache in the last run", b.title)
                 } else {
                     format!(
                         "{}: ran in {} ({}), gave {}",
-                        b.key,
+                        b.title,
                         crate::eta::took(*t),
                         share_of(*t, in_scope),
                         bytes_text(*bytes)
@@ -5100,7 +5122,7 @@ pub fn show(
             let at = screen(b.rect.right_bottom() + Vec2::new(-4.0, 3.0));
             let drawn = painter.text(at, Align2::RIGHT_TOP, &text, FontId::monospace(size(10.5).max(9.0)), colour);
             if pointer.is_some_and(|p| drawn.expand(2.0).contains(p)) {
-                let tip = format!("{}: took {} when it last ran, before this session", b.key, crate::eta::took(*t));
+                let tip = format!("{}: took {} when it last ran, before this session", b.title, crate::eta::took(*t));
                 egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), egui::Id::new("node time"), drawn)
                     .show(|ui| ui.label(tip));
             }
@@ -5461,6 +5483,11 @@ pub fn show(
                 }
                 if ports && !b.source && b.gear().contains(to_world(p, &cam)) {
                     text.insert(0, "the node's settings (shift+Enter)".into());
+                }
+                // (a label standing for the id: what it is, the operator, and the id it keeps)
+                let at = to_world(p, &cam);
+                if !b.source && b.title != b.key && !b.icon().contains(at) && !b.gear().contains(at) {
+                    text.insert(0, format!("{} · {}\nid: {}", b.title, b.label, b.key));
                 }
                 if let Some(c) = checks.get(&b.key) {
                     let what =

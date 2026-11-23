@@ -75,6 +75,7 @@ pub mod notify;
 pub mod objects_edit;
 pub mod objects_inspect;
 pub mod objects_view;
+pub mod op_label;
 pub mod op_notes;
 pub mod optimize_view;
 pub mod pack_view;
