@@ -57,6 +57,7 @@
 //!   scene changes: moving and zooming the view costs nothing;
 //! - texts are drawn by egui, only for the boxes in view and when the zoom makes them readable.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -97,6 +98,24 @@ const NAME_ROOM: f32 = 40.0;
 const ICON_W: f32 = 20.0;
 /// The width of the band of the family's colour along an operator box's left edge, graph units.
 const BAND: f32 = 3.0;
+/// Below [`PORTS_FROM`] a node is drawn as a card: this many screen pixels tall at least (never more than its box),
+/// its corners, its band and its light of fixed sizes on the screen.
+const CARD_H: f32 = 34.0;
+const CARD_RADIUS: f32 = 6.0;
+const CARD_BAND: f32 = 3.5;
+const CARD_LIGHT: f32 = 7.0;
+/// How far from a card's right edge the centre of its light is, and the step to the next mark, pixels.
+const CARD_LIGHT_AT: f32 = 9.0;
+const CARD_MARK: f32 = 16.0;
+/// What the icon takes before the name on a card, pixels.
+const CARD_ICON_ADVANCE: f32 = 20.0;
+
+/// The card a box is drawn as at `zoom` (under [`PORTS_FROM`]): its width, `CARD_H` pixels tall at least, in the
+/// vertical middle of its box. By arithmetic from the box, nothing kept.
+pub fn card(rect: Rect, zoom: f32) -> Rect {
+    let h = (CARD_H / zoom).max(HEAD).min(rect.height());
+    Rect::from_center_size(rect.center(), Vec2::new(rect.width(), h))
+}
 
 /// The fonts of a box's texts at zoom 1: its name; its operator and its ports' names; its file.
 fn name_font() -> FontId {
@@ -1588,7 +1607,16 @@ impl EditorState {
     pub fn screen_of(&self, node: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;
         let b = &s.boxes[*s.index.get(node)?];
-        self.on_screen(b.head().center())
+        self.on_screen(if b.is_card() { b.shown().center() } else { b.head().center() })
+    }
+
+    /// Where a node's card is on the screen (as last drawn); none when it is drawn whole (from a zoom of 0.6).
+    pub fn screen_card_of(&self, node: &str) -> Option<Rect> {
+        let s = self.scene.as_ref()?;
+        let b = &s.boxes[*s.index.get(node)?];
+        let r = b.shown();
+        b.is_card().then_some(())?;
+        Some(Rect::from_min_max(self.on_screen(r.min)?, self.on_screen(r.max)?))
     }
 
     /// Where a node's box is on the screen now: from the camera drawn (a glide on its way included), as
@@ -1756,9 +1784,22 @@ struct BoxAt {
     frozen: bool,
     /// The type of the output that feeds each setting row that reads a value (by row).
     setting_flow: Vec<(usize, Type)>,
+    /// The zoom it is drawn as a card at (under [`PORTS_FROM`]: its wires end at the card's sides, it is hit as the
+    /// card), 0 when drawn whole. Set by the scene as the camera moves ([`Scene::set_zoom`]).
+    far: Cell<f32>,
 }
 
 impl BoxAt {
+    /// Whether it is drawn as a card.
+    fn is_card(&self) -> bool {
+        self.far.get() > 0.0
+    }
+
+    /// What of it is drawn and hit: its box, or its card.
+    fn shown(&self) -> Rect {
+        if self.is_card() { card(self.rect, self.far.get()) } else { self.rect }
+    }
+
     /// The type its input `i` is drawn as: the one that flows in when it is connected (and has a colour), else
     /// its own.
     fn input_type(&self, i: usize) -> Type {
@@ -1797,11 +1838,16 @@ impl BoxAt {
     }
 
     fn input_at(&self, i: usize) -> Pos2 {
+        if self.is_card() {
+            return Pos2::new(self.rect.left(), self.rect.center().y);
+        }
         Pos2::new(self.rect.left(), self.rect.top() + HEAD + (i as f32 + 0.5) * ROW)
     }
 
     fn output_at(&self, i: usize) -> Pos2 {
-        if self.source {
+        if self.is_card() {
+            Pos2::new(self.rect.right(), self.rect.center().y)
+        } else if self.source {
             Pos2::new(self.rect.right(), self.rect.top() + HEAD)
         } else {
             Pos2::new(self.rect.right(), self.rect.top() + HEAD + (i as f32 + 0.5) * ROW)
@@ -1852,6 +1898,9 @@ impl BoxAt {
 
     /// Where the socket of its `k`th row of settings is: at its left edge, as a port, in the middle of the row.
     fn setting_at(&self, k: usize) -> Pos2 {
+        if self.is_card() {
+            return Pos2::new(self.rect.left(), self.rect.center().y);
+        }
         Pos2::new(self.rect.left(), self.settings_top() + (k as f32 + 0.5) * ROW)
     }
 
@@ -2066,19 +2115,26 @@ pub fn group_look(
     }
 }
 
-/// The rectangles the GPU draws of a box: the box, its header's colour, the line over its file, its ports and the
-/// light of its state.
-fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: bool) -> Vec<RectInstance> {
-    let mut rects = Vec::with_capacity(4 + b.inputs.len() + b.outputs.len());
-    let stroke = v.widgets.noninteractive.bg_stroke.color;
+/// What a box is made of: its fill, its border and the border's width (a node turned off faint, its border the
+/// warning's colour; a failed one's the error's).
+fn box_look(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals) -> (Color32, Color32, f32) {
     let fill = if b.source { v.faint_bg_color } else { v.widgets.inactive.bg_fill };
-    // a node turned off: faint, its border the warning's colour
     let fill = if b.bypass { fill.gamma_multiply(0.45) } else { fill };
+    let stroke = v.widgets.noninteractive.bg_stroke.color;
     let (border, width) = match state {
         Some(NodeStatus::Failed) => (v.error_fg_color, 1.5),
         _ if b.bypass => (v.warn_fg_color, 1.5),
         _ => (stroke, 1.0),
     };
+    (fill, border, width)
+}
+
+/// The rectangles the GPU draws of a box: the box, its header's colour, the line over its file, its ports and the
+/// light of its state.
+fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: bool) -> Vec<RectInstance> {
+    let mut rects = Vec::with_capacity(4 + b.inputs.len() + b.outputs.len());
+    let stroke = v.widgets.noninteractive.bg_stroke.color;
+    let (fill, border, width) = box_look(b, state, v);
     let radius = crate::theme::shape().node_radius;
     // a group: two cards behind its box, peeking out under it (a stack of nodes), its border and header in the
     // accent
@@ -2178,15 +2234,90 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
     if let Some(s) = state
         && s != NodeStatus::Outdated
     {
-        let colour = match s {
-            NodeStatus::Outdated => v.warn_fg_color,
-            NodeStatus::Running => crate::theme::accent(),
-            NodeStatus::Done { cached: false } => Color32::from_rgb(120, 220, 110),
-            NodeStatus::Done { cached: true } => Color32::from_rgb(80, 150, 75),
-            NodeStatus::Failed => v.error_fg_color,
-        };
         let c = b.rect.right_top() + Vec2::new(-10.0, 10.0);
-        rects.push(RectInstance::new([c.x - 4.0, c.y - 4.0], [8.0; 2], 4.0, colour, Color32::TRANSPARENT, 0.0));
+        rects.push(RectInstance::new([c.x - 4.0, c.y - 4.0], [8.0; 2], 4.0, light(s, v), Color32::TRANSPARENT, 0.0));
+    }
+    rects
+}
+
+/// The colour of the light of a node's state.
+fn light(s: NodeStatus, v: &egui::Visuals) -> Color32 {
+    match s {
+        NodeStatus::Outdated => v.warn_fg_color,
+        NodeStatus::Running => crate::theme::accent(),
+        NodeStatus::Done { cached: false } => Color32::from_rgb(120, 220, 110),
+        NodeStatus::Done { cached: true } => Color32::from_rgb(80, 150, 75),
+        NodeStatus::Failed => v.error_fg_color,
+    }
+}
+
+/// The rectangles the GPU draws of a box as a card at `zoom` (under [`PORTS_FROM`]): the card with the look of the
+/// box, a node of data's in the colour of the type it gives, the band of its family and the light of its state;
+/// no ports. The sizes that must read on the screen (the corners, the band, the light, the cards of a group peeking
+/// out) are pixels, made graph units by the zoom.
+fn card_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: bool, zoom: f32) -> Vec<RectInstance> {
+    let mut rects = Vec::with_capacity(4);
+    let px = 1.0 / zoom;
+    let r = card(b.rect, zoom);
+    let (fill, border, width) = box_look(b, state, v);
+    let radius = (CARD_RADIUS * px).max(crate::theme::shape().node_radius);
+    let group = b.op == terraflux_graph::GROUP;
+    let accent = crate::theme::accent();
+    let look = group_look(v.dark_mode, fill, border, accent, crate::theme::canvas(), v.strong_text_color());
+    let (border, width) =
+        if group && state != Some(NodeStatus::Failed) && !b.bypass { (look.border, 1.5) } else { (border, width) };
+    if group {
+        for k in [2.0, 1.0] {
+            let (back, edge) = (fill.lerp_to_gamma(accent, 0.05 * k), border.gamma_multiply(0.35 + 0.25 * (3.0 - k)));
+            let (min, size) =
+                ([r.min.x + 5.0 * k * px, r.min.y + 4.0 * k * px], [r.width() - 10.0 * k * px, r.height()]);
+            rects.push(RectInstance::new(min, size, radius, back, edge, 1.0));
+        }
+    }
+    // a node of data: the card in the colour of the type it gives, as its header is
+    let fill = match b.tint().filter(|_| colours).and_then(|t| type_colour(t, v.dark_mode)) {
+        Some(c) => fill.lerp_to_gamma(c, if v.dark_mode { 0.22 } else { 0.18 }),
+        None => fill,
+    };
+    rects.push(RectInstance::new(r.min.into(), r.size().into(), radius, fill, border, width));
+    if group {
+        let head = r.shrink(2.0 * px);
+        rects.push(RectInstance::new(
+            head.min.into(),
+            head.size().into(),
+            radius - 2.0 * px,
+            look.head,
+            Color32::TRANSPARENT,
+            0.0,
+        ));
+    }
+    if !b.source {
+        let c = b.family.colour(v.dark_mode);
+        let c = if b.bypass { c.gamma_multiply(0.45) } else { c };
+        let inset = radius * 0.6;
+        let (top, bottom) = (r.top() + inset, r.bottom() - inset);
+        rects.push(RectInstance::new(
+            [r.left() + 2.0 * px, top],
+            [CARD_BAND * px, (bottom - top).max(CARD_BAND * px)],
+            CARD_BAND * px / 2.0,
+            c,
+            Color32::TRANSPARENT,
+            0.0,
+        ));
+    }
+    if let Some(s) = state
+        && s != NodeStatus::Outdated
+    {
+        let size = CARD_LIGHT * px;
+        let c = Pos2::new(r.right() - CARD_LIGHT_AT * px, r.center().y);
+        rects.push(RectInstance::new(
+            [c.x - size / 2.0, c.y - size / 2.0],
+            [size; 2],
+            size / 2.0,
+            light(s, v),
+            Color32::TRANSPARENT,
+            0.0,
+        ));
     }
     rects
 }
@@ -2407,6 +2538,14 @@ impl std::hash::Hasher for CellHasher {
     }
 }
 
+/// What the GPU draws of a scene zoomed far out: the shapes made from those of the scene that had the generation
+/// `of`, for the cards at `zoom`.
+struct Cards {
+    of: u64,
+    zoom: f32,
+    shapes: Arc<Shapes>,
+}
+
 /// A scope laid out: its boxes, a grid of them, and the shapes the GPU draws (each box's rectangles at
 /// `ranges[box]`; the connections, as curves through their points, are made again when a box moves).
 struct Scene {
@@ -2421,7 +2560,12 @@ struct Scene {
     /// The wires of the settings that read a value, drawn with the connections.
     setting_wires: Vec<SettingWire>,
     /// The thinner lines of what a container's body reads around it (drawn after the connections).
-    extra: Vec<EdgeInstance>,
+    extra: Vec<(usize, usize, usize, [u8; 4])>,
+    /// Whether the scene is drawn with its boxes as cards (the zoom, 0 when not), and what the GPU is given then.
+    zoom: Cell<f32>,
+    cards: RefCell<Option<Cards>>,
+    /// The state of each box's node (its light), by box.
+    states: Vec<Option<NodeStatus>>,
     /// Whether wires go around the boxes they would cross.
     around: bool,
     /// The boxes moved since the wires last went around all of them: the wires do not go around these (see
@@ -2612,6 +2756,7 @@ impl Scene {
                     bypass: false,
                     frozen: false,
                     setting_flow: Vec::new(),
+                    far: Cell::new(0.0),
                 });
                 if placed.is_none() {
                     y += HEAD + ROW + foot + 12.0;
@@ -2678,6 +2823,7 @@ impl Scene {
                 bypass: n.bypass,
                 frozen: n.frozen,
                 setting_flow: Vec::new(),
+                far: Cell::new(0.0),
             });
         }
         let index: HashMap<String, usize> = boxes.iter().enumerate().map(|(i, b)| (b.key.clone(), i)).collect();
@@ -2793,15 +2939,7 @@ impl Scene {
                 else {
                     continue;
                 };
-                let b = &boxes[n_src + k];
-                let from = boxes[s].output_at(o);
-                let to = Pos2::new(b.rect.left(), b.rect.top() + HEAD / 2.0);
-                extra.push(EdgeInstance {
-                    from: [from.x, from.y],
-                    to: [to.x, to.y],
-                    color: line.gamma_multiply(0.55).to_array(),
-                    width: 1.0,
-                });
+                extra.push((s, o, n_src + k, line.gamma_multiply(0.55).to_array()));
             }
         }
         for (b, i, t) in flows {
@@ -2812,10 +2950,10 @@ impl Scene {
         }
         let mut rects = Vec::with_capacity(boxes.len() * 6);
         let mut ranges = Vec::with_capacity(boxes.len());
-        for b in &boxes {
+        // (`status`: that of this scope's nodes, by their ids)
+        let states: Vec<Option<NodeStatus>> = boxes.iter().map(|b| status.get(&b.key).copied()).collect();
+        for (b, &state) in boxes.iter().zip(&states) {
             let first = rects.len();
-            // (`status`: that of this scope's nodes, by their ids)
-            let state = status.get(&b.key).copied();
             rects.extend(box_rects(b, state, v, colours));
             ranges.push(first..rects.len());
         }
@@ -2839,6 +2977,9 @@ impl Scene {
             edges: edges_at,
             setting_wires,
             extra,
+            zoom: Cell::new(0.0),
+            cards: RefCell::new(None),
+            states,
             around,
             lifted: HashSet::new(),
             stage_of,
@@ -2896,6 +3037,7 @@ impl Scene {
         if !self.around {
             return;
         }
+        let was = self.pause();
         // (the wires that were not gone around the boxes lifted: those at their ends and those with a point of
         // their curve near where they are now; of a great many boxes lifted, all of them)
         let lifted = std::mem::take(&mut self.lifted);
@@ -2922,6 +3064,7 @@ impl Scene {
         let shapes = Arc::make_mut(&mut self.shapes);
         shapes.edges = edges;
         shapes.generation = generation;
+        self.resume(was);
     }
 
     /// What the GPU draws of the wires: a curve for each piece of each, then the thinner lines.
@@ -2937,8 +3080,80 @@ impl Scene {
                 out.push(EdgeInstance { from: [w[0].x, w[0].y], to: [w[1].x, w[1].y], color: sw.colour, width: 1.6 });
             }
         }
-        out.extend(self.extra.iter().cloned());
+        for &(s, o, to, colour) in &self.extra {
+            let (from, b) = (self.boxes[s].output_at(o), &self.boxes[to]);
+            let to = if b.is_card() { b.input_at(0) } else { Pos2::new(b.rect.left(), b.rect.top() + HEAD / 2.0) };
+            out.push(EdgeInstance { from: [from.x, from.y], to: [to.x, to.y], color: colour, width: 1.0 });
+        }
         out
+    }
+
+    /// The scene drawn at `zoom`: under [`PORTS_FROM`] its boxes are cards (the wires end at their sides, the
+    /// pointer finds the cards); a box is told by a cell, so this costs a pass over the boxes only when the
+    /// side of [`PORTS_FROM`] changes.
+    fn set_zoom(&self, zoom: f32) {
+        let now = if zoom < PORTS_FROM { zoom } else { 0.0 };
+        if now == self.zoom.get() {
+            return;
+        }
+        self.zoom.set(now);
+        for b in &self.boxes {
+            b.far.set(now);
+        }
+    }
+
+    /// The boxes whole while a box is moved, resized or the wires settle (what is kept of them is for the boxes
+    /// whole: [`Scene::resume`] puts the cards back).
+    fn pause(&self) -> f32 {
+        let was = self.zoom.get();
+        if was > 0.0 {
+            self.zoom.set(0.0);
+            for b in &self.boxes {
+                b.far.set(0.0);
+            }
+        }
+        was
+    }
+
+    fn resume(&self, was: f32) {
+        if was > 0.0 {
+            self.zoom.set(was);
+            for b in &self.boxes {
+                b.far.set(was);
+            }
+        }
+    }
+
+    /// What the GPU draws at `zoom` (the scene set to it): the shapes of the boxes whole from [`PORTS_FROM`] up;
+    /// under it the cards, their wires ending at them. The wires are made again when the shapes of the scene
+    /// change; the cards when the zoom does too (their height is a size on the screen).
+    fn drawn(&self, zoom: f32, v: &egui::Visuals) -> Arc<Shapes> {
+        self.set_zoom(zoom);
+        if zoom >= PORTS_FROM {
+            return self.shapes.clone();
+        }
+        let mut cards = self.cards.borrow_mut();
+        let made = self.shapes.generation;
+        if cards.as_ref().is_none_or(|c| c.of != made) {
+            let edges = self.edge_shapes();
+            *cards = Some(Cards {
+                of: made,
+                zoom: 0.0,
+                shapes: Arc::new(Shapes { generation: 0, rects: Vec::new(), edges }),
+            });
+        }
+        let c = cards.as_mut().unwrap();
+        if c.zoom != zoom {
+            let mut rects = Vec::with_capacity(self.boxes.len() * 4);
+            for (b, &state) in self.boxes.iter().zip(&self.states) {
+                rects.extend(card_rects(b, state, v, self.key.4, zoom));
+            }
+            let shapes = Arc::make_mut(&mut c.shapes);
+            shapes.rects = rects;
+            shapes.generation = next_generation();
+            c.zoom = zoom;
+        }
+        c.shapes.clone()
     }
 
     /// The waypoints that take a wire without points of its own around the boxes its straight curve crosses: for
@@ -3019,7 +3234,10 @@ impl Scene {
             r.min[0] += d.x;
             r.min[1] += d.y;
         }
+        // (what is kept is of the boxes whole, whatever the zoom)
+        let was = self.pause();
         self.follow(i, old, generation);
+        self.resume(was);
     }
 
     /// Give a box a width (graph units): its rectangles drawn again, its connections and its place in the grid
@@ -3030,6 +3248,7 @@ impl Scene {
             return;
         }
         self.reshape(i, Rect::from_min_size(b.min, Vec2::new(width, b.height())));
+        let was = self.pause();
         let rects = box_rects(&self.boxes[i], state, v, self.key.4);
         let shapes = Arc::make_mut(&mut self.shapes);
         let range = self.ranges[i].clone();
@@ -3038,6 +3257,7 @@ impl Scene {
             shapes.rects[range].copy_from_slice(&rects);
         }
         self.follow(i, b, generation);
+        self.resume(was);
     }
 
     /// A box's new rectangle, and its place in the grid.
@@ -3111,10 +3331,12 @@ impl Scene {
             return;
         }
         *p = to;
+        let was = self.pause();
         let edges = self.edge_shapes();
         let shapes = Arc::make_mut(&mut self.shapes);
         shapes.edges = edges;
         shapes.generation = generation;
+        self.resume(was);
     }
 
     /// What is under a point (graph units), ports within `reach`; the boxes drawn last first.
@@ -3432,6 +3654,10 @@ impl Scene {
 
     fn hit(&self, p: Pos2, reach: f32) -> Option<Hit> {
         let candidates = self.grid.get(&cell(p))?;
+        // drawn as cards: a card is all there is (no ports, no rows, no edge to resize)
+        if self.zoom.get() > 0.0 {
+            return candidates.iter().rev().find(|&&i| self.boxes[i].shown().contains(p)).map(|&i| Hit::Head(i));
+        }
         for &i in candidates.iter().rev() {
             let b = &self.boxes[i];
             if let Some(o) = (0..b.outputs.len()).find(|&o| b.output_at(o).distance(p) <= reach) {
@@ -3957,6 +4183,8 @@ pub fn show(
             .and_then(|of| Transit::new(entering, of, boxed, &st.cameras[&path], rect.size(), now, secs));
     }
     let cam = st.cameras.get_mut(&path).unwrap();
+    // (under 0.6 the boxes are cards: what the pointer finds, and where the wires end)
+    scene.set_zoom(cam.zoom);
     // the minimap, over the canvas (made after it: its widgets are on top, the canvas gets neither its clicks nor
     // its wheel): shown when the scope does not fit the view; a click or a drag on it moves the view
     st.mini = None;
@@ -4023,6 +4251,7 @@ pub fn show(
             let under = (p - rect.min - cam.pan) / cam.zoom;
             cam.zoom = (cam.zoom * factor).clamp(0.03, 3.0);
             cam.pan = p - rect.min - under * cam.zoom;
+            scene.set_zoom(cam.zoom);
         }
     }
     let to_world = |p: Pos2, cam: &Camera| ((p - rect.min - cam.pan) / cam.zoom).to_pos2();
@@ -4411,7 +4640,7 @@ pub fn show(
                 st.chosen.clear();
             }
             for i in scene.within(r) {
-                if !scene.boxes[i].source && r.intersects(scene.boxes[i].rect) {
+                if !scene.boxes[i].source && r.intersects(scene.boxes[i].shown()) {
                     st.chosen.insert(scene.boxes[i].key.clone());
                 }
             }
@@ -4857,22 +5086,32 @@ pub fn show(
     }
     crate::notes::editor(ui.ctx(), &mut st.note_editing, st.note_window_at, &mut actions);
     // the GPU draws the boxes, ports and connections
+    let v = ui.visuals().clone();
+    // (as the camera is now: under 0.6 the boxes are cards, their wires ending at them)
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
         rect,
-        Canvas { shapes: scene.shapes.clone(), size: rect.size().into(), origin: cam.pan.into(), zoom: cam.zoom },
+        Canvas { shapes: scene.drawn(cam.zoom, &v), size: rect.size().into(), origin: cam.pan.into(), zoom: cam.zoom },
     ));
     let painter = ui.painter_at(rect);
-    let v = ui.visuals().clone();
+    // where a node is on the screen: its box, or its card
+    let shown_on = |b: &BoxAt| {
+        let r = b.shown();
+        Rect::from_min_max(screen(r.min), screen(r.max))
+    };
     // the weak texts on a box: between the weak and the plain text, to read on the box's lighter grey
     let faint = v.weak_text_color().lerp_to_gamma(v.text_color(), 0.5);
     // Times: each box washed in a warm colour by its share of the scope's time (the slowest the warmest)
     let in_scope: f64 = st.times.values().map(|(t, _, _)| *t).sum();
+    // (the corners of what is drawn of a box, `units` of the graph for its box, as the card's under 0.6)
+    let round = |units: f32| {
+        if cam.zoom >= PORTS_FROM { units * cam.zoom } else { CARD_RADIUS.max(units * cam.zoom) }
+    };
     if st.times_shown && in_scope > 0.0 {
-        let radius = crate::theme::shape().node_radius * cam.zoom;
+        let radius = round(crate::theme::shape().node_radius);
         for b in &scene.boxes {
             let Some((t, _, _)) = st.times.get(&b.key) else { continue };
             let share = (*t / in_scope) as f32;
-            let on_screen = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
+            let on_screen = shown_on(b);
             if share >= 0.01 && on_screen.intersects(rect) {
                 painter.rect_filled(on_screen, radius, heat(share).gamma_multiply(0.15 + 0.4 * share.sqrt()));
             }
@@ -4885,10 +5124,91 @@ pub fn show(
     let size = |s: f32| ((s * cam.zoom) * 2.0).round() / 2.0;
     let in_view = scene.within(view);
     let ports = cam.zoom >= PORTS_FROM;
+    // where the marks at the right of a node are (`left`: the distance from its right edge, graph units, when it is
+    // drawn whole; on its card, pixels from its right edge, on its middle), and how big they are
+    // (on a card the marks present sit side by side from its right edge: the light of its state, a problem's mark,
+    // a check's badge; `slot` is which of them it is)
+    let mark_at = |b: &BoxAt, left: f32, slot: usize| {
+        if ports {
+            screen(b.rect.right_top() + Vec2::new(-left, 10.0))
+        } else {
+            let present = [status.contains_key(&b.key), problems.contains_key(&b.key), checks.contains_key(&b.key)];
+            let before = present[..slot].iter().filter(|p| **p).count();
+            shown_on(b).right_center() - Vec2::new(CARD_LIGHT_AT + CARD_MARK * before as f32, 0.0)
+        }
+    };
+    let mark_radius = if ports { (6.0 * cam.zoom).max(3.5) } else { 5.5 };
     // (zoomed far out over thousands of nodes, the boxes alone)
     if in_view.len() <= 600 || ports {
         for &i in &in_view {
             let b = &scene.boxes[i];
+            if !ports {
+                // a card: the family's icon and the node's name in the middle of it, as much of them as its
+                // width allows, left of its marks
+                let on_screen = shown_on(b);
+                if on_screen.width() < 18.0 {
+                    continue;
+                }
+                let clip = painter.with_clip_rect(on_screen.intersect(rect));
+                let ink = b.family.colour(v.dark_mode);
+                let ink = if b.bypass { ink.gamma_multiply(0.5) } else { ink };
+                let strong = v.strong_text_color();
+                let mid = on_screen.center().y;
+                // the room: from after the band to before the marks at the right
+                let marks = [status.contains_key(&b.key), problems.contains_key(&b.key), checks.contains_key(&b.key)]
+                    .iter()
+                    .filter(|m| **m)
+                    .count();
+                let reserve = if marks == 0 { 0.0 } else { CARD_LIGHT_AT + CARD_MARK * (marks - 1) as f32 + 6.0 };
+                let x0 = on_screen.left() + if b.source { 8.0 } else { 2.0 + CARD_BAND + 7.0 };
+                let room = on_screen.right() - reserve - 5.0 - x0;
+                let width = |text: &str, size: f32| {
+                    painter.layout_no_wrap(text.to_string(), FontId::proportional(size), strong).size().x
+                };
+                let with_icon = !b.source;
+                // the name whole with the icon at 13 px, at 12, without it at 13, at 12; else cut (four letters at
+                // least) with the icon, without it; else the icon alone; else nothing
+                let whole = [(true, 13.0), (true, 12.0), (false, 13.0), (false, 12.0)]
+                    .into_iter()
+                    .filter(|(icon, _)| with_icon || !icon)
+                    .find(|&(icon, size)| width(&b.title, size) + if icon { CARD_ICON_ADVANCE } else { 0.0 } <= room);
+                let cut = [(true, 13.0), (false, 12.0)].into_iter().filter(|(icon, _)| with_icon || !icon).find(
+                    |&(icon, size)| {
+                        let head: String = b.title.chars().take(4).chain(['…']).collect();
+                        width(&head, size) + if icon { CARD_ICON_ADVANCE } else { 0.0 } <= room
+                    },
+                );
+                let Some((icon, size)) = whole.or(cut) else {
+                    if with_icon {
+                        let at = on_screen.center();
+                        clip.text(
+                            at,
+                            Align2::CENTER_CENTER,
+                            b.family.icon(),
+                            crate::family::icon_font(ui.ctx(), 15.0),
+                            ink,
+                        );
+                    }
+                    continue;
+                };
+                let mut x = x0;
+                if icon {
+                    let font = crate::family::icon_font(ui.ctx(), 15.0);
+                    clip.text(Pos2::new(x, mid), Align2::LEFT_CENTER, b.family.icon(), font, ink);
+                    x += CARD_ICON_ADVANCE;
+                }
+                let mut job =
+                    egui::text::LayoutJob::simple_singleline(b.title.clone(), FontId::proportional(size), strong);
+                job.wrap = egui::text::TextWrapping {
+                    max_width: room - if icon { CARD_ICON_ADVANCE } else { 0.0 },
+                    max_rows: 1,
+                    break_anywhere: true,
+                    overflow_character: Some('…'),
+                };
+                let galley = painter.layout_job(job);
+                clip.galley(Pos2::new(x, mid - galley.size().y / 2.0), galley, strong);
+                continue;
+            }
             let on_screen = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
             if on_screen.width() < NAME_ROOM {
                 continue;
@@ -4896,13 +5216,13 @@ pub fn show(
             let font = FontId::proportional(size(14.0).max(NAME_MIN));
             // (the family's icon before an operator's name, when the box has room for it too)
             let icon_w = font.size * ICON_W / 14.0;
-            let icon = !b.source
-                && on_screen.width() - 16.0 * cam.zoom.max(0.5) - icon_w >= if ports { 0.0 } else { NAME_ROOM * 0.6 };
+            let icon = !b.source && on_screen.width() - 16.0 * cam.zoom.max(0.5) - icon_w >= 0.0;
             let shift = if icon { icon_w } else { 0.0 };
-            let room = on_screen.width() - 16.0 * cam.zoom.max(0.5) - if ports { 14.0 * cam.zoom } else { 0.0 } - shift;
+            let room = on_screen.width() - 16.0 * cam.zoom.max(0.5) - 14.0 * cam.zoom - shift;
             // (a copy of an input's box is named as the input)
             let name = b.title.as_str();
-            let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), font.clone(), v.strong_text_color());
+            let mut job =
+                egui::text::LayoutJob::simple_singleline(name.to_string(), font.clone(), v.strong_text_color());
             job.wrap = egui::text::TextWrapping {
                 max_width: room.max(8.0),
                 max_rows: 1,
@@ -4910,14 +5230,7 @@ pub fn show(
                 overflow_character: Some('…'),
             };
             let galley = painter.layout_job(job);
-            let at = if ports {
-                screen(b.rect.min) + Vec2::new(8.0, 5.0) * cam.zoom + Vec2::new(shift, 0.0)
-            } else {
-                Pos2::new(
-                    on_screen.left() + 8.0 * cam.zoom.max(0.5) + shift,
-                    on_screen.center().y - galley.size().y / 2.0,
-                )
-            };
+            let at = screen(b.rect.min) + Vec2::new(8.0, 5.0) * cam.zoom + Vec2::new(shift, 0.0);
             if icon {
                 let clip = on_screen.expand(2.0).intersect(rect);
                 let ink = b.family.colour(v.dark_mode);
@@ -4931,7 +5244,7 @@ pub fn show(
                 );
             }
             painter.with_clip_rect(on_screen.expand(2.0).intersect(rect)).galley(at, galley, v.strong_text_color());
-            if let (Some(f), Some(file), true) = (b.foot(), &b.file, ports || cam.zoom >= 0.35) {
+            if let (Some(f), Some(file)) = (b.foot(), &b.file) {
                 painter.text(
                     screen(Pos2::new(f.left() + 8.0, f.center().y + 0.5)),
                     Align2::LEFT_CENTER,
@@ -4939,9 +5252,6 @@ pub fn show(
                     FontId::monospace(size(10.5)),
                     faint,
                 );
-            }
-            if !ports {
-                continue;
             }
             let top = screen(b.rect.min);
             if !b.source {
@@ -5086,11 +5396,14 @@ pub fn show(
         if status.get(&b.key) != Some(&NodeStatus::Outdated) {
             continue;
         }
-        let on_screen = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
-        let radius = crate::theme::shape().node_radius * cam.zoom;
-        painter.rect_filled(on_screen, radius, crate::theme::canvas().gamma_multiply(0.3));
-        let c = screen(b.rect.right_top() + Vec2::new(-10.0, 10.0));
-        let radius = (3.5 * cam.zoom).max(2.5);
+        let on_screen = shown_on(b);
+        painter.rect_filled(
+            on_screen,
+            round(crate::theme::shape().node_radius),
+            crate::theme::canvas().gamma_multiply(0.3),
+        );
+        let c = mark_at(b, 10.0, 0);
+        let radius = if ports { (3.5 * cam.zoom).max(2.5) } else { CARD_LIGHT / 2.0 };
         painter.circle_stroke(c, radius, Stroke::new((1.6 * cam.zoom).clamp(1.0, 2.0), v.warn_fg_color));
         let hot = Rect::from_center_size(c, Vec2::splat(2.0 * radius + 8.0));
         if ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| hot.contains(p)) {
@@ -5109,8 +5422,8 @@ pub fn show(
         let b = &scene.boxes[i];
         let Some(list) = problems.get(&b.key) else { continue };
         let error = list.iter().any(|(e, _)| *e);
-        let c = screen(b.rect.right_top() + Vec2::new(-26.0, 10.0));
-        let radius = (6.0 * cam.zoom).max(3.5);
+        let c = mark_at(b, 26.0, 1);
+        let radius = mark_radius;
         painter.circle_filled(c, radius, if error { v.error_fg_color } else { v.warn_fg_color });
         if radius >= 5.0 {
             painter.text(c, Align2::CENTER_CENTER, "!", FontId::proportional(radius * 1.6), Color32::BLACK);
@@ -5121,8 +5434,8 @@ pub fn show(
         let b = &scene.boxes[i];
         let Some(verdict) = checks.get(&b.key) else { continue };
         let left = if problems.contains_key(&b.key) { 42.0 } else { 26.0 };
-        let c = screen(b.rect.right_top() + Vec2::new(-left, 10.0));
-        let radius = (6.0 * cam.zoom).max(3.5);
+        let c = mark_at(b, left, 2);
+        let radius = mark_radius;
         painter.circle_filled(c, radius, verdict.colour(&v));
         if radius >= 5.0 {
             painter.text(
@@ -5140,9 +5453,12 @@ pub fn show(
         if !breakpoints.contains(&b.key) {
             continue;
         }
-        let c = screen(b.rect.left_top() + Vec2::new(-10.0, HEAD * 0.5));
-        let radius = (6.0 * cam.zoom).max(3.5);
-        painter.circle(c, radius, Color32::from_rgb(210, 50, 50), Stroke::new(1.0, Color32::WHITE));
+        let c = if ports {
+            screen(b.rect.left_top() + Vec2::new(-10.0, HEAD * 0.5))
+        } else {
+            shown_on(b).left_center() - Vec2::new(10.0, 0.0)
+        };
+        painter.circle(c, mark_radius, Color32::from_rgb(210, 50, 50), Stroke::new(1.0, Color32::WHITE));
     }
     // the nodes whose result is frozen: ❄ on their top left corner
     for &i in &in_view {
@@ -5150,8 +5466,8 @@ pub fn show(
         if !b.frozen {
             continue;
         }
-        let c = screen(b.rect.left_top());
-        let radius = (8.0 * cam.zoom).max(4.5);
+        let c = if ports { screen(b.rect.left_top()) } else { shown_on(b).left_top() };
+        let radius = if ports { (8.0 * cam.zoom).max(4.5) } else { 7.0 };
         painter.circle(c, radius, Color32::from_rgb(170, 215, 245), Stroke::new(1.0, v.window_stroke().color));
         if radius >= 5.0 {
             painter.text(
@@ -5181,7 +5497,8 @@ pub fn show(
     }
     // how long each node took when it last ran: under its box, at the right (from the cache: fainter); the memory of
     // what it gave in the tooltip
-    if cam.zoom >= 0.35 {
+    // (under 0.6, unreadable clutter under the cards: left off)
+    if ports {
         let pointer = ui.input(|i| i.pointer.hover_pos());
         for &i in &in_view {
             let b = &scene.boxes[i];
@@ -5241,9 +5558,8 @@ pub fn show(
             if let Some(&i) = scene.index.get(k.as_str())
                 && scene.boxes[i].rect.intersects(view)
             {
-                let b = &scene.boxes[i];
-                let r = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
-                painter.rect_stroke(r, 4.0 * cam.zoom, Stroke::new(2.5, *colour), egui::StrokeKind::Outside);
+                let r = shown_on(&scene.boxes[i]);
+                painter.rect_stroke(r, round(4.0), Stroke::new(2.5, *colour), egui::StrokeKind::Outside);
             }
         }
     }
@@ -5257,10 +5573,9 @@ pub fn show(
             && scene.boxes[i].rect.intersects(view)
         {
             let gone = at.elapsed().as_secs_f32() / PULSE.as_secs_f32();
-            let b = &scene.boxes[i];
-            let r = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max)).expand(3.0 + 9.0 * gone);
+            let r = shown_on(&scene.boxes[i]).expand(3.0 + 9.0 * gone);
             let colour = crate::theme::accent().gamma_multiply(1.0 - gone);
-            painter.rect_stroke(r, 6.0 * cam.zoom, Stroke::new(3.0, colour), egui::StrokeKind::Outside);
+            painter.rect_stroke(r, round(6.0), Stroke::new(3.0, colour), egui::StrokeKind::Outside);
         }
     }
     if !st.pulse.is_empty() {
@@ -5272,15 +5587,9 @@ pub fn show(
         if let Some(&i) = scene.index.get(k.as_str())
             && scene.boxes[i].rect.intersects(view)
         {
-            let b = &scene.boxes[i];
-            let r = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
+            let r = shown_on(&scene.boxes[i]);
             let width = if selected == Some(k.as_str()) { 2.5 } else { 1.5 };
-            painter.rect_stroke(
-                r,
-                4.0 * cam.zoom,
-                Stroke::new(width, crate::theme::accent()),
-                egui::StrokeKind::Inside,
-            );
+            painter.rect_stroke(r, round(4.0), Stroke::new(width, crate::theme::accent()), egui::StrokeKind::Inside);
         }
     }
     if let Some(r) = boxed {
@@ -5289,6 +5598,7 @@ pub fn show(
         painter.rect_stroke(r, 0.0, Stroke::new(1.0, crate::theme::accent()), egui::StrokeKind::Inside);
     }
     if let Some((node, port)) = shown
+        && ports
         && let Some(&i) = scene.index.get(node)
         && let Some(k) = scene.boxes[i].outputs.iter().position(|(p, _)| p == port)
     {
@@ -5308,9 +5618,9 @@ pub fn show(
             ui.ctx().request_repaint();
             for id in running {
                 if let Some(&i) = scene.index.get(id.as_str()) {
-                    let c = screen(scene.boxes[i].rect.right_top() + Vec2::new(-10.0, 10.0));
+                    let c = mark_at(&scene.boxes[i], 10.0, 0);
                     let glow = crate::theme::accent().gamma_multiply(0.3 + 0.7 * (t * 6.0).sin().abs());
-                    painter.circle_filled(c, (6.0 * cam.zoom).max(3.0), glow);
+                    painter.circle_filled(c, if ports { (6.0 * cam.zoom).max(3.0) } else { CARD_LIGHT * 0.75 }, glow);
                 }
             }
         }
@@ -5318,7 +5628,7 @@ pub fn show(
         if let Some((id, f)) = &st.progress
             && let Some(&i) = scene.index.get(id.as_str())
         {
-            let b = scene.boxes[i].rect;
+            let b = scene.boxes[i].shown();
             let (l, r, y) = (screen(b.left_bottom()), screen(b.right_bottom()), screen(b.left_bottom()).y);
             let h = (3.0 * cam.zoom).max(2.0);
             let full = egui::Rect::from_min_max(egui::pos2(l.x + 2.0, y - h - 2.0), egui::pos2(r.x - 2.0, y - 2.0));
@@ -5615,8 +5925,15 @@ pub fn show(
                 }
                 // (a label standing for the id: what it is, the operator, and the id it keeps)
                 let at = to_world(p, &cam);
-                if !b.source && b.title != b.key && !b.icon().contains(at) && !b.gear().contains(at) {
-                    text.insert(0, format!("{} · {}\nid: {}", b.title, b.label, b.key));
+                if !ports && b.source {
+                    // (a card may cut the name: the tooltip has it whole)
+                    text.insert(0, b.title.clone());
+                } else if !b.source
+                    && (!ports || b.title != b.key)
+                    && !(ports && (b.icon().contains(at) || b.gear().contains(at)))
+                {
+                    let id = if b.title != b.key { format!("\nid: {}", b.key) } else { String::new() };
+                    text.insert(0, format!("{} · {}{id}", b.title, b.label));
                 }
                 if let Some(c) = checks.get(&b.key) {
                     let what =

@@ -175,6 +175,50 @@ fn canvas_shots() {
     println!("the pictures are in {}", out().display());
 }
 
+/// Zoomed far out: the nodes as cards (under 0.6), at 0.5 and 0.3, in both themes.
+#[test]
+#[ignore = "pictures of the canvas for a look: run with --ignored"]
+fn far_shots() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
+        // (the third has groups)
+        for (short, name, node) in [
+            ("zonation", "Zonation", "zonation"),
+            ("city", "A city that grows (a loop)", "city"),
+            ("switch", "Choose the method: a switch and its scenarios", ""),
+        ] {
+            let mut h = harness(SIZE, 1.0, theme);
+            template(&mut h, name);
+            let first = {
+                let s = h.state().session.as_ref().unwrap();
+                let pick = s.source.nodes.iter().find(|n| n.id == node).unwrap_or(&s.source.nodes[0]);
+                pick.id.clone()
+            };
+            for zoom in [0.5, 0.3] {
+                look_at(&mut h, &first, zoom);
+                save(&mut h, &format!("far_{short}_{zoom}_{tag}.png"));
+            }
+        }
+    }
+    println!("the pictures are in {}", out().display());
+}
+
+/// The pointer resting on a card (0.5): the tooltip with the whole title, the operator and the id.
+#[test]
+#[ignore = "pictures of the tooltips for a look: run with --ignored"]
+fn far_hover_shots() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
+        let mut h = harness(SIZE, 1.0, theme);
+        template(&mut h, "Zonation");
+        look_at(&mut h, "zonation", 0.5);
+        let at = h.state().session.as_ref().unwrap().editor.screen_card_of("zonation").expect("a card").center();
+        h.hover_at(at);
+        h.run_steps(8);
+        save(&mut h, &format!("far_hover_{tag}.png"));
+    }
+}
+
 /// The tooltips of what flows: the pointer rests on an output port, then on a wire, of a model that was run.
 #[test]
 #[ignore = "pictures of the tooltips for a look: run with --ignored"]

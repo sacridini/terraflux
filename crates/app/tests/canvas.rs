@@ -760,6 +760,78 @@ fn optional_inputs_fold_and_a_connection_dropped_on_a_node_picks_one() {
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-far.png")).unwrap();
 }
 
+/// Zoomed out under 0.6 a node is a card: 34 pixels tall at least, in the middle of its box, as wide as it; a click
+/// on the card selects the node, one on the empty part of its box does not; its wires end at the card's sides.
+#[test]
+fn far_out_a_node_is_a_card_the_pointer_finds() {
+    use egui::{Rect, pos2, vec2};
+    use terraflux_app::editor_view::card;
+    // the card: by arithmetic from the box and the zoom
+    let big = Rect::from_min_size(pos2(10.0, 20.0), vec2(190.0, 300.0));
+    let c = card(big, 0.5);
+    assert_eq!((c.width(), c.height(), c.center()), (190.0, 68.0, big.center()), "34 pixels at 0.5");
+    assert_eq!(card(big, 0.25).height(), 136.0);
+    assert!((card(big, 0.59).height() - 34.0 / 0.59).abs() < 1e-3);
+    assert_eq!(card(big, 0.3).left(), big.left());
+    // (never taller than its box, never under a header's height)
+    let small = Rect::from_min_size(pos2(0.0, 0.0), vec2(190.0, 50.0));
+    assert_eq!(card(small, 0.25).height(), 50.0);
+    assert_eq!(card(big, 0.9).height(), 38.0, "a header's height at least");
+
+    let _lock = settings_lock();
+    let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
+    let mut m = Model::new("cards");
+    m.inputs.insert(
+        "t0".into(),
+        terraflux_graph::Input::Map {
+            path: data.to_string_lossy().into_owned(),
+            band: None,
+            nodata: None,
+            note: None,
+            data: None,
+        },
+    );
+    let mut zon = Node::new("zon", "prioritize.zonation").input("features", "$t0");
+    zon.pos = Some([0.0, 0.0]);
+    let mut calc = Node::new("calc", "raster.calc").input("land", "zon.rank").param("expression", "land");
+    calc.pos = Some([420.0, 0.0]);
+    m.nodes.extend([zon, calc]);
+    let mut h = harness(open(&m, "canvas-cards.toml"));
+    h.run_steps(3);
+    // whole at the zoom that fits: no card
+    h.state_mut().session.as_mut().unwrap().editor.look(vec2(300.0, 300.0), 1.0);
+    h.run_steps(3);
+    assert!(editor(&h).screen_card_of("zon").is_none());
+    h.state_mut().session.as_mut().unwrap().editor.look(vec2(300.0, 300.0), 0.5);
+    h.run_steps(3);
+    let (zoom, whole) = (editor(&h).zoom(), editor(&h).screen_rect_of("zon").unwrap());
+    let card = editor(&h).screen_card_of("zon").expect("a card under 0.6");
+    assert_eq!(zoom, 0.5);
+    assert!(card.height() >= 34.0 - 0.01 && card.height() < whole.height() - 8.0, "{card:?} in {whole:?}");
+    assert_eq!((card.left(), card.right(), card.center().y), (whole.left(), whole.right(), whole.center().y));
+    // a wire ends at the middle of the card's left side (the node's input), the other's begins at its right
+    let wire = editor(&h).wire("calc", "land").expect("the wire");
+    let (end, begin) = (editor(&h).screen_at(*wire.last().unwrap()).unwrap(), editor(&h).screen_at(wire[0]).unwrap());
+    assert!((begin - card.right_center()).length() < 0.5, "{begin:?} {card:?}");
+    assert!((end - editor(&h).screen_card_of("calc").unwrap().left_center()).length() < 0.5);
+    // on the empty part of its box (above the card, inside the box): the background
+    let empty = pos2(card.center().x, (whole.top() + card.top()) / 2.0);
+    assert!(whole.contains(empty) && !card.contains(empty));
+    assert_eq!(editor(&h).node_at(empty), None);
+    click(&mut h, empty);
+    assert!(chosen_now(&h).is_empty(), "{:?}", chosen_now(&h));
+    // on the card: selected
+    click(&mut h, card.center());
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("zon"));
+    assert_eq!(chosen_now(&h), ["zon"]);
+    // zoomed in again: its box, as before (its middle is not its header)
+    h.state_mut().session.as_mut().unwrap().editor.look(vec2(300.0, 300.0), 1.0);
+    h.run_steps(3);
+    assert!(editor(&h).screen_card_of("zon").is_none());
+    let whole = editor(&h).screen_rect_of("zon").unwrap();
+    assert!(editor(&h).node_at(pos2(whole.center().x, whole.top() + 19.0)).is_some());
+}
+
 /// A node's box shows its main settings in rows under its ports: those given first (a value, a default faint, a
 /// reference as `← $name`), four at most, the others counted in a row (with how many were given) that unfolds
 /// them; the box is taller by the rows; a setting the check has a problem with is marked; the preference turns
@@ -821,8 +893,14 @@ fn a_nodes_box_shows_its_settings() {
     assert!(open.open && open.rows.len() > 4 && open.label == "- fewer", "{open:?}");
     assert!(height(&h, "plan") > tall + 17.0);
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-settings.png")).unwrap();
-    // (zoomed out: the row of an unfolded operator of many settings is far below)
+    // (zoomed far out the node is a card, its rows not there to click: a click on it selects the node)
     h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(200.0, 80.0), 0.3);
+    h.run_steps(2);
+    let card = editor(&h).screen_card_of("plan").expect("a card");
+    click(&mut h, card.center());
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("plan"));
+    // (from 0.6 the rows are there again: the row of an unfolded operator of many settings is far below)
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(200.0, 80.0), 0.6);
     h.run_steps(2);
     let more = editor(&h).screen_of_more_settings("plan").unwrap();
     click(&mut h, more);
