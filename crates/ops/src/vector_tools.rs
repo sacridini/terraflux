@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use terraflux_gdal::geos::{GeosIndex, Predicate};
 use terraflux_graph::{Access, OpSignature, PortSpec, Type};
 use terraflux_raster::vector::{Column, Geometry, Vector, Xy};
 
@@ -27,6 +28,8 @@ pub fn register(r: &mut Registry) {
     r.add(Arc::new(Measure));
     r.add(Arc::new(Overlay));
     r.add(Arc::new(SpatialJoin));
+    r.add(Arc::new(SelectByLocation));
+    r.add(Arc::new(Nearest));
     r.add(Arc::new(Reproject));
     r.add(Arc::new(FromTable));
     r.add(Arc::new(Points));
@@ -340,13 +343,58 @@ fn like(v: &Arc<Vector>, crs: &Option<String>) -> Result<Arc<Vector>> {
     }
 }
 
-/// Whether two bounds meet.
-fn meet(a: Option<[f64; 4]>, b: Option<[f64; 4]>) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3],
-        _ => false,
+/// The features of b each of a meets by a predicate (ascending), through GEOS's spatial index.
+fn meetings(
+    a: &Vector,
+    b: &Vector,
+    predicate: Predicate,
+    distance: Option<f64>,
+) -> std::result::Result<Vec<Vec<usize>>, String> {
+    let mut out = vec![Vec::new(); a.len()];
+    for (i, j) in GeosIndex::new(&b.geometries)?.pairs(&a.geometries, predicate, distance)? {
+        out[i].push(j);
     }
+    Ok(out)
 }
+
+/// The predicate of a node's parameters, whether it is `disjoint` (when allowed: intersects, and the features
+/// that meet none are wanted), and the distance.
+fn predicate_of(args: &Args, disjoint: bool) -> Result<(Predicate, bool, Option<f64>)> {
+    let err = |m: String| Error::msg(format!("node {:?}: {m}", args.node));
+    let name: String = args.param("predicate", "intersects".to_string())?;
+    let (p, none) = match name.as_str() {
+        "disjoint" if disjoint => (Predicate::Intersects, true),
+        n => (
+            Predicate::from_name(n).ok_or_else(|| {
+                err(format!(
+                    "predicate {n:?}: intersects, within, contains, contains_properly, touches, crosses, overlaps, \
+                     covers, covered_by, equals, dwithin{}",
+                    if disjoint { " or disjoint" } else { "" }
+                ))
+            })?,
+            false,
+        ),
+    };
+    let distance: Option<f64> = args.opt_param("distance")?;
+    if p == Predicate::Dwithin && !distance.is_some_and(|d| d >= 0.0 && d.is_finite()) {
+        return Err(err("dwithin needs a distance (map units, 0 or more)".to_string()));
+    }
+    Ok((p, none, distance))
+}
+
+const PREDICATES: [&str; 11] = [
+    "intersects",
+    "within",
+    "contains",
+    "contains_properly",
+    "touches",
+    "crosses",
+    "overlaps",
+    "covers",
+    "covered_by",
+    "equals",
+    "dwithin",
+];
 
 /// The attributes of features made from those of two layers: a's, then b's (a name a has already with a suffix),
 /// each feature's from the feature of each it came from (none: no value).
@@ -416,16 +464,8 @@ impl Operator for Overlay {
             }
         }
         let suffix: String = args.param("suffix", "_2".to_string())?;
-        let (ga, gb) = (
-            terraflux_gdal::Geos::new(&a.geometries).map_err(err)?,
-            terraflux_gdal::Geos::new(&b.geometries).map_err(err)?,
-        );
-        let (ba, bb): (Vec<_>, Vec<_>) =
-            (a.geometries.iter().map(|g| g.bounds()).collect(), b.geometries.iter().map(|g| g.bounds()).collect());
         // the features of b meeting each of a
-        let meets: Vec<Vec<usize>> = (0..a.len())
-            .map(|i| (0..b.len()).filter(|&j| meet(ba[i], bb[j]) && ga.intersects_other(i, &gb, j)).collect())
-            .collect();
+        let meets = meetings(a, &b, Predicate::Intersects, None).map_err(err)?;
         let mut geoms = Vec::new();
         let mut from: Vec<(Option<usize>, Option<usize>)> = Vec::new();
         if how != "difference" {
@@ -481,11 +521,13 @@ impl Operator for SpatialJoin {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "vector.spatial_join",
-            "The features of a layer joined to those of another where they meet, as geopandas' sjoin or QGIS's \
-             Join Attributes by Location (GEOS's intersects through GDAL): each feature takes the attributes of \
-             the first feature of the other layer it meets (`attributes`: the polygon holding a point), or the \
-             count of those it meets and the sum and mean of their attributes `fields` (`summary`: the points in \
-             every polygon counted). The other layer is reprojected to the first's.",
+            "The features of a layer joined to those of another where a spatial predicate holds (`predicate`, \
+             intersects by default; GEOS through a spatial index), as geopandas' sjoin, PostGIS's join on ST_Within \
+             and QGIS's Join Attributes by Location: each feature takes the attributes of the first feature of the \
+             other layer it meets (`attributes`: the polygon holding a point), or a feature for each pair that \
+             meets, in the order of the first layer then the other (`all`; a feature that meets none stays once, \
+             without values), or the count of those it meets and the sum and mean of their attributes `fields` \
+             (`summary`: the points in every polygon counted). The other layer is reprojected to the first's.",
             Access::None,
         )
         .input(PortSpec::new("vector", Type::Vector, "the features joined to (points, or polygons counted)"))
@@ -496,10 +538,16 @@ impl Operator for SpatialJoin {
             "the features with the other's attributes, or count, sums, means",
         ))
         .output(PortSpec::new("table", Type::Table, "their attributes"))
+        .param(PortSpec::optional("mode", Type::Text, "attributes (default), all or summary").choices([
+            "attributes",
+            "all",
+            "summary",
+        ]))
         .param(
-            PortSpec::optional("mode", Type::Text, "attributes (default) or summary")
-                .choices(["attributes", "summary"]),
+            PortSpec::optional("predicate", Type::Text, "which features meet: intersects (default), within...")
+                .choices(PREDICATES),
         )
+        .param(PortSpec::optional("distance", Type::Number, "dwithin: the distance (map units)"))
         .param(PortSpec::optional("fields", Type::Any, "summary: the other's attributes summed and averaged"))
         .param(PortSpec::optional("suffix", Type::Text, "attributes: after a name the first layer has (_2)"))
     }
@@ -509,22 +557,25 @@ impl Operator for SpatialJoin {
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let a = vector_of(args, "vector")?;
         let b = like(vector_of(args, "other")?, &a.crs)?;
-        let (ga, gb) = (
-            terraflux_gdal::Geos::new(&a.geometries).map_err(err)?,
-            terraflux_gdal::Geos::new(&b.geometries).map_err(err)?,
-        );
-        let bb: Vec<_> = b.geometries.iter().map(|g| g.bounds()).collect();
-        let meets: Vec<Vec<usize>> = a
-            .geometries
-            .iter()
-            .enumerate()
-            .map(|(i, g)| {
-                let bi = g.bounds();
-                (0..b.len()).filter(|&j| meet(bi, bb[j]) && ga.intersects_other(i, &gb, j)).collect()
-            })
-            .collect();
+        let (predicate, _, distance) = predicate_of(args, false)?;
+        let meets = meetings(a, &b, predicate, distance).map_err(err)?;
         let mode: String = args.param("mode", "attributes".to_string())?;
         let v = match mode.as_str() {
+            "all" => {
+                let mut from: Vec<(Option<usize>, Option<usize>)> = Vec::new();
+                for (i, js) in meets.iter().enumerate() {
+                    if js.is_empty() {
+                        from.push((Some(i), None));
+                    }
+                    from.extend(js.iter().map(|&j| (Some(i), Some(j))));
+                }
+                let suffix: String = args.param("suffix", "_2".to_string())?;
+                Vector {
+                    geometries: from.iter().filter_map(|f| f.0).map(|i| a.geometries[i].clone()).collect(),
+                    attributes: joined(a, &b, &from, &suffix),
+                    crs: a.crs.clone(),
+                }
+            }
             "attributes" => {
                 let from: Vec<(Option<usize>, Option<usize>)> =
                     meets.iter().enumerate().map(|(i, js)| (Some(i), js.first().copied())).collect();
@@ -562,9 +613,93 @@ impl Operator for SpatialJoin {
                 }
                 with_columns(a, columns).0
             }
-            m => return Err(err(format!("mode {m:?}: attributes or summary"))),
+            m => return Err(err(format!("mode {m:?}: attributes, all or summary"))),
         };
         Ok(out(v))
+    }
+}
+
+/// `vector.select_by_location`.
+struct SelectByLocation;
+
+impl Operator for SelectByLocation {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "vector.select_by_location",
+            "The features of a layer that meet those of another by a spatial predicate, as QGIS's Select by \
+             Location and Extract by Location or PostGIS's WHERE ST_Within(a.geom, b.geom) (GEOS through a spatial \
+             index): kept when the predicate holds with at least one feature of the other layer (`disjoint`: when \
+             it meets none), or the others with `invert`. The other layer is reprojected to the first's.",
+            Access::None,
+        )
+        .input(PortSpec::new("vector", Type::Vector, "the features to select from"))
+        .input(PortSpec::new("other", Type::Vector, "the features they are compared to"))
+        .output(PortSpec::new("vector", Type::Vector, "the features selected"))
+        .output(PortSpec::new("table", Type::Table, "their attributes"))
+        .param(
+            PortSpec::optional("predicate", Type::Text, "intersects (default), within, contains, touches, disjoint...")
+                .choices(PREDICATES.into_iter().chain(["disjoint"])),
+        )
+        .param(PortSpec::optional("distance", Type::Number, "dwithin: the distance (map units)"))
+        .param(PortSpec::optional("invert", Type::Bool, "keep the features that do not meet (false)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let a = vector_of(args, "vector")?;
+        let b = like(vector_of(args, "other")?, &a.crs)?;
+        let (predicate, none, distance) = predicate_of(args, true)?;
+        let invert: bool = args.param("invert", false)?;
+        let meets = meetings(a, &b, predicate, distance).map_err(err)?;
+        let keep: Vec<usize> = (0..a.len()).filter(|&i| (meets[i].is_empty() == none) != invert).collect();
+        Ok(out(a.select(&keep)))
+    }
+}
+
+/// `vector.nearest`.
+struct Nearest;
+
+impl Operator for Nearest {
+    fn signature(&self) -> OpSignature {
+        OpSignature::new(
+            "vector.nearest",
+            "Each feature joined to the nearest feature of another layer, as geopandas' sjoin_nearest, QGIS's Join \
+             Attributes by Nearest and PostGIS's ORDER BY a.geom <-> b.geom LIMIT 1 (GEOS's distance, through a \
+             spatial index): it takes that feature's attributes and `distance` (map units, 0 where they meet); a \
+             tie goes to the first feature of the other layer. None within `max_distance`: no values and a NaN \
+             distance. The other layer is reprojected to the first's.",
+            Access::None,
+        )
+        .input(PortSpec::new("vector", Type::Vector, "the features joined to"))
+        .input(PortSpec::new("other", Type::Vector, "the features to find the nearest of"))
+        .output(PortSpec::new("vector", Type::Vector, "the features with the nearest one's attributes and distance"))
+        .output(PortSpec::new("table", Type::Table, "their attributes"))
+        .param(PortSpec::optional("max_distance", Type::Number, "the farthest a feature may be (map units; none: any)"))
+        .param(PortSpec::optional("suffix", Type::Text, "after a name of the other layer the first has (_2)"))
+    }
+
+    fn run(&self, _ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
+        let node = args.node;
+        let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
+        let a = vector_of(args, "vector")?;
+        let b = like(vector_of(args, "other")?, &a.crs)?;
+        let max: Option<f64> = args.opt_param("max_distance")?;
+        if max.is_some_and(|m| m.is_nan() || m < 0.0) {
+            return Err(err("max_distance must be 0 or more".to_string()));
+        }
+        let suffix: String = args.param("suffix", "_2".to_string())?;
+        let found = GeosIndex::new(&b.geometries).and_then(|t| t.nearest(&a.geometries, max)).map_err(err)?;
+        let from: Vec<(Option<usize>, Option<usize>)> =
+            found.iter().enumerate().map(|(i, f)| (Some(i), f.map(|(j, _)| j))).collect();
+        let mut attributes = joined(a, &b, &from, &suffix);
+        // `distance`, with the suffix (again) while a name of either layer has it, as tf.vector.nearest
+        let mut name = "distance".to_string();
+        while attributes.iter().any(|(n, _)| *n == name) {
+            name.push_str(&suffix);
+        }
+        attributes.push((name, Column::Numbers(found.iter().map(|f| f.map_or(f64::NAN, |(_, d)| d)).collect())));
+        Ok(out(Vector { geometries: a.geometries.clone(), attributes, crs: a.crs.clone() }))
     }
 }
 

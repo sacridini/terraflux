@@ -373,8 +373,20 @@ pub const TIPS: &[(&str, &str)] = &[
     (
         "vector.spatial_join",
         "Each feature takes the attributes of the first feature of the other layer it meets: a point on borders \
-         or overlaps gets one of them only. To count what falls in each polygon (the points in each) use \
-         `summary`, which gives the count and the sum and mean of `fields`.",
+         or overlaps gets one of them only (`mode` all gives a feature for each pair). To count what falls in \
+         each polygon (the points in each) use `summary`, which gives the count and the sum and mean of `fields`.",
+    ),
+    (
+        "vector.select_by_location",
+        "`within` keeps the features inside the other layer's (a point on a border is not within, but it is \
+         covered_by); `intersects` also keeps those that only touch. Distances (`dwithin`) are in the layers' \
+         units: reproject to a metric coordinate system first, not degrees.",
+    ),
+    (
+        "vector.nearest",
+        "The distance is in the layers' units: reproject both to a metric coordinate system first, as degrees \
+         give distances that are not metres. A feature that meets one of the other layer has distance 0. Give \
+         `max_distance` to leave without values those with nothing near.",
     ),
     // land change analysis
     (

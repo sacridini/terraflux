@@ -7,6 +7,9 @@ use std::sync::OnceLock;
 
 use crate::Result;
 
+mod index;
+pub use index::{GeosIndex, Predicate};
+
 type Ctx = *mut c_void;
 type G = *mut c_void;
 type Cs = *mut c_void;
@@ -44,7 +47,35 @@ struct Api {
     GEOSGetExteriorRing_r: unsafe extern "C" fn(Ctx, G) -> G,
     GEOSGetNumInteriorRings_r: unsafe extern "C" fn(Ctx, G) -> c_int,
     GEOSGetInteriorRingN_r: unsafe extern "C" fn(Ctx, G, c_int) -> G,
+    GEOSWKBReader_create_r: unsafe extern "C" fn(Ctx) -> G,
+    GEOSWKBReader_read_r: unsafe extern "C" fn(Ctx, G, *const u8, usize) -> G,
+    GEOSWKBReader_destroy_r: unsafe extern "C" fn(Ctx, G),
+    GEOSSTRtree_create_r: unsafe extern "C" fn(Ctx, usize) -> G,
+    GEOSSTRtree_insert_r: unsafe extern "C" fn(Ctx, G, G, *mut c_void),
+    GEOSSTRtree_query_r: unsafe extern "C" fn(Ctx, G, G, TreeCallback, *mut c_void),
+    GEOSSTRtree_nearest_generic_r:
+        unsafe extern "C" fn(Ctx, G, *const c_void, G, NearCallback, *mut c_void) -> *const c_void,
+    GEOSSTRtree_destroy_r: unsafe extern "C" fn(Ctx, G),
+    GEOSPrepare_r: unsafe extern "C" fn(Ctx, G) -> G,
+    GEOSPreparedGeom_destroy_r: unsafe extern "C" fn(Ctx, G),
+    GEOSPreparedIntersects_r: PreparedTest,
+    GEOSPreparedWithin_r: PreparedTest,
+    GEOSPreparedContains_r: PreparedTest,
+    GEOSPreparedContainsProperly_r: PreparedTest,
+    GEOSPreparedTouches_r: PreparedTest,
+    GEOSPreparedCrosses_r: PreparedTest,
+    GEOSPreparedOverlaps_r: PreparedTest,
+    GEOSPreparedCovers_r: PreparedTest,
+    GEOSPreparedCoveredBy_r: PreparedTest,
+    GEOSEquals_r: PreparedTest,
+    GEOSDistance_r: unsafe extern "C" fn(Ctx, G, G, *mut c_double) -> c_int,
+    /// GEOS 3.10 and later.
+    GEOSPreparedDistanceWithin_r: Option<unsafe extern "C" fn(Ctx, G, G, c_double) -> c_char>,
 }
+
+pub(crate) type TreeCallback = unsafe extern "C" fn(*mut c_void, *mut c_void);
+pub(crate) type NearCallback = unsafe extern "C" fn(*const c_void, *const c_void, *mut c_double, *mut c_void) -> c_int;
+pub(crate) type PreparedTest = unsafe extern "C" fn(Ctx, G, G) -> c_char;
 
 /// GEOS loaded: its functions and version.
 pub struct Geos {
@@ -104,6 +135,11 @@ fn load(path: &Path) -> Result<Geos> {
                 .map_err(|e| format!("{}: no {}: {e}", path.display(), stringify!($name)))?
         };
     }
+    macro_rules! opt {
+        ($name:ident) => {
+            unsafe { lib.get(concat!(stringify!($name), "\0").as_bytes()) }.ok().map(|s| *s)
+        };
+    }
     let api = Api {
         GEOS_init_r: f!(GEOS_init_r),
         GEOS_finish_r: f!(GEOS_finish_r),
@@ -135,6 +171,28 @@ fn load(path: &Path) -> Result<Geos> {
         GEOSGetExteriorRing_r: f!(GEOSGetExteriorRing_r),
         GEOSGetNumInteriorRings_r: f!(GEOSGetNumInteriorRings_r),
         GEOSGetInteriorRingN_r: f!(GEOSGetInteriorRingN_r),
+        GEOSWKBReader_create_r: f!(GEOSWKBReader_create_r),
+        GEOSWKBReader_read_r: f!(GEOSWKBReader_read_r),
+        GEOSWKBReader_destroy_r: f!(GEOSWKBReader_destroy_r),
+        GEOSSTRtree_create_r: f!(GEOSSTRtree_create_r),
+        GEOSSTRtree_insert_r: f!(GEOSSTRtree_insert_r),
+        GEOSSTRtree_query_r: f!(GEOSSTRtree_query_r),
+        GEOSSTRtree_nearest_generic_r: f!(GEOSSTRtree_nearest_generic_r),
+        GEOSSTRtree_destroy_r: f!(GEOSSTRtree_destroy_r),
+        GEOSPrepare_r: f!(GEOSPrepare_r),
+        GEOSPreparedGeom_destroy_r: f!(GEOSPreparedGeom_destroy_r),
+        GEOSPreparedIntersects_r: f!(GEOSPreparedIntersects_r),
+        GEOSPreparedWithin_r: f!(GEOSPreparedWithin_r),
+        GEOSPreparedContains_r: f!(GEOSPreparedContains_r),
+        GEOSPreparedContainsProperly_r: f!(GEOSPreparedContainsProperly_r),
+        GEOSPreparedTouches_r: f!(GEOSPreparedTouches_r),
+        GEOSPreparedCrosses_r: f!(GEOSPreparedCrosses_r),
+        GEOSPreparedOverlaps_r: f!(GEOSPreparedOverlaps_r),
+        GEOSPreparedCovers_r: f!(GEOSPreparedCovers_r),
+        GEOSPreparedCoveredBy_r: f!(GEOSPreparedCoveredBy_r),
+        GEOSEquals_r: f!(GEOSEquals_r),
+        GEOSDistance_r: f!(GEOSDistance_r),
+        GEOSPreparedDistanceWithin_r: opt!(GEOSPreparedDistanceWithin_r),
     };
     let v = unsafe { (api.GEOSversion)() };
     let version = if v.is_null() { String::new() } else { unsafe { CStr::from_ptr(v) }.to_string_lossy().into_owned() };
