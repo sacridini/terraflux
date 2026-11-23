@@ -1146,11 +1146,12 @@ note = "...and after it: far fewer, larger."
         group: METRICS,
         build: None,
         about: "the vector tools at work: a land cover's forest turned into polygons and measured, the large ones \
-                kept, plots drawn inside them, the plots counted in squares, and the forest cut by the squares",
+                kept, plots drawn inside them, each plot's nearest water, the squares that touch water, the plots \
+                counted in squares, and the forest cut by the squares",
         toml: r#"
 format = "terraflux/1"
 name = "Vector tools: polygons, overlay and points"
-description = "A land cover's forest as polygons (vector.polygonize), measured (vector.geometry), the large patches kept (vector.filter) and given a column (vector.calc), random plots inside them (vector.points), counted in squares (vector.spatial_join), and the forest cut by the squares (vector.overlay)."
+description = "A land cover's forest as polygons (vector.polygonize), measured (vector.geometry), the large patches kept (vector.filter) and given a column (vector.calc), random plots inside them (vector.points), each plot's nearest water and its distance (vector.nearest), the squares that touch water (vector.select_by_location), the plots counted in squares (vector.spatial_join), and the forest cut by the squares (vector.overlay)."
 
 [[nodes]]
 id = "cover"
@@ -1200,11 +1201,32 @@ params = { method = "random", n = 3, seed = 2 }
 note = "Three field plots drawn inside every large patch, with its attributes."
 
 [[nodes]]
+id = "water"
+op = "vector.filter"
+inputs = { vector = "measured.vector" }
+params = { expression = "value == 3" }
+note = "The water's polygons."
+
+[[nodes]]
+id = "plots_to_water"
+op = "vector.nearest"
+inputs = { vector = "plots.vector", other = "water.vector" }
+params = { suffix = "_water" }
+note = "Each plot with the nearest water's attributes and its distance, as PostGIS's ORDER BY a.geom <-> b.geom LIMIT 1."
+
+[[nodes]]
 id = "squares"
 op = "vector.grid_zones"
 inputs = { map = "cover.map" }
 params = { size = 25 }
 note = "Squares of 25 cells' side over the map."
+
+[[nodes]]
+id = "wet_squares"
+op = "vector.select_by_location"
+inputs = { vector = "squares.zones", other = "water.vector" }
+params = { predicate = "intersects" }
+note = "The squares that meet water, as PostGIS's WHERE ST_Intersects(a.geom, b.geom); within, contains, touches and dwithin work the same way."
 
 [[nodes]]
 id = "plots_per_square"
@@ -8417,6 +8439,14 @@ mod table_template_tests {
         let total: f64 = area.rows.iter().map(|r| r[sum]).sum();
         let want: f64 = forest.rows.iter().map(|r| r[cells]).sum();
         assert!((total - want).abs() < 1e-6, "{total} {want}");
+        // every plot has a nearest water, at a positive distance (plots are in forest, not in water)
+        let near = table("plots_to_water.table");
+        assert_eq!(near.rows.len(), 3 * forest.rows.len());
+        let d = near.columns.iter().position(|c| c == "distance").unwrap();
+        assert!(near.rows.iter().all(|r| r[d].is_finite() && r[d] > 0.0), "{:?}", near.columns);
+        // some squares meet water, not all of them have to
+        let wet = table("wet_squares.table").rows.len();
+        assert!(wet > 0 && wet <= counted.rows.len(), "{wet}");
     }
 
     #[test]
