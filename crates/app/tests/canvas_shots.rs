@@ -127,6 +127,18 @@ fn canvas_shots() {
             }
         }
     }
+    // out of date: "update after every edit" off, the first node's seed changed after the run; it and what reads it
+    // faded, with a hollow amber light
+    for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
+        let mut h = harness(SIZE, 1.0, theme);
+        template(&mut h, "Fragmentation of a forest");
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.auto = false;
+        terraflux_app::editor::set_param(&mut s.source, &[], "landscape", "seed", "8").unwrap();
+        s.edited();
+        assert!(!s.stale.is_empty());
+        save(&mut h, &format!("stale_{tag}.png"));
+    }
     // close: a node's header at 1.5 and twice the pixels, to judge the small details
     for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
         for node in ["fos", "landscape", "fad"] {

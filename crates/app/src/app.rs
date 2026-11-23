@@ -6,7 +6,7 @@
 //! keeps answering, the areas of the simulated maps are counted in the run's thread, and the maps' textures are
 //! kept to be shown again at once.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -728,6 +728,9 @@ pub struct Session {
     /// The model as the statuses know it (as the last run began): an edit is told against it, to take the status
     /// of only the nodes it reaches ([`crate::stale`]).
     pub ran_model: Option<Model>,
+    /// The places (`node`, `group/inner`) whose last result is out of date: an edit reached them after they gave
+    /// it, and they have not run since. Their statuses are gone, their outputs still there.
+    pub stale: BTreeSet<String>,
     /// How long each node took when it last ran (its place: `node`, `container/inner`; a loop's body summed over its
     /// steps), and about how much memory what it gave holds.
     pub timings: BTreeMap<String, (f64, usize)>,
@@ -1030,6 +1033,7 @@ impl Session {
             loop_step: BTreeMap::new(),
             inner_status: BTreeMap::new(),
             ran_model: None,
+            stale: BTreeSet::new(),
             bodies: BTreeMap::new(),
             bodies_before: BTreeMap::new(),
             status: BTreeMap::new(),
@@ -1393,6 +1397,18 @@ impl Session {
                 _ => None,
             };
             let before = self.status.len() + self.inner_status.len();
+            let stale_before = self.stale.clone();
+            // (what had a result, a status or its outputs, and is reached: out of date, not "never run")
+            let reached = |at: &str| stale.as_ref().is_none_or(|s| s.hits(at));
+            let had: Vec<String> = self
+                .status
+                .keys()
+                .chain(self.outputs.keys())
+                .chain(self.inner_status.keys())
+                .filter(|at| reached(at))
+                .cloned()
+                .collect();
+            self.stale.extend(had);
             match &stale {
                 Some(s) => {
                     self.status.retain(|id, _| !s.hits(id));
@@ -1412,7 +1428,9 @@ impl Session {
                     self.quiet_failed = None;
                 }
             }
-            if self.status.len() + self.inner_status.len() != before || stale.is_none() {
+            // (a node taken away has no result to be out of date)
+            self.stale.retain(|at| crate::stale::exists(&m, at));
+            if self.status.len() + self.inner_status.len() != before || stale.is_none() || self.stale != stale_before {
                 self.status_rev += 1;
             }
             if expanded.is_ok() {
@@ -1726,6 +1744,7 @@ impl Session {
                 if let Some(real) = self.real_cache.take() {
                     self.cache = real;
                     self.outputs.clear();
+                    self.stale.clear();
                 }
                 // (the frozen results are of the whole map: a check run runs those nodes)
                 self.hold_frozen();
@@ -1996,6 +2015,21 @@ impl Session {
         }
     }
 
+    /// The places whose result is out of date and to be shown so: with "update after every edit" on, none while a
+    /// run is about to start or going on (it brings them up to date a moment later; no flicker).
+    pub fn outdated(&self) -> BTreeSet<&str> {
+        if self.auto && (self.edited_at.is_some() || self.running()) {
+            return BTreeSet::new();
+        }
+        self.stale.iter().map(String::as_str).collect()
+    }
+
+    /// Whether the result of a node (in the scope `path`) is out of date and shown so.
+    pub fn is_outdated(&self, path: &[String], id: &str) -> bool {
+        let at = if path.is_empty() { id.to_string() } else { format!("{}/{id}", path.join("/")) };
+        self.outdated().contains(at.as_str())
+    }
+
     /// Take what the data's reading, the savings and the run sent.
     pub fn poll(&mut self) {
         let mut left = Vec::new();
@@ -2027,6 +2061,8 @@ impl Session {
             match m {
                 Message::Node(at) => {
                     let top = at.split('/').next().unwrap_or(&at).to_string();
+                    self.stale.remove(&top);
+                    self.stale.remove(&at);
                     if self.status.insert(top, NodeStatus::Running) != Some(NodeStatus::Running) {
                         self.status_rev += 1;
                         self.node_began = Some(Instant::now());
@@ -2042,6 +2078,7 @@ impl Session {
                 }
                 Message::Progress { at, progress } => self.task = Some((at, progress)),
                 Message::Timed { at, seconds, bytes } => {
+                    self.stale.remove(&at);
                     if at.contains('/')
                         && self.inner_status.insert(at.clone(), NodeStatus::Done { cached: false })
                             != Some(NodeStatus::Done { cached: false })
@@ -2054,6 +2091,7 @@ impl Session {
                 Message::Finished { at, cached } => {
                     // the nodes of its body that did not run (kept: no time told) are done, from the cache
                     let within = format!("{at}/");
+                    self.stale.retain(|p| *p != at && !p.starts_with(&within));
                     for (p, st) in self.inner_status.iter_mut() {
                         if p.starts_with(&within) && *st == NodeStatus::Running {
                             *st = NodeStatus::Done { cached: true };
@@ -2070,10 +2108,12 @@ impl Session {
                 // (a run the application started by itself: its failure kept quiet, told by a run asked for)
                 Message::Failed(at) if self.quiet_run => self.quiet_failed = Some(at),
                 Message::Failed(at) => {
+                    self.stale.remove(&at);
                     self.status.insert(at, NodeStatus::Failed);
                     self.status_rev += 1;
                 }
                 Message::FailedIn(at) => {
+                    self.stale.remove(&at);
                     self.inner_status.insert(at, NodeStatus::Failed);
                     self.status_rev += 1;
                 }
@@ -2152,6 +2192,7 @@ impl Session {
             }
             self.quiet_run = false;
             self.outputs.retain(|id, _| self.model.nodes.iter().any(|n| n.id == *id));
+            self.stale.retain(|at| crate::stale::exists(&self.model, at));
         }
     }
 

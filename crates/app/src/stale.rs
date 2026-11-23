@@ -24,6 +24,21 @@ impl Stale {
     }
 }
 
+/// Whether the place `at` (`node`, `group/inner`) is a node of the model.
+pub fn exists(m: &Model, at: &str) -> bool {
+    let mut nodes = &m.nodes;
+    let mut parts = at.split('/').peekable();
+    while let Some(id) = parts.next() {
+        let Some(n) = nodes.iter().find(|n| n.id == id) else { return false };
+        if parts.peek().is_none() {
+            return true;
+        }
+        let Some(b) = &n.body else { return false };
+        nodes = &b.nodes;
+    }
+    false
+}
+
 /// The node as what it computes: no body's nodes (judged by themselves), no drawing, no record.
 fn shallow(n: &Node) -> Node {
     let mut n = n.unrecorded();
@@ -154,5 +169,8 @@ mod tests {
         let s = between(&old, &new);
         assert!(s.hits("g") && s.hits("g/x") && s.hits("g/y") && s.hits("d"));
         assert!(!s.hits("g/z") && !s.hits("c"));
+        // the places that are nodes
+        assert!(exists(&old, "g") && exists(&old, "g/x") && exists(&old, "c"));
+        assert!(!exists(&old, "g/q") && !exists(&old, "c/x") && !exists(&old, "nope"));
     }
 }

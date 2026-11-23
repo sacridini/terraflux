@@ -3139,13 +3139,20 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
             .chain(top)
             .collect()
     };
+    // (a node whose result is out of date, or a container with such a node in its body, and no new status)
+    let mut lights = if top_level { s.status.clone() } else { scoped };
+    for at in s.outdated() {
+        if let Some(id) = at.strip_prefix(&prefix).and_then(|rest| rest.split('/').next()) {
+            lights.entry(id.to_string()).or_insert(NodeStatus::Outdated);
+        }
+    }
     let mut actions = crate::editor_view::show(
         ui,
         &s.source,
         r,
         &mut s.editor,
         s.selected.as_deref(),
-        if top_level { &s.status } else { &scoped },
+        &lights,
         s.revision,
         s.status_rev,
         shown.as_ref().map(|(n, p)| (n.as_str(), p.as_str())),
@@ -5558,6 +5565,14 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                     }
                     Some(NodeStatus::Failed) => {
                         ui.label(RichText::new("failed").color(ui.visuals().error_fg_color));
+                    }
+                    // (never in the session's statuses: told by the canvas)
+                    Some(NodeStatus::Outdated) => {}
+                    None if value.is_some() && s.is_outdated(&[], &node) => {
+                        ui.label(RichText::new("out of date").color(ui.visuals().warn_fg_color)).on_hover_text(
+                            "An edit upstream changed what this node computes: run to update it (this output is the \
+                             one it gave before).",
+                        );
                     }
                     None if value.is_some() => {
                         ui.label(RichText::new("from an earlier run").color(weak));
@@ -8510,6 +8525,69 @@ params = { expression = "x * 0 + k" }
         assert_eq!(first(&s), 2.0);
         s.choose_step("loop", None);
         assert_eq!(first(&s), 3.0);
+    }
+
+    /// An edit with "update after every edit" off: the node it changes and those that read it are out of date (not
+    /// what it reads, nor the unrelated), until they run again; a node taken away leaves nothing behind.
+    #[test]
+    fn an_edit_marks_what_it_reaches_out_of_date_until_it_runs() {
+        let m = terraflux_graph::Model::from_toml(
+            r#"format = "terraflux/1"
+[[nodes]]
+id = "up"
+op = "nlm.random"
+params = { rows = 4, columns = 4 }
+
+[[nodes]]
+id = "mid"
+op = "raster.calc"
+inputs = { x = "up.map" }
+params = { expression = "x + 1" }
+
+[[nodes]]
+id = "down"
+op = "raster.calc"
+inputs = { x = "mid.map" }
+params = { expression = "x + 1" }
+
+[[nodes]]
+id = "other"
+op = "nlm.random"
+params = { rows = 4, columns = 4 }
+"#,
+        )
+        .unwrap();
+        let mut s = Session::from_model(m).unwrap();
+        s.auto = false;
+        s.start(Box::new(|| {}));
+        finish(&mut s);
+        assert!(s.stale.is_empty() && s.outdated().is_empty());
+        // the middle node edited: it and what reads it, not what it reads, nor the unrelated
+        crate::editor::set_param(&mut s.source, &[], "mid", "expression", "x + 2").unwrap();
+        s.edited();
+        let stale: Vec<&str> = s.stale.iter().map(String::as_str).collect();
+        assert_eq!(stale, ["down", "mid"]);
+        assert!(s.is_outdated(&[], "mid") && !s.is_outdated(&[], "up") && !s.is_outdated(&[], "other"));
+        // (their statuses are gone, their outputs kept)
+        assert!(!s.status.contains_key("mid") && s.outputs.contains_key("mid"));
+        // a second edit upstream reaches more
+        crate::editor::set_param(&mut s.source, &[], "up", "rows", "5").unwrap();
+        s.edited();
+        assert_eq!(s.stale.len(), 3, "{:?}", s.stale);
+        // a run to a node brings it and what it needs up to date, not the rest
+        s.start_to(Some("mid".into()), Box::new(|| {}));
+        finish(&mut s);
+        let stale: Vec<&str> = s.stale.iter().map(String::as_str).collect();
+        assert_eq!(stale, ["down"]);
+        // a node taken away leaves no entry
+        crate::editor::remove_node(&mut s.source, &[], "down").unwrap();
+        s.edited();
+        assert!(s.stale.is_empty(), "{:?}", s.stale);
+        // with "update after every edit" on, a run about to start shows nothing out of date
+        s.auto = true;
+        crate::editor::set_param(&mut s.source, &[], "mid", "expression", "x + 3").unwrap();
+        s.edited();
+        assert!(s.stale.contains("mid") && s.outdated().is_empty());
     }
 
     /// A node just added (a raster.read whose file is not chosen yet) is not run by itself, and nothing is told

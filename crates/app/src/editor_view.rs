@@ -7,8 +7,9 @@
 //! right-click the input; right-click a node for its menu (Run on a folder...). Drag the background to select the nodes in a box (shift or ctrl and a click add a node
 //! or take it away, ctrl+A selects all, Esc none): dragging one of them moves them all. Drag with the middle or the right
 //! button to move the view, the wheel zooms around the pointer, Home fits the graph. Each node shows how it did
-//! in the last run: running, done (or taken from the cache), failed; a node with problems (an input it needs not
-//! given, the run's error) has a mark that tells them on hover; a check (`check.*`) a badge of how it fared
+//! in the last run: running, done (or taken from the cache), failed, or out of date (an edit reached it after it
+//! gave its result: its box faded, its light hollow and amber, a container's too when a node of its body is); a
+//! node with problems (an input it needs not given, the run's error) has a mark that tells them on hover; a check (`check.*`) a badge of how it fared
 //! (passed, warned, failed, not run), a container the worst of its checks'; a node whose result is frozen a ❄ at its
 //! top left. A box that reads or writes a file names it at
 //! its bottom; an operator's box wears its family's icon (data, raster, connectivity, conservation...: the library's
@@ -637,6 +638,9 @@ pub enum NodeStatus {
         cached: bool,
     },
     Failed,
+    /// Its outputs are kept but an edit upstream changed what it computes: a hollow amber light and a faded box,
+    /// told to the canvas only (the session keeps these apart, in `stale`).
+    Outdated,
 }
 
 /// The keyboard actions ([`crate::keymap`]) that put the nodes selected in line, as the "Align" menu does.
@@ -2170,8 +2174,12 @@ fn box_rects(b: &BoxAt, state: Option<NodeStatus>, v: &egui::Visuals, colours: b
             rects.push(port_rect(t, c, (PORT - 1.0) / PORT, fill, edge, 1.2));
         }
     }
-    if let Some(s) = state {
+    // (an out-of-date node's light is drawn over its faded box, with the texts)
+    if let Some(s) = state
+        && s != NodeStatus::Outdated
+    {
         let colour = match s {
+            NodeStatus::Outdated => v.warn_fg_color,
             NodeStatus::Running => crate::theme::accent(),
             NodeStatus::Done { cached: false } => Color32::from_rgb(120, 220, 110),
             NodeStatus::Done { cached: true } => Color32::from_rgb(80, 150, 75),
@@ -5069,6 +5077,30 @@ pub fn show(
                     );
                 }
             }
+        }
+    }
+    // the nodes whose result is out of date: the box and its texts slightly faded into the canvas, a hollow amber
+    // light where the state's light would be (what it tells on hover)
+    for &i in &in_view {
+        let b = &scene.boxes[i];
+        if status.get(&b.key) != Some(&NodeStatus::Outdated) {
+            continue;
+        }
+        let on_screen = Rect::from_min_max(screen(b.rect.min), screen(b.rect.max));
+        let radius = crate::theme::shape().node_radius * cam.zoom;
+        painter.rect_filled(on_screen, radius, crate::theme::canvas().gamma_multiply(0.3));
+        let c = screen(b.rect.right_top() + Vec2::new(-10.0, 10.0));
+        let radius = (3.5 * cam.zoom).max(2.5);
+        painter.circle_stroke(c, radius, Stroke::new((1.6 * cam.zoom).clamp(1.0, 2.0), v.warn_fg_color));
+        let hot = Rect::from_center_size(c, Vec2::splat(2.0 * radius + 8.0));
+        if ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| hot.contains(p)) {
+            let (here, all) = (crate::keymap::text("canvas_run_to"), crate::keymap::text("run"));
+            let tip = format!(
+                "Out of date — an edit upstream changed what this node computes. \
+                 Run to update it ({here} here, {all} for all)."
+            );
+            egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), egui::Id::new("node outdated"), hot)
+                .show(|ui| ui.label(tip));
         }
     }
     // the marks of the nodes with problems: red for an error, amber for a warning, at the left of the light of
