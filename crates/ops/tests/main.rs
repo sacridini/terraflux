@@ -97,6 +97,7 @@ mod uncertainty;
 mod vector;
 mod vector_calc_spatial;
 mod vector_cluster;
+mod vector_cover;
 mod vector_lines;
 mod vector_ops;
 mod vector_predicates;

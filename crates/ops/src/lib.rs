@@ -116,8 +116,9 @@ pub mod value;
 pub mod values;
 pub mod vector;
 pub mod vector_algebra;
-pub mod vector_lines;
 pub mod vector_cluster;
+pub mod vector_cover;
+pub mod vector_lines;
 pub mod vector_shapes;
 pub mod vector_spatial;
 pub mod vector_tiled;
@@ -518,6 +519,7 @@ impl Registry {
         vector_shapes::register(&mut r);
         vector_lines::register(&mut r);
         vector_cluster::register(&mut r);
+        vector_cover::register(&mut r);
         values::register(&mut r);
         checks::register(&mut r);
         raster_analysis::register(&mut r);

@@ -80,7 +80,7 @@ impl<'s, 'a> Codec<'s, 'a> {
     }
 
     /// Whether the geometry is nothing for GEOS (left out of every operation).
-    fn nothing(g: &Geometry) -> bool {
+    pub(super) fn nothing(g: &Geometry) -> bool {
         matches!(g, Geometry::Empty) || g.bounds().is_none()
     }
 

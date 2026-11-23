@@ -478,6 +478,27 @@ pub const TIPS: &[(&str, &str)] = &[
          it (4 to 5 is usual) to leave isolated features as -1, noise, and to cut thin bridges between groups. \
          The column is a number: -1 is noise.",
     ),
+    (
+        "vector.smooth",
+        "Smoothing rounds the corners but also moves the line off its vertices and shrinks polygons, so it is for \
+         drawing and for the stair steps of vector.polygonize, not for measuring: measure before it. Two or three \
+         iterations are enough (the vertex count doubles each time); keep `preserve_ends` on so rivers still meet at \
+         their ends. Every polygon is smoothed alone, so the neighbours of a coverage (a polygonized map) stop fitting \
+         along their shared edges: use vector.coverage_simplify there.",
+    ),
+    (
+        "vector.coverage_simplify",
+        "Do not use vector.simplify on a coverage (parcels, districts, a polygonized map): it simplifies every polygon \
+         alone, so neighbours stop fitting and slivers and overlaps open along their shared edges. This simplifies the \
+         shared edges once for both. Check the layer with vector.coverage_validate first; give `preserve_boundary` to \
+         keep the outline of the whole area, and a tolerance in metres (reproject first).",
+    ),
+    (
+        "vector.coverage_validate",
+        "Valid coverage means no overlaps and shared edges that match vertex for vertex. Keep the features with \
+         `valid` 0 to see where the problems are (their geometry is the invalid edges); `gap_width` (in the layer's \
+         units) also flags slivers narrower than that. Fix them before vector.coverage_simplify.",
+    ),
     // land change analysis
     (
         "change.suggest",

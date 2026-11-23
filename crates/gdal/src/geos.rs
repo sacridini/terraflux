@@ -8,10 +8,12 @@ use std::sync::OnceLock;
 use crate::Result;
 
 mod cluster;
+mod cover;
 mod index;
 mod lines;
 mod shapes;
 pub use cluster::{delaunay, intersect, voronoi};
+pub use cover::{coverage_invalid_edges, coverage_simplify};
 pub use index::{GeosIndex, Predicate};
 pub use lines::{nearest_points, project};
 pub use shapes::{Unary, unary, union};
@@ -98,6 +100,11 @@ struct Api {
     GEOSProject_r: unsafe extern "C" fn(Ctx, G, G) -> c_double,
     // vector.voronoi / delaunay
     GEOSDelaunayTriangulation_r: unsafe extern "C" fn(Ctx, G, c_double, c_int) -> G,
+    // vector.coverage_*
+    /// GEOS 3.12 and later: (collection, tolerance, preserve boundary).
+    GEOSCoverageSimplifyVW_r: Option<unsafe extern "C" fn(Ctx, G, c_double, c_int) -> G>,
+    /// GEOS 3.12 and later: (collection, gap width, invalid edges); 1 valid, 0 not, 2 failed.
+    GEOSCoverageIsValid_r: Option<unsafe extern "C" fn(Ctx, G, c_double, *mut G) -> c_int>,
 }
 
 pub(crate) type UnaryFn = unsafe extern "C" fn(Ctx, G) -> G;
@@ -241,6 +248,9 @@ fn load(path: &Path) -> Result<Geos> {
         GEOSProject_r: f!(GEOSProject_r),
         // vector.voronoi / delaunay
         GEOSDelaunayTriangulation_r: f!(GEOSDelaunayTriangulation_r),
+        // vector.coverage_*
+        GEOSCoverageSimplifyVW_r: opt!(GEOSCoverageSimplifyVW_r),
+        GEOSCoverageIsValid_r: opt!(GEOSCoverageIsValid_r),
     };
     let v = unsafe { (api.GEOSversion)() };
     let version = if v.is_null() { String::new() } else { unsafe { CStr::from_ptr(v) }.to_string_lossy().into_owned() };
