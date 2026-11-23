@@ -45,10 +45,34 @@
     "vector.spatial_join",
     "vector.select_by_location",
     "vector.nearest",
+    "vector.locate",
+    "vector.shortest_line",
+    "vector.closest_point",
+    "vector.voronoi",
+    "vector.delaunay",
+    "vector.cluster",
     "vector.reproject",
     "vector.from_table",
     "vector.points",
     "vector.density"
+   ]
+  },
+  {
+   "title": "Vector geometry",
+   "prefixes": [
+    "vector.centroid",
+    "vector.hull",
+    "vector.simplify",
+    "vector.envelope",
+    "vector.make_valid",
+    "vector.explode",
+    "vector.boundary",
+    "vector.points_along",
+    "vector.substring",
+    "vector.split_lines",
+    "vector.smooth",
+    "vector.coverage_simplify",
+    "vector.coverage_validate"
    ]
   },
   {

@@ -1439,28 +1439,50 @@ const PHRASES: &[(&str, &str)] = &[
         "The three-map comparison of <simulated> with the reference from <t0> to <t1>[, blocks of {factors} cells].",
     ),
     ("value.calc", "A value computed from its inputs[: {expression}]."),
+    (
+        "vector.boundary",
+        "The boundary of each feature of <vector>: the rings of polygons as lines, the ends of lines as points.",
+    ),
     ("vector.buffer", "The area within {distance} of each feature of <vector>."),
+    ("vector.centroid", "The centroid of each feature of <vector>[ (a point on the feature: {inside})]."),
     ("vector.clip", "The features of <vector> cut to <mask>."),
+    (
+        "vector.cluster",
+        "The features of <vector> grouped by distance: clusters within {distance}[ of at least {min_points}].",
+    ),
+    ("vector.closest_point", "The points of <vector> moved to the nearest point of <other>[ within {max_distance}]."),
     (
         "vector.density",
         "The density of the points <vector> on the grid of <map>, a {kernel} kernel[ of radius {radius}][ weighted by \
          {field}].",
     ),
+    ("vector.coverage_simplify", "The polygons of <vector> simplified together, without gaps or overlaps, within {tolerance}."),
+    ("vector.coverage_validate", "The edges of the polygons of <vector> that overlap or leave gaps[ narrower than {gap_width}]."),
+    ("vector.delaunay", "The Delaunay triangulation of the vertices of <vector>[ as edges: {edges}]."),
     ("vector.dissolve", "The features of <vector> merged[ by {by}]."),
     ("vector.distance", "The distance from each cell of the grid of <like> to the nearest feature of <vector>."),
+    ("vector.envelope", "The bounding box of each feature of <vector>."),
     ("vector.exact_sum", "The sum of <map> in each polygon of <vector>, weighted by the share of each cell covered."),
+    ("vector.explode", "The multi-part features of <vector> split into single parts."),
     ("vector.from_table", "Points from the columns {x} and {y} of <table>[ in {crs}]."),
     ("vector.geometry", "The area, perimeter, length and centroid of each feature of <vector>."),
     ("vector.grid_zones", "Squares of side {size} tiling <map>."),
+    ("vector.hull", "The {kind} hull of the features of <vector>[ by {by}][ (all of them: {dissolve})]."),
     (
         "vector.join",
         "The columns of <table> joined to the features of <vector>[ by their attribute {on}][ and its column {key}].",
     ),
     (
+        "vector.locate",
+        "The nearest line of <lines> to each feature of <vector>, with the measure along it and the distance.",
+    ),
+    ("vector.make_valid", "The invalid geometries of <vector> repaired."),
+    (
         "vector.nearest",
         "Each feature of <vector> with the attributes of the nearest of <other>[ within {max_distance}].",
     ),
     ("vector.overlay", "The {how} of the layers <vector> and <other>."),
+    ("vector.points_along", "Points along the lines of <vector>[ every {spacing}][, {n} on each]."),
     (
         "vector.rasterize",
         "The features of <vector> burnt into the grid of <like>[, the attribute {field}][, the value {value}].",
@@ -1470,11 +1492,17 @@ const PHRASES: &[(&str, &str)] = &[
         "vector.select_by_location",
         "The features of <vector> that meet <other>[ by {predicate}][ within {distance}][ (inverted: {invert})].",
     ),
+    ("vector.shortest_line", "The line from each feature of <vector> to the nearest of <other>."),
+    ("vector.simplify", "The geometries of <vector> simplified with a tolerance of {tolerance}."),
+    ("vector.smooth", "The geometries of <vector> smoothed[ {iterations} times]."),
     (
         "vector.spatial_join",
         "The features of <other> joined to those of <vector> where they meet[ by {predicate}][ within {distance}] \
          ({mode}).",
     ),
+    ("vector.split_lines", "The lines of <vector> cut into pieces of at most {length}."),
+    ("vector.substring", "The part of each line of <vector> between {start} and {end}[ (fractions: {normalized})]."),
+    ("vector.voronoi", "The Voronoi polygon of each point of <vector>[ cut to <clip>]."),
     ("woe.weights", "Weights of evidence given in the model."),
 ];
 

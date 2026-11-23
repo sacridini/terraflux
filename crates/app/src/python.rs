@@ -2545,6 +2545,121 @@ const FRAMES: &[Frame] = &[
         gives: Gives::Features,
     },
     Frame {
+        op: "vector.centroid",
+        call: "tf.vector.centroid",
+        first: &["vector"],
+        named: &[("inside", "inside")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.hull",
+        call: "tf.vector.hull",
+        first: &["vector"],
+        named: &[("kind", "kind"), ("ratio", "ratio"), ("allow_holes", "allow_holes"), ("by", "by"), ("dissolve", "dissolve")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.simplify",
+        call: "tf.vector.simplify",
+        first: &["vector", "tolerance"],
+        named: &[("preserve_topology", "preserve_topology")],
+        gives: Gives::Features,
+    },
+    Frame { op: "vector.envelope", call: "tf.vector.envelope", first: &["vector"], named: &[], gives: Gives::Features },
+    Frame {
+        op: "vector.make_valid",
+        call: "tf.vector.make_valid",
+        first: &["vector"],
+        named: &[],
+        gives: Gives::Features,
+    },
+    Frame { op: "vector.explode", call: "tf.vector.explode", first: &["vector"], named: &[], gives: Gives::Features },
+    Frame { op: "vector.boundary", call: "tf.vector.boundary", first: &["vector"], named: &[], gives: Gives::Features },
+    Frame {
+        op: "vector.points_along",
+        call: "tf.vector.points_along",
+        first: &["vector"],
+        named: &[("spacing", "spacing"), ("n", "n"), ("start", "start")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.substring",
+        call: "tf.vector.substring",
+        first: &["vector", "start", "end"],
+        named: &[("normalized", "normalized")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.split_lines",
+        call: "tf.vector.split_lines",
+        first: &["vector", "length"],
+        named: &[],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.locate",
+        call: "tf.vector.locate",
+        first: &["vector", "lines"],
+        named: &[],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.shortest_line",
+        call: "tf.vector.shortest_line",
+        first: &["vector", "other"],
+        named: &[("suffix", "suffix")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.closest_point",
+        call: "tf.vector.closest_point",
+        first: &["vector", "other"],
+        named: &[("max_distance", "max_distance")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.voronoi",
+        call: "tf.vector.voronoi",
+        first: &["vector"],
+        named: &[("clip", "clip"), ("tolerance", "tolerance")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.delaunay",
+        call: "tf.vector.delaunay",
+        first: &["vector"],
+        named: &[("edges", "edges"), ("tolerance", "tolerance")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.cluster",
+        call: "tf.vector.cluster",
+        first: &["vector", "distance"],
+        named: &[("min_points", "min_points"), ("column", "column")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.smooth",
+        call: "tf.vector.smooth",
+        first: &["vector"],
+        named: &[("iterations", "iterations"), ("preserve_ends", "preserve_ends")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.coverage_simplify",
+        call: "tf.vector.coverage_simplify",
+        first: &["vector", "tolerance"],
+        named: &[("preserve_boundary", "preserve_boundary")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.coverage_validate",
+        call: "tf.vector.coverage_validate",
+        first: &["vector"],
+        named: &[("gap_width", "gap_width")],
+        gives: Gives::Features,
+    },
+    Frame {
         op: "vector.reproject",
         call: "_reproject",
         first: &["vector"],
@@ -3355,6 +3470,115 @@ inputs = { vector = "ring.vector" }
 params = { by = "uso" }
 
 [[nodes]]
+id = "mid"
+op = "vector.centroid"
+inputs = { vector = "ring.vector" }
+params = { inside = true }
+
+[[nodes]]
+id = "hulls"
+op = "vector.hull"
+inputs = { vector = "ring.vector" }
+params = { kind = "concave", ratio = 0.5, by = "uso" }
+
+[[nodes]]
+id = "coarse"
+op = "vector.simplify"
+inputs = { vector = "ring.vector" }
+params = { tolerance = 10, preserve_topology = false }
+
+[[nodes]]
+id = "box"
+op = "vector.envelope"
+inputs = { vector = "ring.vector" }
+
+[[nodes]]
+id = "fixed"
+op = "vector.make_valid"
+inputs = { vector = "ring.vector" }
+
+[[nodes]]
+id = "singles"
+op = "vector.explode"
+inputs = { vector = "ring.vector" }
+
+[[nodes]]
+id = "edges"
+op = "vector.boundary"
+inputs = { vector = "ring.vector" }
+
+[[nodes]]
+id = "stops"
+op = "vector.points_along"
+inputs = { vector = "edges.vector" }
+params = { spacing = 25, start = 5 }
+
+[[nodes]]
+id = "piece"
+op = "vector.substring"
+inputs = { vector = "edges.vector" }
+params = { start = 0.25, end = 0.75, normalized = true }
+
+[[nodes]]
+id = "cuts"
+op = "vector.split_lines"
+inputs = { vector = "edges.vector" }
+params = { length = 100 }
+
+[[nodes]]
+id = "along"
+op = "vector.locate"
+inputs = { vector = "at.vector", lines = "edges.vector" }
+
+[[nodes]]
+id = "link"
+op = "vector.shortest_line"
+inputs = { vector = "at.vector", other = "ring.vector" }
+params = { suffix = "_ring" }
+
+[[nodes]]
+id = "snap"
+op = "vector.closest_point"
+inputs = { vector = "at.vector", other = "edges.vector" }
+params = { max_distance = 40 }
+
+[[nodes]]
+id = "cells"
+op = "vector.voronoi"
+inputs = { vector = "at.vector", clip = "ring.vector" }
+params = { tolerance = 0.5 }
+
+[[nodes]]
+id = "mesh"
+op = "vector.delaunay"
+inputs = { vector = "at.vector" }
+params = { edges = true }
+
+[[nodes]]
+id = "groups"
+op = "vector.cluster"
+inputs = { vector = "at.vector" }
+params = { distance = 30, min_points = 3, column = "grp" }
+
+[[nodes]]
+id = "soft"
+op = "vector.smooth"
+inputs = { vector = "edges.vector" }
+params = { iterations = 3, preserve_ends = false }
+
+[[nodes]]
+id = "lighter"
+op = "vector.coverage_simplify"
+inputs = { vector = "ring.vector" }
+params = { tolerance = 15, preserve_boundary = true }
+
+[[nodes]]
+id = "checked"
+op = "vector.coverage_validate"
+inputs = { vector = "ring.vector" }
+params = { gap_width = 2 }
+
+[[nodes]]
 id = "near"
 op = "vector.distance"
 inputs = { vector = "plots.vector", like = "land.map" }
@@ -3415,6 +3639,41 @@ from = "counted.table"
         assert!(t.contains("pieces = tf.vector.overlay(ring, plots, how=\"symmetric_difference\")\n"), "{t}");
         assert!(t.contains("cut = tf.vector.clip(ring, plots)\n"), "{t}");
         assert!(t.contains("merged = tf.vector.dissolve(ring, by=\"uso\")\n"), "{t}");
+        assert!(t.contains("mid = tf.vector.centroid(ring, inside=True)
+"), "{t}");
+        assert!(t.contains("hulls = tf.vector.hull(ring, kind=\"concave\", ratio=0.5, by=\"uso\")
+"), "{t}");
+        assert!(t.contains("coarse = tf.vector.simplify(ring, 10, preserve_topology=False)
+"), "{t}");
+        assert!(t.contains("box = tf.vector.envelope(ring)
+"), "{t}");
+        assert!(t.contains("fixed = tf.vector.make_valid(ring)
+"), "{t}");
+        assert!(t.contains("singles = tf.vector.explode(ring)
+"), "{t}");
+        assert!(t.contains("edges = tf.vector.boundary(ring)
+"), "{t}");
+        assert!(t.contains("stops = tf.vector.points_along(edges, spacing=25, start=5)
+"), "{t}");
+        assert!(t.contains("piece = tf.vector.substring(edges, 0.25, 0.75, normalized=True)
+"), "{t}");
+        assert!(t.contains("cuts = tf.vector.split_lines(edges, 100)
+"), "{t}");
+        assert!(t.contains("along = tf.vector.locate(at, edges)
+"), "{t}");
+        assert!(t.contains("link = tf.vector.shortest_line(at, ring, suffix=\"_ring\")
+"), "{t}");
+        assert!(t.contains("snap = tf.vector.closest_point(at, edges, max_distance=40)
+"), "{t}");
+        assert!(t.contains("cells = tf.vector.voronoi(at, clip=ring, tolerance=0.5)\n"), "{t}");
+        assert!(t.contains("mesh = tf.vector.delaunay(at, edges=True)\n"), "{t}");
+        assert!(t.contains("groups = tf.vector.cluster(at, 30, min_points=3, column=\"grp\")\n"), "{t}");
+        assert!(t.contains("soft = tf.vector.smooth(edges, iterations=3, preserve_ends=False)\n"), "{t}");
+        assert!(
+            t.contains("lighter = tf.vector.coverage_simplify(ring, 15, preserve_boundary=True)\n"),
+            "{t}"
+        );
+        assert!(t.contains("checked = tf.vector.coverage_validate(ring, gap_width=2)\n"), "{t}");
         for gone in ["def _spatial_join", "def _overlay", "def _buffer", "def _clip", "def _dissolve", "def _meets"] {
             assert!(!t.contains(gone), "{gone}");
         }

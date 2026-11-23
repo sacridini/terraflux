@@ -108,7 +108,7 @@ impl Family {
         Some(match subject {
             "IO" | "Data preparation" | "Large data & batch" => Family::Data,
             "Raster analysis" | "Map algebra" => Family::Raster,
-            "Vector analysis" | "Objects (OBIA)" => Family::Vector,
+            "Vector analysis" | "Vector geometry" | "Objects (OBIA)" => Family::Vector,
             "Terrain hydrology" | "Surface metrics" => Family::Terrain,
             "Habitat patterns" | "Fragmentation" | "Landscape metrics" => Family::Landscape,
             "Habitat networks"

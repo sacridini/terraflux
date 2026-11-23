@@ -28,7 +28,7 @@ use crate::theme;
 /// the groups of its operators.
 /// The subjects of the library and the operators of each: by the prefix of their names, or by name (before the
 /// prefixes).
-pub(crate) const SUBJECTS: [(&str, &[&str]); 33] = [
+pub(crate) const SUBJECTS: [(&str, &[&str]); 34] = [
     ("IO", &[]),
     ("Data preparation", &["raster", "vector", "data"]),
     (
@@ -64,10 +64,34 @@ pub(crate) const SUBJECTS: [(&str, &[&str]); 33] = [
             "vector.spatial_join",
             "vector.select_by_location",
             "vector.nearest",
+            "vector.locate",
+            "vector.shortest_line",
+            "vector.closest_point",
+            "vector.voronoi",
+            "vector.delaunay",
+            "vector.cluster",
             "vector.reproject",
             "vector.from_table",
             "vector.points",
             "vector.density",
+        ],
+    ),
+    (
+        "Vector geometry",
+        &[
+            "vector.centroid",
+            "vector.hull",
+            "vector.simplify",
+            "vector.envelope",
+            "vector.make_valid",
+            "vector.explode",
+            "vector.boundary",
+            "vector.points_along",
+            "vector.substring",
+            "vector.split_lines",
+            "vector.smooth",
+            "vector.coverage_simplify",
+            "vector.coverage_validate",
         ],
     ),
     ("Objects (OBIA)", &["segment", "objects"]),
