@@ -341,7 +341,7 @@ impl Operator for Measure {
 }
 
 /// Features in the coordinate system of others (reprojected by GDAL when both are known and differ).
-fn like(v: &Arc<Vector>, crs: &Option<String>) -> Result<Arc<Vector>> {
+pub(crate) fn like(v: &Arc<Vector>, crs: &Option<String>) -> Result<Arc<Vector>> {
     match (&v.crs, crs) {
         (Some(a), Some(b)) if !terraflux_gdal::same_crs(a, b).unwrap_or(true) => {
             Ok(Arc::new(terraflux_gdal::reproject_vector(v, b).map_err(Error::msg)?))

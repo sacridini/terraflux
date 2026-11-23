@@ -8,8 +8,10 @@ use std::sync::OnceLock;
 use crate::Result;
 
 mod index;
+mod lines;
 mod shapes;
 pub use index::{GeosIndex, Predicate};
+pub use lines::{nearest_points, project};
 pub use shapes::{Unary, unary, union};
 
 type Ctx = *mut c_void;
@@ -88,6 +90,10 @@ struct Api {
     GEOSMakeValid_r: Option<UnaryFn>,
     /// GEOS 3.11 and later.
     GEOSConcaveHull_r: Option<unsafe extern "C" fn(Ctx, G, c_double, c_uint) -> G>,
+    // vector.locate / shortest_line
+    GEOSNearestPoints_r: unsafe extern "C" fn(Ctx, G, G) -> Cs,
+    GEOSCoordSeq_destroy_r: unsafe extern "C" fn(Ctx, Cs),
+    GEOSProject_r: unsafe extern "C" fn(Ctx, G, G) -> c_double,
 }
 
 pub(crate) type UnaryFn = unsafe extern "C" fn(Ctx, G) -> G;
@@ -225,6 +231,10 @@ fn load(path: &Path) -> Result<Geos> {
         GEOSTopologyPreserveSimplify_r: f!(GEOSTopologyPreserveSimplify_r),
         GEOSMakeValid_r: opt!(GEOSMakeValid_r),
         GEOSConcaveHull_r: opt!(GEOSConcaveHull_r),
+        // vector.locate / shortest_line
+        GEOSNearestPoints_r: f!(GEOSNearestPoints_r),
+        GEOSCoordSeq_destroy_r: f!(GEOSCoordSeq_destroy_r),
+        GEOSProject_r: f!(GEOSProject_r),
     };
     let v = unsafe { (api.GEOSversion)() };
     let version = if v.is_null() { String::new() } else { unsafe { CStr::from_ptr(v) }.to_string_lossy().into_owned() };

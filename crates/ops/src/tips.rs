@@ -428,6 +428,38 @@ pub const TIPS: &[(&str, &str)] = &[
         "A polygon's boundary is its rings as lines (holes included); a closed line or a point has no boundary \
          and gives an empty feature.",
     ),
+    (
+        "vector.points_along",
+        "Measures are in the layer's units, so reproject to a metric coordinate system first (a spacing of 100 in \
+         degrees is not 100 m). A multi-line restarts its measure at 0 on each part: `part` tells them apart.",
+    ),
+    (
+        "vector.substring",
+        "Give `start` and `end` as fractions with `normalized` to cut every line in the same proportion (the \
+         middle half is 0.25 to 0.75); in map units they are clamped to the length of each part.",
+    ),
+    (
+        "vector.split_lines",
+        "The last piece of a line is the remainder, shorter than `length`. Use vector.points_along for stations at \
+         a spacing instead of pieces, and measure the pieces again after splitting, as their lengths changed.",
+    ),
+    (
+        "vector.locate",
+        "`measure` is the distance along the line from its start to the closest point, in the layer's units; \
+         along a multi-line GEOS counts its parts in sequence. `line` is the row of the lines layer (-1 where \
+         there is none), so join it back with vector.nearest when you need its attributes.",
+    ),
+    (
+        "vector.shortest_line",
+        "The line runs from the feature to the other layer's: its length is the `distance` column. A feature \
+         that touches the other has a line of zero length. Reproject to a metric coordinate system first, as \
+         degrees give distances that are not metres.",
+    ),
+    (
+        "vector.closest_point",
+        "The point lands on the nearest segment, not only on a vertex, so it can sit between the vertices of a \
+         road. Give `max_distance` to leave alone the points too far from anything; `snapped` tells which moved.",
+    ),
     // land change analysis
     (
         "change.suggest",

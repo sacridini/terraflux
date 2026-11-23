@@ -96,6 +96,7 @@ mod tiled_metrics;
 mod uncertainty;
 mod vector;
 mod vector_calc_spatial;
+mod vector_lines;
 mod vector_ops;
 mod vector_predicates;
 mod vector_shapes;
