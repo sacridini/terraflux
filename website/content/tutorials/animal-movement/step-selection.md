@@ -1,11 +1,11 @@
 ---
 title: The data of step selection functions
 short: Step selection
-description: Compare each step an animal took with the steps it could have taken. Fit distributions to step lengths and turn angles, draw random steps from each observed start, as amt does, take the landscape under every step, and fit a conditional logistic regression that measures how strongly the fishers chose forest.
+description: Compare each step an animal took with the steps it could have taken. Fit distributions to step lengths and turn angles, draw random steps from each observed start, as amt does, take the landscape under every step, and fit a conditional logistic regression with Terraflux that measures how strongly the fishers chose forest.
 order: 50
 level: advanced
 time: 60 min
-ops: [move.fit_distribution, move.distribution, move.random_numbers, move.random_steps, move.extract_covariates, move.time_of_day, data.download, raster.calc]
+ops: [move.fit_distribution, move.distribution, move.random_numbers, move.random_steps, move.extract_covariates, move.fit_issf, move.time_of_day, vector.calc, data.download, raster.calc]
 series: Animal movement
 part: 5
 ---
@@ -15,8 +15,9 @@ steps of 10 minutes. In this part you will ask what those steps chose. For every
 draw ten steps it could have taken from the same place, take the land cover and the elevation at the end of all
 of them, and compare: did the real steps end in forest more often than the possible ones? This comparison of
 **used** and **available** steps is the **step selection function** (SSF), the most used method for relating
-animal movement to the landscape. Terraflux builds its data, as R's amt does, to the same numbers; the model
-itself, a conditional logistic regression, is fitted in R or Python, and this page shows how and what it says.
+animal movement to the landscape. Terraflux builds its data, as R's amt does, to the same numbers, and fits the model
+itself, a conditional logistic regression, with [[move.fit_issf]]: this page shows how and what it says. [Part 9](../movement-on-the-relief/)
+goes on from here with covariates of the relief.
 
 ## The idea
 
@@ -87,15 +88,15 @@ over the home range is the simpler choice.
 - **The landscape** under the steps: ESA WorldCover 2021 (land cover, 10 m) and the Copernicus DEM (30 m),
   which [[data.download]] fetches for the fishers' area. The rasters can stay in longitude and latitude:
   [[move.extract_covariates]] takes the steps to each raster's coordinate system.
-- To fit the model: R with the package survival (or amt), or Python with a conditional logistic regression
-  (statsmodels' `ConditionalLogit`, or the few lines of numpy that made this page's numbers).
+- To fit the model, nothing else: [[move.fit_issf]] is R's `survival::clogit` (amt's `fit_issf`) in Terraflux. R with
+  the package survival or amt gives the same numbers.
 
 ## Build the model
 
 ```tfgraph
-#! caption: The steps of part 4 (nodes 1 to 8) with 10 random steps each (node 9), the land cover and elevation downloaded (nodes 10, 11), the forest as 1 and the rest as 0 (node 12), their values at the end of every step (node 13), and the steps written for R or Python (node 14).
+#! caption: The steps of part 4 (nodes 1 to 8) with 10 random steps each (node 9), the land cover and elevation downloaded (nodes 10, 11), the forest as 1 and the rest as 0 (node 12), their values at the end of every step (node 13), the steps written for R or Python (node 14), the length clipped at 1 m (node 15) and the step selection function fitted (node 16).
 #! numbered: true
-#! highlight: random, dem, cover, forest, covariates, write
+#! highlight: random, dem, cover, forest, covariates, write, clipped, fit
 format = "terraflux/1"
 
 [[nodes]]
@@ -173,6 +174,18 @@ id = "write"
 op = "vector.write"
 inputs = { vector = "covariates.tracks" }
 params = { path = "random-steps.gpkg" }
+
+[[nodes]]
+id = "clipped"
+op = "vector.calc"
+inputs = { vector = "covariates.tracks" }
+params = { column = "sl_clip", expression = "sl_ if sl_ > 1 else 1" }
+
+[[nodes]]
+id = "fit"
+op = "move.fit_issf"
+inputs = { steps = "clipped.vector" }
+params = { formula = "case_ ~ forest + I(elevation / 100) + log(sl_clip) + cos(ta_)" }
 ```
 
 <div class="steps" markdown>
@@ -199,6 +212,15 @@ params = { path = "random-steps.gpkg" }
 5. **Write the steps** with [[vector.write]], to fit the model outside Terraflux. The `table` output of
    [[move.extract_covariates]] has only the columns that are numbers, without the animal's name, which the
    strata need; write the vector.
+
+6. **Fit the model** with [[move.fit_issf]] (node 16), connected to the steps with their covariates. The formula
+   is R's, in a text: `case_` on the covariates, `log(sl_clip)` and `cos(ta_)`, the step's length and turn that
+   make the analysis *integrated*. The lengths are clipped at 1 m by [[vector.calc]] (node 15) first, because
+   random steps can be drawn far shorter (1,622 of them are under a metre) and the formula takes the logarithm of
+   a column, not `pmax` of R. The stratum is each step of each track (`strata = "track_step"`, the default:
+   `step_id_` restarts in every track, so it is not enough alone), so you do not make it. The `table` output has
+   each coefficient with its standard error, z, p, exp(coefficient) and 95 % interval; `fit`, a row with the
+   log-likelihood, the AIC and the number of steps.
 
 </div>
 
@@ -261,8 +283,7 @@ or a distribution taken from another study.
 
 ### In Python
 
-The data are the same calls, and the model is a few lines of numpy; the library has no conditional logistic
-regression of its own. The steps are those of part 4 (10 minutes, tolerance 1 minute, projected), and the random
+The data are the same calls, and the model is the library's `tf.move.fit_issf`. The steps are those of part 4 (10 minutes, tolerance 1 minute, projected), and the random
 steps, their number and the seed are the page's:
 
 ```python
@@ -365,58 +386,38 @@ False   0.899     94.322
 True    0.909     94.866
 ```
 
-The conditional logistic regression, one case per stratum, by Newton-Raphson on the likelihood of the part (the same to
-every digit as R's `clogit` on the page's data). The stratum is the animal and the step, because `step_id_` restarts
-in every animal; `log_sl` and `cos_ta` correct the movement (the *integrated* analysis), with the lengths clipped at
-1 m before the logarithm:
+The conditional logistic regression is [`tf.move.fit_issf`][terraflux.move.fit_issf], amt's `fit_issf`: survival's `clogit`
+with the exact partial likelihood, with its formula in R's syntax, bit for bit with R's. The stratum is the animal and
+the step, because `step_id_` restarts in every animal; `log(sl_clip)` and `cos(ta_)` correct the movement (the
+*integrated* analysis), with the lengths clipped at 1 m before the logarithm in a column, as node 15 does (the formula
+takes no `pmax`):
 
 ```python
-def clogit(df, terms, strata="stratum"):
-    """Coefficients, standard errors and exp(coef) of case_ ~ terms + strata(strata)."""
-    X = df[terms].to_numpy(float)
-    y = df["case_"].to_numpy(float)
-    g = pd.factorize(df[strata])[0]
-    beta = np.zeros(len(terms))
-    for _ in range(50):
-        eta = X @ beta
-        w = np.exp(eta - pd.Series(eta).groupby(g).transform("max").to_numpy())
-        p = w / np.bincount(g, weights=w)[g]                    # the probability of each step in its stratum
-        xbar = np.column_stack([np.bincount(g, weights=p * X[:, j]) for j in range(X.shape[1])])
-        grad = (X[y == 1] - xbar[g[y == 1]]).sum(axis=0)
-        xc = X - xbar[g]
-        hess = (xc * p[:, None]).T @ xc
-        step = np.linalg.solve(hess, grad)
-        beta += step
-        if np.abs(step).max() < 1e-10:
-            break
-    se = np.sqrt(np.diag(np.linalg.inv(hess)))
-    return pd.DataFrame({"coef": beta, "se": se, "exp(coef)": np.exp(beta)}, index=terms)
-
 data["stratum"] = data[ID].astype(str) + "_" + data["step_id_"].astype(int).astype(str)
-data["elevation_100m"] = data["elevation"] / 100
-data["log_sl"] = np.log(data["sl_"].clip(lower=1))
-data["cos_ta"] = np.cos(data["ta_"])
-terms = ["forest", "elevation_100m", "log_sl", "cos_ta"]
+data["sl_clip"] = data["sl_"].clip(lower=1)
+formula = "case_ ~ forest + I(elevation / 100) + log(sl_clip) + cos(ta_) + strata(stratum)"
+fit = tf.move.fit_issf(data, formula)                           # move.fit_issf
 print(data["stratum"].nunique(), "strata")
-print(clogit(data, terms).round(3))
+print(fit.summary().round(3)[["coef", "se", "exp_coef"]])
 
-data["forest_night"] = data["forest"] * (data["tod"] == "night")      # time of day enters through an interaction
-print(clogit(data, ["forest", "forest_night"] + terms[1:]).round(3))
+data["forest_night"] = data["forest"] * (data["tod"] == "night")     # time of day enters through an interaction
+night = tf.move.fit_issf(data, formula.replace("forest +", "forest + forest_night +"))
+print(night.summary().round(3)[["coef", "se", "exp_coef"]])
 ```
 
 ```text
 2570 strata
-                 coef     se  exp(coef)
-forest          0.167  0.103      1.182
-elevation_100m  1.376  0.344      3.958
-log_sl         -0.002  0.015      0.998
-cos_ta         -0.319  0.029      0.727
-                 coef     se  exp(coef)
-forest          0.048  0.249      1.049
-forest_night    0.144  0.273      1.155
-elevation_100m  1.386  0.344      4.000
-log_sl         -0.002  0.015      0.998
-cos_ta         -0.319  0.029      0.727
+                   coef     se  exp_coef
+forest            0.167  0.103     1.182
+I(elevation/100)  1.376  0.344     3.958
+log(sl_clip)     -0.002  0.015     0.998
+cos(ta_)         -0.319  0.029     0.727
+                   coef     se  exp_coef
+forest            0.048  0.249     1.049
+forest_night      0.144  0.273     1.155
+I(elevation/100)  1.386  0.344     4.000
+log(sl_clip)     -0.002  0.015     0.998
+cos(ta_)         -0.319  0.029     0.727
 ```
 
 On these three animals forest is selected little (the coefficient is 0.17, a relative selection strength of 1.2, and
@@ -425,7 +426,7 @@ are 220 m wide, four times the median step (56 m): the forest at the end of a st
 start, the pitfall of covariates that do not vary within strata. The elevation coefficient (1.4 per 100 m) rests on
 differences of a few metres within strata, on 44 m cells: read it with the page's caution. The coefficient of `cos_ta`
 is negative here too: the observed steps go straight on less often than the random ones, drawn around 0. For the
-model in other tools, the page's R code fits it with `survival`, and `statsmodels`' `ConditionalLogit` in Python.
+model in R, the page's code fits it with `survival` (below); the part [9](../movement-on-the-relief/) fits it on a relief.
 
 ## Read the results
 
@@ -477,7 +478,7 @@ among their ends.
 
 ### The conditional logistic regression
 
-Terraflux prepares the data; it does not fit the model yet. In R, from the file of node 14:
+Node 16 fits the model, and the table below is its `table` output. In R, the same model from the file of node 14:
 
 ```r
 library(sf)
@@ -493,8 +494,8 @@ summary(m)
 With amt, the same model is `fit_issf(d, case_ ~ forest + I(elevation / 100) + log(pmax(sl_, 1)) + cos(ta_) +
 strata(stratum))`. R's `sf` reads the column `individual-local-identifier` as `individual.local.identifier`.
 The lengths are clipped at 1 m before the logarithm, because random steps can be drawn far shorter (1,622 of
-them are under a metre). The numbers below come from a short conditional logistic regression in numpy (Newton-Raphson on
-the likelihood above), the same to every digit as R's `clogit` on these data:
+them are under a metre). The numbers below are the `table` output of node 16 (which equals R's `clogit` on these
+data, as the library's documentation says: this page did not run R):
 
 ```tftable
 data: /data/tutorials/animal-movement/step-selection/clogit.csv
@@ -600,9 +601,11 @@ and the day's 1,300 strata give the day's coefficient its wider interval.
 - [Regular steps and track summaries](../steps-and-summaries/): the steps this part starts from.
 - [Species distribution models](../../species-distributions/ideas/): where a species can live, from occurrences
   instead of tracks.
+- [Movement on the relief](../movement-on-the-relief/): the same model with the energy of walking, the slope and the climb of
+  a DEM as covariates, for Alpine ibex, and what to do with the fit (log-RSS, simulated paths, a resistance).
 - [Circuit connectivity](../../circuit-connectivity/): resistance surfaces, which SSF coefficients can calibrate.
 - The operators' reference: [[move.fit_distribution]], [[move.distribution]], [[move.random_numbers]],
-  [[move.random_steps]], [[move.extract_covariates]].
+  [[move.random_steps]], [[move.extract_covariates]], [[move.fit_issf]].
 
 ## References
 

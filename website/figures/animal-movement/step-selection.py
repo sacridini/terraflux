@@ -1,9 +1,9 @@
 """Figures of "The data of step selection functions" (website/content/tutorials/animal-movement/step-selection.md).
 
-The steps, the random steps and the covariates are Terraflux's (move.random_steps, move.extract_covariates);
-the conditional logistic regression that the page fits on them is written here in numpy (Newton-Raphson on the
-partial likelihood, Breslow's and the exact likelihood being the same with one case per stratum), as R's
-survival::clogit and amt::fit_issf fit it.
+The steps, the random steps and the covariates are Terraflux's (move.random_steps, move.extract_covariates), and so is
+the conditional logistic regression that the page fits on them (move.fit_issf: survival's clogit with the exact partial
+likelihood, as amt's fit_issf). The page's first version fitted it with a numpy Newton-Raphson written here; the numbers
+of that version are checked against the operator's (printed below as "numpy").
 
     python website/figures/animal-movement/step-selection.py
 """
@@ -62,6 +62,21 @@ def clogit(df: pd.DataFrame, cols: list[str], strata: str = "stratum") -> pd.Dat
     return pd.DataFrame({"term": cols, "coef": beta, "se": se, "exp(coef)": np.exp(beta)}), int(len(np.unique(g)))
 
 
+FORMULA = "case_ ~ forest + I(elevation / 100) + log(sl_clip) + cos(ta_)"
+FORMULA_TOD = "case_ ~ forest + forest_night + I(elevation / 100) + log(sl_clip) + cos(ta_)"
+TERMS_TOD = ["forest", "forest_night", "elevation_100m", "log_sl", "cos_ta"]
+
+
+def fit_nodes(name: str, source: str, formula: str) -> list[dict]:
+    """The lengths clipped at 1 m before the logarithm (a column: the formula takes no pmax) and the fit."""
+    return [
+        {"id": f"clip_{name}", "op": "vector.calc", "inputs": {"vector": source},
+         "params": {"column": "sl_clip", "expression": "sl_ if sl_ > 1 else 1"}},
+        {"id": f"fit_{name}", "op": "move.fit_issf", "inputs": {"steps": f"clip_{name}.vector"},
+         "params": {"formula": formula}},
+    ]
+
+
 def design(r: pd.DataFrame) -> pd.DataFrame:
     r = r.copy()
     r["stratum"] = r[mf.ID].astype(str) + "_" + r["step_id_"].astype(int).astype(str)
@@ -98,9 +113,15 @@ def main():
              "inputs": {"tracks": f"rs{n}.steps", "forest": "forest.map", "elevation": "dem.raster"}},
         ]
         outs[f"cov{n}"] = f"cov{n}.tracks"
+        nodes += fit_nodes(str(n), f"cov{n}.tracks", FORMULA)
+        outs[f"fit{n}"] = f"fit_{n}.table"
     outs["distributions"] = "rs10.distributions"
     nodes.append({"id": "tod", "op": "move.time_of_day", "inputs": {"tracks": "cov10.tracks"}})
+    nodes.append({"id": "night", "op": "vector.calc", "inputs": {"vector": "tod.tracks"},
+                  "params": {"column": "forest_night", "expression": 'forest * (1 if tod == "night" else 0)'}})
+    nodes += fit_nodes("tod", "night.vector", FORMULA_TOD)
     outs["tod"] = "tod.tracks"
+    outs["fit_tod"] = "fit_tod.table"
     got = mf.run(w, nodes, outs)
     st = got["steps"]
     print("fits:", got["sl"].to_dict("records"), got["ta"].to_dict("records"))
@@ -201,31 +222,30 @@ def main():
     figs.write_csv(DATA / "used-available.csv", rows)
 
     # the conditional logistic regression at 10 controls, and its stability with the number of controls
-    fit, nstrata = clogit(design(r10), TERMS)
-    print(fit.to_string(), nstrata, "strata")
-    table = [{"term": LABELS[t], "coef": round(c, 3), "se": round(e, 3), "exp(coef)": round(x, 3)}
-             for t, c, e, x in fit.itertuples(index=False)]
+    fit = got["fit10"]
+    print(fit.to_string())
+    table = [{"term": LABELS[t], "coef": round(r.coef, 3), "se": round(r.se, 3), "exp(coef)": round(r.exp_coef, 3)}
+             for t, r in zip(TERMS, fit.itertuples(index=False))]
     figs.write_csv(DATA / "clogit.csv", table)
+    # the first version's numpy fit, to check the operator against it
+    old, nstrata = clogit(design(r10), TERMS)
+    print("numpy:\n", old.to_string(), nstrata, "strata; the largest difference to move.fit_issf:",
+          float(np.max(np.abs(old.coef.to_numpy() - fit.coef.to_numpy()))), float(np.max(np.abs(old.se.to_numpy() - fit.se.to_numpy()))))
     curve = []
     for n in CONTROLS:
-        f, _ = clogit(design(got[f"cov{n}"]), TERMS)
-        row = f.set_index("term")
-        curve.append({"controls": n, "forest": round(row.loc["forest", "coef"], 4),
-                      "lower": round(row.loc["forest", "coef"] - 1.96 * row.loc["forest", "se"], 4),
-                      "upper": round(row.loc["forest", "coef"] + 1.96 * row.loc["forest", "se"], 4)})
+        row = got[f"fit{n}"].iloc[0]
+        curve.append({"controls": n, "forest": round(row.coef, 4), "lower": round(row.lower, 4), "upper": round(row.upper, 4)})
         print(curve[-1])
     figs.write_csv(DATA / "controls.csv", curve)
 
     # by time of day: forest selection at night and by day
-    t = design(got["tod"])
-    t["forest_night"] = t.forest * (t.tod == "night")
-    f, _ = clogit(t, ["forest", "forest_night", "elevation_100m", "log_sl", "cos_ta"])
+    f = got["fit_tod"]
     print(f.to_string())
     figs.write_csv(DATA / "clogit-tod.csv", [
         {"term": {"forest": "forest (by day)", "forest_night": "forest × night (the difference at night)",
                   "elevation_100m": "elevation (per 100 m)", "log_sl": "log(step length)",
-                  "cos_ta": "cos(turn angle)"}[tm], "coef": round(c, 3), "se": round(e, 3)}
-        for tm, c, e, _ in f.itertuples(index=False)])
+                  "cos_ta": "cos(turn angle)"}[tm], "coef": round(r.coef, 3), "se": round(r.se, 3)}
+        for tm, r in zip(TERMS_TOD, f.itertuples(index=False))])
 
 
 if __name__ == "__main__":

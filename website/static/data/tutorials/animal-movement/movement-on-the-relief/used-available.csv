@@ -1,0 +1,3 @@
+steps,n,slope at the end (deg),TRI at the end (m),energy at the end (kcal),ascent along the step (m),net height change (m),median net height change (m),planar length (m),length on the relief (m),longer on the relief (%)
+observed,2517,32.5,51.7,11.48,24.4,27.9,14.7,98.7,106.6,8.0
+random,25120,32.4,51.4,11.32,22.1,37.6,17.6,98.4,110.4,12.3

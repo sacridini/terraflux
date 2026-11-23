@@ -6215,6 +6215,79 @@
   "container": false
  },
  {
+  "name": "cost.energy_landscape",
+  "doc": "The energy cost of walking over a terrain (the R package enerscape 1.2.0, Berti et al. 2022, through terraflux-py's C++, bit for bit): the cost of getting onto each cell, averaged over its 4 or 8 neighbours, each the energy of walking from the neighbour onto the cell over the distance in three dimensions and the slope between their heights. The animal model is Pontzer's (2016) allometric cost of locomotion for a body mass in kg, lowest on a gentle descent; the human one is Looney et al.'s (2019) equation of the energy of walking at a speed v. A resistance surface for least-cost paths and circuit theory (log it to plot it). The border cells, cells with no height in their neighbourhood and costs of exactly 0 have no value. The DEM must be in metres, projected (or without a coordinate system), with square cells.",
+  "inputs": [
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the elevation, in metres"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "energy",
+    "type": "map",
+    "required": true,
+    "doc": "the energy of walking onto each cell, in J or kcal"
+   },
+   {
+    "name": "conductance",
+    "type": "map",
+    "required": true,
+    "doc": "1 / energy (no value where the energy has none or is 0)"
+   }
+  ],
+  "params": [
+   {
+    "name": "mass",
+    "type": "number",
+    "required": true,
+    "doc": "the body mass, in kg (above 0)"
+   },
+   {
+    "name": "unit",
+    "type": "text",
+    "required": false,
+    "doc": "joule (default) or kcal",
+    "choices": [
+     "joule",
+     "kcal"
+    ]
+   },
+   {
+    "name": "neigh",
+    "type": "integer",
+    "required": false,
+    "doc": "the neighbours of a cell: 4 or 8 (default)",
+    "choices": [
+     "4",
+     "8"
+    ]
+   },
+   {
+    "name": "model",
+    "type": "text",
+    "required": false,
+    "doc": "animal (Pontzer 2016, default) or human (Looney et al. 2019)",
+    "choices": [
+     "animal",
+     "human"
+    ]
+   },
+   {
+    "name": "v",
+    "type": "number",
+    "required": false,
+    "doc": "model human: the walking speed in m/s (default 1.39)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "A cost of getting onto each cell, not of crossing it: it averages the cost of arriving from the 4 or 8 neighbours, so the border and the cells beside a gap in the DEM have none. The DEM must be in metres, projected, with square cells (a geographic one is an error: project it first), and as fine as the animal moves: a coarse DEM smooths slopes and the cost with them. The animal model is Pontzer's (2016) for any legged animal from the body mass alone, lowest on a gentle descent; the human one is Looney et al.'s (2019) at the speed v, for walking people. Joules or kcal only rescale it. The energy is skewed to the right (log it to look at it); the conductance (1 / energy) is what cost.transition and the circuit models take as a resistance's inverse."
+ },
+ {
   "name": "cost.geo_correction",
   "doc": "A transition corrected for the distances between cells' centres (gdistance's geoCorrection through terraflux-py's C++): divided by them (type c, least-cost distances), or also by the cells' widths across the connection (type r, random walks); great-circle distances on longitude/latitude grids.",
   "inputs": [
@@ -15351,6 +15424,73 @@
   "container": false
  },
  {
+  "name": "move.fit_issf",
+  "doc": "A step selection function fitted by conditional logistic regression (amt's fit_issf, fit_ssf and fit_clogit are one function): survival's clogit with its exact partial likelihood (Therneau's coxexact: one death time for each stratum, Gail et al.'s recursions when a stratum has several cases), computed as survival 3.7-0 does in R 4.4.2 (the same iterations and sums, R's exp and log), so the coefficients, their covariance, the log-likelihoods, the iterations, the tests and the log-RSS are R's numbers. The formula is R's, in a text, for the terms step selection uses: columns, log, exp, sqrt, sin, cos, log1p, abs and I(...) of them, factor(x), a:b and a*b, strata(x); - 1 and + 0 are ignored (the fit has no intercept either way). A column of names is a factor with R's treatment contrasts (the first in order is the reference). Without a formula: case_ ~ every covariate that move.extract_covariates added (the numeric columns whose names do not end in _, besides the track) + log(sl_) + cos(ta_) + the strata. Rows with a missing value in the formula are left out; the concordance coxph prints is not computed.",
+  "inputs": [
+   {
+    "name": "steps",
+    "type": "vector",
+    "required": true,
+    "doc": "the random steps (move.random_steps) with the covariates (move.extract_covariates)"
+   },
+   {
+    "name": "sl_distr",
+    "type": "step_distribution",
+    "required": false,
+    "doc": "the distribution of step lengths the random steps were drawn from (kept in the model, for simulations)"
+   },
+   {
+    "name": "ta_distr",
+    "type": "step_distribution",
+    "required": false,
+    "doc": "the distribution of turn angles the random steps were drawn from (kept in the model)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "model",
+    "type": "step_model",
+    "required": true,
+    "doc": "the fitted step selection function"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the coefficients: term, coef, exp_coef, se, z, p and the 95 % Wald interval (lower, upper)"
+   },
+   {
+    "name": "fit",
+    "type": "table",
+    "required": true,
+    "doc": "one row: loglik_null, loglik, aic, n, nevent, iter, converged, n_omitted, wald, score"
+   }
+  ],
+  "params": [
+   {
+    "name": "formula",
+    "type": "text",
+    "required": false,
+    "doc": "R's formula (see above; default: the one described)"
+   },
+   {
+    "name": "strata",
+    "type": "text",
+    "required": false,
+    "doc": "track_step (default): one stratum for each step of each track (the step_id_ of random_steps restarts for each track, and amt fits the ids it is given); or the name of a column. Ignored when the formula has strata(...)"
+   },
+   {
+    "name": "track",
+    "type": "text",
+    "required": false,
+    "doc": "the column of the track (default: the usual names)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The strata are what makes it a step selection function: the observed step and its random steps. The step_id_ of move.random_steps restarts for each track, and amt fits the ids it is given, so the steps of several tracks would share strata; the default (track_step) gives each step of each track its own (use strata = step_id_ only for one track, to match amt). Fit it on the covariates the animal could meet at the end of a step (move.extract_covariates) and on the step's own movement terms (log(sl_), cos(ta_)): the habitat coefficients are only unbiased when the movement ones are in the model (Avgar et al. 2016). Rows with no value for a term are left out (n_omitted); a coefficient shown as NaN is a column made of the others (collinear). A coefficient that grows without end, or iterations that run out, are warnings: the covariate separates the cases from the controls, or too few steps. The numbers are survival's, but the concordance coxph prints is not computed."
+ },
+ {
   "name": "move.flag_speed",
   "doc": "Flag the locations next to a step faster than a speed limit (move2utils' mt_flag_speed_cap with a hard cap). The speed of a step is its length over its time lag (metres per second: haversine on a sphere of 6 371 008.8 m in longitude / latitude, the CRS's units per second otherwise). A location is flagged when the step leaving it or the step arriving at it is faster than the limit (the data cannot tell which end is wrong); locations without a time are left out of the track for this, steps with a zero or negative lag have no speed. The limit is v_max (m/s), or the allometric maximum of mass (kg) and mode (move.max_speed), with no margin added. jitter also flags the locations next to a step shorter than it (the noise floor of the device). Columns added: is_outlier (any flag), step_speed (of the step leaving the location, NaN at the last), is_speed_above_cap, is_step_below_jitter (with jitter), flagged_by_speed and loglr_speed (log(speed / the least flagged speed), one-sided); the flags are 1, 0 or NaN (no time). Empty locations must be dropped first (move.filter_gps_quality).",
   "inputs": [
@@ -15740,6 +15880,121 @@
   "container": false
  },
  {
+  "name": "move.issf_model",
+  "doc": "A step selection model from coefficients, to simulate from (amt's make_issf_model): the coefficients by the names of the terms of a formula, {\"forest_end\": 1.5, \"sl_\": -0.002, \"cos_ta_\": 0.4}. The terms are R's (log(sl_), forest_end:sl_, I(elev^2), exp(x)...); the covariates are those move.extract_covariates makes (name_end and name_start, or name for the end of the step) and the movement terms sl_, ta_, log_sl_ and cos_ta_. An interaction can be given in either order (a:b or b:a), as amt reads it; a factor needs the levels of a fit. The numbers are the model's: its covariance and log-likelihood have none (NaN). The candidate steps are drawn from the distributions given (amt's default is an exponential of rate 1 and a uniform turn angle: make them with move.distribution). A setting is an object whose keys are sorted: give a list of [term, value] pairs to keep the order of the terms the library sums them in.",
+  "inputs": [
+   {
+    "name": "sl_distr",
+    "type": "step_distribution",
+    "required": true,
+    "doc": "the step length distribution to draw candidates from"
+   },
+   {
+    "name": "ta_distr",
+    "type": "step_distribution",
+    "required": true,
+    "doc": "the turn angle distribution to draw candidates from"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "model",
+    "type": "step_model",
+    "required": true,
+    "doc": "the step selection model"
+   }
+  ],
+  "params": [
+   {
+    "name": "coefficients",
+    "type": "any",
+    "required": true,
+    "doc": "the coefficients by the names of their terms: {\"slope\": -0.05, \"log_sl_\": 0.3}, or a list of [term, value] pairs"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "For a model whose coefficients come from a paper or a fit made elsewhere. The terms are those of the formula          the fit would have: the covariates by the names the rasters are connected with (forest_end for the value at          the end of the candidate step, forest_start for the start), sl_, log_sl_, ta_ and cos_ta_ for the movement.          The distributions must be the tentative ones of the fit (the ones the random steps were drawn from), not          the ones the coefficients adjust: a simulation draws candidates from them and the coefficients of the          movement terms (log_sl_, cos_ta_) correct them (Avgar et al. 2016). The setting's keys come in alphabetical          order: give a list of [term, value] pairs to keep the order the terms are summed in."
+ },
+ {
+  "name": "move.log_rss",
+  "doc": "The log relative selection strength of the covariates x1 against x2 (amt's log_rss; Avgar et al. 2017): how much more (or less) a step ending where the covariates are x1 is selected than one ending where they are x2, log(w(x1) / w(x2)), from a model of move.fit_issf. As amt, it is predict(fit, x1, type = \"lp\", reference = \"sample\") less that of x2, each plus sum(coef * means), so the values are R's bits; a NaN coefficient counts as zero. Give x1 and x2 as tables or as settings ({\"elevation\": [50, 100], \"sl_\": [100, 20]} and {\"elevation\": 100, \"sl_\": 100}); every covariate of the formula must be in both (a column of names takes a name of the fit's levels). The interval: se (Wald, from the covariance of the coefficients) or boot (amt's bootstrap with the library's three corrections: each sample draws, with replacement, as many strata as the data has cases, refits and takes the log-RSS; the interval is the estimate plus the quantile less the mean of the samples; a refit that fails is drawn again, up to 49 times).",
+  "inputs": [
+   {
+    "name": "model",
+    "type": "step_model",
+    "required": true,
+    "doc": "the fitted step selection function (move.fit_issf)"
+   },
+   {
+    "name": "x1",
+    "type": "table",
+    "required": false,
+    "doc": "the covariates to compare, one row each"
+   },
+   {
+    "name": "x2",
+    "type": "table",
+    "required": false,
+    "doc": "the covariates of the reference, one row"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "the columns of x1 (named elevation_x1), log_rss and, with ci, lwr and upr"
+   }
+  ],
+  "params": [
+   {
+    "name": "x1",
+    "type": "any",
+    "required": false,
+    "doc": "the covariates to compare, columns to lists of values: {\"elevation\": [50, 100]}"
+   },
+   {
+    "name": "x2",
+    "type": "any",
+    "required": false,
+    "doc": "the reference, columns to a value: {\"elevation\": 100}"
+   },
+   {
+    "name": "ci",
+    "type": "text",
+    "required": false,
+    "doc": "the interval: none (default), se or boot",
+    "choices": [
+     "none",
+     "se",
+     "boot"
+    ]
+   },
+   {
+    "name": "level",
+    "type": "number",
+    "required": false,
+    "doc": "the confidence level (0.95)"
+   },
+   {
+    "name": "n_boot",
+    "type": "integer",
+    "required": false,
+    "doc": "bootstrap samples (1000)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of R's generator for the bootstrap (1)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "The log of how many times more likely a step ending at x1 is than one ending at x2 when the rest is equal (exp of it is the relative selection strength): it is not a probability, and it compares only the covariates given. Give every covariate of the formula, the movement terms (sl_, ta_) too, in x1 and x2; a column of names takes names the model saw. The intervals are those of the coefficients' uncertainty: se is the Wald interval of the covariance of the fit, boot refits the model on bootstrap samples of the strata (slower, n_boot refits) and needs the fit's data."
+ },
+ {
   "name": "move.mask_segments",
   "doc": "Leave segments out of the distribution (move2utils' mt_mask_segments): interest (seg_interest for the dBGB) becomes 0 for them. The segment i of a track is the bridge from its location i to i + 1 (from 0, R counts from 1), the one that the time between two fixes spans: leave out the bridges across long gaps, as the vignette 'UD_gap_aware_ud' of move2utils does (gap, in hours: the segments whose time lag is longer), or the ones you name: segments, a list of numbers from 0 to n - 2 applied to every track, or an object by track (the names of the bands of move.dbbmm_ud) with a list each; column, a column of the tracks that is not 0 (or empty) where the segment starting there is left out. The tracks must have the columns of move.dbbmm_variance or move.dbgb_variance. With bursts (move.resample) the tracks are the bursts.",
   "inputs": [
@@ -15928,6 +16183,49 @@
   ],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "move.path_density",
+  "doc": "The use of a landscape by simulated paths: the share of positions in each cell. The end points of the steps of one or many paths (what move.simulate_path gives) are counted in the cells of like (terra's cellFromXY rule: a point on the edge between two cells is in the cell to its right / below) and divided by their total, so the cells sum to 1. It is the utilisation distribution of steady state of Signer et al. (2024) (the step end points of long paths, from several starts if need be) without smoothing: smooth the map yourself if you want a kernel density estimate. 0 where no position fell, none where like has none (those cells take no positions and are not in the total). With by, one band per value of a column (the track, say), each summing to 1.",
+  "inputs": [
+   {
+    "name": "paths",
+    "type": "vector",
+    "required": true,
+    "doc": "the paths: points with x_ and y_ (move.simulate_path)"
+   },
+   {
+    "name": "like",
+    "type": "map",
+    "required": true,
+    "doc": "a raster whose grid is the result's"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "density",
+    "type": "any",
+    "required": true,
+    "doc": "the shares: a map, or a stack with one band per value of by"
+   }
+  ],
+  "params": [
+   {
+    "name": "include_start",
+    "type": "bool",
+    "required": false,
+    "doc": "count the first position of each path (step_ 0, the start), which is not the end of a step (false)"
+   },
+   {
+    "name": "by",
+    "type": "text",
+    "required": false,
+    "doc": "a column that names the paths (track): one band per value"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "Counts positions, not time: a long path from one start shows where the animal goes, but only the steady          state (a burn-in left out, or many starts) is the use of the landscape Signer et al. (2024) simulate it for.          It is not smoothed: the share of a cell is the share of the end points that fell in it, so few or short          paths give a speckled map; smooth it, or simulate more. Cells with no value in `like` take no positions and          are not in the total."
  },
  {
   "name": "move.random_numbers",
@@ -16133,6 +16431,72 @@
   "container": false
  },
  {
+  "name": "move.resistance",
+  "doc": "A resistance surface from the habitat part of a step selection model: the relative selection w = exp(sum(b_k x_k)) of each cell from the covariates' terms alone (the terms of movement, sl_, log_sl_, cos_ta_ and ta_, the interactions with them and the covariates at the start of the step are left out, with a warning that says which: a cell has no step), turned into resistance (high where the animal avoids), ready for cost.transition or the circuit models. With h the selection scaled to [0, 1] (scale minmax: (w - min w) / (max w - min w); max: w / max w): negexp, r_max - (r_max - 1) (1 - exp(-c h)) / (1 - exp(-c)), the negative exponential of habitat suitability Keeley et al. (2016) recommend, 1 for the best cell and r_max for the worst; linear, r_max - (r_max - 1) h; inverse, 1 / w, not scaled (Zeller et al. 2012 list it among the ways of turning a selection into a resistance); log, 1 + c (log max w - log w). The covariates are connected as inputs of any names, on one grid. Cells where a covariate of the kept terms has no value have none.",
+  "inputs": [
+   {
+    "name": "model",
+    "type": "step_model",
+    "required": true,
+    "doc": "the step selection model (move.fit_issf, move.issf_model)"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "resistance",
+    "type": "map",
+    "required": true,
+    "doc": "the resistance, on the grid of the covariates"
+   },
+   {
+    "name": "selection",
+    "type": "map",
+    "required": true,
+    "doc": "the relative selection used, exp(eta - max eta): 1 for the best cell"
+   }
+  ],
+  "params": [
+   {
+    "name": "transform",
+    "type": "text",
+    "required": false,
+    "doc": "negexp (default), linear, inverse or log",
+    "choices": [
+     "negexp",
+     "linear",
+     "inverse",
+     "log"
+    ]
+   },
+   {
+    "name": "c",
+    "type": "number",
+    "required": false,
+    "doc": "the shape of negexp, the slope of log (8)"
+   },
+   {
+    "name": "r_max",
+    "type": "number",
+    "required": false,
+    "doc": "the resistance of the least selected cell (100)"
+   },
+   {
+    "name": "scale",
+    "type": "text",
+    "required": false,
+    "doc": "minmax (default) or max",
+    "choices": [
+     "minmax",
+     "max"
+    ]
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "extra": "any",
+  "advice": "Only the habitat part of the model counts: a cell has no step, so the terms of movement (sl_, log_sl_,          cos_ta_, ta_), their interactions and the covariates at the start of the step are left out, and the          warning says which. The selection of a step-selection model is relative (it depends on the covariates          the animal could choose between, not on how many animals use a place) and a resistance surface made from          it is a hypothesis: Zeller et al. (2012) review how selection becomes resistance and Keeley et al. (2016)          find the shape of the transformation matters (a negative exponential of suitability, negexp, is what they          recommend; c bends it). Validate the surface against movement that was not used to fit the model."
+ },
+ {
   "name": "move.segments",
   "doc": "The step from each location to the next of its track as a line (move2's mt_segments): one feature per location with its attributes, a two-point line per step and the location itself (a point) at the last location of each track.",
   "inputs": [
@@ -16226,6 +16590,122 @@
   ],
   "access": "none",
   "container": false
+ },
+ {
+  "name": "move.simulate_path",
+  "doc": "Paths simulated from a fitted step selection function (amt's redistribution_kernel and simulate_path in continuous space; Signer et al. 2024): from the start, n_control candidate steps are drawn from the step length and turn angle distributions (the tentative ones of the model, or those connected), the covariates are read at their ends (and starts), each candidate has the weight exp(b . x) of the model matrix of the formula, movement terms included (importance sampling), and one is drawn with those weights; each step goes on from the one before with its direction (atan2) as the direction of the step before. R's generator, with the numbers the library's: the kernel's first cycle is made (and spent) before the path, as the library's redistribution_kernel is, so seed s gives the path the library gives. Connect the covariates as inputs of any names (forest, elev...): the terms of the model name them (forest_end at the end of the candidate step, forest_start at its start); sl_, ta_, log_sl_ and cos_ta_ are the step's length and turn angle. n_paths paths take a kernel each, with the seeds seed, seed + 1...; every start gives its own. A path that leaves the study area (more than tolerance_outside of the candidates that could be drawn end outside the covariates' extent) or has no candidate with a weight stops with a warning and the rows after it have no value. In continuous space only: amt's discrete mode follows GEOS's circle and biases the step lengths to the cell size.",
+  "inputs": [
+   {
+    "name": "model",
+    "type": "step_model",
+    "required": true,
+    "doc": "the step selection model (move.fit_issf, move.issf_model)"
+   },
+   {
+    "name": "start",
+    "type": "vector",
+    "required": false,
+    "doc": "tracks or points: the first location of each track starts a path, with its time and the direction of its first step (the settings time, direction and dt override them)"
+   },
+   {
+    "name": "sl_distr",
+    "type": "step_distribution",
+    "required": false,
+    "doc": "step lengths to draw from, instead of the model's"
+   },
+   {
+    "name": "ta_distr",
+    "type": "step_distribution",
+    "required": false,
+    "doc": "turn angles to draw from, instead of the model's"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "paths",
+    "type": "vector",
+    "required": true,
+    "doc": "the points of the paths: track (path_1, path_2...), x_, y_, t_, dt, step_ (0 the start), in the CRS of the covariates"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "x",
+    "type": "number",
+    "required": false,
+    "doc": "the start, without a start input: x"
+   },
+   {
+    "name": "y",
+    "type": "number",
+    "required": false,
+    "doc": "the start, without a start input: y"
+   },
+   {
+    "name": "direction",
+    "type": "number",
+    "required": false,
+    "doc": "the direction of the step before the start, radians anticlockwise from east (default 0, or that of the first step of the start's track)"
+   },
+   {
+    "name": "time",
+    "type": "any",
+    "required": false,
+    "doc": "the time of the start: a datetime in a text or a number (default 1970-01-01, or the track's)"
+   },
+   {
+    "name": "dt",
+    "type": "number",
+    "required": false,
+    "doc": "the time between steps, seconds (default one hour; 1 when the time is a number)"
+   },
+   {
+    "name": "n_steps",
+    "type": "integer",
+    "required": false,
+    "doc": "the steps of each path (100)"
+   },
+   {
+    "name": "n_control",
+    "type": "integer",
+    "required": false,
+    "doc": "the candidate steps of each cycle (1000000, amt's)"
+   },
+   {
+    "name": "n_sample",
+    "type": "integer",
+    "required": false,
+    "doc": "the points the kernel draws in its first cycle (1)"
+   },
+   {
+    "name": "tolerance_outside",
+    "type": "number",
+    "required": false,
+    "doc": "the fraction of the candidates that could be drawn and end outside the study area above which a path stops (0)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "the seed of R's generator (1); path i uses seed + i - 1"
+   },
+   {
+    "name": "n_paths",
+    "type": "integer",
+    "required": false,
+    "doc": "the paths from each start (1)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "extra": "any",
+  "advice": "n_control candidate steps are drawn in every step of every path (a million by default, amt's): 100 steps          draw a hundred million candidates and take minutes; a few thousand are enough to try a model. The path          depends on the seed (path i of n_paths has the seed seed + i - 1): simulate many paths from many starts          and look at their use (move.path_density), not at one. The covariates must cover the area the animal can          reach: a path that leaves them stops, with a warning, unless tolerance_outside allows a fraction of the          candidates to fall outside. A start given as the first location of a track takes the track's time and the          direction of its first step; dt is the time each step takes, so the times of the path are the start's          plus dt for each step."
  },
  {
   "name": "move.speed",
@@ -16389,6 +16869,55 @@
   "access": "none",
   "container": false,
   "advice": "It reads the median time lag, so it is a starting point for regular sampling; with an irregular one the window covers more or less time than target_hours. Tracks with fewer than 11 locations have no suggestion. Check the result against the behaviour of the animal and the length of the track (at least a few windows)."
+ },
+ {
+  "name": "move.surface_distance",
+  "doc": "The length of each step measured on the relief, not on the plane (the library's own; not in amt or move2): on a steep slope the planar length sl_ of a step underestimates the distance the animal walks, and with it its speed. Points are taken along the segment every spacing (the last stretch, shorter, ends exactly at the end of the step), plus its start and end; the height of each is the bilinear interpolation between the centres of the four nearest cells (terra's extract with method bilinear); the length is the sum of the 3D chords between consecutive points. Never shorter than the planar length, equal to it on a flat DEM, exactly the planar one times sqrt(1 + slope^2) on a plane. A point in the outer half cell takes the height of the nearest edge cell; outside the raster, or with no data in any of its four cells, the step has no value. The steps and the DEM must be in the same projected coordinate system in metres: heights in metres and distances in degrees do not add.",
+  "inputs": [
+   {
+    "name": "steps",
+    "type": "vector",
+    "required": true,
+    "doc": "the steps (move.steps) or random steps (move.random_steps)"
+   },
+   {
+    "name": "dem",
+    "type": "map",
+    "required": true,
+    "doc": "the heights in metres, north up, in the steps' coordinate system"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "steps",
+    "type": "vector",
+    "required": true,
+    "doc": "the steps with a column of their length on the relief"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes that are numbers"
+   }
+  ],
+  "params": [
+   {
+    "name": "spacing",
+    "type": "number",
+    "required": false,
+    "doc": "the distance between points along a step, in the coordinates' units (default: a quarter of the smaller cell side)"
+   },
+   {
+    "name": "name",
+    "type": "text",
+    "required": false,
+    "doc": "the new column (default sl_surface_)"
+   }
+  ],
+  "access": "global",
+  "container": false,
+  "advice": "The steps and the DEM must be in the same projected coordinate system in metres (project the tracks and the DEM first: degrees do not add to metres of height). It lengthens a step by sqrt(1 + slope^2) along it, so it matters on steep ground and not on a flat one; the speed of a step on the relief is this length over its duration (not sl_ over it). A step with a point outside the DEM or over a gap in it has no value; the heights are interpolated bilinearly, so a DEM much coarser than the steps smooths the relief they cross."
  },
  {
   "name": "move.thin_distance",

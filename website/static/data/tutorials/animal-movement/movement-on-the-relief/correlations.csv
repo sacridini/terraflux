@@ -1,0 +1,6 @@
+,slope,tri,energy,dem_along_ascent,dem_along_delta
+slope,1.0,0.96,0.9,0.13,0.09
+tri,0.96,1.0,0.98,0.14,0.09
+energy,0.9,0.98,1.0,0.15,0.09
+dem_along_ascent,0.13,0.14,0.15,1.0,0.49
+dem_along_delta,0.09,0.09,0.09,0.49,1.0

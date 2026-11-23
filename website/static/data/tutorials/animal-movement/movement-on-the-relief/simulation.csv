@@ -1,0 +1,4 @@
+positions,paths,steps,mean step (m),net height change per step (m),median height change (m),slope (deg),energy (kcal),height (m),height sd (m)
+observed,4,2517,98.7,27.9,14.7,32.5,11.48,1905.0,235.0
+"simulated, with the relief",40,12000,88.6,25.7,13.3,29.7,9.98,1758.0,227.0
+"simulated, movement only",40,9925,99.6,32.4,13.4,27.5,9.07,1525.0,395.0

@@ -89,7 +89,7 @@ of matrix scalings, far faster, at the price of a bias that the regularisation (
 The covariates of a step selection function ([part 5](../step-selection/)) are taken at the *end* of the step. The step
 itself crosses cells, and the cells it crosses tell more. For a step over a DEM, the node [[move.extract_covariates]] with
 `where = along` gives, with the cells in order from the start to the end of the step: the **ascent**, the sum of the rises
-between successive cells; the **descent**, the sum of the falls (a positive number); and the **delta**, the difference
+between successive cells; the **descent**, the sum of the falls (a positive number); and the **delta**, the absolute difference
 between the last and the first. A step that follows a contour line has a small ascent and a small descent; one that goes
 straight up a slope has an ascent equal to its delta. The question of how animals move on a relief, which the next block
 of this series takes up, starts from them.
@@ -664,6 +664,8 @@ the rank correlations. The resistance is marked as the data of **Use my data**: 
 - [Home ranges and utilisation distributions](../home-ranges/): the distributions that this part validates.
 - [Clean a track of GPS errors and thin it](../cleaning-and-thinning/): the interval the corridor criterion supposes.
 - [The data of step selection functions](../step-selection/): the steps and the covariates whose values along the step this part adds.
+- [Movement on the relief](../movement-on-the-relief/): the question this part ends with, whether an animal follows the
+  contour lines, answered with a step selection function for four Alpine ibex.
 - [Circuit connectivity](../../circuit-connectivity/): resistance surfaces and Omniscape.
 - The operators' reference: [[move.corridor]], [[move.validate]], [[move.ud_distance]], [[move.extract_covariates]],
   [[circuit.omniscape]].

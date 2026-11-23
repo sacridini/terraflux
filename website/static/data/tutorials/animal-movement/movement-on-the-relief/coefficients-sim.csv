@@ -1,0 +1,10 @@
+term,coefficient,se,lower,upper,exp(coef),z,p
+energy at the end (per kcal),0.107,0.0239,0.0602,0.1538,1.113,4.48,7.4e-06
+energy squared (per kcal squared),-0.0019,0.0005,-0.0029,-0.001,0.998,-3.94,8.1e-05
+slope at the end (per degree),-0.0159,0.0076,-0.0308,-0.001,0.984,-2.09,0.037
+height at the end (per km),10.7088,3.7669,3.3258,18.0917,44746.382,2.84,0.0045
+"height at the end, squared (per km squared)",-2.268,0.9896,-4.2075,-0.3285,0.104,-2.29,0.022
+"net height change, end less start (per m)",-0.0065,0.0007,-0.0078,-0.0052,0.994,-9.84,0.0
+log(step length),0.1701,0.0393,0.0931,0.2471,1.185,4.33,1.5e-05
+cos(turn angle),-0.0084,0.0296,-0.0665,0.0496,0.992,-0.28,0.78
+log(step length) x slope,-0.0019,0.0011,-0.0041,0.0003,0.998,-1.68,0.093
