@@ -31,6 +31,25 @@ mod measures;
 #[path = "../../ops/src/vector_algebra.rs"]
 pub mod vector_algebra;
 
+/// The spatial functions of `vector.calc` need GEOS and a vector connected to the node: a page has neither.
+mod vector_spatial {
+    use super::{Error, Result, Vector};
+
+    const NONE: &str = "the spatial functions need another layer, connected to the node in the application";
+
+    pub fn relate(_: &Vector, _: &Vector, _: &str, _: Option<f64>) -> Result<Vec<f64>> {
+        Err(Error::msg(NONE))
+    }
+
+    pub fn count(_: &Vector, _: &Vector, _: &str, _: Option<f64>) -> Result<Vec<f64>> {
+        Err(Error::msg(NONE))
+    }
+
+    pub fn distance(_: &Vector, _: &Vector) -> Result<Vec<f64>> {
+        Err(Error::msg(NONE))
+    }
+}
+
 use algebra::{Out, Script, Stmt, parse_script};
 use algebra_tools::{Input, Inputs, Part};
 

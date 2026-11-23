@@ -623,9 +623,54 @@ pub(crate) const REDUCTIONS: [&str; 8] = ["mean", "sd", "median", "sum", "count"
 pub(crate) const METHODS: [(&str, usize); 8] =
     [("mean", 0), ("sd", 0), ("median", 0), ("sum", 0), ("count", 0), ("min", 0), ("max", 0), ("percentile", 1)];
 
+/// The spatial predicates of vector features, which are also the functions of `vector.calc` and `vector.filter`
+/// that tell whether a feature meets a feature of another layer by one (`within(parks)`), `count(layer, predicate)`
+/// counts them and `distance(layer)` is the distance to the nearest.
+pub(crate) const PREDICATES: [&str; 12] = [
+    "intersects",
+    "within",
+    "contains",
+    "touches",
+    "crosses",
+    "overlaps",
+    "covers",
+    "covered_by",
+    "contains_properly",
+    "equals",
+    "disjoint",
+    "dwithin",
+];
+
+/// Whether a call (of that many values) is one of the spatial functions of vector features: the predicates,
+/// `distance(x)` and `count(x, predicate)` (a `count` of one value counts a stack's layers).
+pub(crate) fn is_spatial_call(name: &str, n: usize) -> bool {
+    PREDICATES.contains(&name) || name == "distance" || (name == "count" && n > 1)
+}
+
 fn check_call(name: &str, args: &[Expr]) -> Result<()> {
     if name == "count" {
-        return if args.len() == 1 { Ok(()) } else { Err(Error::msg("count takes 1 value: a stack")) };
+        return if (1..=3).contains(&args.len()) {
+            Ok(())
+        } else {
+            Err(Error::msg("count takes 1 value (a stack), or a layer, a predicate and a distance (vector.calc)"))
+        };
+    }
+    if PREDICATES.contains(&name) {
+        let n = if name == "dwithin" { 2 } else { 1 };
+        return if args.len() == n {
+            Ok(())
+        } else if name == "dwithin" {
+            Err(Error::msg("dwithin takes a layer and a distance: dwithin(rivers, 500)"))
+        } else {
+            Err(Error::msg(format!("{name} takes 1 value: a layer ({name}(parks))")))
+        };
+    }
+    if name == "distance" {
+        return if args.len() == 1 {
+            Ok(())
+        } else {
+            Err(Error::msg("distance takes 1 value: a layer (distance(roads))"))
+        };
     }
     if name == "float" {
         return if args.len() == 1 { Ok(()) } else { Err(Error::msg("float takes 1 value: a text attribute")) };
@@ -1506,6 +1551,12 @@ impl<'s, 'a> Compiler<'s, 'a> {
                 return Err(Error::msg(
                     "float(x) reads a text attribute of vector features as numbers (vector.calc, vector.filter)",
                 ));
+            }
+            Expr::Call(f, args) if is_spatial_call(f, args.len()) => {
+                return Err(Error::msg(format!(
+                    "{f}(...) compares the features of a layer with those of another (vector.calc, vector.filter), \
+                     not the cells of a map"
+                )));
             }
             Expr::Var(name) => self.named_value(name)?,
             Expr::Layer(stack, layer) => {

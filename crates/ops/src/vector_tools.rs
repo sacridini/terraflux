@@ -239,7 +239,11 @@ impl Operator for Filter {
              characters other than letters, digits and _ as _: individual-local-identifier as \
              individual_local_identifier), numbers and texts (area > 10000 and uso == \"forest\"; float(code) \
              reads a text as a number), the geometry's measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the \
-             number 1..), the node's other inputs (numbers and texts) by their names. A script of several lines \
+             number 1..), the node's other inputs (numbers and texts) by their names. A vector connected to an \
+             extra input is a layer by its port's name, for the spatial functions: within(parks), contains, \
+             intersects, touches, crosses, overlaps, covers, covered_by, contains_properly, equals, disjoint, \
+             dwithin(rivers, 500) (true when it holds with at least one feature of the layer), count(trees, \
+             \"within\") and distance(roads) (to the nearest). A script of several lines \
              gives names values (density = pop / geometry.area) and ends with the condition. A feature where it \
              is missing is left out.",
             Access::None,
@@ -275,7 +279,10 @@ impl Operator for Calc {
              texts (\"high\" if pop > 100 else \"low\"; uso == \"forest\"; float(code) reads a text as a number), the geometry's \
              measures (geometry.area, geometry.perimeter, geometry.length, geometry.x, geometry.y), feature (the \
              number 1..), x.sum() and the other methods over all the features, the node's other inputs (numbers \
-             and texts) by their names. One statement a line (# a comment): name = value, name[where] = value, and \
+             and texts) by their names. A vector connected to an extra input is a layer by its port's name, for the \
+             spatial functions: within(parks), contains, intersects, touches, crosses, overlaps, covers, covered_by, \
+             contains_properly, equals, disjoint, dwithin(rivers, 500) (true when it holds with at least one feature \
+             of the layer), count(trees, \"within\") (how many) and distance(roads) (to the nearest). One statement a line (# a comment): name = value, name[where] = value, and \
              out name = value (or out name) for each attribute given; without out, the last value is the \
              attribute `column`. An attribute of the same name is replaced, else it is added.",
             Access::None,

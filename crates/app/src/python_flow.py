@@ -348,6 +348,75 @@ def _measure(vector, m):
     raise ValueError(f"the geometry has no measure {m!r} (its measures: area, perimeter, length, x, y)")
 
 
+_PREDICATES = ("intersects", "within", "contains", "touches", "crosses", "overlaps", "covers", "covered_by",
+               "contains_properly", "equals", "disjoint", "dwithin")
+_SPATIAL = _re.compile(
+    rf"(?P<skip>{_QUOTED}|#[^\n]*)|(?<![\w.])(?P<f>{'|'.join(_PREDICATES)}|count|distance)\s*"
+    rf"\((?P<args>(?:[^()'\"#]|{_QUOTED})*)\)"
+)
+
+
+def _spatial_calls(frame, script, inputs):
+    """The script with each spatial call (within(parks), count(trees, "contains"), dwithin(rivers, 500),
+    distance(roads): the vectors connected to the node are its layers, by their names) replaced by a name, and the
+    values of those names, one per feature, from the library's tf.vector.relate, tf.vector.count and
+    tf.vector.distance (a feature meets a layer when the predicate holds with at least one of its features)."""
+    layers = {_script_name(k): x for k, x in inputs.items() if isinstance(x, _pd.DataFrame) and hasattr(x, "geometry")}
+    numbers = {k: x for k, x in inputs.items() if isinstance(x, _numbers.Number)}
+    values, made = {}, {}
+
+    def distance_of(f, text):
+        text = text.strip()
+        try:
+            d = float(text)
+        except ValueError:
+            if text not in numbers:
+                raise ValueError(f"{f}: the distance is a number (500) or a number input") from None
+            d = float(numbers[text])
+        if not _np.isfinite(d) or d < 0:
+            raise ValueError(f"{f}: the distance is a finite number, 0 or more (not {d})")
+        return d
+
+    def call(m):
+        if m["skip"] is not None:
+            return m.group()
+        f = m["f"]
+        parts = [p.strip() for p in _re.findall(rf"{_QUOTED}|[^,]+", m["args"])]
+        layer = parts[0] if parts else ""
+        if layer not in layers:
+            if f == "count" and len(parts) == 1:
+                return m.group()  # the count of a stack's layers
+            raise ValueError(f"{f}({layer}): not a connected layer (the layers: {', '.join(layers) or 'none'})")
+        predicate, d = f, None
+        if f == "count":
+            predicate = _unquoted(parts[1]) if len(parts) > 1 else "intersects"
+            if predicate not in _PREDICATES:
+                raise ValueError(f"count({layer}, {predicate!r}): unknown predicate (use {', '.join(_PREDICATES)})")
+            if predicate == "dwithin":
+                if len(parts) < 3:
+                    raise ValueError(f"count({layer}, \"dwithin\") needs a distance")
+                d = distance_of(f, parts[2])
+        elif f == "dwithin":
+            if len(parts) < 2:
+                raise ValueError("dwithin takes a layer and a distance: dwithin(rivers, 500)")
+            d = distance_of(f, parts[1])
+        key = (f, layer, predicate, d)
+        if key not in made:
+            a, b = frame, layers[layer]
+            if f == "distance":
+                x = tf.vector.distance(a, b)
+            elif f == "count":
+                x = tf.vector.count(a, b, predicate, distance=d)
+            else:
+                x = tf.vector.relate(a, b, predicate, distance=d)
+            name = f"_s{len(made)}"
+            made[key] = name
+            values[name] = _np.asarray(x, dtype="float64")
+        return made[key]
+
+    return _SPATIAL.sub(call, script), values
+
+
 def _evaluate(frame, script, inputs=None, features=False):
     """A script of Terraflux's map algebra (Python's syntax) over the rows of a table or the features of vectors, run
     by _calc on a value per row: the columns by their names (the characters other than letters, digits and _ as _),
@@ -376,6 +445,10 @@ def _evaluate(frame, script, inputs=None, features=False):
         s = _script_name(c)
         readable[s if s == str(c) or s not in taken else str(c)] = ("column", frame[c])
     alias = {k: f"_a{i}" for i, k in enumerate(readable)}
+    # the spatial calls over the other vectors connected, as names with their values
+    spatial = {}
+    if features:
+        script, spatial = _spatial_calls(frame, script, inputs or {})
     # its statements (each ends at a new line outside brackets, or ;), as tokens
     statements, current, depth, pos = [], [], 0, 0
     for m in _TOKEN.finditer(script):
@@ -425,7 +498,7 @@ def _evaluate(frame, script, inputs=None, features=False):
         return _np.nan if t is None or (not isinstance(t, str) and _pd.isna(t)) else place.get(str(t), _np.nan)
 
     # the values by the names of the script run, and which are texts
-    values, kinds = {}, {}
+    values, kinds = dict(spatial), {}
     for k in named:
         how, x = readable[k]
         a = alias[k]

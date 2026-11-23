@@ -52,6 +52,15 @@ as vector.calc, over the objects' attributes and `cls`, the class name; `nb.mean
 beneath (the input `below`); `above`, `below`, `between` and `about` give a fuzzy membership from 0 to 1, \
 and there `and` is the smaller, `or` the larger and `not` one minus); checked, and tried on a sample of its \
 inputs' cells, features or objects, before anything changes: read what each output gives in its reply.
+- vector.calc and vector.filter see other layers: a vector connected to an extra input is a name (its port's) usable \
+only as the first value of the spatial functions, each giving one value per feature of the node's own layer: \
+`within(x)`, `contains`, `intersects`, `touches`, `crosses`, `overlaps`, `covers`, `covered_by`, \
+`contains_properly`, `equals`, `disjoint` (true when it holds with at least one feature of x; disjoint: with none), \
+`dwithin(x, 500)`, `count(x)` (the features of x it intersects) and `count(x, \"within\")` (any predicate; \
+`count(x, \"dwithin\", 500)`), and `distance(x)` (to the nearest, in the layer's units). A point on an edge is \
+covered_by but not within. A filter: `within(parks) and geometry.area > 1e4`; a calc: `out n_trees = count(trees, \
+\"contains\")`, `out near_river = dwithin(rivers, 500)`, `out d = distance(roads)`. x is reprojected to the node's \
+layer; an empty geometry meets nothing.
 - A missing value spreads: a comparison or arithmetic with one gives missing (not false, not 0), `isnull(x)` tests \
 it and `coalesce(x, y)` gives x, and y where x is missing (`coalesce(area, 0)`). The same holds in objects.calc, \
 and a rule of objects.rules reads a missing value as 0 (membership 0): fill it with coalesce when that is not \

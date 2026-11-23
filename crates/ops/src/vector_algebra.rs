@@ -16,10 +16,11 @@
 //! known from their kinds, checked before the script runs.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 
 use terraflux_raster::vector::{Column, Vector};
 
-use crate::algebra::{Expr, Out, Scope, Script, Stmt};
+use crate::algebra::{Expr, Out, PREDICATES, Scope, Script, Stmt, is_spatial_call};
 use crate::measures::{MEASURES, measure};
 use crate::{Error, Key, Result, Value};
 
@@ -81,9 +82,122 @@ struct Kinds<'a> {
     vars: HashMap<String, Kind>,
     /// The text attributes `float` reads.
     floats: BTreeSet<String>,
+    /// The vectors connected to the node, by the names a script reads them by: arguments of the spatial functions.
+    layers: &'a BTreeMap<String, Arc<Vector>>,
+    /// What each distinct spatial call gave, a value per feature, by the name the script over numbers reads it by.
+    spatial: BTreeMap<String, Vec<f64>>,
+}
+
+/// The spatial functions, for the errors.
+fn spatial_functions() -> String {
+    let mut f: Vec<String> = PREDICATES
+        .iter()
+        .map(|p| if *p == "dwithin" { "dwithin(x, d)".to_string() } else { format!("{p}(x)") })
+        .collect();
+    f.extend(["count(x, \"predicate\")".into(), "distance(x)".into()]);
+    f.join(", ")
 }
 
 impl Kinds<'_> {
+    /// Whether a name is a layer the script can read (not an attribute, a value of the script or an input).
+    fn is_layer(&self, n: &str) -> bool {
+        self.layers.contains_key(n) && !self.vars.contains_key(n) && self.v.column(n).is_none()
+    }
+
+    /// The number a distance is: a literal or a number input.
+    fn distance_of(&self, f: &str, e: &Expr) -> Result<f64> {
+        let d = match e {
+            Expr::Num(d) => *d,
+            Expr::Unary('-', a) => match **a {
+                Expr::Num(d) => -d,
+                _ => return Err(Error::msg(format!("{f}: the distance is a number (500) or a number input"))),
+            },
+            Expr::Var(n) if !self.vars.contains_key(n) => match self.inputs.get(n).and_then(Value::as_number) {
+                Some(d) => d,
+                None => return Err(Error::msg(format!("{f}: the distance {n} is not a number input"))),
+            },
+            _ => return Err(Error::msg(format!("{f}: the distance is a number (500) or a number input"))),
+        };
+        if d.is_finite() && d >= 0.0 {
+            Ok(d)
+        } else {
+            Err(Error::msg(format!("{f}: the distance is a finite number, 0 or more (not {d})")))
+        }
+    }
+
+    /// A spatial call: for each feature, whether a predicate holds with a feature of a layer, how many it holds
+    /// with, or the distance to the nearest (computed once for each distinct call).
+    fn spatial_call(&mut self, f: &str, args: &[Expr]) -> Result<(Kind, Expr)> {
+        let Some(vector) = self.v.vector else {
+            return Err(Error::msg(format!("{f}(...): a table has no geometry")));
+        };
+        let layer = match &args[0] {
+            Expr::Var(n) if self.is_layer(n) => n.clone(),
+            Expr::Var(n) if self.name(n).is_ok() => {
+                return Err(Error::msg(format!(
+                    "{f}({n}): {n} is an attribute or a value, not a layer: the first value of {f} is a vector \
+                     connected to the node"
+                )));
+            }
+            e => {
+                let names: Vec<&str> = self.layers.keys().map(String::as_str).collect();
+                return Err(Error::msg(format!(
+                    "{f}({}): not a connected layer (the layers: {}; the spatial functions: {})",
+                    shown(e),
+                    if names.is_empty() { "none".into() } else { names.join(", ") },
+                    spatial_functions()
+                )));
+            }
+        };
+        let (predicate, distance): (Option<&str>, Option<f64>) = match f {
+            "distance" => (None, None),
+            "count" => {
+                let p = match args.get(1) {
+                    None => "intersects",
+                    Some(Expr::Str(p)) => p.as_str(),
+                    Some(_) => {
+                        return Err(Error::msg(format!(
+                            "count({layer}, ...): the predicate is a text: count({layer}, \"within\")"
+                        )));
+                    }
+                };
+                if !PREDICATES.contains(&p) {
+                    return Err(Error::msg(format!(
+                        "count({layer}, {p:?}): unknown predicate (use {})",
+                        PREDICATES.join(", ")
+                    )));
+                }
+                match (p == "dwithin", args.get(2)) {
+                    (true, Some(d)) => (Some(p), Some(self.distance_of("count", d)?)),
+                    (true, None) => {
+                        return Err(Error::msg(format!(
+                            "count({layer}, \"dwithin\") needs a distance: count({layer}, \"dwithin\", 500)"
+                        )));
+                    }
+                    (false, None) => (Some(p), None),
+                    (false, Some(_)) => {
+                        return Err(Error::msg(format!("count({layer}, {p:?}, ...): only dwithin takes a distance")));
+                    }
+                }
+            }
+            "dwithin" => (Some("dwithin"), Some(self.distance_of("dwithin", &args[1])?)),
+            p => (PREDICATES.iter().copied().find(|x| *x == p), None),
+        };
+        let key = format!("{f}({layer}, {}, {:?})", predicate.unwrap_or(""), distance);
+        if !self.spatial.contains_key(&key) {
+            let x = &self.layers[&layer];
+            let given = match (f, predicate) {
+                ("distance", _) => crate::vector_spatial::distance(vector, x),
+                ("count", Some(p)) => crate::vector_spatial::count(vector, x, p, distance),
+                (_, Some(p)) => crate::vector_spatial::relate(vector, x, p, distance),
+                _ => unreachable!("a spatial function"),
+            }
+            .map_err(|e| Error::msg(format!("{f}({layer}): {}", e.0)))?;
+            self.spatial.insert(key.clone(), given);
+        }
+        Ok((Kind::Number, Expr::Var(key)))
+    }
+
     fn code(&self, t: &str) -> f64 {
         code(self.texts, t)
     }
@@ -107,13 +221,24 @@ impl Kinds<'_> {
         match self.inputs.get(n) {
             Some(Value::Text(_)) => Ok(Kind::Text),
             Some(v) if v.as_number().is_some() => Ok(Kind::Number),
+            _ if self.layers.contains_key(n) => Err(Error::msg(format!(
+                "{n} is a layer (a vector connected to the node): it is the first value of the spatial functions \
+                 ({}), not a value",
+                spatial_functions()
+            ))),
             _ => {
                 let names: Vec<&str> = self.v.attributes.iter().map(|(a, _)| a.as_str()).collect();
                 let (what, of) =
                     if self.v.vector.is_none() { ("a column", "table's") } else { ("an attribute", "features'") };
+                let layers: Vec<&str> = self.layers.keys().map(String::as_str).collect();
                 Err(Error::msg(format!(
-                    "the script names {n:?}, neither {what} (the {of}: {}) nor an input",
-                    if names.is_empty() { "none".into() } else { names.join(", ") }
+                    "the script names {n:?}, neither {what} (the {of}: {}) nor an input{}",
+                    if names.is_empty() { "none".into() } else { names.join(", ") },
+                    if layers.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" (the layers, for the spatial functions: {})", layers.join(", "))
+                    }
                 )))
             }
         }
@@ -175,6 +300,12 @@ impl Kinds<'_> {
                 let c2 = self.number(c)?;
                 let ((ka, a2), (kb, b2)) = (self.of(a)?, self.of(b)?);
                 Ok((unify(ka, kb, "a if c else b")?, Expr::If(Box::new(c2), Box::new(a2), Box::new(b2))))
+            }
+            Expr::Call(f, args)
+                if is_spatial_call(f, args.len())
+                    || (f == "count" && matches!(&args[0], Expr::Var(n) if self.is_layer(n))) =>
+            {
+                self.spatial_call(f, args)
             }
             Expr::Call(f, args) if f == "isnull" => n(Expr::Call(f.clone(), vec![self.of(&args[0])?.1])),
             Expr::Call(f, args) if f == "coalesce" => {
@@ -334,9 +465,14 @@ pub fn run(v: &Vector, inputs: &BTreeMap<String, Value>, script: &Script) -> Res
 /// [`run`] over a frame: the features' attributes, or the columns of a table (texts by their names).
 pub fn run_frame(v: &Frame, inputs: &BTreeMap<String, Value>, script: &Script) -> Result<Vec<(String, Column)>> {
     let mut others = BTreeMap::new();
+    // the vectors, by the names a script reads them by: the layers of the spatial functions
+    let mut layers: BTreeMap<String, Arc<Vector>> = BTreeMap::new();
     for (port, x) in inputs {
         match x {
-            Value::Vector(_) | Value::Table(_) => {}
+            Value::Vector(l) => {
+                layers.insert(script_name(port), l.clone());
+            }
+            Value::Table(_) => {}
             Value::Text(_) => {
                 others.insert(port.clone(), x.clone());
             }
@@ -364,7 +500,15 @@ pub fn run_frame(v: &Frame, inputs: &BTreeMap<String, Value>, script: &Script) -
     texts.remove("");
     let texts: Vec<String> = texts.into_iter().collect();
     // its kinds, and the script over numbers
-    let mut k = Kinds { v, inputs: &others, texts: &texts, vars: HashMap::new(), floats: BTreeSet::new() };
+    let mut k = Kinds {
+        v,
+        inputs: &others,
+        texts: &texts,
+        vars: HashMap::new(),
+        floats: BTreeSet::new(),
+        layers: &layers,
+        spatial: BTreeMap::new(),
+    };
     let mut statements = Vec::with_capacity(script.statements.len());
     for (line, s) in &script.statements {
         statements.push((*line, k.statement(s).map_err(|e| script.at(*line, e))?));
@@ -380,6 +524,7 @@ pub fn run_frame(v: &Frame, inputs: &BTreeMap<String, Value>, script: &Script) -
         outs => outs.into_iter().map(|o| Ok((o.clone(), k.name(&o)?))).collect::<Result<_>>()?,
     };
     let floats = std::mem::take(&mut k.floats);
+    let spatial = std::mem::take(&mut k.spatial);
     let numbers = Script { statements, ..script.clone() };
     // the scope: the attributes it reads (texts by their numbers), `feature`, the measures, the inputs
     let n = v.n;
@@ -394,6 +539,7 @@ pub fn run_frame(v: &Frame, inputs: &BTreeMap<String, Value>, script: &Script) -
             made.push((float_name(name), c.numbers()));
         }
     }
+    made.extend(spatial);
     if v.column("feature").is_none() {
         made.push(("feature".into(), (1..=n).map(|i| i as f64).collect()));
     }
@@ -658,6 +804,119 @@ mod tests {
         let names: Vec<String> =
             every_name(&squares(), &BTreeMap::new(), &s).unwrap().into_iter().map(|x| x.0).collect();
         assert_eq!(names, ["label", "n"]);
+    }
+
+    fn layer(p: &[[f64; 2]]) -> Value {
+        Value::Vector(Arc::new(Vector {
+            geometries: p.iter().map(|&p| Geometry::Point(p)).collect(),
+            attributes: Vec::new(),
+            crs: None,
+        }))
+    }
+
+    /// Points in the first square, on its edge, in the second, twice in the third.
+    fn pts() -> (&'static str, Value) {
+        ("pts", layer(&[[0.5, 0.5], [1.0, 0.5], [11.0, 1.0], [21.0, 1.0], [22.0, 1.0]]))
+    }
+
+    /// One point at 4 from the first square, 5 from the second, 15 from the third.
+    fn far() -> (&'static str, Value) {
+        ("far", layer(&[[5.0, 0.5]]))
+    }
+
+    #[test]
+    fn spatial_functions_over_layers() {
+        let on = |t: &str| numbers(&calc(t, &[pts(), far()]).unwrap()[0].1);
+        // a point on the edge is not within (contained), but is covered
+        assert!(same(&on("contains(pts)"), &[1.0, 1.0, 1.0]));
+        assert!(same(&on("touches(pts)"), &[1.0, 0.0, 0.0]));
+        assert!(same(&on("covers(pts)"), &[1.0, 1.0, 1.0]));
+        assert!(same(&on("contains_properly(pts)"), &[1.0, 1.0, 1.0]));
+        assert!(same(&on("within(pts)"), &[0.0, 0.0, 0.0]));
+        assert!(same(&on("disjoint(far)"), &[1.0, 1.0, 1.0]));
+        assert!(same(&on("disjoint(pts)"), &[0.0, 0.0, 0.0]));
+        assert!(same(&on("count(pts)"), &[2.0, 1.0, 2.0]));
+        assert!(same(&on("count(pts, \"contains\")"), &[1.0, 1.0, 2.0]));
+        assert!(same(&on("count(pts, \"covers\")"), &[2.0, 1.0, 2.0]));
+        assert!(same(&on("count(pts, \"touches\")"), &[1.0, 0.0, 0.0]));
+        assert!(same(&on("count(pts, \"disjoint\")"), &[3.0, 4.0, 3.0]));
+        // at exactly the distance
+        assert!(same(&on("dwithin(far, 4)"), &[1.0, 0.0, 0.0]));
+        assert!(same(&on("dwithin(far, 5)"), &[1.0, 1.0, 0.0]));
+        assert!(same(&on("count(far, \"dwithin\", 5)"), &[1.0, 1.0, 0.0]));
+        assert!(same(&on("distance(far)"), &[4.0, 5.0, 15.0]));
+        assert!(same(&on("distance(pts)"), &[0.0, 0.0, 0.0]));
+        // together with attributes, numbers and the geometry
+        assert!(same(&on("within(pts) or (dwithin(far, 5) and geometry.area > 1)"), &[0.0, 1.0, 0.0]));
+        assert!(same(&on("distance(far) * 2 + pop"), &[18.0, 30.0, 120.0]));
+        assert!(same(&on("count(pts) if pop > 15 else None"), &[f64::NAN, 1.0, 2.0]));
+        // a distance given by a number input
+        let r = calc("dwithin(far, d)", &[far(), ("d", Value::Number(5.0))]).unwrap();
+        assert!(same(&numbers(&r[0].1), &[1.0, 1.0, 0.0]));
+        // out names, several calls, each distinct call once
+        let r = calc(
+            "out n = count(pts, \"contains\")\nout d = distance(far)\nout near = dwithin(far, 4.5)",
+            &[pts(), far()],
+        )
+        .unwrap();
+        assert!(same(&numbers(&r[0].1), &[1.0, 1.0, 2.0]));
+        assert!(same(&numbers(&r[1].1), &[4.0, 5.0, 15.0]));
+        assert!(same(&numbers(&r[2].1), &[1.0, 0.0, 0.0]));
+        // the filter
+        let s = parse_script("contains(pts) and geometry.area > 1").unwrap();
+        let inputs = BTreeMap::from([("pts".to_string(), pts().1)]);
+        assert_eq!(kept(&squares(), &inputs, &s).unwrap(), [1, 2]);
+    }
+
+    #[test]
+    fn spatial_layers_by_script_names() {
+        // a port's name read as an attribute's is
+        let r = calc("count(my_trees)", &[("my-trees", layer(&[[0.5, 0.5]]))]).unwrap();
+        assert!(same(&numbers(&r[0].1), &[1.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn spatial_functions_refused() {
+        let e = |t: &str| {
+            calc(t, &[pts(), far(), ("d", Value::Number(5.0)), ("k", Value::Text("a".into()))]).unwrap_err().0
+        };
+        let has = |t: &str, m: &str| {
+            let e = e(t);
+            assert!(e.contains(m), "{t}: {e}");
+        };
+        has("pts + 1", "pts is a layer");
+        has("pop * far", "far is a layer");
+        has("count(pts, \"near\")", "unknown predicate");
+        has("count(pts, \"dwithin\")", "needs a distance");
+        has("count(pts, \"within\", 3)", "only dwithin takes a distance");
+        has("dwithin(far)", "dwithin takes a layer and a distance");
+        has("dwithin(far, -1)", "0 or more");
+        has("dwithin(far, pop)", "not a number input");
+        has("dwithin(far, k)", "not a number input");
+        has("dwithin(far, \"a\")", "the distance is a number");
+        has("within(pop)", "pop is an attribute or a value, not a layer");
+        has("within(parks)", "not a connected layer (the layers: far, pts; the spatial functions: intersects(x)");
+        has("distance(5)", "not a connected layer");
+        has("within(pts, far)", "within takes 1 value");
+        has("distance(pts, far)", "distance takes 1 value");
+        has("usos == 'a'", "the layers, for the spatial functions: far, pts");
+        let table = |t: &str| {
+            let frame = Frame { n: 1, attributes: &[], vector: None };
+            let inputs = BTreeMap::from([pts()].map(|(k, v)| (k.to_string(), v)));
+            run_frame(&frame, &inputs, &parse_script(t).unwrap()).unwrap_err().0
+        };
+        assert!(table("within(pts)").contains("a table has no geometry"));
+        // maps have no layers of features
+        let x = [1.0];
+        let scope = Scope {
+            width: 1,
+            height: 1,
+            maps: BTreeMap::from([("x", x.as_slice())]),
+            numbers: BTreeMap::new(),
+            stacks: BTreeMap::new(),
+        };
+        let e = parse_script("within(x)").unwrap().run(&scope).unwrap_err().0;
+        assert!(e.contains("vector.calc, vector.filter"), "{e}");
     }
 
     #[test]

@@ -117,6 +117,7 @@ pub mod values;
 pub mod vector;
 pub mod vector_algebra;
 pub mod vector_shapes;
+pub mod vector_spatial;
 pub mod vector_tiled;
 pub mod vector_tools;
 pub mod view;

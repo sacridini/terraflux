@@ -3183,6 +3183,68 @@ from = "kept.table"
     }
 
     #[test]
+    fn calculator_spatial_calls_over_other_layers() {
+        let r = Registry::standard();
+        let m = Model::from_toml(
+            r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "plots"
+op = "vector.read"
+params = { path = "data/plots.gpkg" }
+
+[[nodes]]
+id = "parks"
+op = "vector.read"
+params = { path = "data/parks.gpkg" }
+
+[[nodes]]
+id = "trees"
+op = "vector.read"
+params = { path = "data/trees.gpkg" }
+
+[[nodes]]
+id = "in_parks"
+op = "vector.filter"
+inputs = { vector = "plots.vector", parks = "parks.vector" }
+params = { expression = "within(parks) and geometry.area > 1e4" }
+
+[[nodes]]
+id = "counted"
+op = "vector.calc"
+inputs = { vector = "plots.vector", trees = "trees.vector", parks = "parks.vector", reach = 500 }
+params = { expression = "out n_trees = count(trees, \"contains\")\nout near = dwithin(parks, reach)\nout d = distance(parks)" }
+"#,
+        )
+        .unwrap();
+        let s = script(&m, &r, None);
+        let t = &s.text;
+        // the other vectors go as inputs: the helper turns the calls into tf.vector.relate, count and distance
+        assert!(
+            t.contains(
+                "in_parks = _features_filter(plots, \"within(parks) and geometry.area > 1e4\", \
+                 inputs={\"parks\": parks})\n"
+            ),
+            "{t}"
+        );
+        assert!(
+            t.contains(
+                "counted = _features_calc(plots, \"\"\"\nout n_trees = count(trees, \"contains\")\nout near = \
+                 dwithin(parks, reach)\nout d = distance(parks)\n\"\"\", inputs={\"parks\": parks, \"reach\": 500, \
+                 \"trees\": trees})\n"
+            ),
+            "{t}"
+        );
+        assert!(s.left.is_empty(), "{:?}", s.left);
+        for f in ["tf.vector.relate(a, b, predicate, distance=d)", "tf.vector.count(a, b, predicate, distance=d)"] {
+            assert!(t.contains(f), "{f}");
+        }
+        assert!(t.contains("tf.vector.distance(a, b)") && t.contains("def _spatial_calls(frame, script, inputs):"));
+        parses(t);
+    }
+
+    #[test]
     fn features_as_geopandas() {
         let r = Registry::standard();
         let m = Model::from_toml(
