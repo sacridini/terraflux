@@ -760,8 +760,13 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let skip = ["model", "start", "sl_distr", "ta_distr"];
             let names: Vec<&str> = n.inputs.keys().map(String::as_str).filter(|k| !skip.contains(k)).collect();
             let mut layers = Vec::new();
+            let mut first_layer = String::new();
             for k in &names {
-                layers.push(format!("{}: {}", text(k), value_of(n, k, sc)?.ok_or("a raster is not connected")?));
+                let v = value_of(n, k, sc)?.ok_or("a raster is not connected")?;
+                if first_layer.is_empty() {
+                    first_layer = v.clone();
+                }
+                layers.push(format!("{}: {}", text(k), v));
             }
             if layers.is_empty() {
                 return Err("connect the covariates (rasters, inputs of any names: forest, elev...)".into());
@@ -828,9 +833,15 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
                  for {var}_i in range({paths}):\n        \
                  {var}_k = {}({})\n        \
                  {var}_all.append(tf.move.simulate_path({var}_k, {steps}).assign(track={label}))\n\
-                 {var} = _pd.concat({var}_all, ignore_index=True)\n",
+                 {var} = _pd.concat({var}_all, ignore_index=True)\n\
+                 # the library gives a plain table (x_, y_, t_...); the operator gives points in the covariates' CRS\n\
+                 import geopandas as _gpd\n\
+                 {var} = tf.move.as_tracks(_gpd.GeoDataFrame({var}, geometry=_gpd.points_from_xy({var}[\"x_\"], \
+                 {var}[\"y_\"]), crs={first}), \"t_\", \"track\")\n",
                 py.call,
-                args.join(", ")
+                args.join(", "),
+                // a model of movement terms alone has no raster to take the CRS from
+                first = if first_layer.is_empty() { "None".to_string() } else { format!("{first_layer}.rio.crs") }
             ));
             (code, out(&[("paths", var.to_string()), ("table", frame_table(var))]), Need::Nothing)
         }
@@ -1186,6 +1197,39 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The script of the template "Movement on the relief" runs with terraflux-py from the start to the end (the
+    /// library's sources in `TERRAFLUX_PY_SRC`, else the submodule's, with its extension module built).
+    #[test]
+    #[ignore = "runs Python with terraflux-py"]
+    fn the_relief_template_runs_in_python() {
+        let r = terraflux_ops::Registry::standard();
+        let m = crate::tools::template_model(&r, "Movement on the relief").unwrap();
+        let dir = std::env::temp_dir().join(format!("terraflux-relief-python-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = dir.join("relief.toml");
+        m.save(&model).unwrap();
+        let (path, s) = crate::python::write_beside(&m, &r, &model).unwrap();
+        assert!(s.left.is_empty(), "nodes left as comments: {:?}", s.left);
+        let src = std::env::var("TERRAFLUX_PY_SRC").unwrap_or_else(|_| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extern/terraflux-py/src");
+            root.to_string_lossy().into_owned()
+        });
+        let o = std::process::Command::new("python")
+            .arg(&path)
+            .current_dir(&dir)
+            .env("PYTHONPATH", src)
+            .output()
+            .expect("python");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(o.status.success(), "the script failed:\n{err}\n{}", std::fs::read_to_string(&path).unwrap());
+        eprintln!("script: {}", path.display());
+        // KEEP=1 leaves the script and the model to look at
+        if std::env::var("KEEP").is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
 
     /// The script parses as Python (when there is a Python to ask).
     fn parses(t: &str) {
