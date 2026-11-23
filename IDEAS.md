@@ -5786,3 +5786,94 @@ até virar: "ficaria `t0` se `suit` estivesse abaixo de 0.45"). Ele melhora as f
 `raster.calc` passaria a dizer qual condição virou), mas é um bloco à parte: precisa avaliar a expressão pela
 árvore do parser da calculadora, e uma regra de "quem decidiu" por família de operadores (`min`/`max`, `argmax`,
 classificadores).
+
+## Análise espacial de vetores como no PostGIS: predicados, vizinho mais próximo, sobreposição e geometria (pedido de 2026-11-23)
+
+O usuário: "o terraflux possui opções de fazer análise espacial com vetores com within, union, etc como no
+Postgis/GDAL? Existe isso na calculadora de vetores?", depois "seria bom ter isso tb em python... funções como essa
+diretamente no python assim como existem no GDAL" e "de uma forma que fosse fácil e direta ao ponto".
+
+**O que já existe** (só no aplicativo, Rust sobre o GEOS pelo GDAL; a exportação para Python usa funções privadas
+de `python_flow.py` sobre o geopandas): `vector.overlay` (intersection, union, difference, só polígonos),
+`vector.spatial_join` (só o predicado *intersects*, a primeira feição ou o resumo), `vector.clip`, `vector.buffer`,
+`vector.dissolve`, `vector.geometry` (área, perímetro, comprimento, centroide), `vector.reproject`. **O que falta:**
+os outros predicados (`within`, `contains`, `touches`, `crosses`, `overlaps`, `covers`, `covered_by`, `equals`,
+`disjoint`, `dwithin`), a seleção por localização, a junção pelo mais próximo, a diferença simétrica e a identidade,
+a sobreposição de linhas e pontos com polígonos, as operações de geometria (centroide como ponto, envoltória,
+simplificação, retângulo envolvente, `make_valid`, partes separadas, fronteira), um índice espacial (hoje cada par é
+testado pela caixa, O(n·m)), e na calculadora de vetores qualquer referência a outra camada: ela só vê os atributos e
+as medidas da própria geometria.
+
+**A forma, fácil e direta:** uma função por operação, com os nomes do PostGIS/GDAL, num módulo `tf.vector` da
+biblioteca, e um nó com o mesmo nome no aplicativo. Cada função aceita um caminho ou um GeoDataFrame (`b` também uma
+geometria do shapely), reprojeta `b` para o CRS de `a` e devolve um GeoDataFrame no CRS de `a`, com os atributos de
+`a` (o índice refeito); `out=` grava o resultado (`tf.write_vector`).
+
+```python
+import terraflux as tf
+v = tf.vector
+dentro = v.within("pontos.gpkg", "parques.gpkg")      # as feições de a dentro de alguma de b
+perto  = v.dwithin(pontos, rios, 500)                  # a até 500 m de b
+fora   = v.select(pontos, parques, "within", invert=True)
+v.relate(pontos, parques, "within")                    # um bool por feição de a (o que a calculadora usa)
+v.count(parques, pontos)                               # quantas feições de b cada uma de a toca
+v.distance(pontos, rios)                               # a distância de cada feição de a à mais próxima de b
+v.join(pontos, municipios, predicate="within", how="first" | "all" | "summary", fields=["pop"])
+v.nearest(pontos, estradas, max_distance=None)         # os atributos da mais próxima e a coluna distance
+v.intersection(a, b); v.union(a, b); v.union(a)        # union de uma camada só: tudo numa feição (ST_Union)
+v.difference(a, b); v.symmetric_difference(a, b); v.identity(a, b); v.overlay(a, b, how=...)
+v.clip(a, mascara); v.dissolve(a, by="uso"); v.buffer(a, 100, dissolve=True)
+v.centroid(a, inside=False); v.hull(a, kind="convex" | "concave", ratio=0.3, by=None)
+v.simplify(a, 10, preserve_topology=True); v.envelope(a); v.make_valid(a); v.explode(a); v.boundary(a)
+v.measures(a, geodesic=False)                          # area, perimeter, length, x, y
+```
+
+Os predicados seguem o sentido do PostGIS e do `sjoin` do geopandas: `within(a, b)` é `ST_Within(a, b)`, a feição de
+`a` dentro de alguma de `b`. A biblioteca usa o shapely 2 (o `STRtree` com o predicado, o mesmo caminho do `sjoin`);
+o aplicativo chama a API C do GEOS diretamente (`crates/gdal/src/geos.rs` já carrega o `geos_c` do GDAL: um
+`GEOSSTRtree` e os predicados preparados `GEOSPrepared*_r`), o mesmo motor. As referências são da biblioteca
+(`tools/make_vector_ops_reference.py` passa a chamá-la): as mesmas feições, na mesma ordem, e as áreas e distâncias a
+1e-9. O "Python script" do aplicativo passa a escrever `tf.vector.*` no lugar das funções privadas de `python_flow.py`
+(que saem quando o nó correspondente passa).
+
+**Sem push nem release** enquanto não for pedido; um commit por fase em cada repositório (a biblioteca no worktree
+`terraflux-py-vector`, o aplicativo no worktree `terraflux-vector`, porque outra janela trabalha na árvore principal);
+testes, clippy e fmt verdes; até 12 núcleos neste bloco (pedido do usuário), um build pesado de cada vez, até 5
+sub-agentes.
+
+### Na biblioteca (`tf.vector`, `src/terraflux/vector.py`)
+
+- **L1. Predicados e junções.** `within`, `contains`, `intersects`, `touches`, `crosses`, `overlaps`, `covers`,
+  `covered_by`, `equals`, `disjoint`, `dwithin(a, b, distance)`, `select(a, b, predicate, distance=None,
+  invert=False)`, `relate`, `count`, `distance`, `join` (predicate, how first/all/summary, fields, suffix) e
+  `nearest` (max_distance, a coluna `distance`, um empate fica com a feição de `b` de menor índice), com os testes
+  contra o geopandas (`sjoin`, `sjoin_nearest`) e casos à mão (um ponto na borda: `within` falso, `covered_by`
+  verdadeiro, `intersects` verdadeiro).
+- **L2. Sobreposição.** `intersection`, `union` (de uma ou duas camadas), `difference`, `symmetric_difference`,
+  `identity`, `overlay`, `clip`, `dissolve`, `buffer`; a primeira camada pode ser de linhas ou pontos em
+  intersection, difference e identity (como o `keep_geom_type` do geopandas). Testes contra o `overlay` do geopandas.
+- **L3. Geometria.** `centroid`, `hull` (o côncavo pelo `concave_hull` do GEOS 3.11+), `simplify`, `envelope`,
+  `make_valid`, `explode`, `boundary`, `measures`. A documentação de cada função (docstring com o equivalente no
+  PostGIS e no QGIS) e o CHANGELOG da biblioteca.
+
+### No aplicativo
+
+- **A1. Predicados, seleção e vizinho** (depois de L1). Em `terraflux-gdal`: o `STRtree` e os predicados preparados
+  pela API C do GEOS. Nós: `vector.select_by_location` (predicate, distance, invert), `vector.spatial_join` com
+  `predicate`, `distance` e `mode = all` (uma feição por par, como o `sjoin`), `vector.nearest`. O índice também no
+  `vector.overlay` e no `vector.spatial_join` atuais. Python (`tf.vector.*`), tips, phrases, rótulos, methods e
+  advice; o teste contra a referência da biblioteca.
+- **A2. Sobreposição** (depois de L2). `vector.overlay` com `symmetric_difference` e `identity`, e linhas ou pontos
+  na primeira camada.
+- **A3. Geometria** (depois de L3). `vector.centroid`, `vector.hull`, `vector.simplify`, `vector.envelope`,
+  `vector.make_valid`, `vector.explode`, `vector.boundary`.
+- **A4. A calculadora de vetores com outras camadas** (depois de A1). Um vetor ligado a `vector.calc` ou
+  `vector.filter` vira um nome do script, com as funções espaciais: `within(parques)`, `contains(...)`,
+  `intersects(...)`, `touches`, `crosses`, `overlaps`, `covers`, `covered_by`, `equals`, `disjoint`,
+  `dwithin(rios, 500)`, `count(pontos)` e `distance(estradas)`, um valor por feição:
+  `within(parques) and geometry.area > 1e4`. Na exportação, `tf.vector.relate`, `count` e `distance`. O guia `calc`
+  do MCP e a mensagem de erro que lista os nomes.
+- **A5. Documentação.** Uma página do site "Vector analysis" com a tabela de equivalência (PostGIS, GDAL/OGR, QGIS,
+  geopandas, `tf.vector`, o nó), a referência Python de `tf.vector`, o guia `data-preparation` do MCP, o template das
+  ferramentas de vetor com um predicado e o vizinho mais próximo, o CHANGELOG, o README e as marcas de **Feito**
+  aqui. O `ops.json` é refeito na release.
