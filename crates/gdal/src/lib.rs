@@ -1412,6 +1412,45 @@ fn from_ogr(g: &Gdal, h: H, what: &str) -> Result<Geometry> {
     out
 }
 
+/// The geometry of an OGR handle, which is destroyed (none for an empty one): `from_ogr`'s, which keeps the parts of
+/// the highest kind of a collection (the polygons of a polygon and the line along which two polygons also touch).
+fn from_ogr_nonempty(g: &Gdal, h: H, what: &str) -> Result<Option<Geometry>> {
+    Ok(Some(from_ogr(g, h, what)?).filter(|x| !matches!(x, Geometry::Empty)))
+}
+
+/// The intersection of two geometries (GEOS through GDAL), none where it is empty: the overlay's pieces.
+pub fn intersection_of(geom: &Geometry, mask: &Geometry) -> Result<Option<Geometry>> {
+    let g = gdal().map_err(String::from)?;
+    if matches!(geom, Geometry::Empty) || matches!(mask, Geometry::Empty) {
+        return Ok(None);
+    }
+    let (h, m) = (ogr_geometry(g, geom)?, ogr_geometry(g, mask)?);
+    let i = unsafe { (g.api.OGR_G_Intersection)(h, m) };
+    unsafe {
+        (g.api.OGR_G_DestroyGeometry)(h);
+        (g.api.OGR_G_DestroyGeometry)(m);
+    }
+    from_ogr_nonempty(g, i, "intersection")
+}
+
+/// Geometry a less geometry b (GEOS through GDAL), none where it is empty.
+pub fn difference_of(a: &Geometry, b: &Geometry) -> Result<Option<Geometry>> {
+    let g = gdal().map_err(String::from)?;
+    if matches!(a, Geometry::Empty) {
+        return Ok(None);
+    }
+    if matches!(b, Geometry::Empty) {
+        return Ok(Some(a.clone()));
+    }
+    let (ha, hb) = (ogr_geometry(g, a)?, ogr_geometry(g, b)?);
+    let d = unsafe { (g.api.OGR_G_Difference)(ha, hb) };
+    unsafe {
+        (g.api.OGR_G_DestroyGeometry)(ha);
+        (g.api.OGR_G_DestroyGeometry)(hb);
+    }
+    from_ogr_nonempty(g, d, "difference")
+}
+
 /// The buffers of geometries (GEOS through GDAL): `distance` around each (in their units; inside polygons when
 /// negative), a quarter of a circle in `segments` segments (16 as shapely's).
 pub fn buffer(geoms: &[Geometry], distance: f64, segments: i32) -> Result<Vec<Geometry>> {

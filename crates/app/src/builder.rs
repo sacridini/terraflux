@@ -62,6 +62,8 @@ pub(crate) const SUBJECTS: [(&str, &[&str]); 33] = [
             "vector.geometry",
             "vector.overlay",
             "vector.spatial_join",
+            "vector.select_by_location",
+            "vector.nearest",
             "vector.reproject",
             "vector.from_table",
             "vector.points",

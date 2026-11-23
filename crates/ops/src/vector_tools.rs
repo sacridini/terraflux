@@ -414,13 +414,48 @@ fn joined(a: &Vector, b: &Vector, from: &[(Option<usize>, Option<usize>)], suffi
     out
 }
 
-/// The polygonal part of a geometry (none when it has no area).
-fn polygonal(g: Geometry) -> Option<Geometry> {
+/// The dimension of a geometry (0 points, 1 lines, 2 polygons; none when empty).
+fn dimension_of(g: &Geometry) -> Option<usize> {
     match g {
-        Geometry::Polygon(_) => Some(g),
-        Geometry::MultiPolygon(ref m) if !m.is_empty() => Some(g),
-        _ => None,
+        Geometry::Empty => None,
+        Geometry::Point(_) | Geometry::MultiPoint(_) => Some(0),
+        Geometry::LineString(_) | Geometry::MultiLineString(_) => Some(1),
+        Geometry::Polygon(_) | Geometry::MultiPolygon(_) => Some(2),
     }
+}
+
+/// The one dimension of a layer's geometries (2 when it has none), as `tf.vector`'s `_dimension`: an error when they
+/// mix kinds or the kind is not one of `allowed`.
+fn layer_dimension(v: &Vector, what: &str, allowed: &[usize]) -> std::result::Result<usize, String> {
+    const NAMES: [&str; 3] = ["points", "lines", "polygons"];
+    let mut dims: Vec<usize> = v.geometries.iter().filter_map(dimension_of).collect();
+    dims.sort_unstable();
+    dims.dedup();
+    if dims.len() > 1 {
+        return Err(format!("{what} mixes points, lines and polygons; it needs one kind"));
+    }
+    let dim = dims.first().copied().unwrap_or(2);
+    if !allowed.contains(&dim) {
+        let need: Vec<&str> = allowed.iter().map(|&d| NAMES[d]).collect();
+        return Err(format!("{what} is {}, it needs {}", NAMES[dim], need.join(" or ")));
+    }
+    Ok(dim)
+}
+
+/// The geometry when it is of a dimension (none when it is not or is empty), as `tf.vector`'s `_of_kind`. GDAL
+/// gives the parts of a collection of the highest dimension it has, so a line cut by polygons (lines and points)
+/// comes as its lines, and two polygons that overlap and also touch along an edge as their polygons.
+fn of_kind(g: Geometry, dim: usize) -> Option<Geometry> {
+    let ok = match &g {
+        Geometry::Polygon(_) => dim == 2,
+        Geometry::MultiPolygon(m) => dim == 2 && !m.is_empty(),
+        Geometry::LineString(_) => dim == 1,
+        Geometry::MultiLineString(m) => dim == 1 && !m.is_empty(),
+        Geometry::Point(_) => dim == 0,
+        Geometry::MultiPoint(m) => dim == 0 && !m.is_empty(),
+        Geometry::Empty => false,
+    };
+    ok.then_some(g)
 }
 
 /// `vector.overlay`.
@@ -430,22 +465,30 @@ impl Operator for Overlay {
     fn signature(&self) -> OpSignature {
         OpSignature::new(
             "vector.overlay",
-            "Two layers of polygons overlaid, as geopandas' overlay or QGIS's Intersection, Union and Difference \
-             (GEOS through GDAL): the intersection (a polygon where a feature of each meets, with the attributes of \
-             both), the union (those, and the parts of each layer the other does not cover, with only their own \
-             attributes) or the difference (each feature of the first less the second's). The second layer is \
-             reprojected to the first's.",
+            "Two layers overlaid, as geopandas' overlay, PostGIS's ST_Intersection, ST_Difference and ST_SymDifference \
+             and QGIS's Intersection, Union, Difference, Symmetrical difference and Identity (GEOS through GDAL): the \
+             intersection (a piece where a feature of each meets, with the attributes of both), the union (those, \
+             and the parts of each layer the other does not cover, with only their own attributes), the difference \
+             (each feature of the first less the second's), the symmetric difference (the parts of each layer the \
+             other does not cover, without the pieces) or the identity (the pieces, and the parts of the first \
+             layer the second does not cover). The second layer is polygons; the first may also be lines or points \
+             for the intersection, difference and identity (the parts of a line inside the polygons, the points \
+             inside), and a piece that is not of the first layer's kind is dropped. The second layer is reprojected \
+             to the first's.",
             Access::None,
         )
-        .input(PortSpec::new("vector", Type::Vector, "the first layer of polygons"))
+        .input(PortSpec::new("vector", Type::Vector, "the first layer (polygons, or lines or points: see how)"))
         .input(PortSpec::new("other", Type::Vector, "the second layer of polygons"))
-        .output(PortSpec::new("vector", Type::Vector, "the polygons overlaid"))
+        .output(PortSpec::new("vector", Type::Vector, "the pieces overlaid"))
         .output(PortSpec::new("table", Type::Table, "their attributes"))
-        .param(PortSpec::optional("how", Type::Text, "intersection (default), union or difference").choices([
-            "intersection",
-            "union",
-            "difference",
-        ]))
+        .param(
+            PortSpec::optional(
+                "how",
+                Type::Text,
+                "intersection (default), union, difference, symmetric_difference or identity",
+            )
+            .choices(["intersection", "union", "difference", "symmetric_difference", "identity"]),
+        )
         .param(PortSpec::optional("suffix", Type::Text, "after a name of the second layer the first has (_2)"))
     }
 
@@ -455,51 +498,51 @@ impl Operator for Overlay {
         let a = vector_of(args, "vector")?;
         let b = like(vector_of(args, "other")?, &a.crs)?;
         let how: String = args.param("how", "intersection".to_string())?;
-        if !matches!(how.as_str(), "intersection" | "union" | "difference") {
-            return Err(err(format!("how {how:?}: intersection, union or difference")));
+        if !matches!(how.as_str(), "intersection" | "union" | "difference" | "symmetric_difference" | "identity") {
+            return Err(err(format!("how {how:?}: intersection, union, difference, symmetric_difference or identity")));
         }
-        for (v, which) in [(a.as_ref(), "first"), (b.as_ref(), "second")] {
-            if v.geometries.iter().any(|g| !g.is_polygonal() && !matches!(g, Geometry::Empty)) {
-                return Err(err(format!("the {which} layer is not polygons")));
-            }
-        }
+        let first: &[usize] =
+            if matches!(how.as_str(), "intersection" | "difference" | "identity") { &[0, 1, 2] } else { &[2] };
+        let dim = layer_dimension(a, "the first layer", first).map_err(err)?;
+        layer_dimension(&b, "the second layer", &[2]).map_err(err)?;
         let suffix: String = args.param("suffix", "_2".to_string())?;
         // the features of b meeting each of a
         let meets = meetings(a, &b, Predicate::Intersects, None).map_err(err)?;
         let mut geoms = Vec::new();
         let mut from: Vec<(Option<usize>, Option<usize>)> = Vec::new();
-        if how != "difference" {
+        if matches!(how.as_str(), "intersection" | "union" | "identity") {
             for (i, js) in meets.iter().enumerate() {
                 for &j in js {
-                    let cut = terraflux_gdal::intersection(std::slice::from_ref(&a.geometries[i]), &b.geometries[j])
-                        .map_err(err)?;
-                    if let Some(g) = cut.into_iter().next().and_then(polygonal) {
+                    let cut =
+                        terraflux_gdal::intersection_of(&a.geometries[i], &b.geometries[j]).map_err(err)?;
+                    if let Some(g) = cut.and_then(|g| of_kind(g, dim)) {
                         geoms.push(g);
                         from.push((Some(i), Some(j)));
                     }
                 }
             }
         }
-        let less = |g: &Geometry, others: Vec<&Geometry>| -> Result<Option<Geometry>> {
+        // g less the union of others (g itself when there are none; none when nothing of its kind is left)
+        let less = |g: &Geometry, others: Vec<&Geometry>, dim: usize| -> Result<Option<Geometry>> {
             if others.is_empty() {
                 return Ok(Some(g.clone()));
             }
             let u = terraflux_gdal::union(&others).map_err(err)?;
-            Ok(polygonal(terraflux_gdal::difference(g, &u).map_err(err)?))
+            Ok(terraflux_gdal::difference_of(g, &u).map_err(err)?.and_then(|g| of_kind(g, dim)))
         };
         if how != "intersection" {
             for (i, js) in meets.iter().enumerate() {
-                if let Some(g) = less(&a.geometries[i], js.iter().map(|&j| &b.geometries[j]).collect())? {
+                if let Some(g) = less(&a.geometries[i], js.iter().map(|&j| &b.geometries[j]).collect(), dim)? {
                     geoms.push(g);
                     from.push((Some(i), None));
                 }
             }
         }
-        if how == "union" {
+        if matches!(how.as_str(), "union" | "symmetric_difference") {
             for j in 0..b.len() {
                 let is: Vec<&Geometry> =
                     (0..a.len()).filter(|i| meets[*i].contains(&j)).map(|i| &a.geometries[i]).collect();
-                if let Some(g) = less(&b.geometries[j], is)? {
+                if let Some(g) = less(&b.geometries[j], is, 2)? {
                     geoms.push(g);
                     from.push((None, Some(j)));
                 }

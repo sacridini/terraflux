@@ -381,3 +381,233 @@ fn indexed_pairs_match_a_loop_over_the_same_predicates() {
         assert_eq!(*got, best, "nearest of {i}");
     }
 }
+
+// ---------------------------------------------------------------------------------- against tf.vector
+
+fn root() -> &'static std::path::Path {
+    std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+}
+
+/// A layer of tests/data/reference/vectors (tools/make_vector_predicates_reference.py), read by vector.read.
+fn read(name: &str) -> Value {
+    let path = root().join(format!("tests/data/reference/vectors/pred_{name}.gpkg"));
+    let out = run("vector.read", vec![], json!({ "path": path.to_string_lossy() }));
+    out["vector"].clone()
+}
+
+fn reference() -> serde_json::Value {
+    let text = std::fs::read_to_string(root().join("tests/data/reference/vector_predicates.json")).unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+fn ints(v: &serde_json::Value) -> Vec<usize> {
+    v.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as usize).collect()
+}
+
+/// Numbers with null as NaN.
+fn floats(v: &serde_json::Value) -> Vec<f64> {
+    v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect()
+}
+
+/// The indices a column of ids (NaN: none) holds, -1 for none.
+fn ids(v: &Vector, name: &str) -> Vec<i64> {
+    numbers(v, name).iter().map(|x| if x.is_nan() { -1 } else { *x as i64 }).collect()
+}
+
+fn len_of(v: &Value) -> usize {
+    let Value::Vector(v) = v else { panic!() };
+    v.len()
+}
+
+/// Same values, NaN with NaN; `bits` demands the very same bits, else 1e-12 relative.
+fn same(got: &[f64], want: &[f64], bits: bool, what: &str) {
+    assert_eq!(got.len(), want.len(), "{what}: length");
+    for (k, (g, w)) in got.iter().zip(want).enumerate() {
+        let ok = if g.is_nan() || w.is_nan() {
+            g.is_nan() && w.is_nan()
+        } else if bits {
+            g.to_bits() == w.to_bits()
+        } else {
+            let rel = (g - w).abs() / w.abs().max(1.0);
+            if rel > 0.0 {
+                eprintln!("{what}[{k}]: differs by {rel:e} relative");
+            }
+            rel <= 1e-12
+        };
+        assert!(ok, "{what}[{k}]: {g:?} against {w:?}");
+    }
+}
+
+/// The area (holes less), length or number of points of a geometry.
+fn measure(g: &Geometry) -> f64 {
+    let len = |l: &Vec<[f64; 2]>| l.windows(2).map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1])).sum::<f64>();
+    match g {
+        Geometry::Empty => 0.0,
+        Geometry::Point(_) => 1.0,
+        Geometry::MultiPoint(p) => p.len() as f64,
+        Geometry::LineString(l) => len(l),
+        Geometry::MultiLineString(m) => m.iter().map(len).sum(),
+        Geometry::Polygon(_) | Geometry::MultiPolygon(_) => g
+            .polygons()
+            .iter()
+            .map(|poly| {
+                poly.iter()
+                    .enumerate()
+                    .map(|(k, r)| {
+                        let a: f64 =
+                            r.windows(2).map(|w| w[0][0] * w[1][1] - w[1][0] * w[0][1]).sum::<f64>().abs() / 2.0;
+                        if k == 0 { a } else { -a }
+                    })
+                    .sum::<f64>()
+            })
+            .sum(),
+    }
+}
+
+#[test]
+fn predicates_match_tf_vector() {
+    if !has_gdal() {
+        return;
+    }
+    let want = reference();
+    // the reference is GEOS 3.13 (shapely 2.1): the numbers are compared to the bit when this GEOS is the same
+    // release, else to 1e-12 relative
+    let geos = terraflux_gdal::geos::geos().unwrap().version.clone();
+    let release = |v: &str| v.split('.').take(2).collect::<Vec<_>>().join(".");
+    let bits = release(&geos) == release(want["geos"].as_str().unwrap());
+    eprintln!("GEOS {geos}, reference {}: {}", want["geos"], if bits { "to the bit" } else { "to 1e-12" });
+    let zones = read("zones");
+    let (distance, max) = (want["distance"].as_f64().unwrap(), want["max_distance"].as_f64().unwrap());
+    let predicates: Vec<String> =
+        want["predicates"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_string()).collect();
+    for layer in ["points", "lines", "polys"] {
+        let a = read(layer);
+        let n = len_of(&a);
+        for p in &predicates {
+            let at = format!("{layer} {p}");
+            let with = |extra: serde_json::Value| {
+                let mut m = json!({ "predicate": p }).as_object().unwrap().clone();
+                if p == "dwithin" {
+                    m.insert("distance".into(), json!(distance));
+                }
+                m.extend(extra.as_object().unwrap().clone());
+                serde_json::Value::Object(m)
+            };
+            let ins = || vec![("vector", a.clone()), ("other", zones.clone())];
+            // select_by_location, kept and inverted
+            let keep = ints(&want["relate"][layer][p]);
+            let r = vector(&run("vector.select_by_location", ins(), with(json!({}))));
+            let got: Vec<usize> = numbers(&r, "aid").iter().map(|&x| x as usize).collect();
+            assert_eq!(got, keep, "select {at}");
+            let r = vector(&run("vector.select_by_location", ins(), with(json!({ "invert": true }))));
+            let got: Vec<usize> = numbers(&r, "aid").iter().map(|&x| x as usize).collect();
+            let rest: Vec<usize> = (0..n).filter(|i| !keep.contains(i)).collect();
+            assert_eq!(got, rest, "select inverted {at}");
+            if p == "disjoint" {
+                // the count of the features of b a feature does not meet: all of them less those it intersects
+                let hit = vector(&run("vector.spatial_join", ins(), json!({ "mode": "summary" })));
+                let count: Vec<f64> = numbers(&hit, "count").iter().map(|c| len_of(&zones) as f64 - c).collect();
+                same(&count, &floats(&want["count"][layer][p]), true, &format!("count {at}"));
+                continue;
+            }
+            // the pairs, one row per pair (a feature with none once)
+            let r = vector(&run("vector.spatial_join", ins(), with(json!({ "mode": "all" }))));
+            let got: Vec<[i64; 2]> = ids(&r, "aid").into_iter().zip(ids(&r, "zid")).map(|(i, j)| [i, j]).collect();
+            let pairs: Vec<[i64; 2]> = want["pairs"][layer][p]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| [x[0].as_i64().unwrap(), x[1].as_i64().unwrap()])
+                .collect();
+            assert_eq!(got, pairs, "pairs {at}");
+            // the first match's attributes
+            let r = vector(&run("vector.spatial_join", ins(), with(json!({ "mode": "attributes" }))));
+            let first = &want["first"][layer][p];
+            same(&numbers(&r, "zid"), &floats(&first["zid"]), true, &format!("first zid {at}"));
+            same(&numbers(&r, "val"), &floats(&first["val"]), true, &format!("first val {at}"));
+            let names: Vec<Option<String>> =
+                first["name_2"].as_array().unwrap().iter().map(|x| x.as_str().map(String::from)).collect();
+            let got = texts(&r, "name_2");
+            assert!(got.iter().zip(&names).all(|(g, w)| g == w.as_deref().unwrap_or("")), "first name_2 {at}");
+            // the counts and the sums and means of the matches
+            let r = vector(&run("vector.spatial_join", ins(), with(json!({ "mode": "summary", "fields": "val,zid" }))));
+            let s = &want["summary"][layer][p];
+            same(&numbers(&r, "count"), &floats(&s["count"]), true, &format!("summary count {at}"));
+            same(&numbers(&r, "count"), &floats(&want["count"][layer][p]), true, &format!("count {at}"));
+            for c in ["val_sum", "val_mean", "zid_sum"] {
+                same(&numbers(&r, c), &floats(&s[c]), bits, &format!("{c} {at}"));
+            }
+        }
+        // the nearest feature, and its distance
+        for (key, params) in [("nearest", json!({})), ("nearest_max", json!({ "max_distance": max }))] {
+            let r = vector(&run("vector.nearest", vec![("vector", a.clone()), ("other", zones.clone())], params));
+            let w = &want[key][layer];
+            same(&numbers(&r, "zid"), &floats(&w["zid"]), true, &format!("{key} {layer} zid"));
+            same(&numbers(&r, "distance"), &floats(&w["distance"]), bits, &format!("{key} {layer} distance"));
+        }
+    }
+}
+
+#[test]
+fn overlay_matches_tf_vector() {
+    if !has_gdal() {
+        return;
+    }
+    let want = reference();
+    let zones = read("zones");
+    for layer in ["points", "lines", "polys"] {
+        let a = read(layer);
+        for (how, pieces) in want["overlay"][layer].as_object().unwrap() {
+            let at = format!("{layer} {how}");
+            let params = json!({ "how": how });
+            let r = vector(&run("vector.overlay", vec![("vector", a.clone()), ("other", zones.clone())], params));
+            let pieces = pieces.as_array().unwrap();
+            assert_eq!(r.len(), pieces.len(), "{at}: pieces");
+            let from_a = ids(&r, "aid");
+            let from_b = if how == "difference" { vec![-1; r.len()] } else { ids(&r, "zid") };
+            let size: Vec<f64> = r.geometries.iter().map(measure).collect();
+            for (k, w) in pieces.iter().enumerate() {
+                let from = (from_a[k], from_b[k]);
+                assert_eq!(from, (w[0].as_i64().unwrap(), w[1].as_i64().unwrap()), "{at} piece {k}");
+                let m = w[2].as_f64().unwrap();
+                assert!((size[k] - m).abs() <= 1e-9 * m.abs().max(1.0), "{at} piece {k}: {} against {m}", size[k]);
+            }
+        }
+    }
+}
+
+#[test]
+fn overlay_refuses_the_kinds_it_cannot_do() {
+    if !has_gdal() {
+        return;
+    }
+    let zones = layer(vec![rect(0.0, 0.0, 10.0, 10.0)], vec![("z", Column::Numbers(vec![1.0]))], None);
+    let fail = |a: Value, how: &str| -> String {
+        let params = json!({ "how": how });
+        let args = Args {
+            node: "n",
+            inputs: [("vector".to_string(), a), ("other".to_string(), zones.clone())].into_iter().collect(),
+            params: params.as_object().unwrap(),
+        };
+        Registry::standard().get("vector.overlay").unwrap().run(&mut Ctx::default(), &args).unwrap_err().to_string()
+    };
+    let lines = layer(vec![Geometry::LineString(vec![[-5.0, 5.0], [5.0, 5.0]])], vec![], None);
+    assert!(fail(lines, "union").contains("the first layer is lines, it needs polygons"));
+    let mixed = layer(vec![pt(1.0, 1.0), rect(0.0, 0.0, 1.0, 1.0)], vec![], None);
+    assert!(fail(mixed, "identity").contains("mixes points, lines and polygons"));
+    let points = layer(vec![pt(1.0, 1.0)], vec![], None);
+    assert!(fail(points, "symmetric_difference").contains("the first layer is points, it needs polygons"));
+    let not_polygons = layer(vec![pt(1.0, 1.0)], vec![], None);
+    let args_other = |how: &str| -> String {
+        let params = json!({ "how": how });
+        let args = Args {
+            node: "n",
+            inputs: [("vector".to_string(), not_polygons.clone()), ("other".to_string(), not_polygons.clone())]
+                .into_iter()
+                .collect(),
+            params: params.as_object().unwrap(),
+        };
+        Registry::standard().get("vector.overlay").unwrap().run(&mut Ctx::default(), &args).unwrap_err().to_string()
+    };
+    assert!(args_other("intersection").contains("the second layer is points, it needs polygons"));
+}

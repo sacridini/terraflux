@@ -608,13 +608,6 @@ def _polygonal(geometries, what):
             raise ValueError(f"{what} is not polygons")
 
 
-def _in_crs(other, vector):
-    """Features in the coordinate system of others (reprojected when both are known and differ)."""
-    if other.crs is not None and vector.crs is not None and other.crs != vector.crs:
-        return other.to_crs(vector.crs)
-    return other
-
-
 def _extract(raster, points, **options):
     """vector.extract: the points as they are with the values of a map (value) or of every layer of a stack (by its
     name) at them, terraflux's extract; with a buffer, the statistics of the cells around each (count, mean, min,
@@ -626,53 +619,6 @@ def _extract(raster, points, **options):
     if options.get("buffer") is None and len(new) == 1:
         got, new = got.rename(columns={new[0]: "value"}), ["value"]
     return _with(points, {c: got[c].to_numpy() for c in new})
-
-
-def _buffer(vector, distance, segments=16, dissolve=False):
-    """vector.buffer: the area within a distance of every feature (GEOS, segments to a quarter circle), its
-    attributes kept; or every buffer merged into one feature (dissolve)."""
-    import geopandas as gpd
-    import shapely
-
-    geometries = shapely.buffer(_geometries(vector), distance, quad_segs=int(segments))
-    if dissolve:
-        return gpd.GeoDataFrame(geometry=[shapely.union_all(geometries)], crs=vector.crs)
-    out = vector.copy()
-    out[vector.geometry.name] = geometries
-    return out
-
-
-def _clip(vector, mask):
-    """vector.clip: each feature's part inside the mask (the union of its polygons, reprojected to the features),
-    those outside it left out, their attributes kept."""
-    import shapely
-
-    mask = _in_crs(mask, vector)
-    _polygonal(_geometries(mask), "the mask")
-    cut = shapely.intersection(_geometries(vector), shapely.union_all(_geometries(mask)))
-    keep = ~(shapely.is_empty(cut) | shapely.is_missing(cut))
-    out = vector[keep].copy()
-    out[vector.geometry.name] = cut[keep]
-    return out.reset_index(drop=True)
-
-
-def _dissolve(vector, by=None):
-    """vector.dissolve: the features merged (GEOS's union), all into one or one per value of `by` (in the order of
-    their first feature) with that value, and the features merged (count)."""
-    import geopandas as gpd
-    import shapely
-
-    if by:
-        if by not in vector.columns:
-            raise KeyError(f"the features have no attribute {by!r}")
-        codes = _pd.factorize(vector[by], use_na_sentinel=False)[0]
-    else:
-        codes = _np.zeros(len(vector), dtype=int)
-    members = [_np.flatnonzero(codes == k) for k in range(codes.max() + 1 if len(codes) else 0)]
-    data = {by: vector[by].to_numpy()[_np.array([m[0] for m in members], dtype=int)]} if by else {}
-    data["count"] = [len(m) for m in members]
-    geometries = [shapely.union_all(_geometries(vector)[m]) for m in members]
-    return gpd.GeoDataFrame(data, geometry=geometries, crs=vector.crs)
 
 
 def _reproject(vector, crs=None, like=None):
@@ -705,109 +651,6 @@ def _join_features(vector, table, on=None, key=None):
             first.setdefault(k, i)
     side = t.drop(columns=[key]).reindex([first.get(x, -1) if x == x else -1 for x in of])
     return _with(vector, {c: side[c].to_numpy() for c in side.columns})
-
-
-def _meets(a, b):
-    """The pairs (i, j) of the features of a and b that meet (GEOS's intersects), by i then j."""
-    if len(a) == 0 or len(b) == 0:
-        return _np.zeros(0, dtype=int), _np.zeros(0, dtype=int)
-    i, j = b.sindex.query(_geometries(a), predicate="intersects")
-    order = _np.lexsort((j, i))
-    return i[order], j[order]
-
-
-def _joined(a, b, ia, ib, suffix):
-    """The attributes of features made from those of two layers: a's, then b's (a name a has with the suffix), each
-    from the feature of each it came from (-1: none, no value)."""
-    left = _pd.DataFrame(a.drop(columns=a.geometry.name)).reset_index(drop=True).reindex(ia).reset_index(drop=True)
-    right = _pd.DataFrame(b.drop(columns=b.geometry.name)).reset_index(drop=True).reindex(ib).reset_index(drop=True)
-    right.columns = [f"{c}{suffix}" if c in left.columns else c for c in right.columns]
-    return _pd.concat([left, right], axis=1)
-
-
-def _spatial_join(vector, other, mode="attributes", fields=None, suffix="_2"):
-    """vector.spatial_join: every feature with the attributes of the first feature of the other layer it meets
-    (attributes), or the count of those it meets and the sums and means of their attributes `fields` (summary); the
-    other layer reprojected to the first's."""
-    import geopandas as gpd
-
-    other = _in_crs(other, vector)
-    i, j = _meets(vector, other)
-    n = len(vector)
-    if mode == "attributes":
-        first = _np.full(n, -1)
-        lead = _np.r_[True, i[1:] != i[:-1]] if len(i) else _np.zeros(0, dtype=bool)
-        first[i[lead]] = j[lead]
-        attributes = _joined(vector, other, list(range(n)), list(first), suffix)
-        return gpd.GeoDataFrame(attributes, geometry=_geometries(vector), crs=vector.crs)
-    if mode == "summary":
-        columns = {"count": _np.bincount(i, minlength=n).astype("float64")}
-        for f in _names(fields):
-            if f not in other.columns:
-                raise KeyError(f"the other layer has no attribute {f!r}")
-            x = _np.array([_parse(v) for v in other[f]], dtype="float64")[j]
-            ok = ~_np.isnan(x)
-            sums = _np.bincount(i[ok], weights=x[ok], minlength=n)
-            counts = _np.bincount(i[ok], minlength=n)
-            columns[f"{f}_sum"] = sums
-            columns[f"{f}_mean"] = _np.where(counts > 0, sums / _np.maximum(counts, 1), _np.nan)
-        return _with(vector, columns)
-    raise ValueError(f"mode {mode!r}: attributes or summary")
-
-
-def _overlay(vector, other, how="intersection", suffix="_2"):
-    """vector.overlay: two layers of polygons overlaid (GEOS): the intersection (a polygon where a feature of each
-    meets, the attributes of both), the union (those, then the parts of each layer the other does not cover, with
-    only their own attributes) or the difference (each feature of the first less the second's); the second layer
-    reprojected to the first's."""
-    import geopandas as gpd
-    import shapely
-
-    if how not in ("intersection", "union", "difference"):
-        raise ValueError(f"how {how!r}: intersection, union or difference")
-    other = _in_crs(other, vector)
-    ga, gb = _geometries(vector), _geometries(other)
-    _polygonal(ga, "the first layer")
-    _polygonal(gb, "the second layer")
-    i, j = _meets(vector, other)
-    meets = [[] for _ in ga]
-    for a, b in zip(i, j):
-        meets[a].append(b)
-
-    def polygonal(g):
-        return g if g is not None and not g.is_empty and g.geom_type in ("Polygon", "MultiPolygon") else None
-
-    def less(g, others):
-        return g if not others else polygonal(shapely.difference(g, shapely.union_all(others)))
-
-    geometries, ia, ib = [], [], []
-    if how != "difference":
-        for a, js in enumerate(meets):
-            for b in js:
-                g = polygonal(shapely.intersection(ga[a], gb[b]))
-                if g is not None:
-                    geometries.append(g)
-                    ia.append(a)
-                    ib.append(b)
-    if how != "intersection":
-        for a, js in enumerate(meets):
-            g = less(ga[a], [gb[b] for b in js])
-            if g is not None:
-                geometries.append(g)
-                ia.append(a)
-                ib.append(-1)
-    if how == "union":
-        for b in range(len(gb)):
-            g = less(gb[b], [ga[a] for a, js in enumerate(meets) if b in js])
-            if g is not None:
-                geometries.append(g)
-                ia.append(-1)
-                ib.append(b)
-    if how == "difference":
-        attributes = _pd.DataFrame(vector.drop(columns=vector.geometry.name)).iloc[ia].reset_index(drop=True)
-    else:
-        attributes = _joined(vector, other, ia, ib, suffix)
-    return gpd.GeoDataFrame(attributes, geometry=geometries, crs=vector.crs)
 
 
 def _rings(g):

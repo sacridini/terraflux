@@ -1456,13 +1456,25 @@ const PHRASES: &[(&str, &str)] = &[
         "vector.join",
         "The columns of <table> joined to the features of <vector>[ by their attribute {on}][ and its column {key}].",
     ),
-    ("vector.overlay", "The {how} of the polygons <vector> and <other>."),
+    (
+        "vector.nearest",
+        "Each feature of <vector> with the attributes of the nearest of <other>[ within {max_distance}].",
+    ),
+    ("vector.overlay", "The {how} of the layers <vector> and <other>."),
     (
         "vector.rasterize",
         "The features of <vector> burnt into the grid of <like>[, the attribute {field}][, the value {value}].",
     ),
     ("vector.reproject", "The features of <vector> reprojected[ to {crs}][ to the system of <like>]."),
-    ("vector.spatial_join", "The features of <other> joined to those of <vector> where they meet ({mode})."),
+    (
+        "vector.select_by_location",
+        "The features of <vector> that meet <other>[ by {predicate}][ within {distance}][ (inverted: {invert})].",
+    ),
+    (
+        "vector.spatial_join",
+        "The features of <other> joined to those of <vector> where they meet[ by {predicate}][ within {distance}] \
+         ({mode}).",
+    ),
     ("woe.weights", "Weights of evidence given in the model."),
 ];
 

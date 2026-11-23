@@ -1193,6 +1193,8 @@ pub fn script(m: &Model, r: &Registry, model_path: Option<&Path>) -> Script {
     head.push_str("OUT = MODEL_DIR / \"output\"\n\n");
     // (the tools run the calculator's expressions: its helper first)
     w.calc |= w.tools;
+    // (the table of features, which the nodes of the library's functions do not ask for themselves)
+    w.flow |= body.contains("_attributes(");
     if w.calc {
         head.push_str("\n# --- Terraflux's calculator (raster.calc, and the expressions over rows) in numpy ---\n\n");
         head.push_str(CALC_HELPER.trim_end());
@@ -2444,7 +2446,8 @@ enum Gives {
 }
 
 /// An operator of tables or of features translated as a call of a helper of the script (python_flow.py), which
-/// does what Terraflux does: the node's inputs or settings `first` by position (needed), then those of `named`
+/// does what Terraflux does, or of a function of the library (`call` starting with `tf.`: the script needs no
+/// helper for it): the node's inputs or settings `first` by position (needed), then those of `named`
 /// given, by their names there.
 struct Frame {
     op: &'static str,
@@ -2508,17 +2511,37 @@ const FRAMES: &[Frame] = &[
     },
     Frame {
         op: "vector.buffer",
-        call: "_buffer",
+        call: "tf.vector.buffer",
         first: &["vector", "distance"],
         named: &[("segments", "segments"), ("dissolve", "dissolve")],
         gives: Gives::Features,
     },
-    Frame { op: "vector.clip", call: "_clip", first: &["vector", "mask"], named: &[], gives: Gives::Features },
+    Frame {
+        op: "vector.clip",
+        call: "tf.vector.clip",
+        first: &["vector", "mask"],
+        named: &[],
+        gives: Gives::Features,
+    },
     Frame {
         op: "vector.dissolve",
-        call: "_dissolve",
+        call: "tf.vector.dissolve",
         first: &["vector"],
         named: &[("by", "by")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.select_by_location",
+        call: "tf.vector.select",
+        first: &["vector", "other"],
+        named: &[("predicate", "predicate"), ("distance", "distance"), ("invert", "invert")],
+        gives: Gives::Features,
+    },
+    Frame {
+        op: "vector.nearest",
+        call: "tf.vector.nearest",
+        first: &["vector", "other"],
+        named: &[("max_distance", "max_distance"), ("suffix", "suffix")],
         gives: Gives::Features,
     },
     Frame {
@@ -2537,14 +2560,21 @@ const FRAMES: &[Frame] = &[
     },
     Frame {
         op: "vector.spatial_join",
-        call: "_spatial_join",
+        call: "tf.vector.join",
         first: &["vector", "other"],
-        named: &[("mode", "mode"), ("fields", "fields"), ("suffix", "suffix")],
+        // (the mode is the library's how: attributes is first)
+        named: &[
+            ("predicate", "predicate"),
+            ("mode", "how"),
+            ("fields", "fields"),
+            ("suffix", "suffix"),
+            ("distance", "distance"),
+        ],
         gives: Gives::Features,
     },
     Frame {
         op: "vector.overlay",
-        call: "_overlay",
+        call: "tf.vector.overlay",
         first: &["vector", "other"],
         named: &[("how", "how"), ("suffix", "suffix")],
         gives: Gives::Features,
@@ -2728,6 +2758,18 @@ fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, 
                 args.push(need(k)?);
             }
             args.extend(named(f.named)?);
+            // (the join's modes are the library's hows: attributes is first)
+            if op == "vector.spatial_join" {
+                for a in &mut args {
+                    if let Some(m) = a.strip_prefix("how=") {
+                        *a = match m {
+                            "\"attributes\"" => "how=\"first\"".to_string(),
+                            "\"all\"" | "\"summary\"" => a.clone(),
+                            m => format!("how={{\"attributes\": \"first\"}}.get({m}, {m})"),
+                        };
+                    }
+                }
+            }
             let known: Vec<&str> = f.first.iter().copied().chain(f.named.iter().map(|(k, _)| *k)).collect();
             // (vector.geometry's geodesic false: the areas in the features' units, as here)
             let known = if op == "vector.geometry" { [known, vec!["geodesic"]].concat() } else { known };
@@ -2737,7 +2779,8 @@ fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, 
                 Gives::Features => features(var),
                 Gives::One(port) => one(port),
             };
-            (code, outs, Need::Flow)
+            // (a function of the library needs no helper; the table of its features does: see the script's head)
+            (code, outs, if f.call.starts_with("tf.") { Need::Nothing } else { Need::Flow })
         }
     };
     Ok(Some(code))
@@ -3204,6 +3247,52 @@ op = "vector.join"
 inputs = { vector = "plots.vector", table = "zones.table" }
 
 [[nodes]]
+id = "inside"
+op = "vector.select_by_location"
+inputs = { vector = "at.vector", other = "ring.vector" }
+params = { predicate = "within", invert = true }
+
+[[nodes]]
+id = "close"
+op = "vector.select_by_location"
+inputs = { vector = "at.vector", other = "ring.vector" }
+params = { predicate = "dwithin", distance = 25.5 }
+
+[[nodes]]
+id = "nearest"
+op = "vector.nearest"
+inputs = { vector = "at.vector", other = "ring.vector" }
+params = { max_distance = 300 }
+
+[[nodes]]
+id = "pairs"
+op = "vector.spatial_join"
+inputs = { vector = "ring.vector", other = "at.vector" }
+params = { mode = "all", predicate = "contains" }
+
+[[nodes]]
+id = "first"
+op = "vector.spatial_join"
+inputs = { vector = "at.vector", other = "ring.vector" }
+
+[[nodes]]
+id = "pieces"
+op = "vector.overlay"
+inputs = { vector = "ring.vector", other = "plots.vector" }
+params = { how = "symmetric_difference" }
+
+[[nodes]]
+id = "cut"
+op = "vector.clip"
+inputs = { vector = "ring.vector", mask = "plots.vector" }
+
+[[nodes]]
+id = "merged"
+op = "vector.dissolve"
+inputs = { vector = "ring.vector" }
+params = { by = "uso" }
+
+[[nodes]]
 id = "near"
 op = "vector.distance"
 inputs = { vector = "plots.vector", like = "land.map" }
@@ -3246,7 +3335,7 @@ from = "counted.table"
         assert!(
             t.contains("dense = _features_calc(plots, \"\"\"\nd = pop / geometry.area\nout dense = d > 1\n\"\"\")\n")
         );
-        assert!(t.contains("ring = _buffer(plots, 50, segments=8)\n"), "{t}");
+        assert!(t.contains("ring = tf.vector.buffer(plots, 50, segments=8)\n"), "{t}");
         assert!(
             t.contains("# (not passed: block_rows = 64)\nat = _extract(land, plots, method=\"bilinear\")\n"),
             "{t}"
@@ -3254,7 +3343,19 @@ from = "counted.table"
         assert!(t.contains("zones = _attributes(tf.zonal_stats(land, ring.geometry, stats=[\"mean\", \"max\"]))\n"));
         assert!(t.contains("burnt = tf.rasterize(plots, land, field=\"pop\", merge=\"add\")\n"), "{t}");
         // features' table: their attributes
-        assert!(t.contains("counted = _spatial_join(ring, at, mode=\"summary\", fields=\"value\")\n"), "{t}");
+        assert!(t.contains("counted = tf.vector.join(ring, at, how=\"summary\", fields=\"value\")\n"), "{t}");
+        // the functions of the library, called as they are
+        assert!(t.contains("inside = tf.vector.select(at, ring, predicate=\"within\", invert=True)\n"), "{t}");
+        assert!(t.contains("close = tf.vector.select(at, ring, predicate=\"dwithin\", distance=25.5)\n"), "{t}");
+        assert!(t.contains("nearest = tf.vector.nearest(at, ring, max_distance=300)\n"), "{t}");
+        assert!(t.contains("pairs = tf.vector.join(ring, at, predicate=\"contains\", how=\"all\")\n"), "{t}");
+        assert!(t.contains("first = tf.vector.join(at, ring)\n"), "{t}");
+        assert!(t.contains("pieces = tf.vector.overlay(ring, plots, how=\"symmetric_difference\")\n"), "{t}");
+        assert!(t.contains("cut = tf.vector.clip(ring, plots)\n"), "{t}");
+        assert!(t.contains("merged = tf.vector.dissolve(ring, by=\"uso\")\n"), "{t}");
+        for gone in ["def _spatial_join", "def _overlay", "def _buffer", "def _clip", "def _dissolve", "def _meets"] {
+            assert!(!t.contains(gone), "{gone}");
+        }
         assert!(t.contains("tf.save(_attributes(counted), OUT / \"counted\")"), "{t}");
         assert!(t.contains("joined = _join_features(plots, zones)\n"), "{t}");
         assert!(t.contains("near = _distance(plots, land)\n"), "{t}");

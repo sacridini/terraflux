@@ -367,8 +367,11 @@ pub const TIPS: &[(&str, &str)] = &[
     (
         "vector.overlay",
         "The intersection keeps the attributes of both layers; the union keeps, for the parts of one layer the \
-         other does not cover, only that layer's own; the difference is the first layer less the second. The \
-         second layer is reprojected to the first's coordinate system.",
+         other does not cover, only that layer's own; the difference is the first layer less the second; the \
+         symmetric difference is the union without the pieces; the identity is the first layer, cut where the \
+         second meets it, with the second's attributes there. The first layer may be lines or points (not for the \
+         union or symmetric difference): the pieces are the parts of a line inside the polygons, the points \
+         inside. The second layer is reprojected to the first's coordinate system.",
     ),
     (
         "vector.spatial_join",
