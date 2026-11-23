@@ -5950,3 +5950,9 @@ tabela de equivalência, `python/api/vector.md` e a seção da calculadora. Fico
     do vizinho): um nó que "node" a camada (shapely `node` + `polygonize`) ou um `vector.polygonize` que já dê os
     vértices partilhados deixaria usar `vector.coverage_simplify` direto;
   - o Delaunay do GEOS 3.13 e 3.14 escolhe diagonais diferentes com quatro pontos cocirculares.
+
+### Uma cobertura a partir do `vector.polygonize` (pedido de 2026-11-23)
+
+Polígonos do `vector.polygonize`: não formam uma cobertura válida para o GEOS, porque o canto de um polígono cai no
+meio da aresta do vizinho, sem vértice ali. As dicas agora mandam validar antes. Para usar
+`vector.coverage_simplify` direto, falta um nó que acrescente esses vértices partilhados.
