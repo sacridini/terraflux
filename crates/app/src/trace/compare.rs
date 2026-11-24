@@ -75,6 +75,32 @@ pub struct Comparison {
     pub pairs: Vec<Pair>,
     /// Where the difference begins.
     pub roots: Vec<Root>,
+    /// The step where the two series part (from 0), when what is compared is a loop's series that differs: where the
+    /// difference begins is looked for at that step (until then everything was the same, what the step before
+    /// carried too).
+    pub step: Option<usize>,
+}
+
+/// The step where two series part (from 0).
+fn parting(a: &Option<At>, b: &Option<At>) -> Option<usize> {
+    let (Some(At::Steps(p)), Some(At::Steps(q))) = (a, b) else { return None };
+    (0..p.len().min(q.len())).find(|&k| !same_number(p[k], q[k]))
+}
+
+/// Two values the same at a step: a series at that step, the others whole.
+fn same_at(a: &Option<At>, b: &Option<At>, step: Option<usize>) -> bool {
+    match (step, a, b) {
+        (Some(s), Some(At::Steps(p)), Some(At::Steps(q))) if s < p.len() && s < q.len() => same_number(p[s], q[s]),
+        _ => same(a, b),
+    }
+}
+
+/// A value in words at a step: a series' value there ("1 at step 7"), the others whole.
+fn told_at(v: &Option<At>, step: Option<usize>) -> String {
+    match (step, v) {
+        (Some(s), Some(At::Steps(p))) if s < p.len() => format!("{} at step {}", crate::report::cell(p[s]), s + 1),
+        _ => told(v),
+    }
 }
 
 /// Two numbers the same: the same bits a calculation gives (NaN as NaN).
@@ -148,22 +174,40 @@ pub fn compare_named(a: &Trace, b: &Trace, names: [&str; 2]) -> Comparison {
             pairs.push(pair(s, None, Some(j), Kind::OnlyB));
         }
     }
+    // (series that part at a step: each node compared at that step)
+    let step = parting(&a.steps.first().and_then(|s| s.value.clone()), &b.steps.first().and_then(|s| s.value.clone()));
+    let at_step: Vec<Kind> = pairs
+        .iter()
+        .map(|p| match (p.a, p.b) {
+            (Some(i), Some(j)) if same_at(&a.steps[i].value, &b.steps[j].value, step) => Kind::Same,
+            (Some(_), Some(_)) => Kind::Different,
+            _ => p.kind,
+        })
+        .collect();
     let mut roots = Vec::new();
     for (k, p) in pairs.iter().enumerate() {
         let (Some(i), Some(j)) = (p.a, p.b) else { continue };
         let (sa, sb) = (&a.steps[i], &b.steps[j]);
-        // a switch that ran other branches: the difference begins there, whatever its inputs
+        // a switch that ran other branches: the difference begins there, whatever its inputs (in a loop, at the
+        // step the series part)
         if let (How::Branch { branch: ba, steps: ta, .. }, How::Branch { branch: bb, steps: tb, .. }) =
             (&sa.how, &sb.how)
-            && (ba != bb || ta != tb)
         {
-            let said = |b: &Option<String>, t: &[String]| {
-                if t.is_empty() { b.clone().unwrap_or_else(|| "not known".into()) } else { super::branches_text(t) }
+            let apart = match step {
+                Some(s) if !ta.is_empty() && !tb.is_empty() => ta.get(s) != tb.get(s),
+                _ => ba != bb || ta != tb,
             };
-            roots.push(Root { pair: k, why: Why::Branch { a: said(ba, ta), b: said(bb, tb) } });
-            continue;
+            if apart {
+                let said = |b: &Option<String>, t: &[String]| match (step.and_then(|s| t.get(s)), t.is_empty()) {
+                    (Some(at), _) => format!("{at} at step {}", step.unwrap_or_default() + 1),
+                    (None, true) => b.clone().unwrap_or_else(|| "not known".into()),
+                    (None, false) => super::branches_text(t),
+                };
+                roots.push(Root { pair: k, why: Why::Branch { a: said(ba, ta), b: said(bb, tb) } });
+                continue;
+            }
         }
-        if p.kind != Kind::Different {
+        if at_step[k] != Kind::Different {
             continue;
         }
         // every input traced the same at both: the difference begins here
@@ -172,16 +216,16 @@ pub fn compare_named(a: &Trace, b: &Trace, names: [&str; 2]) -> Comparison {
             .iter()
             .filter_map(|x| x.step.and_then(|s| of_a[s]))
             .chain(sb.inputs.iter().filter_map(|x| x.step.and_then(|s| of_b[s])));
-        if traced.map(|q| pairs[q].kind).any(|k| k != Kind::Same) {
+        if traced.map(|q| at_step[q]).any(|k| k != Kind::Same) {
             continue;
         }
-        roots.push(Root { pair: k, why: why(sa, sb) });
+        roots.push(Root { pair: k, why: why(sa, sb, step) });
     }
-    Comparison { names: names.map(String::from), a: a.clone(), b: b.clone(), pairs, roots }
+    Comparison { names: names.map(String::from), a: a.clone(), b: b.clone(), pairs, roots, step }
 }
 
-/// Why a node's values differ when the inputs traced are the same at both.
-fn why(sa: &Step, sb: &Step) -> Why {
+/// Why a node's values differ (at the step the series part) when the inputs traced are the same at both.
+fn why(sa: &Step, sb: &Step, step: Option<usize>) -> Why {
     let untraced: Vec<_> = sa
         .inputs
         .iter()
@@ -193,9 +237,9 @@ fn why(sa: &Step, sb: &Step) -> Why {
         if let Some(y) = y
             && x.value.is_some()
             && y.value.is_some()
-            && !same(&x.value, &y.value)
+            && !same_at(&x.value, &y.value, step)
         {
-            return Why::Input { port: x.port.clone(), a: told(&x.value), b: told(&y.value) };
+            return Why::Input { port: x.port.clone(), a: told_at(&x.value, step), b: told_at(&y.value, step) };
         }
     }
     // a node the trace did not reach
@@ -294,6 +338,12 @@ impl Comparison {
         (told(&sa.and_then(|s| s.value.clone())), told(&sb.and_then(|s| s.value.clone())))
     }
 
+    /// The value of a pair at each side at the step the series part (a series' value there), in words.
+    pub fn values_at_step(&self, p: &Pair) -> (String, String) {
+        let (sa, sb) = self.steps(p);
+        (told_at(&sa.and_then(|s| s.value.clone()), self.step), told_at(&sb.and_then(|s| s.value.clone()), self.step))
+    }
+
     /// A side's place in words ("A (row 40, column 12) = 2").
     fn side(&self, k: usize) -> String {
         let t = if k == 0 { &self.a } else { &self.b };
@@ -314,6 +364,13 @@ impl Comparison {
         let mut parts = Vec::new();
         if self.pairs.first().is_some_and(|p| p.kind == Kind::Same) {
             parts.push("the same value, made in other ways".to_string());
+        }
+        if let Some(s) = self.step {
+            parts.push(if s == 0 {
+                "the series differ from the first step".to_string()
+            } else {
+                format!("the series are the same up to step {s} and part at step {}", s + 1)
+            });
         }
         let alike: Vec<String> = self
             .pairs
@@ -339,7 +396,7 @@ impl Comparison {
                 match &r.why {
                     Why::Branch { a, b } => format!("{} (branch {a} against {b})", p.node),
                     _ => {
-                        let (a, b) = self.values(p);
+                        let (a, b) = self.values_at_step(p);
                         format!("{} ({a} against {b})", p.node)
                     }
                 }
@@ -383,10 +440,13 @@ impl Comparison {
         } else if self.roots.is_empty() {
             out.push_str("Where the difference begins is not known from here.\n");
         } else {
+            if let Some(s) = self.step {
+                out.push_str(&format!("The series part at step {}: the nodes compared at that step.\n", s + 1));
+            }
             out.push_str("Where the difference begins:\n");
             for r in &self.roots {
                 let p = &self.pairs[r.pair];
-                let (va, vb) = self.values(p);
+                let (va, vb) = self.values_at_step(p);
                 out.push_str(&format!(
                     "- {}.{} [{}]{}: {a_} {va}, {b_} {vb}: {}\n",
                     p.node,
@@ -564,6 +624,59 @@ mod tests {
         }
         assert!(c.text().contains("Where the difference begins:\n- "), "{}", c.text());
         assert!(c.sentence().contains("they differ from") || c.sentence().contains("They differ from"));
+    }
+
+    #[test]
+    fn two_cells_of_a_loop_part_at_a_step_and_the_difference_is_looked_for_there() {
+        let r = Registry::standard();
+        let m = crate::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").unwrap().model();
+        let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let maps = values("simulation", "maps").unwrap();
+        let grid = grid_of(&maps).unwrap();
+        let series = |(row, col): (usize, usize)| -> Vec<f64> {
+            let (x, y) = crate::trace::centre(&grid, row, col);
+            let Some(At::Steps(s)) = crate::trace::at(&maps, x, y) else { panic!("a series") };
+            s
+        };
+        let cells: Vec<(usize, usize)> =
+            (0..grid.height).flat_map(|row| (0..grid.width).map(move |col| (row, col))).collect();
+        // A, a cell that changes; B, the same at the first step, not after; C, the same series as A
+        let a = *cells.iter().find(|&&c| series(c).windows(2).any(|w| w[0] != w[1])).expect("a cell that changes");
+        let sa = series(a);
+        let b = *cells.iter().find(|&&c| series(c)[0] == sa[0] && series(c) != sa).expect("B");
+        let c_ = *cells.iter().find(|&&c| c != a && series(c) == sa).expect("C");
+        let place = |(row, col)| crate::trace::centre(&grid, row, col);
+        let kept = crate::trace::keep_loops_at(&m, std::path::Path::new(""), &[place(a), place(b), place(c_)]).unwrap();
+        let traced = |cell, k: usize| trace(&m, &r, &values, &kept[k], "simulation", "maps", &grid, cell);
+        let (ta, tb, tc) = (traced(a, 0), traced(b, 1), traced(c_, 2));
+        // into the loop's body: its allocation, with what each step began from
+        let allocate = ta.steps.iter().find(|s| s.node == "allocate").expect("the body traced");
+        assert_eq!(allocate.path, ["simulation"]);
+        assert!(matches!(allocate.how, How::Allocation { .. }), "{:?}", allocate.how);
+        let start = allocate.inputs.iter().find(|i| i.port == "landscape").unwrap();
+        assert!(matches!(&start.value, Some(At::Steps(v)) if v.len() == sa.len()), "{:?}", start.value);
+        let c = compare(&ta, &tb);
+        let s = c.step.expect("they part");
+        assert!(s > 0, "the same at the first step");
+        assert!(c.sentence().contains(&format!("part at step {}", s + 1)), "{}", c.sentence());
+        assert!(!c.roots.is_empty(), "{}", c.text());
+        // each root differs at that step, the inputs it reads the same there
+        for root in &c.roots {
+            let p = &c.pairs[root.pair];
+            let (sa, sb) = c.steps(p);
+            let (sa, sb) = (sa.unwrap(), sb.unwrap());
+            assert!(!same_at(&sa.value, &sb.value, Some(s)), "{}", p.node);
+            for i in sa.inputs.iter().filter_map(|i| i.step) {
+                let q = c.pairs.iter().find(|q| q.a == Some(i)).unwrap();
+                let (qa, qb) = c.steps(q);
+                assert!(same_at(&qa.unwrap().value, &qb.unwrap().value, Some(s)), "{}: {} differs", p.node, q.node);
+            }
+        }
+        // two cells whose series never part
+        let c = compare(&ta, &tc);
+        assert_eq!(c.step, None);
+        assert!(!c.sentence().contains("part at step"), "{}", c.sentence());
     }
 
     /// A step made by hand: a node at the top level, its value and inputs.

@@ -5956,7 +5956,7 @@ impl TerrafluxApp {
             }
             Pane::Trace => {
                 let asked = crate::trace_view::pane(ui, &mut self.trace, s, r);
-                if let Some((_, _, k)) = &self.trace.kept {
+                if let Some((_, _, k)) = self.trace.kept.first() {
                     self.chat.kept = k.clone();
                 }
                 match asked {

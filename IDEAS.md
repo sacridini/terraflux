@@ -5790,6 +5790,16 @@ como um nó do corpo, com as saídas `branch.inner.port`, e o `Keeper` (trace.rs
      igual, o que veio do passo anterior (o `@landscape` carregado) é igual no passo s, e a raiz fica dentro do corpo
      daquele passo. Uma alocação diz a demanda e a posição de cada célula naquele passo.
    - Testes: duas células do CLUE-S que se separam num passo do meio; duas que nunca se separam.
+   - **Feito (2026-11-24).** `keep_loops_at(m, base, &[(x, y)])` (o `Keeper` guarda vários lugares; o `keep_loops`
+     é o caso de um). Com os valores do corpo guardados, o trace entra no corpo do laço pelo nó que dá a porta
+     coletada ("(in its body, at every step) maps": `allocate` no CLUE-S, com a sua `Allocation`); um `@nome` que o
+     `control.repeat` carrega ganha a sua série (`carried_value`: a entrada do laço no passo 1, depois o que o passo
+     anterior fez; `@step` também). `Comparison::step`: o passo em que as séries se separam; a regra da raiz e o
+     `Why::Input` comparam naquele passo (`same_at`), os valores das raízes ditos ali ("2 at step 3"), e a frase diz
+     "the series are the same up to step 2 and part at step 3". No painel, "Trace inside the loops" roda uma vez para
+     as duas células (`State::kept` virou uma lista, um por lugar), e cada cartão mostra o valor no passo em que se
+     separam. Teste `two_cells_of_a_loop_part_at_a_step_and_the_difference_is_looked_for_there`, e o de UI com o
+     corpo do laço comparado.
 
 5. **Entre cenários: a mesma célula em duas execuções, onde o `control.switch` diverge.**
    - "Compare with a scenario..." no Trace: a lista de `s.source.scenarios` (e "the model as it is"). O lado B roda o

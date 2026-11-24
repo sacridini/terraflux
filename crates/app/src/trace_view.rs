@@ -33,6 +33,9 @@ pub type Ask = (String, String, Arc<terraflux_raster::Grid>, (usize, usize), Exp
 /// shown, its patch drawn.
 type Select = (Vec<String>, String, String, Option<usize>);
 
+/// What a run keeping the loops' values at the places gives, when it ends.
+type Keeping = Receiver<Result<Vec<Kept>, String>>;
+
 /// The pane's state (the application's).
 #[derive(Default)]
 pub struct State {
@@ -46,9 +49,10 @@ pub struct State {
     show_all: bool,
     /// The model's revision and the nodes' states it was traced at (traced again when they change).
     made: Option<(u64, u64)>,
-    /// What a run kept inside the loops, at the place (x, y) it was asked for.
-    pub kept: Option<(f64, f64, Kept)>,
-    running: Option<Receiver<Result<Kept, String>>>,
+    /// What a run kept inside the loops, at each place (x, y) it was asked for (the cell traced, then B).
+    pub kept: Vec<(f64, f64, Kept)>,
+    /// A run keeping them: the places, and what it gives.
+    running: Option<(Vec<(f64, f64)>, Keeping)>,
     pub error: Option<String>,
     /// The card to bring into view (an input's node clicked).
     focus: Option<usize>,
@@ -115,10 +119,8 @@ impl State {
         let values = |n: &str, p: &str| s.value_of(n, p);
         let traced = |(node, port, grid, cell, _): &Ask| {
             let (x, y) = crate::trace::centre(grid, cell.0, cell.1);
-            let kept = match &self.kept {
-                Some((kx, ky, k)) if *kx == x && *ky == y => k.clone(),
-                _ => Kept::new(),
-            };
+            let kept =
+                self.kept.iter().find(|(kx, ky, _)| *kx == x && *ky == y).map_or_else(Kept::new, |k| k.2.clone());
             crate::trace::trace(&s.source, r, &values, &kept, node, port, grid, *cell)
         };
         let t = traced(&a);
@@ -152,18 +154,17 @@ fn value(v: &Option<At>) -> RichText {
 
 /// The Trace pane.
 pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Option<Asked> {
-    let got = st.running.as_ref().map(|rx| match rx.try_recv() {
+    let got = st.running.as_ref().map(|(_, rx)| match rx.try_recv() {
         Ok(k) => Some(k),
         Err(std::sync::mpsc::TryRecvError::Empty) => None,
         Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err("the run stopped".into())),
     });
-    if let Some(Some(k)) = got {
-        st.running = None;
+    if let Some(Some(k)) = got
+        && let Some((places, _)) = st.running.take()
+    {
         match k {
             Ok(k) => {
-                if let Some(t) = &st.trace {
-                    st.kept = Some((t.x, t.y, k));
-                }
+                st.kept = places.into_iter().zip(k).map(|((x, y), k)| (x, y, k)).collect();
                 st.made = None;
             }
             Err(e) => st.error = Some(e),
@@ -203,7 +204,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             };
             if let Some(c) = st.comparison.clone() {
                 theme::section(ui, "Two cells compared");
-                compared(ui, st, &c, &mut select, &mut asked);
+                compared(ui, st, s, &c, &mut select, &mut asked);
                 return;
             }
             theme::section(ui, "Trace of a cell");
@@ -226,28 +227,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                 {
                     asked = Some(Asked::Assistant(question(&t)));
                 }
-                let loops = s.source.nodes.iter().any(has_loop);
-                if loops
-                    && ui
-                        .add_enabled(!st.running() && !s.running(), egui::Button::new("Trace inside the loops"))
-                        .on_hover_text(
-                            "run the model again keeping what the nodes of its loops give at this cell, step by step",
-                        )
-                        .clicked()
-                {
-                    let (m, base, x, y) = (s.source.clone(), s.base(), t.x, t.y);
-                    let (tx, rx) = channel();
-                    let ctx = ui.ctx().clone();
-                    std::thread::spawn(move || {
-                        let _ = tx.send(crate::trace::keep_loops(&m, &base, x, y));
-                        ctx.request_repaint();
-                    });
-                    st.running = Some(rx);
-                }
-                if st.running() {
-                    ui.spinner();
-                    ui.label(weak("running again...").small());
-                }
+                inside_loops(ui, st, s);
                 if ui.button("Copy").on_hover_text("the trace as text").clicked() {
                     ui.ctx().copy_text(format!("{}\n\n{}", t.sentence(), t.text()));
                 }
@@ -381,6 +361,39 @@ fn question(t: &Trace) -> String {
     )
 }
 
+/// Trace inside the loops (a model with loops): the model run again keeping what the nodes of its loops give at the
+/// cells traced (the two compared at once), step by step; a spinner while it runs.
+fn inside_loops(ui: &mut Ui, st: &mut State, s: &Session) {
+    if !s.source.nodes.iter().any(has_loop) {
+        return;
+    }
+    let places = st.places();
+    let tip = if places.len() > 1 {
+        "run the model again keeping what the nodes of its loops give at the two cells, step by step: where their \
+         series part"
+    } else {
+        "run the model again keeping what the nodes of its loops give at this cell, step by step"
+    };
+    if ui
+        .add_enabled(!st.running() && !s.running(), egui::Button::new("Trace inside the loops"))
+        .on_hover_text(tip)
+        .clicked()
+    {
+        let (m, base, at) = (s.source.clone(), s.base(), places.clone());
+        let (tx, rx) = channel();
+        let ctx = ui.ctx().clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::trace::keep_loops_at(&m, &base, &at));
+            ctx.request_repaint();
+        });
+        st.running = Some((places, rx));
+    }
+    if st.running() {
+        ui.spinner();
+        ui.label(weak("running again...").small());
+    }
+}
+
 /// The question to the assistant of a comparison: why the two cells differ, from the comparison.
 fn compare_question(c: &Comparison) -> String {
     let (node, port) = c.a.steps.first().map_or(("", ""), |s| (s.node.as_str(), s.port.as_str()));
@@ -406,7 +419,14 @@ fn letter(ui: &mut Ui, k: usize) {
 
 /// The two cells compared: where they are and their values, the sentence, where the difference begins and why,
 /// then the chain of nodes (those that differ shown, those the same collapsed).
-fn compared(ui: &mut Ui, st: &mut State, c: &Comparison, select: &mut Option<Select>, asked: &mut Option<Asked>) {
+fn compared(
+    ui: &mut Ui,
+    st: &mut State,
+    s: &Session,
+    c: &Comparison,
+    select: &mut Option<Select>,
+    asked: &mut Option<Asked>,
+) {
     for (k, t) in [(0, &c.a), (1, &c.b)] {
         ui.horizontal_wrapped(|ui| {
             letter(ui, k);
@@ -435,6 +455,7 @@ fn compared(ui: &mut Ui, st: &mut State, c: &Comparison, select: &mut Option<Sel
         if ui.button("Swap A and B").clicked() {
             st.swap();
         }
+        inside_loops(ui, st, s);
         if ui.button("Copy").on_hover_text("the comparison as text").clicked() {
             ui.ctx().copy_text(format!("{}\n\n{}", c.sentence(), c.text()));
         }
@@ -530,6 +551,12 @@ fn pair_card(ui: &mut Ui, c: &Comparison, k: usize, why: Option<&Why>, select: &
                         }
                         Some(step) => {
                             ui.label(value(&step.value));
+                            // (series that part: the value at that step)
+                            if let (Some(at), Some(At::Steps(v))) = (c.step, &step.value)
+                                && let Some(x) = v.get(at)
+                            {
+                                ui.label(weak(format!("at step {}: {}", at + 1, crate::report::cell(*x))).small());
+                            }
                             if let How::Expression { with_values, .. } = &step.how
                                 && p.kind != Kind::Same
                             {

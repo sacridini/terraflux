@@ -445,6 +445,55 @@ fn input_value(m: &Model, path: &[String], reference: &str) -> Option<At> {
     }
 }
 
+/// The value at the cell of what a loop gives its body (`@name`, through the groups and switches between), step by
+/// step, when a run kept the body ([`Kept`]): a value a `control.repeat` carries (its input at the first step, then
+/// what the step before made), or `@step`.
+#[allow(clippy::too_many_arguments)]
+fn carried_value(
+    m: &Model,
+    values: Values,
+    kept: &Kept,
+    path: &[String],
+    reference: &str,
+    x: f64,
+    y: f64,
+) -> Option<At> {
+    let (mut path, mut reference) = (path.to_vec(), reference.to_string());
+    loop {
+        let Ok(Ref::Carried(name)) = Ref::parse(&reference) else { return None };
+        let k = path.len().checked_sub(1)?;
+        let c = m.scope(&path[..k])?.iter().find(|n| n.id == path[k])?;
+        if c.op == GROUP || c.op == terraflux_graph::SWITCH {
+            match c.inputs.get(&name).filter(|_| !(c.op == terraflux_graph::SWITCH && name == "case")) {
+                Some(Source::Ref(r)) => reference = r.clone(),
+                Some(Source::Literal(_)) => return None,
+                None => {}
+            }
+            path.truncate(k);
+            continue;
+        }
+        if c.op != REPEAT {
+            return None;
+        }
+        let at = path.join("/");
+        let steps = kept.values.iter().filter(|((l, _), _)| *l == at).map(|(_, s)| s.len()).max()?;
+        if name == "step" {
+            return Some(At::Steps((1..=steps).map(|s| s as f64).collect()));
+        }
+        let (q, id, p) = resolve(m, &path, c.body.as_ref()?.carry.get(&name)?)?;
+        let Some(At::Steps(made)) = value_at(m, values, kept, &q, &id, &p, x, y) else { return None };
+        let start = match c.inputs.get(&name)? {
+            Source::Ref(r) => {
+                let (q, id, p) = resolve(m, &path[..k], r)?;
+                value_at(m, values, kept, &q, &id, &p, x, y)?.number()?
+            }
+            Source::Literal(v) => v.as_f64()?,
+        };
+        let before = std::iter::once(start).chain(made.iter().copied()).take(made.len()).collect();
+        return Some(At::Steps(before));
+    }
+}
+
 /// Where a reference read at a scope points: the node (its path and id) and port, looked for in the scope, then
 /// in those around it (a body reads the nodes around it); a group's output, at the node of its body giving it; a
 /// group's or a switch's input (`@name`), at what it is given.
@@ -655,7 +704,10 @@ fn walk(
                     let step = walk(m, r, values, kept, &q, &id, &op_port, t, seen);
                     (rf.clone(), v, step, true)
                 }
-                None => (rf.clone(), input_value(m, path, rf), None, false),
+                None => {
+                    let value = input_value(m, path, rf).or_else(|| carried_value(m, values, kept, path, rf, x, y));
+                    (rf.clone(), value, None, false)
+                }
             },
         };
         if let Some(v) = &value {
@@ -706,6 +758,27 @@ fn walk(
             (None, None) => "not given".into(),
         };
         switched = Some(How::Branch { case, branch, steps });
+    }
+    // a loop whose body a run kept at the cell: traced into its body from the node giving the port it collects, the
+    // values step by step
+    if (n.op == REPEAT || n.op == EACH)
+        && let Some(rf) = n.body.as_ref().and_then(|b| b.collect.get(port))
+    {
+        let inner: Vec<String> = path.iter().cloned().chain([node.to_string()]).collect();
+        let at = inner.join("/");
+        if kept.values.keys().any(|(l, _)| *l == at)
+            && let Some((q, id, p)) = resolve(m, &inner, rf)
+        {
+            let value = value_at(m, values, kept, &q, &id, &p, x, y);
+            let step = walk(m, r, values, kept, &q, &id, &p, t, seen);
+            inputs.push(Input {
+                port: format!("(in its body, at every step) {port}"),
+                from: rf.clone(),
+                value,
+                step,
+                node: true,
+            });
+        }
     }
     // what a container's body reads around it: traced as its inputs are (a loop's allocation reads the
     // suitability made before it); a switch's branches read through the branch that ran
@@ -1142,54 +1215,53 @@ fn patcher_why(probability: &Value, (x, y): (f64, f64), from: f64, to: f64) -> O
     ))
 }
 
-/// What keeps the values of the loops' bodies at a place, step by step, while the model runs.
+/// What keeps the values of the loops' bodies at some places, step by step, while the model runs.
 struct Keeper {
-    x: f64,
-    y: f64,
-    kept: Kept,
+    places: Vec<(f64, f64)>,
+    kept: Vec<Kept>,
 }
 
 impl terraflux_exec::Observer for Keeper {
     fn body(&mut self, at: &str, step: usize, results: &BTreeMap<String, terraflux_ops::Outputs>) {
-        for (node, outs) in results {
-            for (port, v) in outs {
-                // the branch a switch ran (its `branch`, a group's `sw.branch`)
-                if let Value::Text(b) = v
-                    && (port == "branch" || port.ends_with(".branch"))
-                {
-                    let s = self.kept.branches.entry((at.to_string(), format!("{node}.{port}"))).or_default();
-                    s.resize(step - 1, String::new());
-                    s.push(b.clone());
-                    continue;
+        for (&(x, y), kept) in self.places.iter().zip(self.kept.iter_mut()) {
+            for (node, outs) in results {
+                for (port, v) in outs {
+                    // the branch a switch ran (its `branch`, a group's `sw.branch`)
+                    if let Value::Text(b) = v
+                        && (port == "branch" || port.ends_with(".branch"))
+                    {
+                        let s = kept.branches.entry((at.to_string(), format!("{node}.{port}"))).or_default();
+                        s.resize(step - 1, String::new());
+                        s.push(b.clone());
+                        continue;
+                    }
+                    let Some(value) = self::at(v, x, y).and_then(|a| a.number()) else { continue };
+                    let s = kept.values.entry((at.to_string(), format!("{node}.{port}"))).or_default();
+                    // (a step missed, as a loop's first steps before a node of it gave a map, or a switch's branch
+                    // that did not run: no value)
+                    s.resize(step - 1, f64::NAN);
+                    s.push(value);
                 }
-                let Some(x) = self::at(v, self.x, self.y).and_then(|a| a.number()) else { continue };
-                let s = self.kept.values.entry((at.to_string(), format!("{node}.{port}"))).or_default();
-                // (a step missed, as a loop's first steps before a node of it gave a map, or a switch's branch
-                // that did not run: no value)
-                s.resize(step - 1, f64::NAN);
-                s.push(x);
             }
         }
     }
 }
 
-impl Keeper {
+impl Kept {
     /// Every series of a loop as long as its longest (a node that gave nothing at the last steps: no value there,
     /// as a switch's branch that ran only at the first).
     fn even(&mut self) {
         let mut most: BTreeMap<String, usize> = BTreeMap::new();
-        for ((at, _), s) in &self.kept.values {
-            let n = most.entry(at.clone()).or_default();
-            *n = (*n).max(s.len());
+        for ((at, _), n) in
+            self.values.iter().map(|(k, s)| (k, s.len())).chain(self.branches.iter().map(|(k, s)| (k, s.len())))
+        {
+            let m = most.entry(at.clone()).or_default();
+            *m = (*m).max(n);
         }
-        for ((at, _), s) in &self.kept.branches {
-            let n = most.entry(at.clone()).or_default();
-            *n = (*n).max(s.len());
-        }
-        for ((at, _), s) in self.kept.values.iter_mut() {
+        for ((at, _), s) in self.values.iter_mut() {
             s.resize(most[at], f64::NAN);
         }
-        for ((at, _), s) in self.kept.branches.iter_mut() {
+        for ((at, _), s) in self.branches.iter_mut() {
             s.resize(most[at], String::new());
         }
     }
@@ -1198,12 +1270,19 @@ impl Keeper {
 /// Run the model again keeping what the nodes of its loops give at the place (x, y) at every step: the trace
 /// then goes into the loops ([`trace`]'s `kept`). The model expanded, its data read from `base`.
 pub fn keep_loops(m: &Model, base: &std::path::Path, x: f64, y: f64) -> Result<Kept, String> {
+    Ok(keep_loops_at(m, base, &[(x, y)])?.remove(0))
+}
+
+/// [`keep_loops`] at some places in one run (the two cells of a comparison): what each keeps, in their order.
+pub fn keep_loops_at(m: &Model, base: &std::path::Path, places: &[(f64, f64)]) -> Result<Vec<Kept>, String> {
     let mut m = m.clone();
     terraflux_graph::submodel::expand(&mut m, base).map_err(|e| e.to_string())?;
     let inputs = terraflux_exec::load_inputs(&m, base, &BTreeMap::new()).map_err(|e| e.to_string())?;
-    let mut keeper = Keeper { x, y, kept: Kept::new() };
+    let mut keeper = Keeper { places: places.to_vec(), kept: vec![Kept::new(); places.len()] };
     terraflux_exec::Engine::default().run(&m, &inputs, &mut keeper).map_err(|e| e.to_string())?;
-    keeper.even();
+    for k in &mut keeper.kept {
+        k.even();
+    }
     Ok(keeper.kept)
 }
 

@@ -2218,7 +2218,7 @@ fn a_cell_is_traced_from_its_map() {
     assert!(h.query_all_by_label_contains("here: 2 if ").next().is_some(), "the expression with the values");
     // inside the loop
     h.get_by_label("Trace inside the loops").click_accesskit();
-    until(&mut h, "the run kept", |a| a.trace.kept.is_some() || a.trace.error.is_some());
+    until(&mut h, "the run kept", |a| !a.trace.kept.is_empty() || a.trace.error.is_some());
     assert!(h.state().trace.error.is_none(), "{:?}", h.state().trace.error);
     h.run_steps(4);
     assert!(h.query_all_by_label_contains("in the loop, allocate.landscape").next().is_some());
@@ -2293,7 +2293,7 @@ fn two_cells_are_compared_from_the_trace() {
     assert!(h.state().session.as_ref().unwrap().trace_choosing.is_none());
     assert!(h.state().is_open(Pane::Trace));
     assert!(h.query_by_label("Where the difference begins").is_some());
-    assert!(h.query_by_label_contains("They differ from").is_some(), "the sentence");
+    assert!(h.query_by_label_contains("they differ from aptitude").is_some(), "the sentence");
     assert!(h.query_all_by_label("differs").next().is_some());
     shot(&mut h, "47-trace-compare");
     // both cells marked on the map, each in its colour
@@ -2309,6 +2309,13 @@ fn two_cells_are_compared_from_the_trace() {
     h.run_steps(3);
     let c = h.state().trace.comparison.clone().unwrap();
     assert_eq!((c.a.cell, c.b.cell), ((0, 0), (40, 60)));
+    // inside the loops, at the two cells in one run: the loop's body compared
+    h.get_by_label("Trace inside the loops").click_accesskit();
+    until(&mut h, "the run kept", |a| a.trace.kept.len() == 2 || a.trace.error.is_some());
+    assert!(h.state().trace.error.is_none(), "{:?}", h.state().trace.error);
+    h.run_steps(4);
+    let c = h.state().trace.comparison.clone().unwrap();
+    assert!(c.pairs.iter().any(|p| p.path == ["simulation"] && p.node == "allocate"), "{}", c.text());
     // back to A alone, then from the map's menu: Compare with the traced cell
     h.get_by_label("Trace A alone").click_accesskit();
     h.run_steps(3);
