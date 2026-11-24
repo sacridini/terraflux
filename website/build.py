@@ -935,8 +935,22 @@ def _wrap_code(text: str) -> str:
 def tables(text: str) -> str:
     """Wraps each bare <table> of the Markdown in a scrolling box; the tables the components write (tftable, a chart's
     data) come already wrapped, and a closing tag added to them would close the page's column early."""
-    return re.sub(r'(?<!<div class="table-wrap">)<table>(.*?)</table>', r'<div class="table-wrap"><table>\1</table></div>',
-                  text, flags=re.S)
+    def wrap(m: re.Match) -> str:
+        head = re.search(r"<tr>(.*?)</tr>", m.group(1), flags=re.S)
+        cols = len(re.findall(r"<th\b", head.group(1))) if head else 0
+        cells = [re.sub(r"<[^>]+>", "", c) for c in re.findall(r"<td\b[^>]*>(.*?)</td>", m.group(1), flags=re.S)]
+        mean = sum(len(c) for c in cells) / len(cells) if cells else 0
+        # A table of many columns of text would be squeezed into the text's width: it scrolls sideways instead, each
+        # column wide enough to read, and its first column stays in view. Tables of numbers keep fitting the width.
+        wide = cols >= WIDE_TABLE_COLUMNS and mean >= WIDE_TABLE_MEAN_CHARS
+        cls = "table-wrap is-wide" if wide else "table-wrap"
+        return f'<div class="{cls}"><table>{m.group(1)}</table></div>'
+
+    return re.sub(r'(?<!<div class="table-wrap">)<table>(.*?)</table>', wrap, text, flags=re.S)
+
+
+WIDE_TABLE_COLUMNS = 6
+WIDE_TABLE_MEAN_CHARS = 24
 
 
 def _id_refs(h: str) -> str:
