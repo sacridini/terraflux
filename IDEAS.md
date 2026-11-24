@@ -5751,6 +5751,13 @@ como um nó do corpo, com as saídas `branch.inner.port`, e o `Keeper` (trace.rs
    - Testes: duas células do CLUE-S (o template, como `a_cell_is_traced_back_through_the_graph`) com a raiz na
      aptidão e na alocação; um modelo pequeno feito à mão para cada tipo de raiz (dado, janela, mancha, local, entrada
      sem valor); duas células iguais ("nada difere"); a mesma célula duas vezes.
+   - **Feito (2026-11-24).** `crates/app/src/trace/compare.rs`: `compare` e `compare_named` (os lados com nomes,
+     para os cenários), `Pair` com `Kind` (`Same`, `Different`, `OnlyA`, `OnlyB`), `Root` com `Why` (`Data`,
+     `Window`, `Whole` com as linhas de uma alocação, `Patch`, `Place`, `Branch`, `Input`, `Unknown`), `sentence`,
+     `text` e `Why::details` (as janelas e as linhas lado a lado). Um switch com ramos diferentes é raiz qualquer que
+     sejam as entradas; "dado" é o passo que não lê nó nenhum (um `raster.calc` de `$x` também). O `Input` do trace
+     ganhou `node` (lê um nó: sem passo, o trace parou ali). No CLUE-S, duas células longe uma da outra diferem nos
+     três dados (aptidão, uso de 2000, rugosidade): a regra acha os três, e não a alocação, porque é ali que nasce.
 
 3. **O painel: "Compare with another cell".**
    - No Trace, um botão "Compare with another cell" arma a escolha: o próximo clique numa célula do viewer é B

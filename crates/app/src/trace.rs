@@ -16,6 +16,9 @@ use terraflux_ops::{Registry, Value};
 use crate::document::words;
 use crate::report::cell;
 
+mod compare;
+pub use compare::{Comparison, Kind, Pair, Root, Why, compare, compare_named, same};
+
 /// Nodes traced at most (a graph of thousands traced to its sources would say nothing).
 const MOST: usize = 60;
 /// The side of the window of cells shown of a neighbourhood's input, at most (an odd number).
@@ -189,6 +192,9 @@ pub struct Input {
     pub value: Option<At>,
     /// The step traced from it (its index in [`Trace::steps`]).
     pub step: Option<usize>,
+    /// Whether it reads a node (none traced from it: the trace stopped there); else a literal, a model's input, a
+    /// loop's step or carried value.
+    pub node: bool,
 }
 
 /// A node traced.
@@ -641,21 +647,21 @@ fn walk(
     let mut inputs = Vec::new();
     let mut at_inputs: BTreeMap<String, At> = BTreeMap::new();
     for (p, src) in &n.inputs {
-        let (from, value, traced) = match src {
-            Source::Literal(v) => (words(v), Some(At::Other(words(v))), None),
+        let (from, value, traced, node) = match src {
+            Source::Literal(v) => (words(v), Some(At::Other(words(v))), None, false),
             Source::Ref(rf) => match resolve(m, path, rf) {
                 Some((q, id, op_port)) => {
                     let v = value_at(m, values, kept, &q, &id, &op_port, x, y);
                     let step = walk(m, r, values, kept, &q, &id, &op_port, t, seen);
-                    (rf.clone(), v, step)
+                    (rf.clone(), v, step, true)
                 }
-                None => (rf.clone(), input_value(m, path, rf), None),
+                None => (rf.clone(), input_value(m, path, rf), None, false),
             },
         };
         if let Some(v) = &value {
             at_inputs.insert(p.clone(), v.clone());
         }
-        inputs.push(Input { port: p.clone(), from, value, step: traced });
+        inputs.push(Input { port: p.clone(), from, value, step: traced, node });
     }
     // a switch: the branch that ran (in a loop, those of its steps), traced from the node of its body giving the
     // port; the branches that did not run are not
@@ -685,7 +691,13 @@ fn walk(
             let Some((q, nid, p)) = resolve(m, &at_branch, rf) else { continue };
             let value = value_at(m, values, kept, &q, &nid, &p, x, y);
             let step = walk(m, r, values, kept, &q, &nid, &p, t, seen);
-            inputs.push(Input { port: format!("(branch {id}) {port}"), from: format!("{id}: {rf}"), value, step });
+            inputs.push(Input {
+                port: format!("(branch {id}) {port}"),
+                from: format!("{id}: {rf}"),
+                value,
+                step,
+                node: true,
+            });
         }
         let case = match (at_inputs.get("case"), n.inputs.get("case")) {
             (Some(v), _) => v.text(),
@@ -716,7 +728,7 @@ fn walk(
             let Some((q, id, op_port)) = resolve(m, &inner, &rf) else { continue };
             let value = value_at(m, values, kept, &q, &id, &op_port, x, y);
             let step = walk(m, r, values, kept, &q, &id, &op_port, t, seen);
-            inputs.push(Input { port: format!("(in its body) {p}"), from: rf, value, step });
+            inputs.push(Input { port: format!("(in its body) {p}"), from: rf, value, step, node: true });
         }
     }
     let reads_nodes =
