@@ -242,6 +242,12 @@ impl Thumbs {
         if e.drawn { e.texture.clone() } else { None }
     }
 
+    /// Whether a key's picture is made and drawn (what [`Thumbs::get`] gives once it has loaded it): an area without
+    /// one shows the family's icon.
+    pub fn shown(&self, key: &Key) -> bool {
+        self.state.lock().unwrap().done.get(key).is_some_and(|e| e.drawn)
+    }
+
     /// The generation of a key's picture made last.
     pub fn generation(&self, key: &Key) -> Option<u64> {
         self.state.lock().unwrap().done.get(key).map(|e| e.generation)

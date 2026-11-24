@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Fixed
+- **A click on the empty picture of a node that reads a file asks for the file** (`crates/app/src/editor_view.rs`, `crates/app/src/thumbs.rs`): the area of a `raster.read`, `vector.read` or `table.read` without a picture (no file yet, not run, failed) opens the dialog of its menu's "Change file...", as the node's settings' "Choose..." does; on any other node an empty picture no longer shows the output in the Viewer, which had nothing to show (the node is only marked). A picture shown still opens the Viewer, and the pointer tells which of the two a click does.
+
 ## [1.65.0] - 2026-11-24
 
 ### Added

@@ -3743,8 +3743,9 @@ fn a_settings_wire_has_a_tip_points_and_can_be_drawn_from_the_socket() {
 }
 
 /// A node that gives a map, a stack, a series or objects has an area for its picture under its last row (an option
-/// of the settings, on): the box is taller by the space and the area; once run, the picture is made (never again
-/// for the same result); a click on it shows the output in the Viewer; off, the area is gone.
+/// of the settings, on): the box is taller by the space and the area; a click on it before a run only marks the node;
+/// once run, the picture is made (never again for the same result); a click on it shows the output in the Viewer; off,
+/// the area is gone.
 #[test]
 fn a_result_has_a_picture_in_its_box() {
     let _settings = settings_lock();
@@ -3761,6 +3762,11 @@ fn a_result_has_a_picture_in_its_box() {
     // (6 units above it, the box's own 6 under it)
     assert_eq!(rect.bottom() - area.bottom(), 6.0);
     assert!(editor(&h).thumb_made("calc", "map").is_none(), "nothing before a run");
+    // a click on the empty area: the node is marked, the Viewer is left alone (a reader would ask for its file)
+    let at = graph_to_screen(&h, area.center());
+    click(&mut h, at);
+    assert_eq!(h.state().session.as_ref().unwrap().preview, None, "no empty Viewer");
+    assert!(editor(&h).chosen.contains("calc"));
     // run: the picture is asked for and made
     run_model(&mut h);
     let t = Instant::now();

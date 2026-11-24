@@ -433,6 +433,45 @@ fn file_of(n: &Node) -> Option<&str> {
     n.params.get("path").and_then(|v| v.as_str()).filter(|p| !p.trim().is_empty())
 }
 
+/// What a click on the area of a box's picture does: with a picture, what a click on its output does (the Viewer
+/// shows it); empty (not run yet, failed, no file), a node that reads a file asks for the file, as its menu's
+/// "Change file..." does, and any other node does nothing more than be marked on the canvas (the Viewer would show
+/// nothing: it is left as it is).
+fn thumb_click(op: &str, node: &str, port: &str, pictured: bool) -> Option<Action> {
+    if pictured {
+        Some(Action::Preview(node.to_string(), port.to_string()))
+    } else if crate::builder::reads_file(op) {
+        Some(Action::ChangeFile(node.to_string()))
+    } else {
+        None
+    }
+}
+
+/// Whether the area of a box's picture shows one: made, and of a node that ran without failing (as it is drawn).
+/// `path`: the scope's, which keys the pictures.
+fn pictured(
+    thumbs: Option<&crate::thumbs::Thumbs>,
+    path: &[String],
+    node: &str,
+    port: &str,
+    status: &BTreeStatus,
+) -> bool {
+    let prefix: String = path.iter().map(|q| format!("{q}/")).collect();
+    matches!(status.get(node), Some(s) if *s != NodeStatus::Failed)
+        && thumbs.is_some_and(|t| t.shown(&(format!("{prefix}{node}"), port.to_string())))
+}
+
+/// What the pointer on the area of a box's picture is told it does (see [`thumb_click`]).
+fn thumb_hint(op: &str, pictured: bool) -> &'static str {
+    if pictured {
+        "a click shows it in the Viewer"
+    } else if crate::builder::reads_file(op) {
+        "a click chooses the file to read"
+    } else {
+        "its picture comes once it has run"
+    }
+}
+
 /// The settings of an operator a node's box may show: not a name that is an input's (the input's), nor the file a
 /// box names in its foot.
 fn box_params<'a>(n: &Node, sig: &'a terraflux_graph::OpSignature) -> Vec<&'a terraflux_graph::PortSpec> {
@@ -4758,13 +4797,20 @@ pub fn show(
             Some(Hit::Output(i, k)) if !scene.boxes[i].source => {
                 actions.push(Action::Preview(scene.boxes[i].key.clone(), scene.boxes[i].outputs[k].0.clone()));
             }
-            // a click on the picture of a result: what a click on its output does
+            // a click on the area of a result's picture: what a click on its output does; empty, a reader asks for its
+            // file and another node is selected
             Some(Hit::Body(i))
                 if cam.zoom >= PORTS_FROM && scene.boxes[i].thumb_rect().is_some_and(|t| t.contains(w)) =>
             {
                 let b = &scene.boxes[i];
                 if let Some(k) = b.thumb {
-                    actions.push(Action::Preview(b.key.clone(), b.outputs[k].0.clone()));
+                    let port = &b.outputs[k].0;
+                    let pictured = pictured(st.thumbs.as_ref(), &st.path, &b.key, port, status);
+                    if !pictured {
+                        st.chosen.clear();
+                        st.chosen.insert(b.key.clone());
+                    }
+                    actions.extend(thumb_click(&b.op, &b.key, port, pictured));
                 }
             }
             Some(Hit::Fold(i)) => {
@@ -6065,9 +6111,11 @@ pub fn show(
                 if ports && scene.boxes[i].thumb_rect().is_some_and(|t| t.contains(to_world(p, &cam))) =>
             {
                 if let Some(k) = scene.boxes[i].thumb {
-                    let name = &scene.boxes[i].outputs[k].0;
-                    let name = if name.is_empty() { editor::base_ref(&scene.boxes[i].key) } else { name.as_str() };
-                    wire_ask = Some(ask_of((i, k), name.to_string(), "", "a click shows it in the Viewer"));
+                    let b = &scene.boxes[i];
+                    let hint = thumb_hint(&b.op, pictured(st.thumbs.as_ref(), &st.path, &b.key, &b.outputs[k].0, status));
+                    let name = &b.outputs[k].0;
+                    let name = if name.is_empty() { editor::base_ref(&b.key) } else { name.as_str() };
+                    wire_ask = Some(ask_of((i, k), name.to_string(), "", hint));
                     resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                 }
             }
@@ -6485,6 +6533,22 @@ pub fn show(
 
 #[cfg(test)]
 mod tests {
+    /// The area of a picture: with one, the Viewer; empty, a reader asks for its file and another node leaves the
+    /// Viewer alone; the pointer is told so.
+    #[test]
+    fn an_empty_picture_asks_a_reader_for_its_file() {
+        let s = |x: &str| x.to_string();
+        assert_eq!(thumb_click("raster.read", "read", "raster", true), Some(Action::Preview(s("read"), s("raster"))));
+        for op in ["raster.read", "vector.read", "table.read"] {
+            assert_eq!(thumb_click(op, "read", "raster", false), Some(Action::ChangeFile(s("read"))));
+            assert_eq!(thumb_hint(op, false), "a click chooses the file to read");
+        }
+        assert_eq!(thumb_click("raster.calc", "calc", "map", false), None);
+        assert_eq!(thumb_click("raster.calc", "calc", "map", true), Some(Action::Preview(s("calc"), s("map"))));
+        assert_eq!(thumb_hint("raster.calc", true), "a click shows it in the Viewer");
+        assert_eq!(thumb_hint("raster.calc", false), "its picture comes once it has run");
+    }
+
     use super::*;
     use crate::theme::{THEMES, contrast};
 
