@@ -5718,6 +5718,15 @@ como um nó do corpo, com as saídas `branch.inner.port`, e o `Keeper` (trace.rs
    - Testes em trace.rs: um switch num `$case` (o trace entra no ramo certo, nos dois valores do case, e não no
      outro); um switch dentro de um `control.repeat` com o case vindo do passo (o ramo por passo); um switch num
      grupo (`g.sw.branch.inner.port`).
+   - **Feito (2026-11-24).** `How::Branch { case, branch, steps }` e `branches_text` ("otherwise at step 1, case_2
+     at step 2, otherwise at steps 3 to 5"); o `Kept` virou uma struct (`values`, e `branches` com o ramo de cada
+     passo, o texto `branch` que o `Keeper` agora guarda); as séries de um laço igualadas ao fim (NaN nos passos em
+     que um ramo não rodou). Duas coisas a mais que o ramo pedia: o trace segue os `@nome` de grupos e switches até o
+     que eles recebem (`followed`: o `@f` do ramo, o `@farm` do switch, o `farmland.map` de fora; antes parava na
+     borda do grupo), e uma entrada `$nome` de valor mostra o valor (`$weight` = 0.8). A chave do que um laço guarda
+     passa por grupos e switches do corpo (`kept_key`: `sw.case_2.up.map`). Testes:
+     `a_switch_is_traced_into_the_branch_that_ran` (o template do switch, os dois cenários),
+     `a_switch_in_a_loop_is_traced_into_the_branch_of_each_step`, `a_switch_in_a_group_is_traced_through`.
 
 2. **A comparação de dois traces, pura e testável (`trace::compare`).**
    - `compare(a: &Trace, b: &Trace) -> Comparison`: os passos alinhados por `(path, node, port)`; cada par

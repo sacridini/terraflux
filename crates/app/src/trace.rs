@@ -121,9 +121,46 @@ pub enum How {
     Loop,
     /// A group: what its body gave.
     Group,
+    /// A switch (`control.switch`): what its case was and the branch it ran (the group named as the case,
+    /// `case_<n>` for a number, else `otherwise`; none when not known); in a loop, the branch of every step (empty
+    /// where it did not run), when a run kept them.
+    Branch { case: String, branch: Option<String>, steps: Vec<String> },
+}
+
+/// The branches a switch ran step by step, in words ("dry at steps 1 to 4, wet at steps 5 to 9").
+pub fn branches_text(steps: &[String]) -> String {
+    let mut runs: Vec<(&str, usize, usize)> = Vec::new();
+    for (k, b) in steps.iter().enumerate() {
+        match runs.last_mut() {
+            Some((last, _, end)) if *last == b.as_str() => *end = k + 1,
+            _ => runs.push((b.as_str(), k + 1, k + 1)),
+        }
+    }
+    if let [(b, _, _)] = runs.as_slice() {
+        return format!("{b} at every step ({})", steps.len());
+    }
+    runs.iter()
+        .map(|(b, from, to)| {
+            let b = if b.is_empty() { "no branch" } else { b };
+            if from == to { format!("{b} at step {from}") } else { format!("{b} at steps {from} to {to}") }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl How {
+    /// A switch's branch in words ("the case is dry: its branch dry ran, the others did not"); empty for the others.
+    pub fn branch_text(&self) -> String {
+        let How::Branch { case, branch, steps } = self else { return String::new() };
+        if !steps.is_empty() {
+            return format!("a switch, its case {case}: the branch of each step, {}", branches_text(steps));
+        }
+        match branch {
+            Some(b) => format!("a switch, its case {case}: the branch {b} ran, the others did not"),
+            None => format!("a switch, its case {case}: the branch that ran is not known (not run)"),
+        }
+    }
+
     /// A patch in words ("from the patch of map it is in: class 2, 1204 cells joined by 8 neighbours, rows 40 to
     /// 80, columns 10 to 55"); empty for the others.
     pub fn patch_text(&self) -> String {
@@ -170,9 +207,27 @@ pub struct Step {
     pub body: Vec<(String, Vec<f64>)>,
 }
 
-/// The values of a run inside loops, at the cell: by the loop's path and the body node's `id.port`, a value per
-/// step ([`crate::trace`]'s run that keeps them).
-pub type Kept = BTreeMap<(String, String), Vec<f64>>;
+/// What a run kept inside loops at the cell ([`keep_loops`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Kept {
+    /// By the loop's path and the body node's `id.port` (through a group `g.inner.port`, through a switch
+    /// `sw.branch.inner.port`), a value per step (NaN at a step it did not give one).
+    pub values: BTreeMap<(String, String), Vec<f64>>,
+    /// The branch a switch of a body ran at every step (empty at a step it did not run), by the loop's path and
+    /// `sw.branch` (`g.sw.branch` through a group).
+    pub branches: BTreeMap<(String, String), Vec<String>>,
+}
+
+impl Kept {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The values of a body node's port, step by step.
+    pub fn get(&self, key: &(String, String)) -> Option<&Vec<f64>> {
+        self.values.get(key)
+    }
+}
 
 /// A cell's trace.
 #[derive(Debug, Clone, PartialEq)]
@@ -346,11 +401,51 @@ fn substituted(expr: &str, values: &BTreeMap<String, At>) -> String {
     out
 }
 
+/// What a reference read at a scope is given by: an input of a group or a switch around it (`@name`) followed to
+/// the reference that container's input reads, at the container's own scope (groups in groups); the others as
+/// they are. None for what a loop carries (its step's) and for a literal given to the container.
+fn followed(m: &Model, path: &[String], reference: &str) -> Option<(Vec<String>, String)> {
+    let Ok(Ref::Carried(name)) = Ref::parse(reference) else { return Some((path.to_vec(), reference.to_string())) };
+    for k in (0..path.len()).rev() {
+        let c = m.scope(&path[..k])?.iter().find(|n| n.id == path[k])?;
+        if c.op != GROUP && c.op != terraflux_graph::SWITCH {
+            // (a loop's carried values and step: what its step was)
+            return None;
+        }
+        // (a switch's case is not read by its branches)
+        if c.op == terraflux_graph::SWITCH && name == "case" {
+            continue;
+        }
+        match c.inputs.get(&name) {
+            Some(Source::Ref(r)) => return followed(m, &path[..k], r),
+            Some(Source::Literal(_)) => return None,
+            None => continue,
+        }
+    }
+    None
+}
+
+/// The value at the cell of a reference that is no node's: a model's input of a value (`$weight`), through the
+/// groups and switches that pass it on.
+fn input_value(m: &Model, path: &[String], reference: &str) -> Option<At> {
+    let (_, r) = followed(m, path, reference)?;
+    let Ok(Ref::Input(name)) = Ref::parse(&r) else { return None };
+    match m.inputs.get(&name)? {
+        terraflux_graph::Input::Value { value, .. } => Some(match value.as_f64() {
+            Some(x) => At::Number(x),
+            None => At::Other(words(value)),
+        }),
+        _ => None,
+    }
+}
+
 /// Where a reference read at a scope points: the node (its path and id) and port, looked for in the scope, then
-/// in those around it (a body reads the nodes around it); a group's output, at the node of its body giving it.
+/// in those around it (a body reads the nodes around it); a group's output, at the node of its body giving it; a
+/// group's or a switch's input (`@name`), at what it is given.
 fn resolve(m: &Model, path: &[String], reference: &str) -> Option<(Vec<String>, String, String)> {
-    let Ok(Ref::Port { node, port }) = Ref::parse(reference) else { return None };
-    let mut scope: Vec<String> = path.to_vec();
+    let (path, reference) = followed(m, path, reference)?;
+    let Ok(Ref::Port { node, port }) = Ref::parse(&reference) else { return None };
+    let mut scope: Vec<String> = path;
     loop {
         if m.scope(&scope).is_some_and(|ns| ns.iter().any(|n| n.id == node)) {
             break;
@@ -484,7 +579,25 @@ fn value_at(
     if let Some((n, p)) = key(m, path, node, port) {
         return values(&n, &p).and_then(|v| at(&v, x, y));
     }
-    kept.get(&(path.join("/"), format!("{node}.{port}"))).map(|s| At::Steps(s.clone()))
+    kept.get(&kept_key(m, path, node, port)).map(|s| At::Steps(s.clone()))
+}
+
+/// Where a run inside loops keeps a node's port ([`Kept`]): by the innermost loop on the way (its path), and the
+/// rest of the way to the node with the node and port, dotted (a group's and a switch's body nodes are among their
+/// outputs, `g.inner.port`, `sw.branch.inner.port`).
+fn kept_key(m: &Model, path: &[String], node: &str, port: &str) -> (String, String) {
+    let innermost = (0..path.len()).rev().find(|&k| {
+        m.scope(&path[..k])
+            .and_then(|ns| ns.iter().find(|n| n.id == path[k]))
+            .is_some_and(|n| n.op == REPEAT || n.op == EACH)
+    });
+    match innermost {
+        Some(k) => {
+            let rest: Vec<&str> = path[k + 1..].iter().map(String::as_str).chain([node, port]).collect();
+            (path[..=k].join("/"), rest.join("."))
+        }
+        None => (path.join("/"), format!("{node}.{port}")),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -536,7 +649,7 @@ fn walk(
                     let step = walk(m, r, values, kept, &q, &id, &op_port, t, seen);
                     (rf.clone(), v, step)
                 }
-                None => (rf.clone(), None, None),
+                None => (rf.clone(), input_value(m, path, rf), None),
             },
         };
         if let Some(v) = &value {
@@ -544,9 +657,47 @@ fn walk(
         }
         inputs.push(Input { port: p.clone(), from, value, step: traced });
     }
+    // a switch: the branch that ran (in a loop, those of its steps), traced from the node of its body giving the
+    // port; the branches that did not run are not
+    let mut switched = None;
+    if n.op == terraflux_graph::SWITCH
+        && let Some(b) = &n.body
+    {
+        let (branch, steps) = match key(m, path, node, "branch").and_then(|(kn, kp)| values(&kn, &kp)) {
+            Some(Value::Text(t)) => (Some(t), Vec::new()),
+            _ => match kept.branches.get(&kept_key(m, path, node, "branch")) {
+                Some(s) => (s.iter().rev().find(|b| !b.is_empty()).cloned(), s.clone()),
+                None => (None, Vec::new()),
+            },
+        };
+        let mut ran: Vec<&str> = Vec::new();
+        for b in steps.iter().map(String::as_str).chain(branch.as_deref()) {
+            if !b.is_empty() && !ran.contains(&b) {
+                ran.push(b);
+            }
+        }
+        let inner: Vec<String> = path.iter().cloned().chain([node.to_string()]).collect();
+        for id in ran {
+            let Some(rf) = b.nodes.iter().find(|g| g.id == id).and_then(|g| g.body.as_ref()?.outputs.get(port)) else {
+                continue;
+            };
+            let at_branch: Vec<String> = inner.iter().cloned().chain([id.to_string()]).collect();
+            let Some((q, nid, p)) = resolve(m, &at_branch, rf) else { continue };
+            let value = value_at(m, values, kept, &q, &nid, &p, x, y);
+            let step = walk(m, r, values, kept, &q, &nid, &p, t, seen);
+            inputs.push(Input { port: format!("(branch {id}) {port}"), from: format!("{id}: {rf}"), value, step });
+        }
+        let case = match (at_inputs.get("case"), n.inputs.get("case")) {
+            (Some(v), _) => v.text(),
+            (None, Some(Source::Ref(rf))) => rf.clone(),
+            (None, Some(Source::Literal(v))) => words(v),
+            (None, None) => "not given".into(),
+        };
+        switched = Some(How::Branch { case, branch, steps });
+    }
     // what a container's body reads around it: traced as its inputs are (a loop's allocation reads the
-    // suitability made before it)
-    if let Some(b) = &n.body {
+    // suitability made before it); a switch's branches read through the branch that ran
+    if let Some(b) = n.body.as_ref().filter(|_| switched.is_none()) {
         let inner: Vec<String> = path.iter().cloned().chain([node.to_string()]).collect();
         let own: HashSet<&str> = b.nodes.iter().map(|x| x.id.as_str()).collect();
         let mut read: Vec<(String, String)> = Vec::new();
@@ -570,7 +721,9 @@ fn walk(
     }
     let reads_nodes =
         n.inputs.values().any(|s| matches!(s, Source::Ref(r) if matches!(Ref::parse(r), Ok(Ref::Port { .. }))));
-    let how = if n.op == "control.repeat" {
+    let how = if let Some(h) = switched {
+        h
+    } else if n.op == "control.repeat" {
         How::Loop
     } else if n.op == GROUP {
         How::Group
@@ -620,7 +773,7 @@ fn walk(
     let mut body = Vec::new();
     if n.body.is_some() {
         let at = path.iter().cloned().chain([node.to_string()]).collect::<Vec<_>>().join("/");
-        for ((loop_path, what), s) in kept {
+        for ((loop_path, what), s) in &kept.values {
             if *loop_path == at {
                 body.push((what.clone(), s.clone()));
             }
@@ -988,12 +1141,44 @@ impl terraflux_exec::Observer for Keeper {
     fn body(&mut self, at: &str, step: usize, results: &BTreeMap<String, terraflux_ops::Outputs>) {
         for (node, outs) in results {
             for (port, v) in outs {
+                // the branch a switch ran (its `branch`, a group's `sw.branch`)
+                if let Value::Text(b) = v
+                    && (port == "branch" || port.ends_with(".branch"))
+                {
+                    let s = self.kept.branches.entry((at.to_string(), format!("{node}.{port}"))).or_default();
+                    s.resize(step - 1, String::new());
+                    s.push(b.clone());
+                    continue;
+                }
                 let Some(x) = self::at(v, self.x, self.y).and_then(|a| a.number()) else { continue };
-                let s = self.kept.entry((at.to_string(), format!("{node}.{port}"))).or_default();
-                // (a step missed, as a loop's first steps before a node of it gave a map: no value)
+                let s = self.kept.values.entry((at.to_string(), format!("{node}.{port}"))).or_default();
+                // (a step missed, as a loop's first steps before a node of it gave a map, or a switch's branch
+                // that did not run: no value)
                 s.resize(step - 1, f64::NAN);
                 s.push(x);
             }
+        }
+    }
+}
+
+impl Keeper {
+    /// Every series of a loop as long as its longest (a node that gave nothing at the last steps: no value there,
+    /// as a switch's branch that ran only at the first).
+    fn even(&mut self) {
+        let mut most: BTreeMap<String, usize> = BTreeMap::new();
+        for ((at, _), s) in &self.kept.values {
+            let n = most.entry(at.clone()).or_default();
+            *n = (*n).max(s.len());
+        }
+        for ((at, _), s) in &self.kept.branches {
+            let n = most.entry(at.clone()).or_default();
+            *n = (*n).max(s.len());
+        }
+        for ((at, _), s) in self.kept.values.iter_mut() {
+            s.resize(most[at], f64::NAN);
+        }
+        for ((at, _), s) in self.kept.branches.iter_mut() {
+            s.resize(most[at], String::new());
         }
     }
 }
@@ -1006,6 +1191,7 @@ pub fn keep_loops(m: &Model, base: &std::path::Path, x: f64, y: f64) -> Result<K
     let inputs = terraflux_exec::load_inputs(&m, base, &BTreeMap::new()).map_err(|e| e.to_string())?;
     let mut keeper = Keeper { x, y, kept: Kept::new() };
     terraflux_exec::Engine::default().run(&m, &inputs, &mut keeper).map_err(|e| e.to_string())?;
+    keeper.even();
     Ok(keeper.kept)
 }
 
@@ -1068,6 +1254,7 @@ impl Trace {
                 }
                 How::Loop => out.push_str("   a loop: its value at every step above\n"),
                 How::Group => out.push_str("   a group: what its body gave\n"),
+                How::Branch { .. } => out.push_str(&format!("   {}\n", s.how.branch_text())),
                 How::Local => {}
             }
             for i in &s.inputs {
@@ -1103,6 +1290,7 @@ impl Trace {
             How::Window { radius, .. } => s.push_str(&format!(", from the cells within {radius} around it")),
             How::Patch { .. } => s.push_str(&format!(", {}", first.how.patch_text())),
             How::Allocation { lines, .. } if !lines.is_empty() => s.push_str(&format!(" ({})", lines[0])),
+            How::Branch { .. } => s.push_str(&format!(", from {}", first.how.branch_text())),
             _ => {}
         }
         if !from.is_empty() {
@@ -1199,6 +1387,189 @@ mod tests {
         assert_eq!(t.steps[0].path, ["model"]);
         let calc = t.steps.iter().find(|s| s.node == "land_2010").unwrap();
         assert!(calc.value.is_some(), "a group's body's values kept by the run");
+    }
+
+    /// A model of the format, from the rest of its TOML.
+    fn model(text: &str) -> Model {
+        Model::from_toml(&format!("format = \"terraflux/1\"\nname = \"t\"\n{text}")).unwrap()
+    }
+
+    #[test]
+    fn a_switch_is_traced_into_the_branch_that_ran() {
+        let r = Registry::standard();
+        let m = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Choose the method")).unwrap().model();
+        for (scenario, ran, not) in
+            [("by distance", "distance", "neighbourhood"), ("by neighbourhood", "neighbourhood", "distance")]
+        {
+            let m = m.with_scenario(scenario).unwrap();
+            let res =
+                terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+            let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+            let grid = grid_of(&values("combined", "map").unwrap()).unwrap();
+            let t = trace(&m, &r, &values, &Kept::new(), "combined", "map", &grid, (30, 40));
+            // the model's input of a value: its value
+            let combined = &t.steps[0];
+            let w = combined.inputs.iter().find(|i| i.port == "w").unwrap();
+            assert_eq!(w.value, Some(At::Number(0.8)));
+            let sw = t.steps.iter().find(|s| s.node == "suitability").expect("the switch traced");
+            assert_eq!(sw.how, How::Branch { case: ran.into(), branch: Some(ran.into()), steps: Vec::new() });
+            assert!(sw.how.branch_text().contains(&format!("the branch {ran} ran")), "{}", sw.how.branch_text());
+            // into the branch: the node of its body giving the port, with its value kept by the run
+            let into = sw.inputs.iter().find(|i| i.port == format!("(branch {ran}) map")).expect("the branch");
+            let inner = &t.steps[into.step.expect("traced")];
+            assert_eq!(inner.path, ["suitability", ran]);
+            assert_eq!(inner.value, sw.value, "what the switch gave is what its branch gave");
+            assert!(matches!(inner.value, Some(At::Number(v)) if v.is_finite()));
+            // and on through the branch's inputs (`@f`, the switch's `@farm`) to the node outside
+            assert!(t.steps.iter().any(|s| s.node == "farmland" && s.path.is_empty()), "{}", t.text());
+            assert!(!t.steps.iter().any(|s| s.path.iter().any(|p| p == not)), "the other branch did not run");
+            assert!(t.text().contains(&format!("the branch {ran} ran")));
+        }
+    }
+
+    #[test]
+    fn a_switch_in_a_loop_is_traced_into_the_branch_of_each_step() {
+        let r = Registry::standard();
+        let m = model(
+            r#"
+[[nodes]]
+id = "land"
+op = "nlm.fbm"
+params = { rows = 6, columns = 6, dimension = 1.4, seed = 3, resolution = 30 }
+
+[[nodes]]
+id = "loop"
+op = "control.repeat"
+inputs = { times = 5, m = "land.map" }
+[nodes.body]
+carry = { m = "sw.map" }
+collect = { maps = "sw.map" }
+[[nodes.body.nodes]]
+id = "sw"
+op = "control.switch"
+inputs = { case = "@step", m = "@m" }
+[[nodes.body.nodes.body.nodes]]
+id = "case_2"
+op = "control.group"
+inputs = { x = "@m" }
+[nodes.body.nodes.body.nodes.body]
+outputs = { map = "up.map" }
+[[nodes.body.nodes.body.nodes.body.nodes]]
+id = "up"
+op = "raster.calc"
+inputs = { x = "@x" }
+params = { expression = "x + 10" }
+[[nodes.body.nodes.body.nodes]]
+id = "otherwise"
+op = "control.group"
+inputs = { x = "@m" }
+[nodes.body.nodes.body.nodes.body]
+outputs = { map = "down.map" }
+[[nodes.body.nodes.body.nodes.body.nodes]]
+id = "down"
+op = "raster.calc"
+inputs = { x = "@x" }
+params = { expression = "x - 1" }
+"#,
+        );
+        let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let grid = grid_of(&values("loop", "maps").unwrap()).unwrap();
+        let (x, y) = centre(&grid, 2, 3);
+        let kept = keep_loops(&m, std::path::Path::new(""), x, y).unwrap();
+        let steps: Vec<String> =
+            ["otherwise", "case_2", "otherwise", "otherwise", "otherwise"].map(String::from).into();
+        assert_eq!(kept.branches.get(&("loop".to_string(), "sw.branch".to_string())), Some(&steps));
+        // the switch of the loop's body, traced
+        let t = trace(&m, &r, &values, &kept, "loop", "sw.map", &grid, (2, 3));
+        let sw = &t.steps[0];
+        assert_eq!((sw.node.as_str(), sw.path.as_slice()), ("sw", ["loop".to_string()].as_slice()));
+        let How::Branch { steps: told, branch, .. } = &sw.how else { panic!("{:?}", sw.how) };
+        assert_eq!((told, branch.as_deref()), (&steps, Some("otherwise")));
+        assert!(
+            sw.how.branch_text().contains("otherwise at step 1, case_2 at step 2, otherwise at steps 3 to 5"),
+            "{}",
+            sw.how.branch_text()
+        );
+        // each branch traced, with the steps it ran at (no value at the others)
+        let series = |id: &str| -> Vec<f64> {
+            let s = t.steps.iter().find(|s| s.node == id).unwrap_or_else(|| panic!("{id}: {}", t.text()));
+            let Some(At::Steps(v)) = &s.value else { panic!("{:?}", s.value) };
+            v.clone()
+        };
+        let (up, down) = (series("up"), series("down"));
+        let Some(At::Steps(all)) = &sw.value else { panic!() };
+        assert_eq!((up.len(), down.len(), all.len()), (5, 5, 5));
+        assert!(up[1] == all[1] && [0, 2, 3, 4].iter().all(|&k| up[k].is_nan()), "{up:?}");
+        assert!(down[1].is_nan() && [0, 2, 3, 4].iter().all(|&k| down[k] == all[k]), "{down:?}");
+        assert!((all[1] - all[0] - 10.0).abs() < 1e-9, "{all:?}");
+        // without the run that kept them: the branch is not known
+        let flat = trace(&m, &r, &values, &Kept::new(), "loop", "sw.map", &grid, (2, 3));
+        assert_eq!(flat.steps[0].how, How::Branch { case: "@step".into(), branch: None, steps: Vec::new() });
+    }
+
+    #[test]
+    fn a_switch_in_a_group_is_traced_through() {
+        let r = Registry::standard();
+        let m = model(
+            r#"
+[inputs.method]
+kind = "value"
+value = "double"
+
+[[nodes]]
+id = "land"
+op = "nlm.fbm"
+params = { rows = 6, columns = 6, dimension = 1.4, seed = 3, resolution = 30 }
+
+[[nodes]]
+id = "g"
+op = "control.group"
+inputs = { land = "land.map" }
+[nodes.body]
+outputs = { map = "sw.map" }
+[[nodes.body.nodes]]
+id = "sw"
+op = "control.switch"
+inputs = { case = "$method", map = "@land" }
+[[nodes.body.nodes.body.nodes]]
+id = "double"
+op = "control.group"
+inputs = { x = "@map" }
+[nodes.body.nodes.body.nodes.body]
+outputs = { map = "d.map" }
+[[nodes.body.nodes.body.nodes.body.nodes]]
+id = "d"
+op = "raster.calc"
+inputs = { x = "@x" }
+params = { expression = "x * 2" }
+[[nodes.body.nodes.body.nodes]]
+id = "otherwise"
+op = "control.group"
+inputs = { x = "@map" }
+[nodes.body.nodes.body.nodes.body]
+outputs = { map = "o.map" }
+[[nodes.body.nodes.body.nodes.body.nodes]]
+id = "o"
+op = "raster.calc"
+inputs = { x = "@x" }
+params = { expression = "x" }
+"#,
+        );
+        let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let grid = grid_of(&values("g", "map").unwrap()).unwrap();
+        let t = trace(&m, &r, &values, &Kept::new(), "g", "map", &grid, (1, 4));
+        let sw = &t.steps[0];
+        assert_eq!((sw.node.as_str(), sw.path.as_slice()), ("sw", ["g".to_string()].as_slice()));
+        assert_eq!(sw.how, How::Branch { case: "double".into(), branch: Some("double".into()), steps: Vec::new() });
+        let d = t.steps.iter().find(|s| s.node == "d").expect("the branch's node");
+        assert_eq!(d.path, ["g", "sw", "double"]);
+        let land = t.steps.iter().find(|s| s.node == "land").expect("through @x, @map and @land to the node outside");
+        assert_eq!(land.how, How::Data);
+        let (Some(At::Number(dv)), Some(At::Number(lv))) = (&d.value, &land.value) else { panic!("{}", t.text()) };
+        assert!((dv - 2.0 * lv).abs() < 1e-12, "{dv} {lv}");
+        assert!(!t.steps.iter().any(|s| s.node == "o"));
     }
 
     #[test]

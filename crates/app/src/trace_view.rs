@@ -361,6 +361,9 @@ fn how_ui(ui: &mut Ui, how: &How) {
         How::Group => {
             ui.label(weak("a group: what its body gave"));
         }
+        How::Branch { .. } => {
+            ui.label(weak(how.branch_text()));
+        }
         How::Local => {}
     }
 }
