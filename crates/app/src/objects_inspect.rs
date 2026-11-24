@@ -37,6 +37,8 @@ use crate::table_view::Pick;
 pub const IN_SETTINGS: usize = 500;
 /// A class with fewer samples than this is warned about.
 pub const FEW: usize = 10;
+/// A class whose samples cover less than this share of the area sampled is warned about (with two classes or more).
+pub const SMALL_SHARE: f64 = 0.05;
 /// How long the samples stay unchanged before the live mode writes them.
 const DEBOUNCE: Duration = Duration::from_millis(800);
 /// The ids the nodes made are given (made unique when taken).
@@ -48,6 +50,84 @@ pub struct Sample {
     pub row: usize,
     pub col: usize,
     pub class: usize,
+}
+
+/// The digit pressed (1 to 9, no modifier), taken, as the place of a class in a palette of `classes`: a digit with no
+/// class at its place stays for the places (1 to 9 go to a saved place, ctrl+1 to 9 keep the view there).
+pub fn class_key(i: &mut egui::InputState, classes: usize) -> Option<usize> {
+    if i.modifiers.any() {
+        return None;
+    }
+    const DIGITS: [egui::Key; 9] = [
+        egui::Key::Num1,
+        egui::Key::Num2,
+        egui::Key::Num3,
+        egui::Key::Num4,
+        egui::Key::Num5,
+        egui::Key::Num6,
+        egui::Key::Num7,
+        egui::Key::Num8,
+        egui::Key::Num9,
+    ];
+    (0..classes.min(9)).find(|&k| i.consume_key(egui::Modifiers::NONE, DIGITS[k]))
+}
+
+/// The height of a row of the palette, and the widths of the columns of numbers.
+const ROW: f32 = 20.0;
+const COUNT_W: f32 = 52.0;
+const AREA_W: f32 = 92.0;
+
+/// A whole number with a thin space between the thousands.
+fn thousands(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push('\u{2009}');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// An area as text: in hectares (km² from one), or the cells when the grid has no coordinate system.
+pub fn area_text(a: f64, metric: bool) -> String {
+    if !metric {
+        return format!("{} cells", thousands(a.round() as u64));
+    }
+    let (ha, km2) = (a / 1e4, a / 1e6);
+    if km2 >= 1.0 {
+        format!("{km2:.2} km²")
+    } else if ha >= 1.0 {
+        format!("{ha:.1} ha")
+    } else {
+        format!("{ha:.2} ha")
+    }
+}
+
+/// The warning of a class of the palette, short and the reason: fewer than [`FEW`] objects with a sample, or (with two
+/// classes or more) samples that cover under [`SMALL_SHARE`] of the area sampled.
+pub fn warning(n: usize, area: f64, total: f64, classes: usize) -> Option<(String, String)> {
+    let few = n < FEW;
+    let small = classes >= 2 && total > 0.0 && area / total < SMALL_SHARE;
+    let mut why = Vec::new();
+    if few {
+        why.push(format!("fewer than {FEW} samples: a classifier needs more of each class"));
+    }
+    if small {
+        why.push(format!(
+            "its samples cover {:.1}% of the area sampled (under {:.0}%): the class may be too thin to learn",
+            area / total * 100.0,
+            SMALL_SHARE * 100.0
+        ));
+    }
+    let short = match (few, small) {
+        (true, true) => "few, small",
+        (true, false) => "few",
+        (false, true) => "small",
+        (false, false) => return None,
+    };
+    Some((short.into(), why.join("; ")))
 }
 
 /// What the Viewer keeps of the objects selected and the samples given.
@@ -254,6 +334,30 @@ impl ObjectsUi {
             }
         }
         (0..self.classes.len()).map(|k| seen.iter().filter(|(c, _)| *c == k).count()).collect()
+    }
+
+    /// Per class: the objects with a sample of it and the area they cover, in square metres of the objects' grid (in
+    /// cells when it has no coordinate system: the second value, false then).
+    pub fn areas(&self, o: &Objects) -> (Vec<f64>, bool) {
+        let w = o.grid.width;
+        let mut seen: HashSet<(usize, u32)> = HashSet::new();
+        let mut area = vec![0.0; self.classes.len()];
+        let metric = crate::measure::cell_area(&o.grid, 0).is_some();
+        for s in &self.samples {
+            if s.class >= area.len() || s.row >= o.grid.height || s.col >= w {
+                continue;
+            }
+            let id = o.labels[s.row * w + s.col];
+            if id == 0 || !seen.insert((s.class, id)) {
+                continue;
+            }
+            let k = id as usize - 1;
+            let cells = f64::from(o.cells[k]);
+            // (the row of the object's middle: a geographic grid's cells are smaller toward the poles)
+            let row = (o.boxes[k][0] as usize + o.boxes[k][2] as usize) / 2;
+            area[s.class] += cells * crate::measure::cell_area(&o.grid, row).unwrap_or(1.0);
+        }
+        (area, metric)
     }
 
     /// The selection and the attribute table's agreed on: a row picked in the table is an object selected, an object
@@ -631,18 +735,62 @@ impl ObjectsUi {
         if !self.sampling {
             return false;
         }
+        // 1 to 9 pick the class of that place in the palette (a digit with no class there is left to the places)
+        if !ui.ctx().egui_wants_keyboard_input()
+            && let Some(k) = ui.input_mut(|i| class_key(i, self.classes.len()))
+        {
+            self.active = k;
+        }
         let counts = self.counts(o);
-        for (k, &n) in counts.iter().enumerate() {
-            ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-                ui.painter().rect_filled(r, 2.0, self.colour(k));
-                let text = format!("{} ({})", self.classes[k], n);
-                if ui.add(egui::Button::selectable(self.active == k, text)).clicked() {
-                    self.active = k;
-                }
-                if n < FEW {
-                    ui.label(RichText::new("few").color(ui.visuals().warn_fg_color).size(11.0))
-                        .on_hover_text(format!("fewer than {FEW} samples: a classifier needs more of each class"));
+        let (areas, metric) = self.areas(o);
+        let total: f64 = areas.iter().sum();
+        let (weak, warn) = (crate::theme::weak(), ui.visuals().warn_fg_color);
+        if !counts.is_empty() {
+            egui::Grid::new("samples palette").num_columns(5).spacing([10.0, 4.0]).show(ui, |ui| {
+                // (the numbers and their headers in cells of one width, right to left: they end on one edge)
+                let text_colour = ui.visuals().text_color();
+                let right = |ui: &mut Ui, w: f32, text: String, font: egui::FontId, colour: Color32| {
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, ROW), egui::Sense::hover());
+                    let galley = ui.painter().layout_no_wrap(text, font, colour);
+                    let at = rect.right_center() - egui::vec2(galley.size().x, galley.size().y / 2.0);
+                    ui.painter().galley(at, galley, colour);
+                };
+                let head = |ui: &mut Ui, w: f32, t: &str| {
+                    right(ui, w, t.into(), egui::FontId::proportional(10.5), weak);
+                };
+                ui.label("");
+                ui.label("");
+                head(ui, COUNT_W, "samples");
+                head(ui, AREA_W, "area");
+                ui.label("");
+                ui.end_row();
+                for (k, &n) in counts.iter().enumerate() {
+                    // the colour and the key that picks the class (a keycap, the first nine)
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        let (r, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                        ui.painter().rect_filled(r, 2.0, self.colour(k));
+                        let (cap, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                        if k < 9 {
+                            let p = ui.painter();
+                            p.rect_stroke(cap, 3.0, egui::Stroke::new(1.0, weak), egui::StrokeKind::Inside);
+                            let font = egui::FontId::proportional(10.0);
+                            p.text(cap.center(), egui::Align2::CENTER_CENTER, k + 1, font, weak);
+                        }
+                    });
+                    let name = RichText::new(&self.classes[k]);
+                    let tip = "click: the class to paint with; 1-9: pick the class";
+                    if ui.add(egui::Button::selectable(self.active == k, name)).on_hover_text(tip).clicked() {
+                        self.active = k;
+                    }
+                    right(ui, COUNT_W, n.to_string(), egui::FontId::monospace(11.5), text_colour);
+                    right(ui, AREA_W, area_text(areas[k], metric), egui::FontId::monospace(11.0), weak);
+                    ui.horizontal(|ui| {
+                        if let Some((short, why)) = warning(n, areas[k], total, counts.len()) {
+                            ui.label(RichText::new(short).color(warn).size(11.0)).on_hover_text(why);
+                        }
+                    });
+                    ui.end_row();
                 }
             });
         }
@@ -1108,6 +1256,58 @@ mod tests {
         // the colours follow the alphabet: a is the first of the palette
         assert_eq!(st.colour(1), class_colour(0));
         assert_eq!(st.colour(0), class_colour(1));
+    }
+
+    /// `two()` on a grid of 100 m cells (UTM 33N): a cell is a hectare, an object 16 of them.
+    fn two_in_metres() -> Objects {
+        let mut g = Grid::new(8, 4);
+        g.transform = [500_000.0, 100.0, 0.0, 4_000_000.0, 0.0, -100.0];
+        g.geo.geokeys = Some(vec![1, 1, 0, 3, 1024, 0, 1, 1, 3072, 0, 1, 32633, 3076, 0, 1, 9001]);
+        let labels: Vec<u32> = (0..32).map(|i| if i % 8 < 4 { 1 } else { 2 }).collect();
+        Objects::from_labels(Arc::new(g), labels, 2).unwrap()
+    }
+
+    #[test]
+    fn the_area_of_a_class_is_that_of_the_objects_sampled() {
+        let o = two_in_metres();
+        let mut st = ObjectsUi { classes: vec!["a".into(), "b".into()], sampling: true, ..Default::default() };
+        // two samples in object 1 (one object), one in object 2
+        st.samples = vec![
+            Sample { row: 1, col: 1, class: 0 },
+            Sample { row: 2, col: 2, class: 0 },
+            Sample { row: 1, col: 5, class: 1 },
+        ];
+        let (area, metric) = st.areas(&o);
+        assert!(metric);
+        assert_eq!(st.counts(&o), vec![1, 1]);
+        assert_eq!(area, vec![160_000.0, 160_000.0], "16 cells of a hectare each");
+        assert_eq!(area_text(area[0], metric), "16.0 ha");
+        // a plain grid: the cells
+        let (cells, metric) = st.areas(&two());
+        assert!(!metric);
+        assert_eq!(cells, vec![16.0, 16.0]);
+        assert_eq!(area_text(cells[0], metric), "16 cells");
+        assert_eq!(area_text(1250.0, false), "1\u{2009}250 cells");
+        assert_eq!(area_text(3.4e4, true), "3.4 ha");
+        assert_eq!(area_text(2500.0, true), "0.25 ha");
+        assert_eq!(area_text(12.5e6, true), "12.50 km²");
+    }
+
+    #[test]
+    fn a_class_with_few_samples_or_a_thin_share_is_warned_about() {
+        // few: under FEW objects sampled
+        let (short, why) = warning(3, 50.0, 100.0, 2).expect("few");
+        assert_eq!(short, "few");
+        assert!(why.contains("fewer than 10"), "{why}");
+        // enough samples, but 2 % of the area sampled
+        let (short, why) = warning(12, 2.0, 100.0, 2).expect("small");
+        assert_eq!(short, "small");
+        assert!(why.contains("2.0%"), "{why}");
+        assert_eq!(warning(3, 1.0, 100.0, 2).unwrap().0, "few, small");
+        // a class alone has no share to compare; enough of both: nothing
+        assert!(warning(12, 2.0, 2.0, 1).is_none());
+        assert!(warning(12, 30.0, 100.0, 2).is_none());
+        assert_eq!(warning(0, 0.0, 0.0, 1).unwrap().0, "few");
     }
 
     #[test]

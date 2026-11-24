@@ -45,13 +45,17 @@ fn model() -> Model {
 }
 
 fn harness(name: &str) -> Harness<'static, TerrafluxApp> {
+    harness_of(name, model())
+}
+
+fn harness_of(name: &str, m: Model) -> Harness<'static, TerrafluxApp> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     crate::point_settings();
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
     let p = dir.join("model.toml");
-    model().save(&p).unwrap();
+    m.save(&p).unwrap();
     let mut app = TerrafluxApp::new(Some(p));
     app.session.as_mut().unwrap().wait();
     let rs = egui_kittest::wgpu::create_render_state(
@@ -325,6 +329,135 @@ fn many_samples_go_to_a_geopackage_beside_the_model() {
     assert_eq!(v.geometries.len(), 3);
     assert!(v.attributes.iter().any(|(n, _)| n == "class"));
     assert!(s.source.nodes.iter().any(|n| n.op == "objects.samples"));
+}
+
+fn palette(h: &Harness<TerrafluxApp>) -> (usize, usize) {
+    let st = &h.state().session.as_ref().unwrap().preview_objects;
+    (st.active, st.samples.len())
+}
+
+/// The objects of `seg` shown, the Samples box open (or not) with the classes A, B and C, and three objects that have
+/// an interior cell.
+fn samples_box(h: &mut Harness<TerrafluxApp>, open: bool) -> (std::sync::Arc<Objects>, Vec<u32>) {
+    run_and_show(h, "seg");
+    until(h, "the objects drawn", |h| h.state().session.as_ref().unwrap().preview_view.objects_drawn() == 1);
+    until(h, "the inspector", |h| has(h, "Samples"));
+    let o = objects_of(h, "seg", "objects");
+    let ids: Vec<u32> = (1..=o.count as u32)
+        .filter(|&i| {
+            let (r, c) = cell_of(&o, i);
+            let w = o.grid.width;
+            r > 0 && c > 0 && r + 1 < o.grid.height && c + 1 < w && {
+                let same = |r: usize, c: usize| o.labels[r * w + c] == i;
+                same(r - 1, c) && same(r + 1, c) && same(r, c - 1) && same(r, c + 1)
+            }
+        })
+        .take(3)
+        .collect();
+    assert_eq!(ids.len(), 3);
+    {
+        let st = &mut h.state_mut().session.as_mut().unwrap().preview_objects;
+        st.sampling = open;
+        st.classes = vec!["A".into(), "B".into(), "C".into()];
+        st.active = 0;
+    }
+    h.run_steps(2);
+    (o, ids)
+}
+
+#[test]
+fn a_digit_picks_the_class_while_the_samples_box_is_open_and_a_click_gives_it() {
+    let mut h = harness("objects-viewer-digits");
+    let (o, ids) = samples_box(&mut h, true);
+    assert_eq!(palette(&h), (0, 0));
+    h.key_press(egui::Key::Num2);
+    h.run_steps(2);
+    assert_eq!(palette(&h).0, 1, "2 picks the second class");
+    let (row, col) = cell_of(&o, ids[0]);
+    click_cell(&mut h, row, col);
+    {
+        let st = &h.state().session.as_ref().unwrap().preview_objects;
+        assert_eq!(st.samples.len(), 1);
+        assert_eq!(st.samples[0].class, 1, "the object clicked has class 2 (B)");
+    }
+    // a digit with no class at its place, and ctrl+digit (a place kept), leave the class alone
+    h.key_press(egui::Key::Num9);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num3);
+    h.run_steps(2);
+    assert_eq!(palette(&h).0, 1);
+    h.key_press(egui::Key::Num3);
+    h.run_steps(2);
+    assert_eq!(palette(&h).0, 2);
+}
+
+#[test]
+fn a_digit_goes_to_the_places_while_the_samples_box_is_closed() {
+    let mut h = harness("objects-viewer-digits-closed");
+    samples_box(&mut h, false);
+    h.state_mut().session.as_mut().unwrap().preview_objects.active = 0;
+    h.key_press(egui::Key::Num2);
+    h.run_steps(2);
+    assert_eq!(palette(&h).0, 0, "the class is not changed: 2 is the place's");
+    assert!(!h.state().session.as_ref().unwrap().preview_objects.sampling);
+}
+
+/// The Samples box with three classes and some samples, drawn (a picture for a look, in the target's temporary folder).
+#[test]
+#[ignore = "writes a picture: cargo test -- --ignored the_samples_box_drawn"]
+fn the_samples_box_drawn() {
+    draw_box(harness("objects-viewer-box"), "samples_box.png");
+    // the same on a grid of 10 m cells in UTM (areas in hectares)
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("objects-viewer-box-ha-data");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut g = terraflux_raster::Grid::new(60, 40);
+    g.transform = [500_000.0, 10.0, 0.0, 4_000_000.0, 0.0, -10.0];
+    g.geo.geokeys = Some(vec![1, 1, 0, 3, 1024, 0, 1, 1, 3072, 0, 1, 32633, 3076, 0, 1, 9001]);
+    let data = (0..60 * 40).map(|i| f64::from(((i / 60 / 4) * 7 + (i % 60 / 4) * 3) % 4)).collect();
+    let tif = dir.join("land.tif");
+    terraflux_raster::Raster::single(g, data, terraflux_raster::DataType::U8, None).write(&tif).unwrap();
+    let mut m = Model::new("objects viewer ha");
+    m.nodes.push(Node::new("land", "raster.read").param("path", tif.to_string_lossy().to_string()));
+    m.nodes.push(Node::new("seg", "segment.from_map").input("map", "land.raster"));
+    draw_box(harness_of("objects-viewer-box-ha", m), "samples_box_ha.png");
+}
+
+fn draw_box(mut h: Harness<'static, TerrafluxApp>, file: &str) {
+    let (o, ids) = samples_box(&mut h, true);
+    {
+        let st = &mut h.state_mut().session.as_mut().unwrap().preview_objects;
+        st.classes = vec!["Forest".into(), "Water".into(), "Urban".into()];
+    }
+    // (the class by the digit, a click each; a few more of the first class)
+    let mut more: Vec<u32> = (1..=o.count as u32).filter(|i| !ids.contains(i)).take(11).collect();
+    for (k, &id) in ids.iter().enumerate() {
+        h.key_press(match k {
+            0 => egui::Key::Num1,
+            1 => egui::Key::Num2,
+            _ => egui::Key::Num3,
+        });
+        h.run_steps(2);
+        let (row, col) = cell_of(&o, id);
+        click_cell(&mut h, row, col);
+    }
+    {
+        let st = &mut h.state_mut().session.as_mut().unwrap().preview_objects;
+        for id in more.drain(..) {
+            if let Some((row, col)) = terraflux_app::objects_inspect::sample_cell(&o, id) {
+                st.samples.push(terraflux_app::objects_inspect::Sample { row, col, class: 0 });
+            }
+        }
+        st.active = 0;
+    }
+    h.run_steps(3);
+    let img = h.render().expect("a renderer");
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("objects-viewer-box");
+    std::fs::create_dir_all(&dir).unwrap();
+    img.save(dir.join(format!("full-{file}"))).unwrap();
+    let at = h.get_by_label("Samples").rect();
+    let (x, y) = ((at.min.x as u32).saturating_sub(12), (at.min.y as u32).saturating_sub(12));
+    let w = img.width() - x;
+    let part = image::imageops::crop_imm(&img, x, y, w, 230.min(img.height() - y)).to_image();
+    part.save(dir.join(file)).unwrap();
 }
 
 /// Two objects that touch, each with an interior cell (a click there is on it at any zoom).

@@ -399,7 +399,12 @@ pub static ACTIONS: &[Action] = &[
         "Keep the view in a slot, as a place saved with the model (Places)",
         &CMD_DIGITS,
     ),
-    part("viewer_place_go", Scope::Viewer, "Go to the place in that slot", &DIGITS),
+    part(
+        "viewer_place_go",
+        Scope::Viewer,
+        "Go to the place in that slot (Samples open over objects: the class of that place in the palette)",
+        &DIGITS,
+    ),
     // The calculator's script and console.
     at("calc_run", Scope::Calculator, "Give the script to the node and run up to it", &[cmd(Key::Enter)]),
     at("calc_complete", Scope::Calculator, "The names that fit (completions)", &[cmd(Key::Space)]),
