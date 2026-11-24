@@ -5,7 +5,7 @@ description: Measure and reshape features one at a time, work along lines, divid
 order: 20
 level: intermediate
 time: 60 min
-ops: [vector.geometry, vector.centroid, vector.hull, vector.simplify, vector.points_along, vector.locate, vector.voronoi, vector.cluster, vector.smooth, vector.coverage_simplify, vector.coverage_validate]
+ops: [vector.geometry, vector.centroid, vector.hull, vector.simplify, vector.points_along, vector.locate, vector.voronoi, vector.cluster, vector.smooth, vector.coverage_node, vector.coverage_simplify, vector.coverage_validate]
 series: Vector analysis
 part: 2
 ---
@@ -454,7 +454,8 @@ distance it moves in a day, the territory's radius) and report it.
 [[vector.smooth]] applies Chaikin's corner cutting to lines and polygons, `iterations` times (1 to 10), keeping the
 ends of a line with `preserve_ends`. [[vector.coverage_validate]] and [[vector.coverage_simplify]] work on a layer
 of polygons that must form a **valid coverage**: no overlap, and every shared edge matching its neighbour's *vertex
-by vertex*. [[vector.coverage_simplify]] moves each shared edge once, for both neighbours, with a `tolerance`, and
+by vertex*. [[vector.coverage_node]] adds the vertices that are missing for that: every vertex of a neighbour that
+lies on an edge, added to the edge, and nothing else moved (a column `added` counts them). [[vector.coverage_simplify]] moves each shared edge once, for both neighbours, with a `tolerance`, and
 `preserve_boundary` leaves the outer outline of the whole as it is. [[vector.coverage_validate]] gives each feature
 with a column `valid` and, as its geometry, the edges that are not (empty when the feature is valid); `gap_width`
 also flags edges closer than that to a neighbour.
@@ -462,31 +463,37 @@ also flags edges closer than that to a neighbour.
 !!! warning "A polygonized map is not a coverage as it comes"
     The polygons that [[vector.polygonize]] (and GDAL's polygonize) make have only their own corners. Where a
     neighbour's edge meets the junction of two other patches, that edge has no vertex there, and the coverage
-    check calls the edges unmatched. In `cover_raw.gpkg`, 14 of 19 patches fail it; in `cover.gpkg`, the same
-    patches with their boundaries noded (cut at every junction), all 19 pass. Always check with
-    [[vector.coverage_validate]]; the application has no node that nodes a layer yet, so in Python it takes three
-    lines of shapely (below).
+    check calls the edges unmatched. In `cover_raw.gpkg`, 14 of 19 patches fail it; after
+    [[vector.coverage_node]], which adds 17 vertices where the junctions are, all 19 pass (`cover.gpkg` is that
+    result). Put [[vector.coverage_node]] between [[vector.polygonize]] and the coverage tools, and check with
+    [[vector.coverage_validate]].
 
 ```tfgraph
-#! caption: Check that the polygons form a coverage, simplify them together with a 60 m tolerance, and smooth a copy to draw it.
-#! highlight: valid, together, drawn
+#! caption: Add the vertices the polygonized patches share, check that they form a coverage, simplify them together with a 60 m tolerance, and smooth a copy to draw it.
+#! highlight: noded, valid, together, drawn
 format = "terraflux/1"
 
 [[nodes]]
-id = "cover"
+id = "raw"
 op = "vector.read"
-params = { path = "cover.gpkg" }
+params = { path = "cover_raw.gpkg" }
+
+[[nodes]]
+id = "noded"
+op = "vector.coverage_node"
+inputs = { vector = "raw.vector" }
+note = "The vertices of the junctions added to the straight edges that pass them."
 
 [[nodes]]
 id = "valid"
 op = "vector.coverage_validate"
-inputs = { vector = "cover.vector" }
+inputs = { vector = "noded.vector" }
 note = "valid is 1 where a feature's edges match its neighbours'."
 
 [[nodes]]
 id = "together"
 op = "vector.coverage_simplify"
-inputs = { vector = "cover.vector" }
+inputs = { vector = "noded.vector" }
 params = { tolerance = 60 }
 note = "Shared edges simplified once, for both neighbours."
 
@@ -502,8 +509,9 @@ note = "For drawing, not for measuring."
 
 ```python
 cover_raw = tf.load_vector("cover_raw.gpkg")   # 19 patches as a polygonized map gives them
-cover = tf.load_vector("cover.gpkg")           # the same patches with shared vertices (noded)
-print(len(cover_raw), int(v.coverage_validate(cover_raw)["valid"].sum()), int(v.coverage_validate(cover)["valid"].sum()))
+cover = v.coverage_node(cover_raw)             # the same patches with the vertices they share
+print(len(cover_raw), int(cover["added"].sum()))
+print(int(v.coverage_validate(cover_raw)["valid"].sum()), int(v.coverage_validate(cover)["valid"].sum()))
 alone = v.simplify(cover, 60)                  # each polygon alone
 together = v.coverage_simplify(cover, 60)      # the polygons together
 print(int(v.coverage_validate(alone)["valid"].sum()), int(v.coverage_validate(together)["valid"].sum()))
@@ -514,30 +522,17 @@ print(round(cover_raw.length.sum()), round(smooth.length.sum()))
 ```
 
 ```text
-19 5 19
+19 17
+5 19
 1 19
-290151 0
+284076 0
 146650 127693
 ```
 
-Simplified one by one, the 19 polygons of 25 km² leave 290,151 m² (1.2%) that no polygon holds, and overlap where
+Simplified one by one, the 19 polygons of 25 km² leave 284,076 m² (1.1%) that no polygon holds, and overlap where
 neighbours moved the other way; only one polygon of the 19 still has valid edges. Simplified together, none
 is lost and all 19 are valid. Smoothing two times takes 19 km off the 147 km of outlines, and its polygons no longer
 fit one another either: it is for the picture.
-
-The noding of a polygonized layer, in shapely (this is how `cover.gpkg` was made from `cover_raw.gpkg`):
-
-<!-- no-run -->
-```python
-import numpy as np, geopandas as gpd, shapely
-
-lines = shapely.node(shapely.union_all(shapely.boundary(cover_raw.geometry.values)))       # cut at every junction
-pieces = shapely.get_parts(shapely.polygonize(shapely.get_parts(lines)))
-ip, ic = shapely.STRtree(cover_raw.geometry.values).query(shapely.point_on_surface(pieces), predicate="within")
-classes = np.zeros(len(pieces), dtype=int)
-classes[ip] = cover_raw["class"].values[ic]                                                # the class under each piece
-noded = gpd.GeoDataFrame({"class": classes}, geometry=pieces, crs=cover_raw.crs)
-```
 
 ## Common pitfalls
 
@@ -556,6 +551,10 @@ noded = gpd.GeoDataFrame({"class": classes}, geometry=pieces, crs=cover_raw.crs)
   message that says so.
 - **`simplify` on neighbours.** Use it for a layer of separate features; for a coverage it opens gaps and overlaps,
   as shown above. Use [[vector.coverage_simplify]] and validate the layer first.
+- **Polygons from a raster are not a coverage yet.** The edges of [[vector.polygonize]]'s patches lack the vertices
+  where their neighbours meet: [[vector.coverage_node]] first. Its `tolerance` stays 0 for them (their corners lie
+  exactly on the edges); give a small one (a millimetre) only to a layer that was reprojected, whose vertices are
+  no longer exactly on the straight edges of their neighbours.
 - **A centroid is not on the feature.** For a concave polygon use `inside`; for a patch with several parts, the
   centroid of the whole can be in none of them.
 - **DBSCAN counts the point itself.** `min_points = 5` means the point and four others. And `-1` is noise: do not

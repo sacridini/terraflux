@@ -1,6 +1,6 @@
 ---
 title: Vector analysis
-description: "Vector analysis as in PostGIS: predicates and selection by location, joins, nearest feature, overlay, clip, dissolve, buffer, geometry, lines and linear referencing, Voronoi, Delaunay, clusters, smoothing and coverages."
+description: "Vector analysis as in PostGIS: predicates and selection by location, joins, nearest feature, overlay, clip, dissolve, buffer, geometry, lines and linear referencing, Voronoi, Delaunay, clusters, smoothing and coverages (their shared vertices too)."
 order: 25
 ---
 
@@ -71,6 +71,26 @@ vector calculator's spatial functions do.
 | `equals(a, b)` | are the same set of points as one, whatever the vertices | `ST_Equals` |
 
 ::: terraflux.vector.select
+
+::: terraflux.vector.within
+
+::: terraflux.vector.contains
+
+::: terraflux.vector.intersects
+
+::: terraflux.vector.touches
+
+::: terraflux.vector.crosses
+
+::: terraflux.vector.overlaps
+
+::: terraflux.vector.covers
+
+::: terraflux.vector.covered_by
+
+::: terraflux.vector.contains_properly
+
+::: terraflux.vector.equals
 
 ::: terraflux.vector.disjoint
 
@@ -235,7 +255,8 @@ print(v.cluster(pts, 1.5, min_points=2)["cluster"].tolist(), len(v.delaunay(pts)
 ## Smoothing and coverages
 
 `coverage_simplify` and `coverage_validate` need shapely 2.1 (GEOS 3.12). A layer made by polygonizing a map usually
-fails `coverage_validate` until its boundaries are noded: see
+fails `coverage_validate` until `coverage_node` adds the vertices that neighbours share (where two patches meet the
+straight edge of a third): see
 [the second tutorial](/tutorials/vector-analysis/shapes-lines-clusters/#smoothing-and-coverages).
 
 ```python
@@ -249,7 +270,20 @@ print(len(v.smooth(gpd.GeoSeries([LineString([(0, 0), (10, 0), (10, 10)])]), ite
 6
 ```
 
+```python
+# a tall cell beside two short ones: its straight edge has no vertex where they meet
+tj = gpd.GeoDataFrame({"id": [1, 2, 3]}, geometry=[box(0, 0, 1, 2), box(1, 0, 2, 1), box(1, 1, 2, 2)], crs=32633)
+noded = v.coverage_node(tj)
+print(noded["added"].tolist(), v.coverage_validate(tj)["valid"].tolist(), v.coverage_validate(noded)["valid"].tolist())
+```
+
+```text
+[1, 0, 0] [False, False, False] [True, True, True]
+```
+
 ::: terraflux.vector.smooth
+
+::: terraflux.vector.coverage_node
 
 ::: terraflux.vector.coverage_simplify
 

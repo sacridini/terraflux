@@ -130,19 +130,14 @@ def make_cover(size_m=5000, corner=(4268000, 3270000)):
     """The patches of every class of a small window, as a polygonized map gives them: (raw, noded).
 
     The raw polygons have only their own corners, so a neighbour's edge has no vertex where a third patch meets it and
-    GEOS does not take them for a coverage. The noded ones (the boundaries noded, then polygonized, each piece given
-    the class under its representative point) share every vertex with their neighbours: a valid coverage.
+    GEOS does not take them for a coverage. The noded ones (tf.vector.coverage_node: the vertices of the neighbours
+    that lie on an edge added to it) share every vertex with their neighbours: a valid coverage.
     """
     x0, y0 = corner
     a, T = clc_window((x0, y0, x0 + size_m, y0 + size_m))
     pol = patches(a, T, list(np.unique(a)), connectivity=4)
     raw = gpd.GeoDataFrame({"class": [v for _, v in pol]}, geometry=[g for g, _ in pol], crs=CRS)
-    lines = shapely.node(shapely.union_all(shapely.boundary(raw.geometry.values)))
-    pieces = shapely.get_parts(shapely.polygonize(shapely.get_parts(lines)))
-    ip, ic = shapely.STRtree(raw.geometry.values).query(shapely.point_on_surface(pieces), predicate="within")
-    cls = np.zeros(len(pieces), dtype=int)
-    cls[ip] = raw["class"].values[ic]
-    noded = gpd.GeoDataFrame({"class": cls}, geometry=pieces, crs=CRS)
+    noded = tf.vector.coverage_node(raw).drop(columns="added")
     return raw, noded
 
 

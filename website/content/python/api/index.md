@@ -128,6 +128,16 @@ The pages, one per area:
 | Name | Summary |
 |---|---|
 | [`tf.vector.select`](/python/api/vector/#terraflux.vector.select) | The features of ``a`` for which ``predicate`` holds with at least one feature of ``b`` (selection by location) |
+| [`tf.vector.within`](/python/api/vector/#terraflux.vector.within) | The features of ``a`` that lie inside at least one feature of ``b`` |
+| [`tf.vector.contains`](/python/api/vector/#terraflux.vector.contains) | The features of ``a`` that contain at least one feature of ``b`` |
+| [`tf.vector.intersects`](/python/api/vector/#terraflux.vector.intersects) | The features of ``a`` that share at least one point with a feature of ``b`` |
+| [`tf.vector.touches`](/python/api/vector/#terraflux.vector.touches) | The features of ``a`` that touch at least one feature of ``b`` |
+| [`tf.vector.crosses`](/python/api/vector/#terraflux.vector.crosses) | The features of ``a`` that cross at least one feature of ``b`` |
+| [`tf.vector.overlaps`](/python/api/vector/#terraflux.vector.overlaps) | The features of ``a`` that overlap at least one feature of ``b`` |
+| [`tf.vector.covers`](/python/api/vector/#terraflux.vector.covers) | The features of ``a`` that cover at least one feature of ``b`` |
+| [`tf.vector.covered_by`](/python/api/vector/#terraflux.vector.covered_by) | The features of ``a`` covered by at least one feature of ``b`` |
+| [`tf.vector.contains_properly`](/python/api/vector/#terraflux.vector.contains_properly) | The features of ``a`` that contain at least one feature of ``b`` properly |
+| [`tf.vector.equals`](/python/api/vector/#terraflux.vector.equals) | The features of ``a`` that are topologically equal to at least one feature of ``b`` |
 | [`tf.vector.disjoint`](/python/api/vector/#terraflux.vector.disjoint) | The features of ``a`` that meet **no** feature of ``b`` (not ``intersects`` with any) |
 | [`tf.vector.dwithin`](/python/api/vector/#terraflux.vector.dwithin) | The features of ``a`` within ``distance`` (in the CRS units, planar, inclusive) of at least one feature of ``b`` |
 | [`tf.vector.relate`](/python/api/vector/#terraflux.vector.relate) | Which features of ``a`` satisfy ``predicate`` with at least one feature of ``b``: a bool array, one per feature |
@@ -162,6 +172,7 @@ The pages, one per area:
 | [`tf.vector.delaunay`](/python/api/vector/#terraflux.vector.delaunay) | The Delaunay triangulation of all the vertices of ``a``: triangles, or the edges as lines with ``edges=True`` |
 | [`tf.vector.cluster`](/python/api/vector/#terraflux.vector.cluster) | The features of ``a`` with an int64 column of cluster ids: DBSCAN on the distance between geometries |
 | [`tf.vector.smooth`](/python/api/vector/#terraflux.vector.smooth) | Lines and polygons smoothed by Chaikin's corner cutting, ``iterations`` times (1 to 10) |
+| [`tf.vector.coverage_node`](/python/api/vector/#terraflux.vector.coverage_node) | The polygons with the vertices they share with their neighbours: every vertex of another feature that lies on an edge of a polygon is added to that edge |
 | [`tf.vector.coverage_simplify`](/python/api/vector/#terraflux.vector.coverage_simplify) | The polygons of a coverage simplified together (Visvalingam-Whyatt, GEOS), in the units of the CRS |
 | [`tf.vector.coverage_validate`](/python/api/vector/#terraflux.vector.coverage_validate) | The edges of a polygon coverage that overlap or leave a gap with their neighbours, per feature |
 
@@ -404,6 +415,7 @@ The pages, one per area:
 | [`tf.cost.geo_correction`](/python/api/cost/#terraflux.cost.geo_correction) | Correct a transition for the distances between cell centres: gdistance's ``geoCorrection()`` |
 | [`tf.cost.normalize`](/python/api/cost/#terraflux.cost.normalize) | Normalise a transition matrix: gdistance's ``normalize()`` |
 | [`tf.cost.sum_reciprocal`](/python/api/cost/#terraflux.cost.sum_reciprocal) | Combine two transitions as resistances in series: gdistance's ``sumReciprocal()`` |
+| [`tf.cost.energy_landscape`](/python/api/cost/#terraflux.cost.energy_landscape) | The energy cost of walking over a terrain (enerscape's ``enerscape`` and ``humanscape``) |
 | [`tf.cost.acc_cost`](/python/api/cost/#terraflux.cost.acc_cost) | Accumulated cost surface from the nearest origin: gdistance's ``accCost()`` |
 | [`tf.cost.cost_distance`](/python/api/cost/#terraflux.cost.cost_distance) | Least-cost distances between points: gdistance's ``costDistance()`` |
 | [`tf.cost.shortest_path`](/python/api/cost/#terraflux.cost.shortest_path) | Least-cost path from an origin to one or more goals: gdistance's ``shortestPath()`` |
@@ -714,6 +726,62 @@ The pages, one per area:
 | [`tf.move.random_numbers`](/python/api/move/#terraflux.move.random_numbers) | Draws of a distribution of steps (amt's ``random_numbers``) |
 | [`tf.move.random_steps`](/python/api/move/#terraflux.move.random_steps) | Each observed step with ``n_control`` random steps from its start (amt's ``random_steps``) |
 | [`tf.move.extract_covariates`](/python/api/move/#terraflux.move.extract_covariates) | The values of rasters at locations, or at the ends or starts of steps (amt's ``extract_covariates``) |
+| [`tf.move.fit_issf`](/python/api/move/#terraflux.move.fit_issf) | A step selection function by conditional logistic regression (amt's ``fit_issf``, ``fit_ssf``, ``fit_clogit``) |
+| [`tf.move.log_rss`](/python/api/move/#terraflux.move.log_rss) | The log relative selection strength of the covariates ``x1`` against ``x2`` (amt's ``log_rss``) |
+| [`tf.move.ISSF`](/python/api/move/#terraflux.move.ISSF) | A fitted step selection function (the object of ``survival::clogit`` that amt's ``fit_issf`` returns) |
+| [`tf.move.make_issf_model`](/python/api/move/#terraflux.move.make_issf_model) | A step selection model from coefficients, to simulate from (amt's ``make_issf_model``) |
+| [`tf.move.issf`](/python/api/move/#terraflux.move.issf) | An integrated step selection function from tracks and covariates, in one call (not in amt) |
+| [`tf.move.make_start`](/python/api/move/#terraflux.move.make_start) | The start of a simulation (amt's ``make_start``) |
+| [`tf.move.redistribution_kernel`](/python/api/move/#terraflux.move.redistribution_kernel) | Where the animal goes next, from a fitted iSSF: amt's ``redistribution_kernel`` in continuous space |
+| [`tf.move.RedistributionKernel`](/python/api/move/#terraflux.move.RedistributionKernel) | One cycle of a simulation from an iSSF and where it left R's generator (amt's ``redistribution_kernel``) |
+| [`tf.move.simulate_path`](/python/api/move/#terraflux.move.simulate_path) | A path simulated from a fitted iSSF (amt's ``simulate_path`` of a redistribution kernel) |
+| [`tf.move.resistance`](/python/api/move/#terraflux.move.resistance) | A resistance surface from the habitat part of a step selection model |
+| [`tf.move.path_density`](/python/api/move/#terraflux.move.path_density) | The use of a landscape by simulated paths: the share of positions in each cell |
+| [`tf.move.v_phys_estimate`](/python/api/move/#terraflux.move.v_phys_estimate) | Allometric estimate of the physiological maximum speed of an animal (move2utils' ``v_phys_estimate``) |
+| [`tf.move.VPhys`](/python/api/move/#terraflux.move.VPhys) | The allometric speed limit of `v_phys_estimate` (floats for one mass, arrays for several) |
+| [`tf.move.flag_speed`](/python/api/move/#terraflux.move.flag_speed) | Flag the locations next to a step faster than a speed limit (move2utils' ``mt_flag_speed_cap``, hard cap) |
+| [`tf.move.gps_quality`](/python/api/move/#terraflux.move.gps_quality) | Which locations have a reliable GPS geometry (move2utils' ``mt_filter_gps_quality``): True = kept |
+| [`tf.move.filter_gps_quality`](/python/api/move/#terraflux.move.filter_gps_quality) | ``tracks`` without the locations of an unreliable GPS geometry (see `gps_quality()`) |
+| [`tf.move.thin_time`](/python/api/move/#terraflux.move.thin_time) | Which locations to keep so that the kept ones of a track are about ``interval`` apart (move2utils' ``mt_thin_time``, the move2 version of ``move::thinTrackTime``) |
+| [`tf.move.filter_thin_time`](/python/api/move/#terraflux.move.filter_thin_time) | ``tracks`` thinned to about ``interval`` between locations (see `thin_time()`) |
+| [`tf.move.thin_distance`](/python/api/move/#terraflux.move.thin_distance) | Which locations to keep so that the kept ones of a track are about ``distance`` metres of travel apart (move2utils' ``mt_thin_distance``) |
+| [`tf.move.filter_thin_distance`](/python/api/move/#terraflux.move.filter_thin_distance) | ``tracks`` thinned by distance travelled (see `thin_distance()`) |
+| [`tf.move.extract_covariates_along`](/python/api/move/#terraflux.move.extract_covariates_along) | The values of rasters in the cells each step crosses (amt's ``extract_covariates_along``) |
+| [`tf.move.along_summary`](/python/api/move/#terraflux.move.along_summary) | Summaries of the raster values along each step: whether it climbs a hill or follows a contour line |
+| [`tf.move.surface_distance`](/python/api/move/#terraflux.move.surface_distance) | The length of each step measured on the relief, not on the plane |
+| [`tf.move.make_trast`](/python/api/move/#terraflux.move.make_trast) | A template raster for the estimates of a track's utilisation distribution (amt's ``make_trast``) |
+| [`tf.move.hr_mcp`](/python/api/move/#terraflux.move.hr_mcp) | Minimum convex polygons of each track (amt's ``hr_mcp``) |
+| [`tf.move.hr_kde`](/python/api/move/#terraflux.move.hr_kde) | Kernel density estimates of each track (amt's ``hr_kde``: KernSmooth's ``bkde2D``, a bivariate normal kernel) |
+| [`tf.move.hr_kde_ref`](/python/api/move/#terraflux.move.hr_kde_ref) | The reference bandwidth of each track (amt's ``hr_kde_ref``): ``sqrt((var(x) + var(y)) / 2) * n^(-1/6)`` |
+| [`tf.move.hr_kde_ref_scaled`](/python/api/move/#terraflux.move.hr_kde_ref_scaled) | The reference bandwidth scaled to give no more than ``num_parts`` polygons (amt's ``hr_kde_ref_scaled``) |
+| [`tf.move.hr_kde_pi`](/python/api/move/#terraflux.move.hr_kde_pi) | The plug-in bandwidth of each track (amt's ``hr_kde_pi``): KernSmooth's ``dpik`` for x and y |
+| [`tf.move.hr_kde_lscv`](/python/api/move/#terraflux.move.hr_kde_lscv) | Least-squares cross-validation of the bandwidth of each track (amt's ``hr_kde_lscv``) |
+| [`tf.move.Lscv`](/python/api/move/#terraflux.move.Lscv) | The result of `hr_kde_lscv` for each track |
+| [`tf.move.LscvFit`](/python/api/move/#terraflux.move.LscvFit) | The cross-validation of one track (`hr_kde_lscv`) |
+| [`tf.move.hr_locoh`](/python/api/move/#terraflux.move.hr_locoh) | Local convex hulls of each track (amt's ``hr_locoh``; Getz et al. 2007) |
+| [`tf.move.hr_isopleths`](/python/api/move/#terraflux.move.hr_isopleths) | The isopleths of home-range estimates as polygons (amt's ``hr_isopleths``) |
+| [`tf.move.hr_area`](/python/api/move/#terraflux.move.hr_area) | The areas of the isopleths (amt's ``hr_area``) |
+| [`tf.move.hr_ud`](/python/api/move/#terraflux.move.hr_ud) | The utilisation distribution of a kernel density estimate, summing to 1 (amt's ``hr_ud``) |
+| [`tf.move.hr_cud`](/python/api/move/#terraflux.move.hr_cud) | The cumulative distribution of a utilisation distribution (amt's ``hr_cud``) |
+| [`tf.move.hr_overlap`](/python/api/move/#terraflux.move.hr_overlap) | Overlap between home-range estimates (amt's ``hr_overlap``) |
+| [`tf.move.intensity_use`](/python/api/move/#terraflux.move.intensity_use) | The intensity of use of each track (amt's ``intensity_use``): its length over the square root of the area of its 100 % minimum convex polygon |
+| [`tf.move.home_range`](/python/api/move/#terraflux.move.home_range) | A home range by one of the methods: ``"mcp"`` (`hr_mcp()`), ``"kde"`` (`hr_kde()`) or ``"locoh"`` (`hr_locoh()`) |
+| [`tf.move.HomeRange`](/python/api/move/#terraflux.move.HomeRange) | Home-range estimates of one or several tracks (amt's ``hr`` objects, per track) |
+| [`tf.move.dbbmm_variance`](/python/api/move/#terraflux.move.dbbmm_variance) | The motion variance of the dynamic Brownian bridge along each track (move2utils' ``mt_dbbmm_variance``) |
+| [`tf.move.dbbmm_ud`](/python/api/move/#terraflux.move.dbbmm_ud) | The utilization distribution of the dynamic Brownian bridge, one band per track (move2utils' ``mt_dbbmm_ud``) |
+| [`tf.move.dbgb_variance`](/python/api/move/#terraflux.move.dbgb_variance) | The variances of the directional Brownian bridge along and across the movement (move2utils' ``mt_dbgb_variance``) |
+| [`tf.move.dbgb_ud`](/python/api/move/#terraflux.move.dbgb_ud) | The utilization distribution of the directional Brownian bridge, one band per track (move2utils' ``mt_dbgb_ud``) |
+| [`tf.move.motion_variance`](/python/api/move/#terraflux.move.motion_variance) | The motion variance of each location (move2utils' ``mt_motion_variance``): the column ``motion_variance`` of `dbbmm_variance()`, NaN at the margins of each track; or, of `dbgb_variance()` (``model="dbgb"``, or when only its columns are there), a DataFrame with ``para`` and ``orth``, the squares of the standard deviations (not the mean of the windows' variances) |
+| [`tf.move.suggest_dbbmm_window`](/python/api/move/#terraflux.move.suggest_dbbmm_window) | A window size and margin for `dbbmm_variance()` from the sampling of each track (move2utils' ``mt_suggest_dbbmm_window``, without its plot) |
+| [`tf.move.WindowSuggestion`](/python/api/move/#terraflux.move.WindowSuggestion) | A window for `dbbmm_variance` |
+| [`tf.move.mask_segments`](/python/api/move/#terraflux.move.mask_segments) | Leave segments out of the distribution (move2utils' ``mt_mask_segments``): ``interest`` is False for them |
+| [`tf.move.ud_volume`](/python/api/move/#terraflux.move.ud_volume) | The volume of a distribution: each cell's cumulative probability when the cells are added from the largest value down (move2utils' ``ud_volume``) |
+| [`tf.move.ud_outer_probability`](/python/api/move/#terraflux.move.ud_outer_probability) | The outer probability of locations: the volume of the distribution at each one (move2utils' ``ud_outer_probability``), the share of the probability in the cells at least as likely as the cell that holds the location (small: inside the core, near 1: far out) |
+| [`tf.move.corridor`](/python/api/move/#terraflux.move.corridor) | Mark the segments of the tracks that run along a corridor (move2utils' ``mt_corridor``, LaPoint et al. 2013) |
+| [`tf.move.corridor_lines`](/python/api/move/#terraflux.move.corridor_lines) | The corridor segments of `corridor()` as lines |
+| [`tf.move.ud_distance`](/python/api/move/#terraflux.move.ud_distance) | The earth mover's distance between utilisation distributions (move2utils' ``emd``) |
+| [`tf.move.validate`](/python/api/move/#terraflux.move.validate) | Compare where the animals went with a connectivity surface (Zeller et al. 2018's validation with movement data) |
+| [`tf.move.Validation`](/python/api/move/#terraflux.move.Validation) | What `validate` gives: ``table`` (a row per track, ``pooled`` last when there are several), ``note`` (a short reading of the pooled row), ``threshold`` (the surface value from which a cell is a corridor, NaN for a binary surface), ``corridor`` (a 1 / 0 / NaN raster of the corridor cells on the surface's grid) and ``kind`` |
 
 ### Land change simulation
 

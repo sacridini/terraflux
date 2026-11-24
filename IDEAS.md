@@ -5944,11 +5944,13 @@ exportado chama `tf.vector`; o assunto "Vector geometry" no Builder; o template 
 tabela de equivalência, `python/api/vector.md` e a seção da calculadora. Ficou para depois:
   - a release: primeiro a biblioteca (fundir `vector` no main dela, release), depois o submódulo e o `ops.json`,
     `python_api.json` refeitos;
-  - os dez predicados de `tf.vector` são criados por `_predicate_function`: o griffe não vê docstrings, por isso
-    estão à mão em `python/api/vector.md` (melhor virar `def` com docstring);
-  - os polígonos do `vector.polygonize` não são uma cobertura válida do GEOS (o canto de um cai no meio da aresta
+  - ~~os dez predicados de `tf.vector` são criados por `_predicate_function`: o griffe não vê docstrings, por isso
+    estão à mão em `python/api/vector.md` (melhor virar `def` com docstring)~~ **Feito (2026-11-24)**: dez `def`
+    com docstring própria (terraflux-py efddfbe), e um `:::` de cada em `python/api/vector.md`;
+  - ~~os polígonos do `vector.polygonize` não são uma cobertura válida do GEOS (o canto de um cai no meio da aresta
     do vizinho): um nó que "node" a camada (shapely `node` + `polygonize`) ou um `vector.polygonize` que já dê os
-    vértices partilhados deixaria usar `vector.coverage_simplify` direto;
+    vértices partilhados deixaria usar `vector.coverage_simplify` direto~~ **Feito (2026-11-24)**:
+    `vector.coverage_node` (abaixo);
   - o Delaunay do GEOS 3.13 e 3.14 escolhe diagonais diferentes com quatro pontos cocirculares.
 
 ### Uma cobertura a partir do `vector.polygonize` (pedido de 2026-11-23)
@@ -5956,3 +5958,14 @@ tabela de equivalência, `python/api/vector.md` e a seção da calculadora. Fico
 Polígonos do `vector.polygonize`: não formam uma cobertura válida para o GEOS, porque o canto de um polígono cai no
 meio da aresta do vizinho, sem vértice ali. As dicas agora mandam validar antes. Para usar
 `vector.coverage_simplify` direto, falta um nó que acrescente esses vértices partilhados.
+
+**Feito (2026-11-24).** `tf.vector.coverage_node(a, tolerance=0)` (terraflux-py 08ef82d, na branch `vector`) e o nó
+`vector.coverage_node`: cada vértice de outra feição que cai numa aresta, estritamente entre as pontas, entra nela
+(exatamente sobre ela por padrão; a até `tolerance` para uma camada reprojetada), na ordem ao longo da aresta. Não é o
+`node` + `polygonize` do shapely: esse refaz os polígonos (outra ordem, os atributos por um ponto dentro, os anéis
+começando em outro vértice), e este só acrescenta vértices, com as feições, a ordem, os atributos e os anéis como
+estavam e a coluna `added`; a mesma aritmética na biblioteca (numpy, o `STRtree` do shapely) e no app (Rust, o
+`rstar`), bit a bit (`tests/data/reference/vector_cover.json`, com uma camada mais ruidosa e a escada reprojetada).
+O teste `polygonized_patches_noded_are_a_valid_coverage` passa o `vector.polygonize` do app (4 e 8 vizinhos) pelo
+nó e pelo `vector.coverage_validate`. Num mapa de 18.501 polígonos, 1 s na biblioteca; de 7.127 válidos para todos.
+Na release: o submódulo na biblioteca com o `coverage_node` (o Python exportado o chama).
