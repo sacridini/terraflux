@@ -58,7 +58,8 @@ group.
 (set_parameter: a label, a unit, a range and a help each), and named sets of them in scenarios (set_scenario).
 - Why a cell of a result has its value: trace_cell gives the chain of values that made it (expressions with the \
 values in place, the cells around, what a model weighs, a loop step by step). Explain a result from it, not from \
-what the model should do.
+what the model should do. A cell that looks wrong next to one that looks right, or a cell a scenario changed: \
+trace_cell with compare_with (the other cell) or scenario compares them, where the difference begins and why.
 - When a run fails, its answer says which node failed, its message and what it was given side by side (each \
 input's grid: size, cells, coordinate system) with what likely does not fit: read them before changing anything, \
 look at the inputs it names (inspect_file, describe_operator), and put right what does not fit (raster.match for \
@@ -525,7 +526,8 @@ fn set_scenario(m: &mut Model, a: &Value) -> Reply {
 }
 
 /// The trace of a cell ([`crate::trace`]): what a node gives at a place (`row` and `col` of its map, or `x` and
-/// `y` in its coordinates) and the chain of values that made it, from the values of a run.
+/// `y` in its coordinates) and the chain of values that made it, from the values of a run. With `compare_with` (a
+/// place of the same map), the two cells compared: where their difference begins, and why.
 pub fn trace_cell(
     m: &Model,
     r: &Registry,
@@ -533,15 +535,22 @@ pub fn trace_cell(
     kept: &crate::trace::Kept,
     a: &Value,
 ) -> Reply {
+    if a.get("scenario").is_some() || a.get("scenarios").is_some() {
+        return Err("a scenario needs its own run of the model (terraflux mcp runs it); in the application, use the \
+                    Trace pane's Compare with a scenario"
+            .into());
+    }
     let (node, port, grid, cell) = trace_place(m, r, values, a)?;
     let t = crate::trace::trace(m, r, values, kept, &node, &port, &grid, cell);
-    Ok(format!(
-        "{}
+    let Some(with) = a.get("compare_with") else { return Ok(format!("{}\n\n{}", t.sentence(), t.text())) };
+    let other = place_cell(&grid, with)?;
+    let b = crate::trace::trace(m, r, values, kept, &node, &port, &grid, other);
+    Ok(comparison_text(&crate::trace::compare(&t, &b)))
+}
 
-{}",
-        t.sentence(),
-        t.text()
-    ))
+/// A comparison in words: its sentence, then where the difference begins and the chain.
+fn comparison_text(c: &crate::trace::Comparison) -> String {
+    format!("{}\n\n{}", c.sentence(), c.text())
 }
 
 /// The node, port, grid and cell (row, column) a trace is asked of.
@@ -578,36 +587,133 @@ fn trace_place(
     };
     let v = values(node, &port).ok_or_else(|| format!("{node}.{port} has not run: run the model first"))?;
     let grid = crate::trace::grid_of(&v).ok_or_else(|| format!("{node}.{port} is not a map: no cell to trace"))?;
-    let cell = match (a.get("row").and_then(Value::as_u64), a.get("col").and_then(Value::as_u64)) {
-        (Some(row), Some(col)) if (row as usize) < grid.height && (col as usize) < grid.width => {
-            (row as usize, col as usize)
-        }
-        (Some(_), Some(_)) => return Err(format!("the map has {} rows and {} columns", grid.height, grid.width)),
-        _ => {
-            let (x, y) = (a.get("x").and_then(Value::as_f64), a.get("y").and_then(Value::as_f64));
-            let (Some(x), Some(y)) = (x, y) else { return Err("give row and col, or x and y".into()) };
-            crate::trace::cell_of(&grid, x, y).ok_or("the place is outside the map")?
-        }
-    };
+    let cell = place_cell(&grid, a)?;
     Ok((node.to_string(), port, grid, cell))
 }
 
+/// The cell (row, column) of a map a place names: `row` and `col`, or `x` and `y` in its coordinates (the
+/// arguments of a trace, or its `compare_with`).
+fn place_cell(grid: &terraflux_raster::Grid, a: &Value) -> std::result::Result<(usize, usize), String> {
+    match (a.get("row").and_then(Value::as_u64), a.get("col").and_then(Value::as_u64)) {
+        (Some(row), Some(col)) if (row as usize) < grid.height && (col as usize) < grid.width => {
+            Ok((row as usize, col as usize))
+        }
+        (Some(_), Some(_)) => Err(format!("the map has {} rows and {} columns", grid.height, grid.width)),
+        _ => {
+            let (x, y) = (a.get("x").and_then(Value::as_f64), a.get("y").and_then(Value::as_f64));
+            let (Some(x), Some(y)) = (x, y) else { return Err("give row and col, or x and y".into()) };
+            crate::trace::cell_of(grid, x, y).ok_or_else(|| "the place is outside the map".into())
+        }
+    }
+}
+
+/// What a side of a comparison is called with no scenario.
+const AS_IT_IS: &str = "the model as it is";
+
+/// The scenario of each side of a comparison (`scenario`: B's, A is the model as it is; `scenarios`: both).
+fn scenario_sides(a: &Value) -> std::result::Result<[Option<String>; 2], String> {
+    match (opt_text(a, "scenario"), a.get("scenarios")) {
+        (Some(_), Some(_)) => Err("give `scenario` or `scenarios`, not both".into()),
+        (one, None) => Ok([None, one.map(String::from)]),
+        (None, Some(v)) => {
+            let two = v.as_array().filter(|l| l.len() == 2).and_then(|l| Some([l[0].as_str()?, l[1].as_str()?]));
+            let [x, y] = two.ok_or("`scenarios` is two names: [a, b]")?;
+            Ok([Some(x.to_string()), Some(y.to_string())])
+        }
+    }
+}
+
 /// [`trace_cell`] of a model's file (`terraflux mcp`): the model run up to the node first; with `inside_loops`,
-/// run again keeping its loops' values at the cell.
+/// run again keeping its loops' values at the cell. With `compare_with` (another cell), `scenario` or `scenarios`
+/// (another run), the two sides compared, each traced in its own run.
 pub fn trace_cell_run(engine: &Engine, source: &Model, dir: &Path, a: &Value, watcher: &mut Watcher) -> Reply {
     let node = text(a, "node")?;
+    let sides = scenario_sides(a)?;
+    let loops = a.get("inside_loops").and_then(Value::as_bool) == Some(true);
+    if a.get("compare_with").is_some() || sides.iter().any(Option::is_some) {
+        return trace_compared(engine, source, dir, a, watcher, sides, loops);
+    }
     let mut m = source.clone();
     terraflux_graph::submodel::expand(&mut m, dir).map_err(|e| e.to_string())?;
     let inputs = load_inputs(&m, dir, &BTreeMap::new()).map_err(|e| format!("the inputs: {e}"))?;
     let results = engine.run_with(&m, &inputs, watcher, None, Some(node)).map_err(|e| e.to_string())?;
     let values = crate::trace::values_of(&results);
     let mut kept = crate::trace::Kept::new();
-    if a.get("inside_loops").and_then(Value::as_bool) == Some(true) {
+    if loops {
         let (_, _, grid, (row, col)) = trace_place(source, &engine.registry, &values, a)?;
         let (x, y) = crate::trace::centre(&grid, row, col);
         kept = crate::trace::keep_loops(source, dir, x, y)?;
     }
     trace_cell(source, &engine.registry, &values, &kept, a)
+}
+
+/// Two cells, or two runs, traced and compared ([`trace_cell_run`]): a run per side (one for both when they are
+/// the same model), the cell of B being `compare_with`'s, else A's.
+fn trace_compared(
+    engine: &Engine,
+    source: &Model,
+    dir: &Path,
+    a: &Value,
+    watcher: &mut Watcher,
+    sides: [Option<String>; 2],
+    loops: bool,
+) -> Reply {
+    let node = text(a, "node")?;
+    let reg = &engine.registry;
+    let mut models = Vec::new();
+    for s in &sides {
+        models.push(match s {
+            Some(name) => source.with_scenario(name).map_err(|e| e.to_string())?,
+            None => source.clone(),
+        });
+    }
+    let shared = sides[0] == sides[1];
+    let mut results = Vec::new();
+    for model in models.iter().take(if shared { 1 } else { 2 }) {
+        let mut m = model.clone();
+        terraflux_graph::submodel::expand(&mut m, dir).map_err(|e| e.to_string())?;
+        let inputs = load_inputs(&m, dir, &BTreeMap::new()).map_err(|e| format!("the inputs: {e}"))?;
+        results.push(engine.run_with(&m, &inputs, watcher, None, Some(node)).map_err(|e| e.to_string())?);
+    }
+    let run = |side: usize| if shared { 0 } else { side };
+    // the node, port, grid and cell of each side
+    let mut at = Vec::new();
+    for (side, model) in models.iter().enumerate() {
+        let values = crate::trace::values_of(&results[run(side)]);
+        let (node, port, grid, mut cell) = trace_place(model, reg, &values, a)?;
+        if let (1, Some(with)) = (side, a.get("compare_with")) {
+            cell = place_cell(&grid, with)?;
+        }
+        at.push((node, port, grid, cell));
+    }
+    let mut kept = [crate::trace::Kept::new(), crate::trace::Kept::new()];
+    if loops {
+        let centre = |side: usize| crate::trace::centre(&at[side].2, at[side].3.0, at[side].3.1);
+        if shared {
+            let (res, mut ks) = crate::trace::run_keeping(&models[0], dir, &[centre(0), centre(1)])?;
+            results = vec![res];
+            kept = [ks.remove(0), ks.remove(0)];
+        } else {
+            for side in 0..2 {
+                let (res, mut ks) = crate::trace::run_keeping(&models[side], dir, &[centre(side)])?;
+                results[side] = res;
+                kept[side] = ks.remove(0);
+            }
+        }
+    }
+    let traced = |side: usize| {
+        let values = crate::trace::values_of(&results[run(side)]);
+        let (node, port, grid, cell) = &at[side];
+        crate::trace::trace(&models[side], reg, &values, &kept[side], node, port, grid, *cell)
+    };
+    let (ta, tb) = (traced(0), traced(1));
+    let c = match (&sides[0], &sides[1]) {
+        (None, None) => crate::trace::compare(&ta, &tb),
+        (x, y) => {
+            crate::trace::compare_named(&ta, &tb, [x.as_deref().unwrap_or(AS_IT_IS), y.as_deref().unwrap_or(AS_IT_IS)])
+        }
+    };
+    Ok(comparison_text(&c))
 }
 
 /// The values known of a model, by what reads them (`node.port` at the top level, `$input`): those of a run.
@@ -2140,7 +2246,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "trace_cell",
-            "Why a cell of a result has its value: what a node gives at a place and the chain of values that made it, back through the graph (map algebra's expressions with the values there, the cells around for a neighbourhood, the layers a model weighs, a loop's value at every step). Give row and col of the node's map, or x and y in its coordinates. Explain from it, not from memory.",
+            "Why a cell of a result has its value: what a node gives at a place and the chain of values that made it, back through the graph (map algebra's expressions with the values there, the cells around for a neighbourhood, the layers a model weighs, a loop's value at every step). Give row and col of the node's map, or x and y in its coordinates. Explain from it, not from memory. compare_with or scenario compares two cells or two runs: where the difference begins, and why.",
             json!({
                 "model": model,
                 "node": { "type": "string", "description": "A top-level node (a group: its output, traced into its body)." },
@@ -2149,14 +2255,17 @@ fn all() -> Vec<Value> {
                 "col": { "type": "integer" },
                 "x": { "type": "number" },
                 "y": { "type": "number" },
-                "inside_loops": { "type": "boolean", "description": "Run the model again keeping its loops' values at the cell, step by step (slower)." },
+                "inside_loops": { "type": "boolean", "description": "Run the model again keeping its loops' values at the cell, step by step (slower). In a comparison, on both sides." },
+                "compare_with": { "type": "object", "description": "A second cell of the same node and port, {row, col} or {x, y}: compared with the first (A) as B.", "properties": { "row": { "type": "integer" }, "col": { "type": "integer" }, "x": { "type": "number" }, "y": { "type": "number" } } },
+                "scenario": { "type": "string", "description": "B is the model run with this scenario (A is the model as it is), at the same cell unless compare_with gives another." },
+                "scenarios": { "type": "array", "items": { "type": "string" }, "description": "[a, b]: A is the model with scenario a, B with scenario b. Not together with scenario." },
             }),
             &["model", "node"],
             Some(&read_only),
         ),
         tool(
             "last_trace",
-            "The trace of the cell the user traced last in the application (a right click on a cell of a map, Trace this cell): the model's file, then why the cell has its value, node by node. Explain it to the user, or trace more with trace_cell.",
+            "The trace of the cell the user traced last in the application (a right click on a cell of a map, Trace this cell; or a comparison of two cells or two scenarios, from where their difference begins): the model's file, then why the cell has its value, node by node. Explain it to the user, or trace more with trace_cell.",
             json!({}),
             &[],
             Some(&read_only),

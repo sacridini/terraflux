@@ -118,7 +118,8 @@ look at the inputs it names (inspect_file, describe_operator), and put right wha
 maps of different grids, raster.reproject for other coordinate systems), then run again.
 - Why a cell of a result has its value: trace_cell gives the chain of values that made it (expressions with the \
 values in place, the cells around, what a model weighs, a loop step by step). Explain a result from it, not from \
-what the model should do.
+what the model should do. A cell that looks wrong next to one that looks right, or a cell a scenario changed: \
+trace_cell with compare_with (the other cell) or scenario compares them, where the difference begins and why.
 - The runs already made: list_runs gives the model's journal, newest first (when, how long, how it ended, the \
 scenario, the values changed from the run before, the outputs and whether they are still as written; `id`: one \
 run in full). Read it before running again, to see what was tried and which run wrote a file.

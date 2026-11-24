@@ -203,6 +203,9 @@ impl State {
             Some(o) => crate::trace::compare_named(&t, b, [&here, &o.name]),
             None => crate::trace::compare(&t, b),
         });
+        if let Some(c) = &self.comparison {
+            crate::trace::save_last_comparison(s.path.as_deref(), c);
+        }
         self.trace = Some(t);
     }
 }
@@ -478,7 +481,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
 
 /// What is copied for an assistant through `terraflux mcp` to explain the cell traced.
 pub const MCP_REQUEST: &str = "Explain why the cell I traced in Terraflux has its value: read its trace with the terraflux tool last_trace, then \
-go through it step by step, in words.";
+go through it step by step, in words (a comparison of two cells or two scenarios: from where their difference begins).";
 
 /// The question to the assistant of a trace: why the cell has its value, from the trace.
 fn question(t: &Trace) -> String {

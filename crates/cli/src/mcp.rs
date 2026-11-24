@@ -870,7 +870,8 @@ fn explain_cell(params: &Value) -> std::result::Result<Value, (i64, String)> {
         Some(t) => format!(
             "Explain to me, in words, why this cell of my model has its value: go through its trace, step by step, \
              from the result back to the data, saying what each step did to it; trace other cells or nodes with \
-             trace_cell when it helps.\n\n{t}"
+             trace_cell when it helps. If it is a comparison of two cells or two scenarios, explain it from where \
+             the difference begins.\n\n{t}"
         ),
         None => "No cell has been traced yet in Terraflux's application: right-click a cell of a map there (Trace \
                  this cell), then ask again."
@@ -1559,6 +1560,56 @@ mod tests {
         assert!(!e && t.contains("in the loop, allocate.landscape"), "{t}");
         assert!(call(&s, "trace_cell", json!({ "model": model, "node": "simulation", "row": 4000, "col": 0 })).1);
         assert!(call(&s, "trace_cell", json!({ "model": model, "node": "nope", "row": 1, "col": 1 })).1);
+        // two cells compared
+        let (t, e) = call(
+            &s,
+            "trace_cell",
+            json!({ "model": model, "node": "simulation", "row": 40, "col": 60, "compare_with": { "row": 0, "col": 0 } }),
+        );
+        assert!(!e && t.contains("Where the difference begins"), "{t}");
+        // (inside the loops: one run keeping both cells)
+        let (t, e) = call(
+            &s,
+            "trace_cell",
+            json!({ "model": model, "node": "simulation", "row": 40, "col": 60, "inside_loops": true,
+                "compare_with": { "row": 0, "col": 0 } }),
+        );
+        assert!(!e && t.contains("The series part at step") && t.contains("allocate.landscape"), "{t}");
+        let (t, e) = call(
+            &s,
+            "trace_cell",
+            json!({ "model": model, "node": "simulation", "row": 40, "col": 60, "compare_with": { "row": 9000, "col": 0 } }),
+        );
+        assert!(e, "{t}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cell_is_traced_in_two_scenarios() {
+        let s = Server::new(None);
+        let dir = std::env::temp_dir().join(format!("terraflux-mcp-trs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let model = dir.join("m.toml").to_string_lossy().into_owned();
+        let (t, e) = call(
+            &s,
+            "new_model",
+            json!({ "model": model, "template": "Choose the method: a switch and its scenarios" }),
+        );
+        assert!(!e, "{t}");
+        let place = json!({ "model": model, "node": "combined", "port": "map", "row": 30, "col": 40 });
+        let with = |extra: Value| {
+            let mut a = place.clone();
+            a.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            a
+        };
+        let (t, e) = call(&s, "trace_cell", with(json!({ "scenario": "by neighbourhood" })));
+        assert!(!e && t.contains("branch distance against neighbourhood"), "{t}");
+        let (t, e) = call(&s, "trace_cell", with(json!({ "scenarios": ["by distance", "by neighbourhood"] })));
+        assert!(!e && t.contains("by distance") && t.contains("branch distance against neighbourhood"), "{t}");
+        let (t, e) = call(&s, "trace_cell", with(json!({ "scenario": "nope" })));
+        assert!(e && t.contains("no scenario"), "{t}");
+        let (t, e) = call(&s, "trace_cell", with(json!({ "scenario": "by distance", "scenarios": ["a", "b"] })));
+        assert!(e && t.contains("not both"), "{t}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

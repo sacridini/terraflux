@@ -1337,6 +1337,13 @@ pub fn save_last(model: Option<&std::path::Path>, t: &Trace) {
     let _ = std::fs::write(f, format!("model: {model}\n\n{}\n\n{}", t.sentence(), t.text()));
 }
 
+/// Keep a comparison as the last trace made, the same file: the model's file, then the comparison in words.
+pub fn save_last_comparison(model: Option<&std::path::Path>, c: &Comparison) {
+    let Some(f) = last_file() else { return };
+    let model = model.map_or("a model not saved".to_string(), |p| p.display().to_string());
+    let _ = std::fs::write(f, format!("model: {model}\n\n{}\n\n{}", c.sentence(), c.text()));
+}
+
 /// The last trace made in the application (the model's file first), if any.
 pub fn last() -> Option<String> {
     std::fs::read_to_string(last_file()?).ok()

@@ -5835,6 +5835,16 @@ como um nó do corpo, com as saídas `branch.inner.port`, e o `Keeper` (trace.rs
    - O guia do MCP (o tópico `results`) explica quando comparar em vez de traçar uma célula só.
    - Teste em `crates/cli/src/mcp.rs`, ao lado do `a_cell_is_traced`: duas células do CLUE-S, e um modelo com dois
      cenários.
+   - **Feito (2026-11-24).** `trace_cell` com `compare_with` (`{row, col}` ou `{x, y}`, a mesma análise do lugar:
+     `place_cell`), `scenario` (B naquele cenário, A o modelo como está) e `scenarios: [a, b]`; `inside_loops` vale
+     para os dois lados. No `terraflux mcp` (`trace_compared`): uma execução quando os lados são o mesmo modelo
+     (com laços, um `run_keeping` guardando as duas células), uma por cenário, cada lado traçado no seu modelo e
+     comparado com os nomes dos cenários; no chat do app (os valores de uma execução) um cenário é recusado e
+     aponta para o "Compare with a scenario" do Trace. `save_last_comparison`: o `last_trace` guarda a comparação
+     feita no painel; a descrição do `last_trace`, o prompt `explain_cell`, o pedido copiado (`MCP_REQUEST`), as
+     instruções e o tópico `results` do guia dizem quando e como comparar. Testes `a_cell_is_traced` (duas células,
+     também dentro dos laços) e `a_cell_is_traced_in_two_scenarios` (os dois jeitos, um cenário que não existe,
+     os dois argumentos juntos).
 
 7. **Documentação.** A página do Trace no site (a documentação da aplicação) com a comparação, as raízes e um exemplo
    do CLUE-S (a figura feita pelo binário de release); o CHANGELOG (Unreleased); as marcas de **Feito** aqui.
