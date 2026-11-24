@@ -36,6 +36,20 @@ type Select = (Vec<String>, String, String, Option<usize>);
 /// What a run keeping the loops' values at the places gives, when it ends.
 type Keeping = Receiver<Result<Vec<Kept>, String>>;
 
+/// The model run with another scenario, the other side (B) of a cell compared with itself.
+pub struct Other {
+    /// The scenario's name.
+    pub name: String,
+    /// The model with it, its run's values, and what its loops kept at the cell.
+    pub model: terraflux_graph::Model,
+    pub results: terraflux_exec::Results,
+    pub kept: Kept,
+    /// What the loops of the model as it is kept at the cell (A traced inside them as B is), when it has loops.
+    kept_a: Option<Kept>,
+    /// The model's revision it was run from (let go when the model changes).
+    revision: u64,
+}
+
 /// The pane's state (the application's).
 #[derive(Default)]
 pub struct State {
@@ -47,6 +61,9 @@ pub struct State {
     pub comparison: Option<Comparison>,
     /// Every node of the comparison shown, the same ones too (else those collapsed).
     show_all: bool,
+    /// The other side when the cell is compared with itself in another scenario, and that run going.
+    pub other: Option<Other>,
+    running_other: Option<Receiver<Result<Other, String>>>,
     /// The model's revision and the nodes' states it was traced at (traced again when they change).
     made: Option<(u64, u64)>,
     /// What a run kept inside the loops, at each place (x, y) it was asked for (the cell traced, then B).
@@ -76,6 +93,7 @@ impl State {
         if self.asked.is_none() {
             return self.ask(b);
         }
+        self.stop_comparing();
         self.asked_b = Some(b);
         self.made = None;
         self.error = None;
@@ -88,7 +106,46 @@ impl State {
         self.asked_b = None;
         self.trace_b = None;
         self.comparison = None;
+        self.other = None;
+        self.running_other = None;
         self.made = None;
+    }
+
+    /// Compare the cell traced with itself in another scenario: the model run with it in a thread (keeping what
+    /// its loops give at the cell; the model as it is run again too when it has loops, for A to be traced inside
+    /// them alike), then compared ([`crate::trace::compare_named`], the sides by their scenarios).
+    pub fn compare_with_scenario(&mut self, s: &Session, name: &str, ctx: egui::Context) {
+        let Some(t) = &self.trace else { return };
+        let model = match s.source.with_scenario(name) {
+            Ok(m) => m,
+            Err(e) => {
+                self.error = Some(e.to_string());
+                return;
+            }
+        };
+        let (name, base, place, source, revision) =
+            (name.to_string(), s.base(), (t.x, t.y), s.source.clone(), s.revision);
+        let loops = source.nodes.iter().any(has_loop);
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let got = (|| {
+                let (results, kept) = crate::trace::run_keeping(&model, &base, &[place])?;
+                let kept_a =
+                    if loops { Some(crate::trace::keep_loops(&source, &base, place.0, place.1)?) } else { None };
+                let kept = kept.into_iter().next().unwrap_or_default();
+                Ok(Other { name, model, results, kept, kept_a, revision })
+            })();
+            let _ = tx.send(got);
+            ctx.request_repaint();
+        });
+        self.stop_comparing();
+        self.error = None;
+        self.running_other = Some(rx);
+    }
+
+    /// Whether the run of another scenario is going.
+    pub fn running_other(&self) -> bool {
+        self.running_other.is_some()
     }
 
     /// A and B the other way.
@@ -100,8 +157,10 @@ impl State {
     }
 
     /// The places of the cells traced: the one, or the two compared.
+    /// (Compared with another scenario, the one cell: marked A alone.)
     pub fn places(&self) -> Vec<(f64, f64)> {
-        self.trace.iter().chain(&self.trace_b).map(|t| (t.x, t.y)).collect()
+        let b = if self.other.is_some() { None } else { self.trace_b.as_ref() };
+        self.trace.iter().chain(b).map(|t| (t.x, t.y)).collect()
     }
 
     pub fn running(&self) -> bool {
@@ -116,6 +175,10 @@ impl State {
             return;
         }
         self.made = Some(now);
+        // (another scenario's run of a model since changed: let go)
+        if self.other.as_ref().is_some_and(|o| o.revision != s.revision) {
+            self.other = None;
+        }
         let values = |n: &str, p: &str| s.value_of(n, p);
         let traced = |(node, port, grid, cell, _): &Ask| {
             let (x, y) = crate::trace::centre(grid, cell.0, cell.1);
@@ -126,8 +189,20 @@ impl State {
         let t = traced(&a);
         // (the last trace, for an assistant through terraflux mcp: last_trace)
         crate::trace::save_last(s.path.as_deref(), &t);
-        self.trace_b = self.asked_b.as_ref().map(traced);
-        self.comparison = self.trace_b.as_ref().map(|b| crate::trace::compare(&t, b));
+        // the other side: another cell, or the same in another scenario's run
+        self.trace_b = match &self.other {
+            Some(o) => {
+                let (node, port, grid, cell, _) = &a;
+                let values = crate::trace::values_of(&o.results);
+                Some(crate::trace::trace(&o.model, r, &values, &o.kept, node, port, grid, *cell))
+            }
+            None => self.asked_b.as_ref().map(traced),
+        };
+        let here = s.scenario_now().unwrap_or_else(|| "the model as it is".into());
+        self.comparison = self.trace_b.as_ref().map(|b| match &self.other {
+            Some(o) => crate::trace::compare_named(&t, b, [&here, &o.name]),
+            None => crate::trace::compare(&t, b),
+        });
         self.trace = Some(t);
     }
 }
@@ -170,6 +245,27 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             Err(e) => st.error = Some(e),
         }
     }
+    // the run of another scenario, ended
+    let other = st.running_other.as_ref().map(|rx| rx.try_recv());
+    match other {
+        Some(Ok(Ok(o))) => {
+            if let (Some(k), Some(t)) = (&o.kept_a, &st.trace) {
+                st.kept = vec![(t.x, t.y, k.clone())];
+            }
+            st.other = Some(o);
+            st.running_other = None;
+            st.made = None;
+        }
+        Some(Ok(Err(e))) => {
+            st.error = Some(e);
+            st.running_other = None;
+        }
+        Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => {
+            st.error = Some("the run stopped".into());
+            st.running_other = None;
+        }
+        _ => {}
+    }
     st.refresh(s, r);
     s.trace_marks = st.places();
     let mut asked = None;
@@ -203,7 +299,8 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                 return;
             };
             if let Some(c) = st.comparison.clone() {
-                theme::section(ui, "Two cells compared");
+                let title = if st.other.is_some() { "One cell in two scenarios" } else { "Two cells compared" };
+                theme::section(ui, title);
                 compared(ui, st, s, &c, &mut select, &mut asked);
                 return;
             }
@@ -250,6 +347,40 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                     if ui.small_button("Cancel").clicked() {
                         s.trace_choosing = None;
                     }
+                }
+                // the same cell in another scenario's run
+                let now = s.scenario_now();
+                let others: Vec<String> =
+                    s.source.scenarios.iter().map(|x| x.name.clone()).filter(|n| Some(n) != now.as_ref()).collect();
+                let mut chosen: Option<String> = None;
+                if !others.is_empty() {
+                    ui.add_enabled_ui(!st.running_other() && !s.running(), |ui| {
+                        ui.menu_button("Compare with a scenario", |ui| {
+                            for n in &others {
+                                if ui
+                                    .button(n)
+                                    .on_hover_text(
+                                        "the model run with this scenario: this cell in its run, compared with this \
+                                         run's",
+                                    )
+                                    .clicked()
+                                {
+                                    chosen = Some(n.clone());
+                                    ui.close();
+                                }
+                            }
+                        });
+                    });
+                }
+                if st.running_other() {
+                    ui.spinner();
+                    ui.label(weak("running the scenario...").small());
+                    if ui.small_button("Cancel").clicked() {
+                        st.running_other = None;
+                    }
+                }
+                if let Some(n) = chosen {
+                    st.compare_with_scenario(s, &n, ui.ctx().clone());
                 }
             });
             if let Some(e) = &st.error {
@@ -427,9 +558,14 @@ fn compared(
     select: &mut Option<Select>,
     asked: &mut Option<Asked>,
 ) {
+    // (compared with another scenario: the sides by their scenarios, the same cell)
+    let scenario = st.other.is_some();
     for (k, t) in [(0, &c.a), (1, &c.b)] {
         ui.horizontal_wrapped(|ui| {
             letter(ui, k);
+            if scenario {
+                ui.label(RichText::new(&c.names[k]).strong());
+            }
             if let Some(first) = t.steps.first() {
                 ui.label(RichText::new(format!("{}.{}", first.node, first.port)).strong());
             }
@@ -452,10 +588,12 @@ fn compared(
         {
             *asked = Some(Asked::Assistant(compare_question(c)));
         }
-        if ui.button("Swap A and B").clicked() {
-            st.swap();
+        if !scenario {
+            if ui.button("Swap A and B").clicked() {
+                st.swap();
+            }
+            inside_loops(ui, st, s);
         }
-        inside_loops(ui, st, s);
         if ui.button("Copy").on_hover_text("the comparison as text").clicked() {
             ui.ctx().copy_text(format!("{}\n\n{}", c.sentence(), c.text()));
         }

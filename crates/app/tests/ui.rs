@@ -2258,6 +2258,45 @@ fn a_cell_is_traced_from_its_map() {
     assert!(h.state().is_open(Pane::Assistant));
 }
 
+/// A cell compared with itself in another scenario: Compare with a scenario runs the model with it, and the switch
+/// that ran another branch is where the difference begins.
+#[test]
+fn a_cell_is_compared_with_another_scenario() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Choose the method")).unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("combined", "map").is_some()
+    });
+    show(&mut h, "combined", "map");
+    h.run_steps(3);
+    h.state_mut().session.as_mut().unwrap().preview_view.picked = Some((30, 40));
+    h.run_steps(3);
+    h.get_by_label("Trace this cell").click();
+    h.run_steps(4);
+    h.get_by_label("Compare with a scenario").click();
+    h.run_steps(2);
+    h.get_by_label("by neighbourhood").click();
+    until(&mut h, "the scenario run", |a| a.trace.comparison.is_some() || a.trace.error.is_some());
+    assert!(h.state().trace.error.is_none(), "{:?}", h.state().trace.error);
+    h.run_steps(3);
+    let c = h.state().trace.comparison.clone().unwrap();
+    assert_eq!(c.names, ["the model as it is".to_string(), "by neighbourhood".to_string()]);
+    assert_eq!(c.a.cell, c.b.cell, "the same cell");
+    let root = c.roots.first().map(|r| (c.pairs[r.pair].node.as_str(), &r.why));
+    assert!(matches!(root, Some(("suitability", terraflux_app::trace::Why::Branch { .. }))), "{}", c.text());
+    assert!(
+        h.query_by_label_contains("they differ from suitability (branch distance against neighbourhood)").is_some()
+    );
+    assert!(h.query_by_label("Swap A and B").is_none(), "this run is A");
+    assert!(h.query_by_label("ONE CELL IN TWO SCENARIOS").is_some());
+    assert_eq!(h.state().session.as_ref().unwrap().trace_marks.len(), 1, "the one cell marked once");
+    shot(&mut h, "47-trace-scenario");
+}
+
 /// Two cells compared from the Trace pane: Compare with another cell, then a click in the viewer; where the
 /// difference begins, the two cells marked A and B; swapped; and from the map's menu (a right click).
 #[test]

@@ -53,6 +53,8 @@ pub enum Why {
     Branch { a: String, b: String },
     /// An input that is no node's (a model's input, a literal) with other values.
     Input { port: String, a: String, b: String },
+    /// A setting with other values (two scenarios): the expression, a parameter, a seed.
+    Setting { name: String, a: String, b: String },
     /// Not known from here: the trace stops, or an input has no value kept.
     Unknown(String),
 }
@@ -242,6 +244,14 @@ fn why(sa: &Step, sb: &Step, step: Option<usize>) -> Why {
             return Why::Input { port: x.port.clone(), a: told_at(&x.value, step), b: told_at(&y.value, step) };
         }
     }
+    // a setting with other values (another scenario)
+    let none = String::from("not set");
+    for name in sa.settings.keys().chain(sb.settings.keys()) {
+        let (a, b) = (sa.settings.get(name).unwrap_or(&none), sb.settings.get(name).unwrap_or(&none));
+        if a != b {
+            return Why::Setting { name: name.clone(), a: a.clone(), b: b.clone() };
+        }
+    }
     // a node the trace did not reach
     if let Some((x, _)) = untraced.iter().find(|(x, _)| x.node) {
         return Why::Unknown(format!("the trace stops before {} (its input {}), at {MOST} nodes", x.from, x.port));
@@ -295,6 +305,7 @@ impl Why {
             ),
             Why::Branch { a, b } => format!("the switch ran another branch: at {a_} {a}, at {b_} {b}"),
             Why::Input { port, a, b } => format!("its input {port} differs: {a} at {a_}, {b} at {b_}"),
+            Why::Setting { name, a, b } => format!("its setting {name} differs: {a} at {a_}, {b} at {b_}"),
             Why::Unknown(what) => format!("not known from here: {what}"),
         }
     }
@@ -395,6 +406,8 @@ impl Comparison {
                 let p = &self.pairs[r.pair];
                 match &r.why {
                     Why::Branch { a, b } => format!("{} (branch {a} against {b})", p.node),
+                    Why::Setting { name, a, b } => format!("{} (its setting {name}: {a} against {b})", p.node),
+                    Why::Input { port, a, b } => format!("{} (its input {port}: {a} against {b})", p.node),
                     _ => {
                         let (a, b) = self.values_at_step(p);
                         format!("{} ({a} against {b})", p.node)
@@ -679,6 +692,71 @@ mod tests {
         assert!(!c.sentence().contains("part at step"), "{}", c.sentence());
     }
 
+    /// A model run and a cell of a node's map traced in it.
+    fn traced_in(m: &Model, node: &str, port: &str, cell: (usize, usize)) -> Trace {
+        let r = Registry::standard();
+        let res = terraflux_exec::Engine::default().run(m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
+        let values = crate::trace::values_of(&res);
+        let grid = grid_of(&values(node, port).unwrap()).unwrap();
+        trace(m, &r, &values, &Kept::new(), node, port, &grid, cell)
+    }
+
+    #[test]
+    fn a_cell_in_two_scenarios_differs_from_the_branch_a_setting_or_an_input() {
+        let m = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Choose the method")).unwrap().model();
+        let (dist, near) = (m.with_scenario("by distance").unwrap(), m.with_scenario("by neighbourhood").unwrap());
+        let names = ["by distance", "by neighbourhood"];
+        // the switch ran another branch
+        let c = compare_named(
+            &traced_in(&dist, "combined", "map", (30, 40)),
+            &traced_in(&near, "combined", "map", (30, 40)),
+            names,
+        );
+        assert_eq!(roots(&c), [("suitability", &Why::Branch { a: "distance".into(), b: "neighbourhood".into() })]);
+        let only = |k| c.pairs.iter().filter(|p| p.kind == k).map(|p| p.node.as_str()).collect::<Vec<_>>();
+        assert!(only(Kind::OnlyA).contains(&"near") && only(Kind::OnlyB).contains(&"share"), "{}", c.text());
+        assert!(
+            c.sentence().contains("they differ from suitability (branch distance against neighbourhood)."),
+            "{}",
+            c.sentence()
+        );
+        assert!(
+            c.text()
+                .contains("the switch ran another branch: at by distance distance, at by neighbourhood neighbourhood")
+        );
+        // a setting set apart
+        let mut other = dist.clone();
+        other.apply(&[("combined.expression".to_string(), "w * s + (1 - w) * r".into())].into()).unwrap();
+        let c = compare_named(
+            &traced_in(&dist, "combined", "map", (30, 40)),
+            &traced_in(&other, "combined", "map", (30, 40)),
+            names,
+        );
+        let [(node, Why::Setting { name, a, b })] = roots(&c)[..] else { panic!("{}", c.text()) };
+        assert_eq!(
+            (node, name.as_str(), a.as_str(), b.as_str()),
+            ("combined", "expression", "w * s + (1 - w) * (1 - r)", "w * s + (1 - w) * r")
+        );
+        // a model's input
+        let mut other = dist.clone();
+        other.apply(&[("$weight".to_string(), 0.5.into())].into()).unwrap();
+        let c = compare_named(
+            &traced_in(&dist, "combined", "map", (30, 40)),
+            &traced_in(&other, "combined", "map", (30, 40)),
+            names,
+        );
+        assert_eq!(roots(&c), [("combined", &Why::Input { port: "w".into(), a: "0.8".into(), b: "0.5".into() })]);
+        assert!(c.sentence().contains("combined (its input w: 0.8 against 0.5)"), "{}", c.sentence());
+        // a scenario that does not change the cell
+        let c = compare_named(
+            &traced_in(&dist, "farmland", "map", (30, 40)),
+            &traced_in(&near, "farmland", "map", (30, 40)),
+            names,
+        );
+        assert!(!c.differs(), "{}", c.text());
+        assert!(c.sentence().contains("Nothing differs"), "{}", c.sentence());
+    }
+
     /// A step made by hand: a node at the top level, its value and inputs.
     fn step(node: &str, op: &str, value: f64, how: How, inputs: Vec<Input>) -> Step {
         Step {
@@ -691,6 +769,7 @@ mod tests {
             how,
             inputs,
             body: Vec::new(),
+            settings: Default::default(),
         }
     }
 

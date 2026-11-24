@@ -600,7 +600,7 @@ pub fn trace_cell_run(engine: &Engine, source: &Model, dir: &Path, a: &Value, wa
     terraflux_graph::submodel::expand(&mut m, dir).map_err(|e| e.to_string())?;
     let inputs = load_inputs(&m, dir, &BTreeMap::new()).map_err(|e| format!("the inputs: {e}"))?;
     let results = engine.run_with(&m, &inputs, watcher, None, Some(node)).map_err(|e| e.to_string())?;
-    let values = |n: &str, p: &str| results.values.get(n)?.get(p).cloned();
+    let values = crate::trace::values_of(&results);
     let mut kept = crate::trace::Kept::new();
     if a.get("inside_loops").and_then(Value::as_bool) == Some(true) {
         let (_, _, grid, (row, col)) = trace_place(source, &engine.registry, &values, a)?;

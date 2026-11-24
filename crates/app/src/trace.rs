@@ -211,6 +211,9 @@ pub struct Step {
     pub inputs: Vec<Input>,
     /// A loop's body traced step by step (a run that kept it): each body node's value at every step.
     pub body: Vec<(String, Vec<f64>)>,
+    /// Its settings in words, those that read a model's input (`"$name"`) with its value: what two runs compared
+    /// (two scenarios) may have set apart.
+    pub settings: BTreeMap<String, String>,
 }
 
 /// What a run kept inside loops at the cell ([`keep_loops`]).
@@ -441,8 +444,27 @@ fn input_value(m: &Model, path: &[String], reference: &str) -> Option<At> {
             Some(x) => At::Number(x),
             None => At::Other(words(value)),
         }),
-        _ => None,
+        // (a file: which one, what a scenario may change)
+        terraflux_graph::Input::Map { path, .. } | terraflux_graph::Input::Stack { path, .. } => {
+            Some(At::Other(format!("the file {path}")))
+        }
     }
+}
+
+/// A node's settings in words, a setting that reads a model's input (`"$name"`) by the input's value.
+fn settings_of(m: &Model, n: &Node) -> BTreeMap<String, String> {
+    n.params
+        .iter()
+        .map(|(k, v)| {
+            let read = v.as_str().and_then(|s| s.strip_prefix('$')).and_then(|name| match m.inputs.get(name)? {
+                terraflux_graph::Input::Value { value, .. } => Some(words(value)),
+                terraflux_graph::Input::Map { path, .. } | terraflux_graph::Input::Stack { path, .. } => {
+                    Some(path.clone())
+                }
+            });
+            (k.clone(), read.unwrap_or_else(|| words(v)))
+        })
+        .collect()
 }
 
 /// The value at the cell of what a loop gives its body (`@name`, through the groups and switches between), step by
@@ -691,6 +713,7 @@ fn walk(
         how: How::Local,
         inputs: Vec::new(),
         body: Vec::new(),
+        settings: settings_of(m, n),
     });
     // the inputs: their values at the cell, and the nodes they come from traced in turn
     let mut inputs = Vec::new();
@@ -1275,15 +1298,30 @@ pub fn keep_loops(m: &Model, base: &std::path::Path, x: f64, y: f64) -> Result<K
 
 /// [`keep_loops`] at some places in one run (the two cells of a comparison): what each keeps, in their order.
 pub fn keep_loops_at(m: &Model, base: &std::path::Path, places: &[(f64, f64)]) -> Result<Vec<Kept>, String> {
+    Ok(run_keeping(m, base, places)?.1)
+}
+
+/// The model run (expanded, its data read from `base`) keeping what its loops give at the places: its values, and
+/// what each place keeps (the other side of a comparison with a scenario: the model with it).
+pub fn run_keeping(
+    m: &Model,
+    base: &std::path::Path,
+    places: &[(f64, f64)],
+) -> Result<(terraflux_exec::Results, Vec<Kept>), String> {
     let mut m = m.clone();
     terraflux_graph::submodel::expand(&mut m, base).map_err(|e| e.to_string())?;
     let inputs = terraflux_exec::load_inputs(&m, base, &BTreeMap::new()).map_err(|e| e.to_string())?;
     let mut keeper = Keeper { places: places.to_vec(), kept: vec![Kept::new(); places.len()] };
-    terraflux_exec::Engine::default().run(&m, &inputs, &mut keeper).map_err(|e| e.to_string())?;
+    let results = terraflux_exec::Engine::default().run(&m, &inputs, &mut keeper).map_err(|e| e.to_string())?;
     for k in &mut keeper.kept {
         k.even();
     }
-    Ok(keeper.kept)
+    Ok((results, keeper.kept))
+}
+
+/// The values of a run, as a trace reads them ([`Values`]): a top-level node's port, a container's `inner.port`.
+pub fn values_of(r: &terraflux_exec::Results) -> impl Fn(&str, &str) -> Option<Value> + '_ {
+    |n: &str, p: &str| r.values.get(n)?.get(p).cloned()
 }
 
 /// The file the application keeps the last trace in (beside its settings), for an assistant through `terraflux
@@ -1430,7 +1468,7 @@ mod tests {
         let r = Registry::standard();
         let m = crate::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").unwrap().model();
         let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
-        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let values = values_of(&res);
         let maps = values("simulation", "maps").unwrap();
         let grid = grid_of(&maps).unwrap();
         let t = trace(&m, &r, &values, &Kept::new(), "simulation", "maps", &grid, (40, 60));
@@ -1471,7 +1509,7 @@ mod tests {
         let mut m = crate::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").unwrap().model();
         crate::document::group_by_stage(&mut m, &r).unwrap();
         let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
-        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let values = values_of(&res);
         let grid = grid_of(&values("model", "simulation_maps").unwrap()).unwrap();
         let t = trace(&m, &r, &values, &Kept::new(), "model", "simulation_maps", &grid, (10, 10));
         assert_eq!(t.steps[0].node, "simulation", "the group's output: the node of its body giving it");
@@ -1495,7 +1533,7 @@ mod tests {
             let m = m.with_scenario(scenario).unwrap();
             let res =
                 terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
-            let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+            let values = values_of(&res);
             let grid = grid_of(&values("combined", "map").unwrap()).unwrap();
             let t = trace(&m, &r, &values, &Kept::new(), "combined", "map", &grid, (30, 40));
             // the model's input of a value: its value
@@ -1564,7 +1602,7 @@ params = { expression = "x - 1" }
 "#,
         );
         let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
-        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let values = values_of(&res);
         let grid = grid_of(&values("loop", "maps").unwrap()).unwrap();
         let (x, y) = centre(&grid, 2, 3);
         let kept = keep_loops(&m, std::path::Path::new(""), x, y).unwrap();
@@ -1648,7 +1686,7 @@ params = { expression = "x" }
 "#,
         );
         let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
-        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let values = values_of(&res);
         let grid = grid_of(&values("g", "map").unwrap()).unwrap();
         let t = trace(&m, &r, &values, &Kept::new(), "g", "map", &grid, (1, 4));
         let sw = &t.steps[0];
@@ -1712,7 +1750,7 @@ params = { expression = "x" }
         let x = Value::Map(terraflux_ops::Map::new(grid.clone(), cells));
         let inputs = [("x".to_string(), x)].into();
         let res = terraflux_exec::Engine::default().run(&m, &inputs, &mut terraflux_exec::Quiet).unwrap();
-        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let values = values_of(&res);
         let t = trace(&m, &r, &values, &Kept::new(), "patches", "map", &grid, (0, 0));
         let How::Patch { port, class, cells, more, neighbours, rows, cols, members } = t.steps[0].how.clone() else {
             panic!("{:?}", t.steps[0].how)
@@ -1728,7 +1766,7 @@ params = { expression = "x" }
         // by 8 neighbours the cell alone joins the L
         m.nodes[1].params.insert("neighbours".into(), 8.into());
         let res = terraflux_exec::Engine::default().run(&m, &inputs, &mut terraflux_exec::Quiet).unwrap();
-        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let values = values_of(&res);
         let t = trace(&m, &r, &values, &Kept::new(), "patches", "map", &grid, (3, 2));
         assert!(matches!(t.steps[0].how, How::Patch { cells: 5, neighbours: 8, .. }), "{:?}", t.steps[0].how);
     }
@@ -1738,7 +1776,7 @@ params = { expression = "x" }
         let r = Registry::standard();
         let m = crate::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").unwrap().model();
         let res = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet).unwrap();
-        let values = |n: &str, p: &str| res.values.get(n)?.get(p).cloned();
+        let values = values_of(&res);
         let Some(Value::Series(maps)) = values("simulation", "maps") else { panic!() };
         let (Value::Map(first), Value::Map(last)) = (&maps[0], &maps[maps.len() - 1]) else { panic!() };
         // a cell that changed class along the steps

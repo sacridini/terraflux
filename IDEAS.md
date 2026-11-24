@@ -5814,6 +5814,16 @@ como um nó do corpo, com as saídas `branch.inner.port`, e o `Keeper` (trace.rs
      comparação não precisar dos modelos); **uma entrada do modelo** (`$chuva` vale 800 em A e 1200 em B).
    - Testes: um modelo com um switch num `$case` e dois cenários (a raiz é o ramo); um ajuste mudado por um cenário
      (a raiz é o ajuste); um cenário que não muda a célula ("nada difere aqui").
+   - **Feito (2026-11-24).** "Compare with a scenario" no Trace: um menu com os cenários do modelo (menos o aplicado
+     agora); o lado B roda o modelo com `with_scenario` numa thread (`trace::run_keeping`: expandido, as entradas
+     lidas, o Keeper junto; com laços, o modelo como está roda também, para A entrar neles igual a B), com spinner e
+     cancelar, e é largado quando o modelo muda. Os lados levam o nome dos cenários ("the model as it is" quando
+     nenhum está aplicado), o título vira "One cell in two scenarios" e a célula é marcada uma vez. `values_of`
+     no lugar das closures (tools.rs e os testes). Raízes novas: `Why::Setting` (o `Step` guarda `settings`, em
+     palavras, um `"$nome"` pelo valor da entrada) e a entrada `$` de um arquivo (o caminho); a frase diz qual
+     ("combined (its input w: 0.8 against 0.5)"). Testes
+     `a_cell_in_two_scenarios_differs_from_the_branch_a_setting_or_an_input` (o ramo, um ajuste, uma entrada, um
+     cenário que não muda a célula) e o de UI `a_cell_is_compared_with_another_scenario`.
 
 6. **O MCP e o assistente.**
    - `trace_cell` (tools.rs ~2141) ganha `compare_with` (`{row, col}` ou `{x, y}`) e `scenario` (o lado B naquele
