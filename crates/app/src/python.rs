@@ -2566,6 +2566,13 @@ const FRAMES: &[Frame] = &[
         gives: Gives::Features,
     },
     Frame {
+        op: "vector.shape",
+        call: "tf.vector.shape",
+        first: &["vector"],
+        named: &[("tolerance", "tolerance"), ("geometry", "geometry")],
+        gives: Gives::Features,
+    },
+    Frame {
         op: "vector.simplify",
         call: "tf.vector.simplify",
         first: &["vector", "tolerance"],
@@ -3483,6 +3490,12 @@ op = "vector.split"
 inputs = { vector = "ring.vector", lines = "edges.vector" }
 
 [[nodes]]
+id = "form"
+op = "vector.shape"
+inputs = { vector = "ring.vector" }
+params = { tolerance = 0.5, geometry = "inscribed" }
+
+[[nodes]]
 id = "merged"
 op = "vector.dissolve"
 inputs = { vector = "ring.vector" }
@@ -3664,6 +3677,7 @@ from = "counted.table"
         assert!(t.contains("pieces = tf.vector.overlay(ring, plots, how=\"symmetric_difference\")\n"), "{t}");
         assert!(t.contains("cut = tf.vector.clip(ring, plots)\n"), "{t}");
         assert!(t.contains("lots = tf.vector.split(ring, edges)\n"), "{t}");
+        assert!(t.contains("form = tf.vector.shape(ring, tolerance=0.5, geometry=\"inscribed\")\n"), "{t}");
         assert!(t.contains("merged = tf.vector.dissolve(ring, by=\"uso\")\n"), "{t}");
         assert!(t.contains("mid = tf.vector.centroid(ring, inside=True)
 "), "{t}");

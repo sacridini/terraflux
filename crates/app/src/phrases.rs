@@ -1504,6 +1504,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The features of <other> joined to those of <vector> where they meet[ by {predicate}][ within {distance}] \
          ({mode}).",
     ),
+    (
+        "vector.shape",
+        "The polygons of <vector> with their depth, circle, elongation and orientation[ drawn as the {geometry}].",
+    ),
     ("vector.split", "The polygons or lines of <vector> cut by the lines <lines>, a feature for each piece."),
     ("vector.split_lines", "The lines of <vector> cut into pieces of at most {length}."),
     ("vector.substring", "The part of each line of <vector> between {start} and {end}[ (fractions: {normalized})]."),

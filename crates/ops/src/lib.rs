@@ -119,6 +119,7 @@ pub mod vector_algebra;
 pub mod vector_cluster;
 pub mod vector_cover;
 pub mod vector_lines;
+pub mod vector_shape;
 pub mod vector_shapes;
 pub mod vector_split;
 pub mod vector_spatial;
@@ -519,6 +520,7 @@ impl Registry {
         vector_tools::register(&mut r);
         vector_shapes::register(&mut r);
         vector_split::register(&mut r);
+        vector_shape::register(&mut r);
         vector_lines::register(&mut r);
         vector_cluster::register(&mut r);
         vector_cover::register(&mut r);

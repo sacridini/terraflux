@@ -403,6 +403,15 @@ pub const TIPS: &[(&str, &str)] = &[
          a metric coordinate system first if the hulls will be measured.",
     ),
     (
+        "vector.shape",
+        "`inscribed_radius` is the patch's depth: how far its most interior point is from the edge, so compare it \
+         with an edge-effect depth (a patch whose radius is below it is all edge). `circle` is FRAGSTATS's CIRCLE (0 \
+         for a circle, near 1 for a long thin patch); `elongation` and `orientation` come from the minimum rotated \
+         rectangle (orientation in degrees clockwise from north, 0 up to 180). Reproject to a projected coordinate \
+         system first: the columns are in the layer's units, and degrees make no sense for a distance. Set \
+         `geometry` = inscribed to draw the circle and see the core.",
+    ),
+    (
         "vector.simplify",
         "The tolerance is in the layer's units: reproject to a metric coordinate system first, as 50 degrees \
          would erase everything. Keep `preserve_topology` on unless you only draw: without it a thin polygon \

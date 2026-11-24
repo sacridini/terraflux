@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What the library's tf.vector gives for split (and, later, shape and nearest_k), for Terraflux's tests of
-vector.split: seeded layers (forest-like polygons, some multipolygons, some with holes; roads, parcels as polygon
+"""What the library's tf.vector gives for split and shape (and, later, nearest_k), for Terraflux's tests of
+vector.split and vector.shape: seeded layers (forest-like polygons, some multipolygons, some with holes; roads, parcels as polygon
 blades and tracks as lines to cut) written as GeoPackages to tests/data/reference/vectors/ (shape_forest.gpkg,
 shape_tracks.gpkg, shape_parcels.gpkg, shape_roads.gpkg, shape_meander.gpkg, shape_straight.gpkg, shape_dangle.gpkg,
-shape_touch.gpkg), and each call's result (the geometries as WKB hex, the attributes) to
-tests/data/reference/vector_shape.json, as {"library", "geos", "split": [cases]}:
+shape_touch.gpkg; for shape also shape_figures.gpkg and shape_utm.gpkg), and each call's result (the geometries as WKB hex, the attributes) to
+tests/data/reference/vector_shape.json, as {"library", "geos", "split": [cases], "shape": [cases]}:
 
     PYTHONPATH=<terraflux-py>/src python tools/make_vector_shape_reference.py
 
@@ -111,6 +111,43 @@ def tracks() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame({"id": np.arange(1, len(geoms) + 1, dtype=float), "name": [f"t{i}" for i in range(1, len(geoms) + 1)]}, geometry=geoms, crs=32633)
 
 
+def figures() -> gpd.GeoDataFrame:
+    """Polygons of known shape: a circle-like buffer, a long thin rectangle east-west, the same turned (30 degrees
+    and a hundred), a square (the two sides tie), a thin north-south one, a multipolygon with a hole, a triangle and a
+    patch with a hole. ``inscribed_radius`` is a name the result's own column must not overwrite."""
+    from shapely import affinity
+
+    long_ew = box(0, 0, 400, 20)
+    geoms = [
+        shapely.Point(100, 100).buffer(60),
+        long_ew,
+        affinity.rotate(long_ew, 30, origin=(0, 0)),
+        affinity.rotate(long_ew, 100, origin=(0, 0)),
+        box(0, 0, 50, 50),
+        box(0, 0, 8, 120),
+        MultiPolygon([box(0, 0, 80, 60, [(20, 20), (20, 40), (60, 40), (60, 20)]), box(100, 10, 140, 90)]),
+        Polygon([(0, 0), (90, 10), (30, 70)]),
+        box(0, 0, 100, 100, [(30, 30), (30, 70), (70, 70), (70, 30)]),
+    ]
+    return gpd.GeoDataFrame(
+        {"id": np.arange(1, len(geoms) + 1, dtype=float), "inscribed_radius": np.arange(len(geoms), dtype=float)},
+        geometry=geoms,
+        crs=32633,
+    )
+
+
+def utm() -> gpd.GeoDataFrame:
+    """Patches at real UTM coordinates (a layer in a projected CRS far from the origin), one a multipolygon."""
+    rng = np.random.default_rng(5)
+    geoms = []
+    for k in range(5):
+        a = np.sort(rng.uniform(0, 2 * math.pi, 24))
+        r = rng.uniform(300, 900, 24) * (1 + k)
+        geoms.append(Polygon(np.c_[512345.25 + 3000 * k + r * np.cos(a), 7890123.5 + 2000 * k + 0.6 * r * np.sin(a)]))
+    geoms.append(MultiPolygon([box(520000, 7890000, 520500, 7890300), box(521000, 7890100, 521400, 7890500)]))
+    return gpd.GeoDataFrame({"id": np.arange(1, len(geoms) + 1, dtype=float)}, geometry=geoms, crs=31983)
+
+
 def hexed(g):
     if g is None:
         return None
@@ -140,10 +177,14 @@ def main() -> None:
         "shape_straight": straight(),
         "shape_dangle": dangle(),
         "shape_touch": touch(),
+        "shape_figures": figures(),
+        "shape_utm": utm(),
     }
     (REF / "vectors").mkdir(exist_ok=True)
     for name, gdf in files.items():
-        gdf.to_file(REF / "vectors" / f"{name}.gpkg", driver="GPKG")
+        # a GeoPackage already there is kept (its bytes are not reproducible, its contents are seeded)
+        if not (REF / "vectors" / f"{name}.gpkg").exists():
+            gdf.to_file(REF / "vectors" / f"{name}.gpkg", driver="GPKG")
     split = []
 
     def case(file, lines):
@@ -163,10 +204,32 @@ def main() -> None:
         case("shape_tracks", lines)
     case("shape_roads", "shape_parcels")  # lines cut by polygon boundaries
     case("shape_parcels", "shape_roads")  # polygons cut by roads
-    out = {"library": tf.__version__, "geos": shapely.geos_version_string, "split": split}
+    shape = []
+
+    def shaped(file, tolerance=None, geometry="feature"):
+        kw = {} if tolerance is None else {"tolerance": tolerance}
+        result = tf.vector.shape(str(REF / "vectors" / f"{file}.gpkg"), geometry=geometry, **kw)
+        shape.append(
+            {
+                "file": file,
+                "tolerance": tolerance,
+                "geometry": geometry,
+                "geometries": [hexed(g) for g in result.geometry.values],
+                "columns": columns(result),
+            }
+        )
+
+    for file in ("shape_forest", "shape_figures", "shape_utm"):
+        shaped(file)
+        shaped(file, tolerance=0.5)
+        for geometry in ("inscribed", "bounding", "rectangle"):
+            shaped(file, geometry=geometry)
+    shaped("shape_figures", tolerance=0.01, geometry="inscribed")
+    shaped("shape_utm", tolerance=25.0, geometry="inscribed")
+    out = {"library": tf.__version__, "geos": shapely.geos_version_string, "split": split, "shape": shape}
     path = REF / "vector_shape.json"
     path.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
-    print(path, len(split), "split cases")
+    print(path, len(split), "split cases,", len(shape), "shape cases")
     for c in split:
         print(c["file"], c["lines"], len(c["geometries"]), "rows")
 

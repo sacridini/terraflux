@@ -198,7 +198,9 @@ union, difference, symmetric_difference, identity) and vector.split (polygons or
 `part` and `parts` number the pieces); the vector.calc and vector.filter expressions take other \
 layers (`within(parks)`, `count(trees, \"contains\")`, `dwithin(rivers, 500)`, `distance(roads)`). Shapes: \
 vector.centroid (`inside` for a point on the feature), vector.hull (convex or concave, `by` a group), \
-vector.simplify (a `tolerance` in the layer's units), vector.envelope, vector.make_valid, vector.explode \
+vector.simplify (a `tolerance` in the layer's units), vector.envelope, vector.shape (a polygon's depth \
+`inscribed_radius`, `circle`, `elongation` and `orientation`; `geometry` draws the inscribed or bounding circle \
+or the rectangle), vector.make_valid, vector.explode \
 (multi-part to single parts) and vector.boundary. Lines: vector.points_along (a `spacing` or `n`), \
 vector.substring (between two measures), vector.split_lines (pieces of at most `length`), vector.locate (the \
 nearest line and the measure along it), vector.shortest_line and vector.closest_point (snap points to a layer, \

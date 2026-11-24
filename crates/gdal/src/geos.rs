@@ -11,12 +11,14 @@ mod cluster;
 mod cover;
 mod index;
 mod lines;
+mod shape;
 mod shapes;
 mod split;
 pub use cluster::{delaunay, intersect, voronoi};
 pub use cover::{coverage_invalid_edges, coverage_simplify};
 pub use index::{GeosIndex, Predicate};
 pub use lines::{nearest_points, project};
+pub use shape::{Draw, Shape, shape};
 pub use shapes::{Unary, unary, union};
 pub use split::split;
 
@@ -52,6 +54,10 @@ struct Api {
     GEOSPolygonize_r: unsafe extern "C" fn(Ctx, *const G, c_uint) -> G,
     GEOSArea_r: unsafe extern "C" fn(Ctx, G, *mut c_double) -> c_int,
     GEOSLength_r: unsafe extern "C" fn(Ctx, G, *mut c_double) -> c_int,
+    // vector.shape
+    GEOSMaximumInscribedCircle_r: unsafe extern "C" fn(Ctx, G, c_double) -> G,
+    GEOSMinimumBoundingCircle_r: unsafe extern "C" fn(Ctx, G, *mut c_double, *mut G) -> G,
+    GEOSMinimumRotatedRectangle_r: UnaryFn,
     GEOSIntersects_r: unsafe extern "C" fn(Ctx, G, G) -> c_char,
     GEOSConvexHull_r: unsafe extern "C" fn(Ctx, G) -> G,
     GEOSBufferParams_create_r: unsafe extern "C" fn(Ctx) -> Bp,
@@ -209,6 +215,9 @@ fn load(path: &Path) -> Result<Geos> {
         GEOSPolygonize_r: f!(GEOSPolygonize_r),
         GEOSArea_r: f!(GEOSArea_r),
         GEOSLength_r: f!(GEOSLength_r),
+        GEOSMaximumInscribedCircle_r: f!(GEOSMaximumInscribedCircle_r),
+        GEOSMinimumBoundingCircle_r: f!(GEOSMinimumBoundingCircle_r),
+        GEOSMinimumRotatedRectangle_r: f!(GEOSMinimumRotatedRectangle_r),
         GEOSIntersects_r: f!(GEOSIntersects_r),
         GEOSConvexHull_r: f!(GEOSConvexHull_r),
         GEOSBufferParams_create_r: f!(GEOSBufferParams_create_r),

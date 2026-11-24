@@ -84,6 +84,7 @@ pub(crate) const SUBJECTS: [(&str, &[&str]); 34] = [
             "vector.hull",
             "vector.simplify",
             "vector.envelope",
+            "vector.shape",
             "vector.make_valid",
             "vector.explode",
             "vector.boundary",

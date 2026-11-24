@@ -548,6 +548,7 @@ const OVERRIDES: &[(&str, &str)] = &[
     ("vector.read", "Read vector"),
     ("vector.reproject", "Reproject vector"),
     ("vector.select_by_location", "Select by location"),
+    ("vector.shape", "Shape of polygons"),
     ("vector.shortest_line", "Shortest line"),
     ("vector.simplify", "Simplify"),
     ("vector.smooth", "Smooth lines"),
