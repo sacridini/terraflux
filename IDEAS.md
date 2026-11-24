@@ -6215,3 +6215,12 @@ Os três primeiros do que faltava do PostGIS, na mesma forma: a função em `tf.
 
 Depois: a parte 2 do tutorial de vetores, a tabela de equivalência, `python/api/vector.md`. Ideia para depois: `by`
 no `nearest` (vizinhos só da mesma classe, o ENN por classe).
+
+**Feito (2026-11-24), os três.** Biblioteca: terraflux-py d3ef6e1 (branch `vector-shapes`, sobre `origin/vector`, sem
+push). App: `201eb71d` (`vector.split`), `869b70a0` (`vector.shape`), `62cd3d62` (`vector.nearest` com `k` e `other`
+opcional), cada um bit a bit com a biblioteca em `tests/data/reference/vector_shape.json` (GEOS 3.13.1 na referência,
+3.14.1 no app); `f48e7388` a documentação (tutoriais de vetores, tabela de equivalência, referência, duas figuras).
+Na release, nesta ordem: a biblioteca (`vector-shapes` em `vector`, `vector` no main dela, release), o submódulo nela,
+`refresh_python_api.py` e `refresh_data.py` (o site avisa de `vector.split`/`vector.shape` desconhecidos e falha em
+`::: terraflux.vector.split` até lá). Ideias seguintes: `by` no `nearest` (ENN por classe), `ST_Node` + `ST_LineMerge`,
+`ST_Snap`/`ST_ReducePrecision`, `ST_Segmentize`, Hausdorff/Fréchet.
