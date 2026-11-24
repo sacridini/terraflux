@@ -1483,7 +1483,8 @@ const PHRASES: &[(&str, &str)] = &[
     ("vector.make_valid", "The invalid geometries of <vector> repaired."),
     (
         "vector.nearest",
-        "Each feature of <vector> with the attributes of the nearest of <other>[ within {max_distance}].",
+        "Each feature of <vector> with its [{k} ]nearest neighbours[ in <other>][ within {max_distance}] and the \
+         distance to them.",
     ),
     ("vector.overlay", "The {how} of the layers <vector> and <other>."),
     ("vector.points_along", "Points along the lines of <vector>[ every {spacing}][, {n} on each]."),

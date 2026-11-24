@@ -52,6 +52,8 @@ pub struct GeosIndex {
     g: &'static Geos,
     /// The GEOS geometry of each feature (null: empty, never found).
     geoms: Vec<G>,
+    /// The bounds of each feature (none: empty).
+    bounds: Vec<Option<[f64; 4]>>,
     tree: G,
 }
 
@@ -100,7 +102,13 @@ impl GeosIndex {
     pub fn new(b: &[Geometry]) -> Result<GeosIndex> {
         let g = geos().map_err(String::from)?;
         let s = g.session()?;
-        let mut me = GeosIndex { s, g, geoms: Vec::with_capacity(b.len()), tree: std::ptr::null_mut() };
+        let mut me = GeosIndex {
+            s,
+            g,
+            geoms: Vec::with_capacity(b.len()),
+            bounds: b.iter().map(|g| g.bounds()).collect(),
+            tree: std::ptr::null_mut(),
+        };
         let a = &g.api;
         unsafe {
             me.tree = (a.GEOSSTRtree_create_r)(me.s.ctx, 10);
@@ -319,6 +327,77 @@ impl GeosIndex {
                     }
                 }
                 out.push(best.filter(|&(_, d)| max_distance.is_none_or(|m| d <= m)));
+            }
+            Ok(())
+        })();
+        ha.into_iter().filter(|h| !h.is_null()).for_each(|h| unsafe { self.s.destroy(h) });
+        result.map(|()| out)
+    }
+
+    /// For each feature of a, its `k` nearest features of this index (b) with GEOS's distances, by (distance, index
+    /// of b): the lower index first on ties. The search distance doubles until the k-th distance lies within it
+    /// (or it reaches `max_distance`, or covers all of b), so the result is exact. `own` leaves feature i of a out
+    /// of its own neighbours (a is the layer of the index; by index, not by geometry). Neighbours farther than
+    /// `max_distance` are cut (`<=` is kept); an empty feature, or none near, gets an empty list.
+    pub fn nearest_k(
+        &self,
+        a: &[Geometry],
+        k: usize,
+        max_distance: Option<f64>,
+        own: bool,
+    ) -> Result<Vec<Vec<(usize, f64)>>> {
+        let live = self.geoms.iter().filter(|g| !g.is_null()).count();
+        let mut bb = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+        for (g, b) in self.geoms.iter().zip(&self.bounds) {
+            if let (false, Some(b)) = (g.is_null(), b) {
+                bb = [bb[0].min(b[0]), bb[1].min(b[1]), bb[2].max(b[2]), bb[3].max(b[3])];
+            }
+        }
+        let ha = unsafe { self.read_all(a) }?;
+        let mut out: Vec<Vec<(usize, f64)>> = Vec::with_capacity(a.len());
+        let result = (|| -> Result<()> {
+            for (i, &h) in ha.iter().enumerate() {
+                if h.is_null() || live == 0 || k == 0 {
+                    out.push(Vec::new());
+                    continue;
+                }
+                let bounds = a[i].bounds().ok_or("an empty geometry")?;
+                let itself = own && self.geoms.get(i).is_some_and(|g| !g.is_null());
+                let others = live - itself as usize;
+                if others == 0 {
+                    out.push(Vec::new());
+                    continue;
+                }
+                let span = (bb[2] - bb[0]).hypot(bb[3] - bb[1]);
+                let mut d = if span > 0.0 { (span / (live as f64).sqrt()).max(1e-9) } else { 1.0 };
+                if let Some(m) = max_distance {
+                    d = d.min(m).max(f64::MIN_POSITIVE);
+                }
+                loop {
+                    let found = unsafe { self.candidates(h, bounds, d) }?;
+                    let mut ds: Vec<(f64, usize)> = Vec::with_capacity(found.len());
+                    for &j in &found {
+                        if own && j == i {
+                            continue;
+                        }
+                        ds.push((self.distance_between(h, self.geoms[j])?, j));
+                    }
+                    ds.sort_unstable_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
+                    let all = ds.len() >= others;
+                    let capped = max_distance.is_some_and(|m| d >= m);
+                    if all || capped || (ds.len() >= k && ds[k - 1].0 <= d) {
+                        ds.truncate(k);
+                        if let Some(m) = max_distance {
+                            ds.retain(|&(dist, _)| dist <= m);
+                        }
+                        out.push(ds.into_iter().map(|(dist, j)| (j, dist)).collect());
+                        break;
+                    }
+                    d = match max_distance {
+                        Some(m) => (d * 2.0).min(m),
+                        None => d * 2.0,
+                    };
+                }
             }
             Ok(())
         })();

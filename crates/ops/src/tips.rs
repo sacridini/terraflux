@@ -389,7 +389,9 @@ pub const TIPS: &[(&str, &str)] = &[
         "vector.nearest",
         "The distance is in the layers' units: reproject both to a metric coordinate system first, as degrees \
          give distances that are not metres. A feature that meets one of the other layer has distance 0. Give \
-         `max_distance` to leave without values those with nothing near.",
+         `max_distance` to leave without values those with nothing near. `k` above 1 gives the k nearest, one \
+         row each with its `rank`. Leave `other` unconnected for the distances between the features of one layer \
+         (the patches' nearest neighbour, FRAGSTATS's ENN): none is its own neighbour.",
     ),
     (
         "vector.centroid",

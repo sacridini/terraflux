@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What the library's tf.vector gives for split and shape (and, later, nearest_k), for Terraflux's tests of
-vector.split and vector.shape: seeded layers (forest-like polygons, some multipolygons, some with holes; roads, parcels as polygon
+"""What the library's tf.vector gives for split, shape and nearest with k, for Terraflux's tests of
+vector.split, vector.shape and vector.nearest: seeded layers (forest-like polygons, some multipolygons, some with holes; roads, parcels as polygon
 blades and tracks as lines to cut) written as GeoPackages to tests/data/reference/vectors/ (shape_forest.gpkg,
 shape_tracks.gpkg, shape_parcels.gpkg, shape_roads.gpkg, shape_meander.gpkg, shape_straight.gpkg, shape_dangle.gpkg,
-shape_touch.gpkg; for shape also shape_figures.gpkg and shape_utm.gpkg), and each call's result (the geometries as WKB hex, the attributes) to
-tests/data/reference/vector_shape.json, as {"library", "geos", "split": [cases], "shape": [cases]}:
+shape_touch.gpkg; for shape also shape_figures.gpkg and shape_utm.gpkg; for nearest nearest_records.gpkg,
+nearest_twins.gpkg, nearest_lattice.gpkg and nearest_middle.gpkg), and each call's result (the geometries as WKB hex, the attributes) to
+tests/data/reference/vector_shape.json, as {"library", "geos", "split": [cases], "shape": [cases], "nearest_k": [cases]}:
 
     PYTHONPATH=<terraflux-py>/src python tools/make_vector_shape_reference.py
 
@@ -20,6 +21,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import shapely
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
 
@@ -148,6 +150,38 @@ def utm() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame({"id": np.arange(1, len(geoms) + 1, dtype=float)}, geometry=geoms, crs=31983)
 
 
+def records() -> gpd.GeoDataFrame:
+    """Records-like seeded points over the forest's area, with a number, a text and a missing text."""
+    rng = np.random.default_rng(23)
+    n = 40
+    xy = np.round(rng.uniform(-50, 1050, (n, 2)), 3)
+    kind = [None if i % 9 == 4 else ("a", "b", "c")[i % 3] for i in range(n)]
+    return gpd.GeoDataFrame(
+        {"id": np.arange(1, n + 1, dtype=float), "kind": kind, "distance": np.arange(n, dtype=float)},
+        geometry=[shapely.Point(x, y) for x, y in xy],
+        crs=32633,
+    )
+
+
+def twins() -> gpd.GeoDataFrame:
+    """Points with duplicates (distance 0 apart, also three at one place) and a point far off."""
+    pts = [(0, 0), (0, 0), (10, 0), (10, 0), (10, 0), (25, 5), (-30, 40), (500, 500)]
+    return gpd.GeoDataFrame({"id": np.arange(1, len(pts) + 1, dtype=float), "tag": [f"t{i}" for i in range(len(pts))]}, geometry=[shapely.Point(p) for p in pts], crs=32633)
+
+
+def lattice() -> gpd.GeoDataFrame:
+    """Points on a regular grid (many exact ties in distance), in an order that is not the grid's."""
+    pts = [(x * 10.0, y * 10.0) for y in range(5) for x in range(5)]
+    order = np.random.default_rng(3).permutation(len(pts))
+    return gpd.GeoDataFrame({"id": np.arange(1, len(pts) + 1, dtype=float)}, geometry=[shapely.Point(pts[i]) for i in order], crs=32633)
+
+
+def middle() -> gpd.GeoDataFrame:
+    """Points that tie in distance with the lattice's: one in the middle of four, one in the middle of a row."""
+    pts = [(15.0, 15.0), (20.0, 20.0), (5.0, 0.0), (45.0, 25.0), (-10.0, 20.0)]
+    return gpd.GeoDataFrame({"id": np.arange(1, len(pts) + 1, dtype=float), "tag": [f"m{i}" for i in range(len(pts))]}, geometry=[shapely.Point(p) for p in pts], crs=32633)
+
+
 def hexed(g):
     if g is None:
         return None
@@ -163,7 +197,7 @@ def columns(gdf) -> list:
         if name == gdf.geometry.name:
             continue
         v = gdf[name].tolist()
-        out.append([name, [None if isinstance(x, float) and math.isnan(x) else x for x in v]])
+        out.append([name, [None if (isinstance(x, float) and math.isnan(x)) or x is pd.NA else x for x in v]])
     return out
 
 
@@ -179,6 +213,10 @@ def main() -> None:
         "shape_touch": touch(),
         "shape_figures": figures(),
         "shape_utm": utm(),
+        "nearest_records": records(),
+        "nearest_twins": twins(),
+        "nearest_lattice": lattice(),
+        "nearest_middle": middle(),
     }
     (REF / "vectors").mkdir(exist_ok=True)
     for name, gdf in files.items():
@@ -226,10 +264,54 @@ def main() -> None:
             shaped(file, geometry=geometry)
     shaped("shape_figures", tolerance=0.01, geometry="inscribed")
     shaped("shape_utm", tolerance=25.0, geometry="inscribed")
-    out = {"library": tf.__version__, "geos": shapely.geos_version_string, "split": split, "shape": shape}
+    nearest_k = []
+
+    def near(file, other=None, k=1, max_distance=None):
+        kw = {"k": k}
+        if max_distance is not None:
+            kw["max_distance"] = max_distance
+        v = lambda f: str(REF / "vectors" / f"{f}.gpkg")
+        result = tf.vector.nearest(v(file), None if other is None else v(other), **kw)
+        nearest_k.append(
+            {
+                "file": file,
+                "other": other,
+                "k": k,
+                "max_distance": max_distance,
+                "geometries": [hexed(g) for g in result.geometry.values],
+                "columns": columns(result),
+            }
+        )
+
+    near("shape_forest", "shape_parcels", k=3)
+    near("shape_forest", "shape_forest", k=3)  # itself included at distance 0
+    near("shape_forest", k=3)
+    near("shape_forest", k=1)
+    near("nearest_records", "shape_forest", k=1)  # as before
+    near("nearest_records", "shape_forest", k=1, max_distance=40.0)
+    near("nearest_records", "shape_forest", k=4)
+    near("nearest_records", "shape_forest", k=4, max_distance=60.0)
+    near("nearest_records", "shape_parcels", k=10)  # more than the features
+    near("nearest_records", "shape_parcels", k=2, max_distance=0.0)
+    near("nearest_records", k=1)
+    near("nearest_records", k=2)
+    near("nearest_records", k=5, max_distance=80.0)
+    near("nearest_twins", k=1)
+    near("nearest_twins", k=3)
+    near("nearest_twins", k=10)  # more than the other features
+    near("nearest_twins", "nearest_twins", k=3)
+    near("nearest_lattice", "nearest_middle", k=4)
+    near("nearest_middle", "nearest_lattice", k=1)
+    near("nearest_middle", "nearest_lattice", k=5)
+    near("nearest_middle", "nearest_lattice", k=5, max_distance=12.0)
+    near("nearest_lattice", k=1)
+    near("nearest_lattice", k=3)
+    near("nearest_lattice", k=3, max_distance=10.0)
+    near("nearest_lattice", "nearest_twins", k=2)
+    out = {"library": tf.__version__, "geos": shapely.geos_version_string, "split": split, "shape": shape, "nearest_k": nearest_k}
     path = REF / "vector_shape.json"
     path.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
-    print(path, len(split), "split cases,", len(shape), "shape cases")
+    print(path, len(split), "split cases,", len(shape), "shape cases,", len(nearest_k), "nearest_k cases")
     for c in split:
         print(c["file"], c["lines"], len(c["geometries"]), "rows")
 

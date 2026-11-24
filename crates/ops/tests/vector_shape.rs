@@ -224,3 +224,79 @@ fn shape_refuses_lines() {
     let e = run("vector.shape", vec![("vector", read("shape_forest"))], json!({"geometry": "disc"}));
     assert!(e.unwrap_err().contains("unknown geometry"));
 }
+
+/// `vector.nearest` with `k` and without `other` against `tf.vector.nearest`: the same rows in the same order, the
+/// same columns (rank only when k > 1), the same attributes, every distance the same bits, the same geometries.
+#[test]
+fn nearest_k_matches_the_library() {
+    if !has_geos() {
+        return;
+    }
+    let r: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root().join("tests/data/reference/vector_shape.json")).unwrap())
+            .unwrap();
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for c in r["nearest_k"].as_array().unwrap() {
+        let file = c["file"].as_str().unwrap();
+        let k = c["k"].as_i64().unwrap();
+        let what = format!("nearest {file} to {} k={k} max={}", c["other"], c["max_distance"]);
+        let mut ins = vec![("vector", read(file))];
+        if let Some(o) = c["other"].as_str() {
+            ins.push(("other", read(o)));
+        }
+        let mut params = json!({ "k": k });
+        if let Some(m) = c["max_distance"].as_f64() {
+            params["max_distance"] = json!(m);
+        }
+        let v = match run("vector.nearest", ins, params) {
+            Ok(o) => vector(&o),
+            Err(e) => {
+                failures.push(format!("{what}: {e}"));
+                continue;
+            }
+        };
+        let want = c["geometries"].as_array().unwrap();
+        if v.len() != want.len() {
+            failures.push(format!("{what}: {} rows, the library {}", v.len(), want.len()));
+            continue;
+        }
+        for (i, (g, w)) in v.geometries.iter().zip(want).enumerate() {
+            if g.to_wkb() != expected(w).to_wkb() {
+                failures.push(format!("{what}: row {i}: geometry differs"));
+            }
+        }
+        let cols = c["columns"].as_array().unwrap();
+        let names: Vec<&str> = v.attributes.iter().map(|(n, _)| n.as_str()).collect();
+        let theirs: Vec<&str> = cols.iter().map(|p| p[0].as_str().unwrap()).collect();
+        if names != theirs {
+            failures.push(format!("{what}: columns {names:?}, the library {theirs:?}"));
+            continue;
+        }
+        for ((name, col), pair) in v.attributes.iter().zip(cols) {
+            let w = pair[1].as_array().unwrap();
+            let ok = match col {
+                Column::Numbers(x) => x.iter().zip(w).all(|(a, b)| same(*a, b.as_f64())),
+                Column::Texts(t) => t.iter().zip(w).all(|(a, b)| b.as_str().unwrap_or("") == a),
+            };
+            if !ok {
+                failures.push(format!("{what}: column {name:?} differs: {col:?} against {w:?}"));
+            }
+        }
+        checked += 1;
+    }
+    assert!(failures.is_empty(), "{} cases checked, {} failures:\n{}", checked, failures.len(), failures.join("\n"));
+    eprintln!("{checked} nearest cases bit for bit the library's");
+    assert!(checked >= 25, "only {checked} cases");
+}
+
+#[test]
+fn nearest_refuses_k_below_one() {
+    if !has_geos() {
+        return;
+    }
+    for k in [0, -2] {
+        let e = run("vector.nearest", vec![("vector", read("shape_forest"))], json!({ "k": k }));
+        assert!(e.unwrap_err().contains("k must be"));
+    }
+}

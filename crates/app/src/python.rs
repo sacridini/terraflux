@@ -2548,7 +2548,7 @@ const FRAMES: &[Frame] = &[
         op: "vector.nearest",
         call: "tf.vector.nearest",
         first: &["vector", "other"],
-        named: &[("max_distance", "max_distance"), ("suffix", "suffix")],
+        named: &[("max_distance", "max_distance"), ("k", "k"), ("suffix", "suffix")],
         gives: Gives::Features,
     },
     Frame {
@@ -2891,9 +2891,17 @@ fn tables_and_features(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, 
             let Some(f) = FRAMES.iter().find(|f| f.op == op) else { return Ok(None) };
             let mut args = Vec::new();
             for k in f.first {
-                args.push(need(k)?);
+                // (vector.nearest without `other`: the layer itself, `tf.vector.nearest(vector, k=...)`)
+                if op == "vector.nearest" && *k == "other" {
+                    args.extend(v(k)?);
+                } else {
+                    args.push(need(k)?);
+                }
             }
             args.extend(named(f.named)?);
+            if op == "vector.nearest" {
+                args.retain(|a| a != "k=1");
+            }
             // (the join's modes are the library's hows: attributes is first)
             if op == "vector.spatial_join" {
                 for a in &mut args {
@@ -3463,6 +3471,23 @@ inputs = { vector = "at.vector", other = "ring.vector" }
 params = { max_distance = 300 }
 
 [[nodes]]
+id = "three"
+op = "vector.nearest"
+inputs = { vector = "at.vector", other = "ring.vector" }
+params = { k = 3 }
+
+[[nodes]]
+id = "enn"
+op = "vector.nearest"
+inputs = { vector = "at.vector" }
+
+[[nodes]]
+id = "twin"
+op = "vector.nearest"
+inputs = { vector = "at.vector" }
+params = { k = 2, max_distance = 40 }
+
+[[nodes]]
 id = "pairs"
 op = "vector.spatial_join"
 inputs = { vector = "ring.vector", other = "at.vector" }
@@ -3672,6 +3697,9 @@ from = "counted.table"
         assert!(t.contains("inside = tf.vector.select(at, ring, predicate=\"within\", invert=True)\n"), "{t}");
         assert!(t.contains("close = tf.vector.select(at, ring, predicate=\"dwithin\", distance=25.5)\n"), "{t}");
         assert!(t.contains("nearest = tf.vector.nearest(at, ring, max_distance=300)\n"), "{t}");
+        assert!(t.contains("three = tf.vector.nearest(at, ring, k=3)\n"), "{t}");
+        assert!(t.contains("enn = tf.vector.nearest(at)\n"), "{t}");
+        assert!(t.contains("twin = tf.vector.nearest(at, max_distance=40, k=2)\n"), "{t}");
         assert!(t.contains("pairs = tf.vector.join(ring, at, predicate=\"contains\", how=\"all\")\n"), "{t}");
         assert!(t.contains("first = tf.vector.join(at, ring)\n"), "{t}");
         assert!(t.contains("pieces = tf.vector.overlay(ring, plots, how=\"symmetric_difference\")\n"), "{t}");

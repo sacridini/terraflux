@@ -715,17 +715,31 @@ impl Operator for Nearest {
         OpSignature::new(
             "vector.nearest",
             "Each feature joined to the nearest feature of another layer, as geopandas' sjoin_nearest, QGIS's Join \
-             Attributes by Nearest and PostGIS's ORDER BY a.geom <-> b.geom LIMIT 1 (GEOS's distance, through a \
+             Attributes by Nearest and PostGIS's ORDER BY a.geom <-> b.geom LIMIT k (GEOS's distance, through a \
              spatial index): it takes that feature's attributes and `distance` (map units, 0 where they meet); a \
              tie goes to the first feature of the other layer. None within `max_distance`: no values and a NaN \
-             distance. The other layer is reprojected to the first's.",
+             distance. The other layer is reprojected to the first's. With `k` above 1 it gives the k nearest, one \
+             row per pair, in the order of the features and then by `rank` (1..k; fewer rows when the other layer \
+             has fewer features or `max_distance` cuts them; a feature with no neighbour keeps one row with a \
+             missing rank). Without `other` the layer is its own: a feature is never its own neighbour (by its \
+             place in the layer, so a duplicate at distance 0 counts), all the neighbour's columns take the suffix, \
+             and `k` 1 is FRAGSTATS's ENN, the distance between a patch and the nearest of its layer.",
             Access::None,
         )
         .input(PortSpec::new("vector", Type::Vector, "the features joined to"))
-        .input(PortSpec::new("other", Type::Vector, "the features to find the nearest of"))
+        .input(PortSpec::optional(
+            "other",
+            Type::Vector,
+            "the features to find the nearest of (none: the same layer, apart from itself)",
+        ))
         .output(PortSpec::new("vector", Type::Vector, "the features with the nearest one's attributes and distance"))
         .output(PortSpec::new("table", Type::Table, "their attributes"))
         .param(PortSpec::optional("max_distance", Type::Number, "the farthest a feature may be (map units; none: any)"))
+        .param(PortSpec::optional(
+            "k",
+            Type::Integer,
+            "how many nearest features of the other layer (1; 2 or more adds the column rank)",
+        ))
         .param(PortSpec::optional("suffix", Type::Text, "after a name of the other layer the first has (_2)"))
     }
 
@@ -733,23 +747,59 @@ impl Operator for Nearest {
         let node = args.node;
         let err = |m: String| Error::msg(format!("node {node:?}: {m}"));
         let a = vector_of(args, "vector")?;
-        let b = like(vector_of(args, "other")?, &a.crs)?;
+        let own = args.get("other").is_none();
+        let b = if own { a.clone() } else { like(vector_of(args, "other")?, &a.crs)? };
         let max: Option<f64> = args.opt_param("max_distance")?;
         if max.is_some_and(|m| m.is_nan() || m < 0.0) {
             return Err(err("max_distance must be 0 or more".to_string()));
         }
+        let k: i64 = args.param("k", 1)?;
+        if k < 1 {
+            return Err(err(format!("k must be an integer of 1 or more, not {k}")));
+        }
         let suffix: String = args.param("suffix", "_2".to_string())?;
-        let found = GeosIndex::new(&b.geometries).and_then(|t| t.nearest(&a.geometries, max)).map_err(err)?;
-        let from: Vec<(Option<usize>, Option<usize>)> =
-            found.iter().enumerate().map(|(i, f)| (Some(i), f.map(|(j, _)| j))).collect();
+        let index = GeosIndex::new(&b.geometries).map_err(err)?;
+        // the pairs (feature of a, neighbour, distance, rank); a feature without neighbour keeps one row
+        let mut from: Vec<(Option<usize>, Option<usize>)> = Vec::new();
+        let mut dist: Vec<f64> = Vec::new();
+        let mut rank: Vec<f64> = Vec::new();
+        if k == 1 && !own {
+            let found = index.nearest(&a.geometries, max).map_err(err)?;
+            for (i, f) in found.iter().enumerate() {
+                from.push((Some(i), f.map(|(j, _)| j)));
+                dist.push(f.map_or(f64::NAN, |(_, d)| d));
+            }
+        } else {
+            let found = index.nearest_k(&a.geometries, k as usize, max, own).map_err(err)?;
+            for (i, ns) in found.iter().enumerate() {
+                if ns.is_empty() {
+                    from.push((Some(i), None));
+                    dist.push(f64::NAN);
+                    rank.push(f64::NAN);
+                }
+                for (r, &(j, d)) in ns.iter().enumerate() {
+                    from.push((Some(i), Some(j)));
+                    dist.push(d);
+                    rank.push((r + 1) as f64);
+                }
+            }
+        }
         let mut attributes = joined(a, &b, &from, &suffix);
-        // `distance`, with the suffix (again) while a name of either layer has it, as tf.vector.nearest
+        // `distance` (and `rank`), with the suffix (again) while a name of either layer has it, as tf.vector.nearest
         let mut name = "distance".to_string();
         while attributes.iter().any(|(n, _)| *n == name) {
             name.push_str(&suffix);
         }
-        attributes.push((name, Column::Numbers(found.iter().map(|f| f.map_or(f64::NAN, |(_, d)| d)).collect())));
-        Ok(out(Vector { geometries: a.geometries.clone(), attributes, crs: a.crs.clone() }))
+        attributes.push((name, Column::Numbers(dist)));
+        if k > 1 {
+            let mut name = "rank".to_string();
+            while attributes.iter().any(|(n, _)| *n == name) {
+                name.push_str(&suffix);
+            }
+            attributes.push((name, Column::Numbers(rank)));
+        }
+        let geometries = from.iter().map(|&(i, _)| a.geometries[i.unwrap_or(0)].clone()).collect();
+        Ok(out(Vector { geometries, attributes, crs: a.crs.clone() }))
     }
 }
 
