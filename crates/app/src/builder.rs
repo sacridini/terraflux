@@ -5613,6 +5613,25 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
                 {
                     s.trace_asked = Some((node.clone(), port.clone(), grid, cell, explain));
                 }
+                // the other cell of a comparison of traces: the click after the Trace pane asked for it, or the
+                // map's menu; the two cells compared marked, A and B
+                let grid = value.as_ref().and_then(crate::trace::grid_of);
+                let chosen = s.trace_choosing.is_some_and(|base| sh.view.clicks > base);
+                if (chosen || std::mem::take(&mut sh.view.compare_request))
+                    && let (Some(cell), Some(grid)) = (sh.view.picked, grid.clone())
+                {
+                    s.trace_choosing = None;
+                    s.trace_compare_asked =
+                        Some((node.clone(), port.clone(), grid, cell, crate::trace_view::Explain::Here));
+                }
+                sh.view.compare_offer = !s.trace_marks.is_empty();
+                sh.view.marks = match (&grid, s.trace_marks.as_slice()) {
+                    (Some(g), [a, b]) => [(a, crate::theme::accent(), "A"), (b, crate::theme::second(), "B")]
+                        .into_iter()
+                        .filter_map(|(&(x, y), colour, letter)| Some((crate::trace::cell_of(g, x, y)?, colour, letter)))
+                        .collect(),
+                    _ => Vec::new(),
+                };
                 let before_status = ui.min_rect().width();
                 ui.separator();
                 let weak = ui.visuals().weak_text_color();

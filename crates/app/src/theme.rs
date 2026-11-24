@@ -400,6 +400,19 @@ pub fn on_orange() -> Color32 {
     rgb(28, 28, 28)
 }
 
+/// A colour apart from the accent, whatever the theme (the second of two things marked, the cell B of a comparison
+/// beside A in the accent): blue when the accent is warm, else orange.
+pub fn second() -> Color32 {
+    let a = accent();
+    if a.r() > a.b() { rgb(64, 148, 255) } else { orange() }
+}
+
+/// The text on [`second`].
+pub fn on_second() -> Color32 {
+    let a = accent();
+    if a.r() > a.b() { rgb(255, 255, 255) } else { on_orange() }
+}
+
 pub fn bar() -> Color32 {
     current().bar
 }

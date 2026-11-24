@@ -3,7 +3,9 @@
 //! value there, how it was made: map algebra's expression with the values in place of its names, the cells around,
 //! what a model weighs, a loop step by step), its inputs a click away; a sentence of it at the top. Trace inside the
 //! loops runs the model again keeping their bodies' values at the cell. Ask the assistant why sends the trace to the
-//! assistant, which explains it (and may trace more: its tool trace_cell).
+//! assistant, which explains it (and may trace more: its tool trace_cell). Compare with another cell, then a click
+//! in the viewer (or a right click's Compare with the traced cell), compares two cells ([`crate::trace::compare`]):
+//! where the difference begins and why, then the chain with the nodes that differ, the two cells marked A and B.
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
@@ -13,7 +15,7 @@ use terraflux_ops::Registry;
 
 use crate::app::Session;
 use crate::theme;
-use crate::trace::{At, How, Kept, Trace};
+use crate::trace::{At, Comparison, How, Kept, Kind, Trace, Why};
 
 /// Who explains a trace asked for: nobody (the Trace pane), the application's assistant, or an assistant through
 /// `terraflux mcp` (the trace kept for it, a request to paste copied).
@@ -27,11 +29,21 @@ pub enum Explain {
 /// A trace asked for: the node and port of a map, its grid, the cell (row, column), and who explains it.
 pub type Ask = (String, String, Arc<terraflux_raster::Grid>, (usize, usize), Explain);
 
+/// A node chosen in the pane: its place, id and port, and its step in the trace (of A, when compared): its map
+/// shown, its patch drawn.
+type Select = (Vec<String>, String, String, Option<usize>);
+
 /// The pane's state (the application's).
 #[derive(Default)]
 pub struct State {
     asked: Option<Ask>,
     pub trace: Option<Trace>,
+    /// The other cell compared with the one traced (B), its trace, and the two compared.
+    asked_b: Option<Ask>,
+    pub trace_b: Option<Trace>,
+    pub comparison: Option<Comparison>,
+    /// Every node of the comparison shown, the same ones too (else those collapsed).
+    show_all: bool,
     /// The model's revision and the nodes' states it was traced at (traced again when they change).
     made: Option<(u64, u64)>,
     /// What a run kept inside the loops, at the place (x, y) it was asked for.
@@ -45,13 +57,47 @@ pub struct State {
 }
 
 impl State {
-    /// Trace a cell of a node's map.
+    /// Trace a cell of a node's map (a comparison let go).
     pub fn ask(&mut self, a: Ask) {
         self.explain = Some(a.4);
         self.asked = Some(a);
         self.made = None;
         self.error = None;
         self.focus = None;
+        self.stop_comparing();
+    }
+
+    /// Compare the cell traced with another (B); with none traced, trace it.
+    pub fn compare_with(&mut self, b: Ask) {
+        if self.asked.is_none() {
+            return self.ask(b);
+        }
+        self.asked_b = Some(b);
+        self.made = None;
+        self.error = None;
+        self.focus = None;
+        self.show_all = false;
+    }
+
+    /// Back to the cell traced alone.
+    pub fn stop_comparing(&mut self) {
+        self.asked_b = None;
+        self.trace_b = None;
+        self.comparison = None;
+        self.made = None;
+    }
+
+    /// A and B the other way.
+    pub fn swap(&mut self) {
+        if self.asked_b.is_some() {
+            std::mem::swap(&mut self.asked, &mut self.asked_b);
+            self.made = None;
+        }
+    }
+
+    /// The places of the cells traced: the one, or the two compared.
+    pub fn places(&self) -> Vec<(f64, f64)> {
+        self.trace.iter().chain(&self.trace_b).map(|t| (t.x, t.y)).collect()
     }
 
     pub fn running(&self) -> bool {
@@ -60,21 +106,26 @@ impl State {
 
     /// The trace made again when the model or its run changed (not while it runs).
     fn refresh(&mut self, s: &Session, r: &Registry) {
-        let Some((node, port, grid, cell, _)) = self.asked.clone() else { return };
+        let Some(a) = self.asked.clone() else { return };
         let now = (s.revision, s.status_rev);
         if self.made == Some(now) || s.running() {
             return;
         }
         self.made = Some(now);
         let values = |n: &str, p: &str| s.value_of(n, p);
-        let (x, y) = crate::trace::centre(&grid, cell.0, cell.1);
-        let kept = match &self.kept {
-            Some((kx, ky, k)) if *kx == x && *ky == y => k.clone(),
-            _ => Kept::new(),
+        let traced = |(node, port, grid, cell, _): &Ask| {
+            let (x, y) = crate::trace::centre(grid, cell.0, cell.1);
+            let kept = match &self.kept {
+                Some((kx, ky, k)) if *kx == x && *ky == y => k.clone(),
+                _ => Kept::new(),
+            };
+            crate::trace::trace(&s.source, r, &values, &kept, node, port, grid, *cell)
         };
-        let t = crate::trace::trace(&s.source, r, &values, &kept, &node, &port, &grid, cell);
+        let t = traced(&a);
         // (the last trace, for an assistant through terraflux mcp: last_trace)
         crate::trace::save_last(s.path.as_deref(), &t);
+        self.trace_b = self.asked_b.as_ref().map(traced);
+        self.comparison = self.trace_b.as_ref().map(|b| crate::trace::compare(&t, b));
         self.trace = Some(t);
     }
 }
@@ -119,6 +170,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
         }
     }
     st.refresh(s, r);
+    s.trace_marks = st.places();
     let mut asked = None;
     // asked for with the assistant (a right click on a cell): to it, once traced
     if let Some(e) = st.explain
@@ -138,17 +190,23 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
             Explain::Here => {}
         }
     }
-    let mut select: Option<(Vec<String>, String, String, usize)> = None;
+    let mut select: Option<Select> = None;
     egui::ScrollArea::vertical().id_salt("trace pane").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
-            theme::section(ui, "Trace of a cell");
             let Some(t) = st.trace.clone() else {
+                theme::section(ui, "Trace of a cell");
                 ui.label(weak(
                     "Why a cell has its value: click a cell of a map in the viewer, then Trace this cell. The \
                      chain of values that made it shows here, node by node.",
                 ));
                 return;
             };
+            if let Some(c) = st.comparison.clone() {
+                theme::section(ui, "Two cells compared");
+                compared(ui, st, &c, &mut select, &mut asked);
+                return;
+            }
+            theme::section(ui, "Trace of a cell");
             let Some(first) = t.steps.first() else { return };
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(format!("{}.{}", first.node, first.port)).strong());
@@ -194,6 +252,26 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                     ui.ctx().copy_text(format!("{}\n\n{}", t.sentence(), t.text()));
                 }
             });
+            ui.horizontal_wrapped(|ui| {
+                let choosing = s.trace_choosing.is_some();
+                if ui
+                    .add_enabled(!choosing, egui::Button::new("Compare with another cell"))
+                    .on_hover_text(
+                        "then click another cell of the map in the viewer: why the two differ, and where the \
+                         difference begins",
+                    )
+                    .clicked()
+                {
+                    s.trace_choosing = Some(s.preview_view.clicks);
+                    asked.get_or_insert(Asked::Viewer);
+                }
+                if choosing {
+                    ui.label(weak("click another cell of the map in the viewer").small());
+                    if ui.small_button("Cancel").clicked() {
+                        s.trace_choosing = None;
+                    }
+                }
+            });
             if let Some(e) = &st.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -214,7 +292,7 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                                 .on_hover_text("select it: its map in the viewer, this cell outlined")
                                 .clicked()
                             {
-                                select = Some((step.path.clone(), step.node.clone(), step.port.clone(), k));
+                                select = Some((step.path.clone(), step.node.clone(), step.port.clone(), Some(k)));
                             }
                             ui.label(weak(&step.op).monospace().small());
                             if !step.path.is_empty() {
@@ -278,7 +356,8 @@ pub fn pane(ui: &mut Ui, st: &mut State, s: &mut Session, r: &Registry) -> Optio
                 .and_then(|g| crate::trace::cell_of(&g, t.x, t.y));
             s.preview = Some((node, port));
             s.preview_view.picked = cell;
-            s.preview_view.patch = t.steps.get(k).and_then(|step| crate::trace::patch_outline(&step.how));
+            s.preview_view.patch =
+                k.and_then(|k| t.steps.get(k)).and_then(|step| crate::trace::patch_outline(&step.how));
             asked = asked.or(Some(Asked::Viewer));
         }
         s.editor.reveal(&id);
@@ -300,6 +379,172 @@ fn question(t: &Trace) -> String {
         t.cell.1,
         t.text()
     )
+}
+
+/// The question to the assistant of a comparison: why the two cells differ, from the comparison.
+fn compare_question(c: &Comparison) -> String {
+    let (node, port) = c.a.steps.first().map_or(("", ""), |s| (s.node.as_str(), s.port.as_str()));
+    format!(
+        "Why does {node}.{port} differ between these two cells? Explain it from their comparison, where the \
+         difference begins and why, in words (trace_cell traces other cells, or compares them):\n\n{}\n\n{}",
+        c.sentence(),
+        c.text()
+    )
+}
+
+/// A side's letter in its colour (A in the accent, B in a colour apart: as the viewer marks the two cells).
+fn letter(ui: &mut Ui, k: usize) {
+    let (text, colour, ink) =
+        if k == 0 { ("A", theme::accent(), theme::on_accent()) } else { ("B", theme::second(), theme::on_second()) };
+    egui::Frame::new().fill(colour).corner_radius(theme::rounded(3.0)).inner_margin(Margin::symmetric(4, 0)).show(
+        ui,
+        |ui| {
+            ui.label(RichText::new(text).strong().color(ink));
+        },
+    );
+}
+
+/// The two cells compared: where they are and their values, the sentence, where the difference begins and why,
+/// then the chain of nodes (those that differ shown, those the same collapsed).
+fn compared(ui: &mut Ui, st: &mut State, c: &Comparison, select: &mut Option<Select>, asked: &mut Option<Asked>) {
+    for (k, t) in [(0, &c.a), (1, &c.b)] {
+        ui.horizontal_wrapped(|ui| {
+            letter(ui, k);
+            if let Some(first) = t.steps.first() {
+                ui.label(RichText::new(format!("{}.{}", first.node, first.port)).strong());
+            }
+            ui.label(weak(format!(
+                "at row {}, column {} (x {}, y {})",
+                t.cell.0,
+                t.cell.1,
+                crate::report::cell(t.x),
+                crate::report::cell(t.y)
+            )));
+            ui.label("=");
+            ui.label(value(&t.steps.first().and_then(|s| s.value.clone())));
+        });
+    }
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .add(crate::app::accent_button("Ask the assistant why", true))
+            .on_hover_text("the comparison to the assistant, to explain in words why the two cells differ")
+            .clicked()
+        {
+            *asked = Some(Asked::Assistant(compare_question(c)));
+        }
+        if ui.button("Swap A and B").clicked() {
+            st.swap();
+        }
+        if ui.button("Copy").on_hover_text("the comparison as text").clicked() {
+            ui.ctx().copy_text(format!("{}\n\n{}", c.sentence(), c.text()));
+        }
+        if ui.button("Trace A alone").on_hover_text("back to the trace of the cell A").clicked() {
+            st.stop_comparing();
+        }
+    });
+    if let Some(e) = &st.error {
+        ui.colored_label(ui.visuals().error_fg_color, e);
+    }
+    ui.add_space(4.0);
+    ui.label(RichText::new(c.sentence()).italics());
+    ui.add_space(6.0);
+    if !c.differs() {
+        return;
+    }
+    if !c.roots.is_empty() {
+        ui.label(RichText::new("Where the difference begins").strong());
+        for root in &c.roots {
+            pair_card(ui, c, root.pair, Some(&root.why), select);
+            ui.add_space(4.0);
+        }
+        ui.add_space(4.0);
+    }
+    ui.label(RichText::new("The chain").strong());
+    let mut k = 0;
+    while k < c.pairs.len() {
+        if !st.show_all && c.pairs[k].kind == Kind::Same {
+            let from = k;
+            while k < c.pairs.len() && c.pairs[k].kind == Kind::Same {
+                k += 1;
+            }
+            let n = k - from;
+            ui.horizontal(|ui| {
+                ui.label(weak(if n == 1 { "1 node the same".to_string() } else { format!("{n} nodes the same") }));
+                if ui.small_button("show all").clicked() {
+                    st.show_all = true;
+                }
+            });
+            continue;
+        }
+        pair_card(ui, c, k, None, select);
+        ui.add_space(4.0);
+        k += 1;
+    }
+    if st.show_all && ui.small_button("show only those that differ").clicked() {
+        st.show_all = false;
+    }
+}
+
+/// A node of a comparison: its name (a click selects it: its map in the viewer, the two cells marked), how it
+/// stands, why when the difference begins there, and its value at A and at B (with the expression, a switch's
+/// branch).
+fn pair_card(ui: &mut Ui, c: &Comparison, k: usize, why: Option<&Why>, select: &mut Option<Select>) {
+    let p = &c.pairs[k];
+    let (sa, sb) = c.steps(p);
+    egui::Frame::new().fill(theme::well()).corner_radius(theme::rounded(4.0)).inner_margin(Margin::same(6)).show(
+        ui,
+        |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .link(RichText::new(format!("{}.{}", p.node, p.port)).strong())
+                    .on_hover_text("select it: its map in the viewer, the two cells marked")
+                    .clicked()
+                {
+                    *select = Some((p.path.clone(), p.node.clone(), p.port.clone(), p.a));
+                }
+                ui.label(weak(&p.op).monospace().small());
+                if !p.path.is_empty() {
+                    ui.label(weak(format!("in {}", p.path.join("/"))).small());
+                }
+                let (said, colour) = match p.kind {
+                    Kind::Same => ("the same", theme::weak()),
+                    Kind::Different => ("differs", ui.visuals().warn_fg_color),
+                    Kind::OnlyA => ("only at A", theme::accent()),
+                    Kind::OnlyB => ("only at B", theme::second()),
+                };
+                ui.label(RichText::new(said).small().color(colour));
+            });
+            if let Some(w) = why {
+                ui.label(RichText::new(w.text(&c.names)));
+                for l in w.details(&c.names) {
+                    ui.label(RichText::new(l).monospace().small());
+                }
+            }
+            egui::Grid::new(ui.next_auto_id()).num_columns(2).spacing([8.0, 2.0]).show(ui, |ui| {
+                for (side, step) in [(0, sa), (1, sb)] {
+                    letter(ui, side);
+                    ui.vertical(|ui| match step {
+                        None => {
+                            ui.label(weak("not traced here"));
+                        }
+                        Some(step) => {
+                            ui.label(value(&step.value));
+                            if let How::Expression { with_values, .. } = &step.how
+                                && p.kind != Kind::Same
+                            {
+                                ui.label(RichText::new(format!("here: {with_values}")).monospace().small());
+                            }
+                            if matches!(step.how, How::Branch { .. }) {
+                                ui.label(weak(step.how.branch_text()).small());
+                            }
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
+        },
+    );
 }
 
 /// Whether a node is, or holds, a loop.

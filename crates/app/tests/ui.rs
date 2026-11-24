@@ -2258,6 +2258,74 @@ fn a_cell_is_traced_from_its_map() {
     assert!(h.state().is_open(Pane::Assistant));
 }
 
+/// Two cells compared from the Trace pane: Compare with another cell, then a click in the viewer; where the
+/// difference begins, the two cells marked A and B; swapped; and from the map's menu (a right click).
+#[test]
+fn two_cells_are_compared_from_the_trace() {
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").unwrap();
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("simulation", "maps").is_some()
+    });
+    show(&mut h, "simulation", "maps");
+    h.run_steps(3);
+    h.state_mut().session.as_mut().unwrap().preview_view.picked = Some((40, 60));
+    h.run_steps(3);
+    h.get_by_label("Trace this cell").click();
+    h.run_steps(4);
+    h.get_by_label("Compare with another cell").click_accesskit();
+    h.run_steps(3);
+    assert!(h.state().session.as_ref().unwrap().trace_choosing.is_some());
+    assert!(h.state().is_open(Pane::Viewer), "the viewer in front, to click the other cell");
+    // the next click on the map picks B
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_view.picked = Some((0, 0));
+        s.preview_view.clicks += 1;
+    }
+    h.run_steps(4);
+    let c = h.state().trace.comparison.clone().expect("compared");
+    assert_eq!((c.a.cell, c.b.cell), ((40, 60), (0, 0)));
+    assert!(h.state().session.as_ref().unwrap().trace_choosing.is_none());
+    assert!(h.state().is_open(Pane::Trace));
+    assert!(h.query_by_label("Where the difference begins").is_some());
+    assert!(h.query_by_label_contains("They differ from").is_some(), "the sentence");
+    assert!(h.query_all_by_label("differs").next().is_some());
+    shot(&mut h, "47-trace-compare");
+    // both cells marked on the map, each in its colour
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(3);
+    let marks: Vec<_> = h.state().session.as_ref().unwrap().preview_view.marks.iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(marks, [((40, 60), "A"), ((0, 0), "B")]);
+    shot(&mut h, "47-trace-compare-map");
+    // swapped
+    h.state_mut().focus(Pane::Trace);
+    h.run_steps(2);
+    h.get_by_label("Swap A and B").click_accesskit();
+    h.run_steps(3);
+    let c = h.state().trace.comparison.clone().unwrap();
+    assert_eq!((c.a.cell, c.b.cell), ((0, 0), (40, 60)));
+    // back to A alone, then from the map's menu: Compare with the traced cell
+    h.get_by_label("Trace A alone").click_accesskit();
+    h.run_steps(3);
+    assert!(h.state().trace.comparison.is_none());
+    h.state_mut().focus(Pane::Viewer);
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        assert!(s.preview_view.compare_offer, "offered once a cell is traced");
+        s.preview_view.picked = Some((10, 10));
+        s.preview_view.compare_request = true;
+    }
+    h.run_steps(4);
+    let c = h.state().trace.comparison.clone().expect("compared from the menu");
+    assert_eq!((c.a.cell, c.b.cell), ((0, 0), (10, 10)));
+}
+
 /// GuidosToolbox's fragmentation in the builder: FAD-MS's average shown in GTB's colours, its legend in the
 /// classes of a density (rare to intact) rather than a line per value; FOS in 5 classes.
 #[test]

@@ -607,6 +607,14 @@ pub struct Session {
     pub run_done: usize,
     /// A cell's trace asked for (a map's cell clicked, then Trace this cell).
     pub trace_asked: Option<crate::trace_view::Ask>,
+    /// The other cell of a comparison of traces asked for: the Trace pane's Compare with another cell then a click
+    /// in the viewer, or a right click's Compare with the traced cell.
+    pub trace_compare_asked: Option<crate::trace_view::Ask>,
+    /// The viewer's clicks when the Trace pane asked for the other cell: the next click picks it.
+    pub trace_choosing: Option<u64>,
+    /// The places (x, y) of the cells traced: the one traced, or the two compared (A, B), marked on the maps the
+    /// viewer shows while compared.
+    pub trace_marks: Vec<(f64, f64)>,
     /// The window of the model's methods and citations open.
     pub methods_open: bool,
     /// The window of the export of the run's maps to a QGIS project.
@@ -975,6 +983,9 @@ impl Session {
             run_total: 0,
             run_done: 0,
             trace_asked: None,
+            trace_compare_asked: None,
+            trace_choosing: None,
+            trace_marks: Vec::new(),
             methods_open: false,
             qgis: Default::default(),
             graph_figure: Default::default(),
@@ -5618,6 +5629,10 @@ impl TerrafluxApp {
         // a cell's trace asked for: in its pane; the problems asked for: theirs
         if let Some(a) = self.session.as_mut().and_then(|s| s.trace_asked.take()) {
             self.trace.ask(a);
+            self.focus(Pane::Trace);
+        }
+        if let Some(b) = self.session.as_mut().and_then(|s| s.trace_compare_asked.take()) {
+            self.trace.compare_with(b);
             self.focus(Pane::Trace);
         }
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_problems)) {

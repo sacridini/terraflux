@@ -660,6 +660,13 @@ pub struct MapView {
     press: egui::Modifiers,
     /// The trace of the cell picked asked for from its menu (a right click), and who explains it.
     pub trace_request: Option<crate::trace_view::Explain>,
+    /// Cells outlined besides the one picked, each in its colour with its letter (the two cells of a comparison of
+    /// traces, A and B); set by whoever shows the map, at every frame.
+    pub marks: Vec<((usize, usize), Color32, &'static str)>,
+    /// Whether the menu of a right click offers to compare the cell with the one traced (a trace is shown), and
+    /// whether that was chosen.
+    pub compare_offer: bool,
+    pub compare_request: bool,
     /// Where the view was drawn last.
     rect: Option<Rect>,
     /// Where the curtain of a comparison is, a share of the view's width (none: in the middle).
@@ -2776,6 +2783,22 @@ impl MapView {
             let r = if r.width() < 6.0 { Rect::from_center_size(r.center(), Vec2::splat(6.0)) } else { r };
             painter.rect_stroke(r, 0.0, egui::Stroke::new(2.0, crate::theme::accent()), egui::StrokeKind::Outside);
         }
+        // the cells marked (the two of a comparison), each in its colour, its letter beside it
+        for &((row, col), colour, letter) in self.marks.iter().filter(|((r, c), ..)| *r < h && *c < w && !blank) {
+            let cell = Vec2::new(col as f32, row as f32);
+            let r = Rect::from_min_size(rect.center() + (cell - self.center) * self.zoom, Vec2::splat(self.zoom));
+            let r = if r.width() < 6.0 { Rect::from_center_size(r.center(), Vec2::splat(6.0)) } else { r };
+            painter.rect_stroke(r, 0.0, egui::Stroke::new(2.5, colour), egui::StrokeKind::Outside);
+            let at = r.right_top() + Vec2::new(4.0, -2.0);
+            // (dark letters on a light colour, white on a dark one)
+            let light = 0.299 * f32::from(colour.r()) + 0.587 * f32::from(colour.g()) + 0.114 * f32::from(colour.b());
+            let ink = if light > 150.0 { Color32::from_rgb(28, 28, 28) } else { Color32::WHITE };
+            let font = egui::FontId::proportional(13.0);
+            let text = painter.layout_no_wrap(letter.to_string(), font, ink);
+            let back = Rect::from_min_size(at + Vec2::new(-2.0, -text.size().y), text.size() + Vec2::new(4.0, 0.0));
+            painter.rect_filled(back, 2.0, colour);
+            painter.galley(back.min + Vec2::new(2.0, 0.0), text, ink);
+        }
         // a right click: why the cell has its value (its menu drawn whether or not the pointer is over the map:
         // it stays open while the pointer goes to it; the cell picked by the click that opens it, below)
         if !blank && !sampling {
@@ -2785,6 +2808,15 @@ impl MapView {
                 }
                 if ui.button("Trace this cell").on_hover_text("the chain of values that made it").clicked() {
                     self.trace_request = Some(crate::trace_view::Explain::Here);
+                    ui.close();
+                }
+                if self.compare_offer
+                    && ui
+                        .button("Compare with the traced cell")
+                        .on_hover_text("why this cell and the one traced differ: where the difference begins")
+                        .clicked()
+                {
+                    self.compare_request = true;
                     ui.close();
                 }
                 if ui

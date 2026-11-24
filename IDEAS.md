@@ -5771,6 +5771,15 @@ como um nó do corpo, com as saídas `branch.inner.port`, e o `Keeper` (trace.rs
      com as duas marcadas (o `preview_view.picked` vira um par).
    - Teste de UI no `crates/app/tests` (o programa `app`, com o `point_settings`): traçar uma célula de um template,
      comparar com a vizinha, ver a raiz no painel.
+   - **Feito (2026-11-24).** No `State` do painel, `asked_b`, `trace_b` e `comparison`, refeitos juntos no
+     `refresh`; `compare_with`, `swap` ("Swap A and B"), `stop_comparing` ("Trace A alone"). "Compare with another
+     cell" guarda os cliques do viewer (`Session::trace_choosing`); o clique seguinte num mapa é B
+     (`trace_compare_asked`). No menu do clique direito, "Compare with the traced cell" (`MapView::compare_offer` e
+     `compare_request`). A vista: as duas células com suas letras, a frase, "Where the difference begins" (o porquê
+     e as janelas ou linhas de cada lado), "The chain" com os iguais recolhidos ("N nodes the same", "show all"), cada
+     cartão com A e B e a expressão com os valores. No viewer, `MapView::marks`: A na cor de destaque, B em
+     `theme::second` (azul quando o destaque é quente, laranja senão: no tema padrão o destaque já é laranja). Teste
+     `two_cells_are_compared_from_the_trace` (ui.rs), com as figuras `ui-47-trace-compare*.png` em `target/tmp`.
 
 4. **Dentro dos laços, para as duas células.**
    - `keep_loops_at(m, base, &[(x, y)]) -> Vec<Kept>`: o `Keeper` guarda vários lugares na mesma execução (uma só
