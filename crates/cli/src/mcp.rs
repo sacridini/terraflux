@@ -428,7 +428,7 @@ impl Server {
             }
             "check_model" => {
                 let path = model_path(a)?;
-                tools::check_model(r, &load(&path)?, &folder(&path))
+                tools::check_model(r, &load(&path)?, &folder(&path), Some(path.as_path()))
             }
             "methods" => {
                 let path = model_path(a)?;

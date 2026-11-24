@@ -725,7 +725,8 @@ pub const TIPS: &[(&str, &str)] = &[
         "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to \
          test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. \
          For objects that follow what the image holds, use segment.quadtree or segment.from_map. `bounds` (a map, \
-         vectors such as parcels, or objects) cuts the squares where they cross a zone.",
+         vectors such as parcels, or objects) cuts the squares where they cross a zone. A change of the image's \
+         cell size changes what `size` makes: choose it again after resampling.",
     ),
     (
         "segment.quadtree",
@@ -733,7 +734,7 @@ pub const TIPS: &[(&str, &str)] = &[
          image's units (a range inside a square, any band): start from a tenth of the image's range and lower it \
          until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses \
          every band, so give it the bands that tell the classes apart. `bounds` cuts the squares where they cross \
-         a zone.",
+         a zone. `min_size` is in cells: after resampling the image, choose it again.",
     ),
     (
         "segment.multiresolution",
@@ -744,20 +745,24 @@ pub const TIPS: &[(&str, &str)] = &[
          level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the \
          first one makes the run faster than starting from single cells. Weights tell the bands apart (0 \
          leaves one out of the colour). `bounds` (a map, vectors such as parcels, or objects) keeps every \
-         object inside one zone; with `from`, the objects of the level below are cut by the zones first.",
+         object inside one zone; with `from`, the objects of the level below are cut by the zones first. The \
+         scale is tied to the cell size too (the cost grows with the cells an object has): when the image is \
+         resampled, choose it again.",
     ),
     (
         "segment.slic",
         "Superpixels are many small, regular objects: use them as the first level of segment.multiresolution \
          (`from`), or as the cells of a classification, not as the final objects. `size` sets their side in cells \
-         and `compactness` their regularity (higher: more regular; lower: closer to the edges). `bounds` (a map, \
-         vectors such as parcels, or objects) cuts the superpixels where they cross a zone.",
+         and `compactness` their regularity (higher: more regular; lower: closer to the edges); `size` is in \
+         cells, so after resampling the image choose it again. `bounds` (a map, vectors such as parcels, or \
+         objects) cuts the superpixels where they cross a zone.",
     ),
     (
         "segment.snic",
         "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster \
          and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution \
-         (`from`), or as the cells of a classification. `bounds` cuts the superpixels where they cross a zone.",
+         (`from`), or as the cells of a classification. `size` is in cells: after resampling the image, choose it \
+         again. `bounds` cuts the superpixels where they cross a zone.",
     ),
     (
         "segment.felzenszwalb",
@@ -765,7 +770,8 @@ pub const TIPS: &[(&str, &str)] = &[
          for larger segments; `min_size` joins the smallest ones. It makes segments of very different sizes, from \
          a graph of the cells' differences, which suits irregular scenes and less a fixed scale: for a scale you \
          control, use segment.multiresolution. `bounds` (a map, vectors such as parcels, or objects) leaves out \
-         the graph's edges between zones, so no segment crosses one.",
+         the graph's edges between zones, so no segment crosses one. `sigma` and `min_size` are in cells: after \
+         resampling the image, choose them again.",
     ),
     (
         "segment.threshold",
@@ -802,21 +808,24 @@ pub const TIPS: &[(&str, &str)] = &[
          against position (the bands are standardised, so one standard deviation counts as `ratio` cells: 5 to 30 \
          is the usual range). The cost is about (6 x kernel_size) squared exponentials per cell, so keep `kernel_size` \
          small on a large image. The objects are always connected: a mode's area that its links leave in pieces is \
-         split. `bounds` cuts the segments where they cross a zone.",
+         split. `kernel_size` and `sigma` are in cells: after resampling the image, choose them again. `bounds` cuts \
+         the segments where they cross a zone.",
     ),
     (
         "segment.watershed",
         "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the \
          smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of \
          the trees or the buildings, a classification's cores) every object has one marker, which is the way to \
-         control what it finds. `bounds` cuts the basins where they cross a zone.",
+         control what it finds. `sigma` is in cells: after resampling the image, choose it again. `bounds` cuts the \
+         basins where they cross a zone.",
     ),
     (
         "segment.meanshift",
         "It is the slowest of the segmenters: its cost grows with the square of `spatial_radius` and with the \
          cells, so try it on a part of the image first. `range_radius` (in standard deviations when the bands are \
          standardised) sets how different cells may be and still be one object; `min_size` removes the specks. \
-         `bounds` cuts the regions where they cross a zone.",
+         `spatial_radius` and `min_size` are in cells: after resampling the image, choose them again. `bounds` cuts \
+         the regions where they cross a zone.",
     ),
     (
         "segment.scale",
@@ -824,7 +833,8 @@ pub const TIPS: &[(&str, &str)] = &[
          so it stays fast on large images: the scales hold for the whole image, but choose a window that holds \
          the objects you want, or 0 for all of it. The peaks of the ROC are guides: open the chart of the table, \
          try the suggested scales in segment.multiresolution and look at the objects. Give `start` and `step` \
-         to look closer at a range of scales.",
+         to look closer at a range of scales. The scales depend on the cell size: run it again after resampling the \
+         image.",
     ),
     (
         "segment.optimize",
@@ -967,7 +977,8 @@ pub const TIPS: &[(&str, &str)] = &[
          `max_neck` keeps the objects whose parts are joined by a wide neck (a cut longer than max_neck times the \
          smaller piece's width is undone: 0.5 to 1 is usual), `min_size` sends the crumbs back to a neighbour piece, \
          and `classes` limits it to the objects of some classes. The pieces keep the class; the level above and the \
-         other attributes are dropped, so run objects.features after it.",
+         other attributes are dropped, so run objects.features after it. `min_size` and `sigma` are in cells: \
+         after resampling the image, choose them again.",
     ),
     (
         "objects.resize",

@@ -1451,8 +1451,9 @@ pub fn python_script(m: &Model, r: &Registry, path: &Path, a: &Value) -> Reply {
     }
 }
 
-/// The model and its data checked without running it.
-pub fn check_model(r: &Registry, source: &Model, dir: &Path) -> Reply {
+/// The model and its data checked without running it. `file` is the model's file, for its journal (the cells of the
+/// last run, see [`crate::cells`]).
+pub fn check_model(r: &Registry, source: &Model, dir: &Path, file: Option<&Path>) -> Reply {
     let mut m = source.clone();
     terraflux_graph::submodel::expand(&mut m, dir).map_err(|e| e.to_string())?;
     let issues = check(&m, r);
@@ -1476,6 +1477,8 @@ pub fn check_model(r: &Registry, source: &Model, dir: &Path) -> Reply {
         lines.extend(crate::advice::advise(&m, r, dir, loaded.as_ref().ok()).iter().map(|a| a.to_string()));
         // a run that needs more memory than the computer has
         lines.extend(crate::memory::advice(&m, r, dir).iter().map(|a| a.to_string()));
+        // a segmenter's settings in cells, the image's cells changed since the last run
+        lines.extend(crate::cells::advice(&m, dir, file).iter().map(|a| a.to_string()));
     }
     let (no_note, no_why) = unrecorded(source);
     for (what, ids) in [("a note (what it is for)", no_note), ("a why (why this operator and these settings)", no_why)]
@@ -1569,6 +1572,7 @@ pub fn run_model(
         let mut entry = Entry::new(Kind::Run, "mcp", started.elapsed().as_secs_f64());
         entry.scenario = scenario;
         entry.warnings = watcher.warnings.clone();
+        entry.cells = crate::cells::sizes(&m, dir);
         entry.outputs = m.outputs.keys().zip(&files).filter_map(|(n, p)| Written::of(n, p, None, None)).collect();
         let _ = record_run(f, &m, entry);
     }
@@ -4120,6 +4124,52 @@ mod sensitivity_tests {
         let app = catalogue(true).into_iter().find(|t| t["name"] == "list_runs").unwrap();
         assert!(app["inputSchema"]["properties"].get("model").is_none());
         assert!(catalogue(false).iter().any(|t| t["name"] == "list_runs"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn check_model_warns_of_cells_changed_under_a_segmenter() {
+        use super::check_model;
+        use terraflux_exec::journal::{Entry, Journal, Kind};
+        use terraflux_ops::Registry;
+        use terraflux_raster::{DataType, Grid, Raster};
+        let d = std::env::temp_dir().join(format!("terraflux-check-cells-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let image = |side: f64, n: usize| {
+            let mut g = Grid::new(n, n);
+            g.transform = [0.0, side, 0.0, 0.0, 0.0, -side];
+            let data = (0..n * n).map(|i| ((i * 7) % 13) as f64).collect();
+            Raster::single(g, data, DataType::F32, None).write(d.join("img.tif")).unwrap();
+        };
+        let mut m = Model::new("cells");
+        m.nodes.push(terraflux_graph::Node::new("img", "raster.read").param("path", "img.tif"));
+        m.nodes.push(terraflux_graph::Node::new("seg", "segment.multiresolution").input("image", "img.map").param("scale", 50));
+        let file = d.join("m.toml");
+        m.save(&file).unwrap();
+        let r = Registry::standard();
+        let said = |m: &Model| check_model(&r, m, &d, Some(&file)).unwrap();
+        // the first run, on cells of 10: nothing to compare with before it, nothing to tell after it
+        image(10.0, 12);
+        assert!(!said(&m).contains("cells of"), "{}", said(&m));
+        let mut e = Entry::new(Kind::Run, "mcp", 1.0);
+        e.cells = crate::cells::sizes(&m, &d);
+        assert_eq!(e.cells["img"], [10.0, 10.0]);
+        Journal::of(&file).unwrap().record(e, &m).unwrap();
+        assert!(!said(&m).contains("cells of"), "{}", said(&m));
+        // the file swapped for one of cells of 3: the scale stayed the same
+        image(3.0, 40);
+        let text = said(&m);
+        let line = text.lines().find(|l| l.contains("cells of")).unwrap_or_else(|| panic!("{text}"));
+        println!("{line}");
+        assert!(line.contains("seg") && line.contains("3 units now") && line.contains("10 units at the last run"), "{line}");
+        assert!(line.contains("scale 50") && line.contains("11 times smaller"), "{line}");
+        // the scale chosen again: nothing
+        let mut again = m.clone();
+        again.nodes[1].params.insert("scale".into(), json!(20));
+        assert!(!said(&again).contains("cells of"), "{}", said(&again));
+        // no file, no journal: nothing
+        assert!(!check_model(&r, &m, &d, None).unwrap().contains("cells of"));
         let _ = std::fs::remove_dir_all(&d);
     }
 

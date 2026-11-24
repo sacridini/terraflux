@@ -2244,6 +2244,10 @@ impl Session {
             Err(e) => Status::Failed(e.clone()),
         };
         entry.values = values_of(&model);
+        // the cells of the images it read, for the settings measured in cells (check_model, [`crate::cells`])
+        if ended.is_ok() && matches!(entry.kind, Kind::Run | Kind::To(_)) {
+            entry.cells = crate::cells::sizes(&model, &self.base());
+        }
         entry.scenario = scenario;
         entry.warnings = self.warnings.clone();
         // what the nodes' outputs hold, to tell the memory of the next run of this model ([`crate::memory`])

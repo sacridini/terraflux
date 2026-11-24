@@ -1581,6 +1581,9 @@ fn run_command(command: Command, engine: Engine) -> Result<()> {
     let manifest_file = out.join("manifest.json");
     let mut entry = Entry::new(kind(), "cli", t.elapsed().as_secs_f64()).with_manifest(&manifest, &manifest_file);
     entry.scenario = scenario.clone();
+    if check.is_none() {
+        entry.cells = terraflux_app::cells::sizes(&m, &dir);
+    }
     manifest.save(&manifest_file)?;
     journal(no_journal, quiet, &model, &m, entry);
     if !quiet {

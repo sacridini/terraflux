@@ -168,8 +168,8 @@ struct Ask {
 
 enum Answer {
     Done(Reply),
-    /// The model open (its source) and its folder, for a tool that reads it in the thread.
-    Model(Box<Model>, PathBuf),
+    /// The model open (its source), its folder and its file, for a tool that reads it in the thread.
+    Model(Box<Model>, PathBuf, Option<PathBuf>),
 }
 
 struct RunWait {
@@ -379,7 +379,7 @@ impl Chat {
     /// A tool done on the model open.
     fn ask(&mut self, a: Ask, s: &mut Session, r: &Registry, ctx: &egui::Context) {
         let answer = match a.name.as_str() {
-            "show_model" | "check_model" | "methods" => Answer::Model(Box::new(s.source.clone()), s.base()),
+            "show_model" | "check_model" | "methods" => Answer::Model(Box::new(s.source.clone()), s.base(), s.path.clone()),
             "run_model" => {
                 self.run = Some(RunWait { reply: a.reply, started: false });
                 self.follow_run(s, ctx);
@@ -872,10 +872,10 @@ impl Job {
             }
             name => match self.ask(name, a)? {
                 Answer::Done(reply) => reply,
-                Answer::Model(m, dir) => match name {
+                Answer::Model(m, dir, file) => match name {
                     "show_model" => tools::show_model(&m, &dir, r),
                     "methods" => tools::methods(&m, r, a, None),
-                    _ => tools::check_model(r, &m, &dir),
+                    _ => tools::check_model(r, &m, &dir, file.as_deref()),
                 },
             },
         }));

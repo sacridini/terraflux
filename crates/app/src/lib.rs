@@ -16,6 +16,7 @@ pub mod builder;
 pub mod calc_view;
 pub mod canvas_gpu;
 pub mod catalog;
+pub mod cells;
 pub mod charts;
 pub mod chat;
 pub mod checks;

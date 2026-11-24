@@ -174,6 +174,11 @@ pub struct Entry {
     /// The values the model ran with: its parameters (`node.setting`, `$name`) and the inputs of values.
     #[serde(default)]
     pub values: BTreeMap<String, serde_json::Value>,
+    /// The cell size (width and height, in the raster's units) of the rasters the run read: the top-level
+    /// `raster.read` nodes by id and the model's raster inputs by `$name`. check_model compares it with the files
+    /// now, for the settings measured in cells. Empty when not recorded.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cells: BTreeMap<String, [f64; 2]>,
     /// The SHA-256 of the model as it ran ([`Journal::model`] has it).
     #[serde(default)]
     pub model: String,
@@ -773,6 +778,20 @@ mod tests {
         // (an old journal's entry has no `kept`)
         let old: Written = serde_json::from_str("{\"name\":\"n\",\"path\":\"p\"}").unwrap();
         assert!(old.kept.is_none() && j.kept(&old).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_cells_read_are_kept_and_an_old_entry_has_none() {
+        let old: Entry = serde_json::from_str("{\"id\":7}").unwrap();
+        assert!(old.cells.is_empty());
+        assert!(!serde_json::to_string(&old).unwrap().contains("cells"));
+        let d = dir("cells");
+        let j = Journal::of(&d.join("m.toml")).unwrap();
+        let mut e = Entry::new(Kind::Run, "app", 0.0);
+        e.cells = [("img".to_string(), [3.0, 3.5])].into();
+        j.record(e, &model(10)).unwrap();
+        assert_eq!(j.entries()[0].cells["img"], [3.0, 3.5]);
         let _ = std::fs::remove_dir_all(&d);
     }
 
