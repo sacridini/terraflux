@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **`vector.split`: polygons and lines cut by lines** (`crates/gdal/src/geos/split.rs`, `crates/ops/src/vector_split.rs`, `crates/app/src/python.rs`): each polygon or line of a layer is cut by the union of the lines (or the boundaries of the polygons) of another layer that intersect it, one feature per piece with its attributes and two columns, `part` (1 the largest piece by area, by length for lines; on a tie the higher then the more western point on surface) and `parts`; a polygon is cut as shapely's split does (GEOS's polygonize of its boundary and the blade, the faces within it, a multipolygon part by part, holes kept), a line at its crossings with the blade; a feature the blade only touches or dangles into, and an empty one, stays as it is. Points are refused. GEOS's union, difference and polygonize give the same bits as terraflux-py's `tf.vector.split` (the exported Python calls it), checked against its reference in `tests/data/reference/vector_shape.json`; its tips, phrase and label, in the Builder's Vector analysis subject and the MCP guide.
+
 ## [1.67.0] - 2026-11-24
 
 ### Added

@@ -12,11 +12,13 @@ mod cover;
 mod index;
 mod lines;
 mod shapes;
+mod split;
 pub use cluster::{delaunay, intersect, voronoi};
 pub use cover::{coverage_invalid_edges, coverage_simplify};
 pub use index::{GeosIndex, Predicate};
 pub use lines::{nearest_points, project};
 pub use shapes::{Unary, unary, union};
+pub use split::split;
 
 type Ctx = *mut c_void;
 type G = *mut c_void;
@@ -44,6 +46,12 @@ struct Api {
     GEOSGeom_getCoordSeq_r: unsafe extern "C" fn(Ctx, G) -> Cs,
     GEOSUnaryUnion_r: unsafe extern "C" fn(Ctx, G) -> G,
     GEOSIntersection_r: unsafe extern "C" fn(Ctx, G, G) -> G,
+    // vector.split
+    GEOSUnion_r: unsafe extern "C" fn(Ctx, G, G) -> G,
+    GEOSDifference_r: unsafe extern "C" fn(Ctx, G, G) -> G,
+    GEOSPolygonize_r: unsafe extern "C" fn(Ctx, *const G, c_uint) -> G,
+    GEOSArea_r: unsafe extern "C" fn(Ctx, G, *mut c_double) -> c_int,
+    GEOSLength_r: unsafe extern "C" fn(Ctx, G, *mut c_double) -> c_int,
     GEOSIntersects_r: unsafe extern "C" fn(Ctx, G, G) -> c_char,
     GEOSConvexHull_r: unsafe extern "C" fn(Ctx, G) -> G,
     GEOSBufferParams_create_r: unsafe extern "C" fn(Ctx) -> Bp,
@@ -196,6 +204,11 @@ fn load(path: &Path) -> Result<Geos> {
         GEOSGeom_getCoordSeq_r: f!(GEOSGeom_getCoordSeq_r),
         GEOSUnaryUnion_r: f!(GEOSUnaryUnion_r),
         GEOSIntersection_r: f!(GEOSIntersection_r),
+        GEOSUnion_r: f!(GEOSUnion_r),
+        GEOSDifference_r: f!(GEOSDifference_r),
+        GEOSPolygonize_r: f!(GEOSPolygonize_r),
+        GEOSArea_r: f!(GEOSArea_r),
+        GEOSLength_r: f!(GEOSLength_r),
         GEOSIntersects_r: f!(GEOSIntersects_r),
         GEOSConvexHull_r: f!(GEOSConvexHull_r),
         GEOSBufferParams_create_r: f!(GEOSBufferParams_create_r),

@@ -2524,6 +2524,13 @@ const FRAMES: &[Frame] = &[
         gives: Gives::Features,
     },
     Frame {
+        op: "vector.split",
+        call: "tf.vector.split",
+        first: &["vector", "lines"],
+        named: &[],
+        gives: Gives::Features,
+    },
+    Frame {
         op: "vector.dissolve",
         call: "tf.vector.dissolve",
         first: &["vector"],
@@ -3471,6 +3478,11 @@ op = "vector.clip"
 inputs = { vector = "ring.vector", mask = "plots.vector" }
 
 [[nodes]]
+id = "lots"
+op = "vector.split"
+inputs = { vector = "ring.vector", lines = "edges.vector" }
+
+[[nodes]]
 id = "merged"
 op = "vector.dissolve"
 inputs = { vector = "ring.vector" }
@@ -3651,6 +3663,7 @@ from = "counted.table"
         assert!(t.contains("first = tf.vector.join(at, ring)\n"), "{t}");
         assert!(t.contains("pieces = tf.vector.overlay(ring, plots, how=\"symmetric_difference\")\n"), "{t}");
         assert!(t.contains("cut = tf.vector.clip(ring, plots)\n"), "{t}");
+        assert!(t.contains("lots = tf.vector.split(ring, edges)\n"), "{t}");
         assert!(t.contains("merged = tf.vector.dissolve(ring, by=\"uso\")\n"), "{t}");
         assert!(t.contains("mid = tf.vector.centroid(ring, inside=True)
 "), "{t}");

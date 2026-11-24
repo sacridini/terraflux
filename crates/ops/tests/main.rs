@@ -101,6 +101,7 @@ mod vector_cover;
 mod vector_lines;
 mod vector_ops;
 mod vector_predicates;
+mod vector_shape;
 mod vector_shapes;
 mod vector_tiled;
 mod woe_edit;

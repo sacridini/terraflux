@@ -193,8 +193,9 @@ standardised by default. Guide multivariate: which one, standardising, the autom
 dates, objects.
 10. Vector analysis as in PostGIS (each operator is the counterpart of a tf.vector function, and the exported \
 Python calls it): by their relation, vector.select_by_location (predicate: intersects, within, contains, \
-touches, dwithin with a distance...), vector.spatial_join, vector.nearest and vector.overlay (intersection, \
-union, difference, symmetric_difference, identity); the vector.calc and vector.filter expressions take other \
+touches, dwithin with a distance...), vector.spatial_join, vector.nearest, vector.overlay (intersection, \
+union, difference, symmetric_difference, identity) and vector.split (polygons or lines cut by lines, \
+`part` and `parts` number the pieces); the vector.calc and vector.filter expressions take other \
 layers (`within(parks)`, `count(trees, \"contains\")`, `dwithin(rivers, 500)`, `distance(roads)`). Shapes: \
 vector.centroid (`inside` for a point on the feature), vector.hull (convex or concave, `by` a group), \
 vector.simplify (a `tolerance` in the layer's units), vector.envelope, vector.make_valid, vector.explode \

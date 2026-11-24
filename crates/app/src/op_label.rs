@@ -552,6 +552,7 @@ const OVERRIDES: &[(&str, &str)] = &[
     ("vector.simplify", "Simplify"),
     ("vector.smooth", "Smooth lines"),
     ("vector.spatial_join", "Spatial join"),
+    ("vector.split", "Split by lines"),
     ("vector.split_lines", "Split lines"),
     ("vector.substring", "Line substring"),
     ("vector.voronoi", "Voronoi polygons"),

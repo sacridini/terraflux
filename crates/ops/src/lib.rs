@@ -120,6 +120,7 @@ pub mod vector_cluster;
 pub mod vector_cover;
 pub mod vector_lines;
 pub mod vector_shapes;
+pub mod vector_split;
 pub mod vector_spatial;
 pub mod vector_tiled;
 pub mod vector_tools;
@@ -517,6 +518,7 @@ impl Registry {
         raster_neighbours::register(&mut r);
         vector_tools::register(&mut r);
         vector_shapes::register(&mut r);
+        vector_split::register(&mut r);
         vector_lines::register(&mut r);
         vector_cluster::register(&mut r);
         vector_cover::register(&mut r);

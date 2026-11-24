@@ -6196,3 +6196,22 @@ estavam e a coluna `added`; a mesma aritmética na biblioteca (numpy, o `STRtree
 O teste `polygonized_patches_noded_are_a_valid_coverage` passa o `vector.polygonize` do app (4 e 8 vizinhos) pelo
 nó e pelo `vector.coverage_validate`. Num mapa de 18.501 polígonos, 1 s na biblioteca; de 7.127 válidos para todos.
 Na release: o submódulo na biblioteca com o `coverage_node` (o Python exportado o chama).
+
+### Cortar por linhas, forma das manchas e k vizinhos (pedido de 2026-11-24)
+
+Os três primeiros do que faltava do PostGIS, na mesma forma: a função em `tf.vector` (biblioteca, branch
+`vector-shapes` em `terraflux-py-vector`, sobre `origin/vector`) e o nó com o mesmo nome, bit a bit por uma referência.
+
+- **`split(a, lines)` / `vector.split`** (`ST_Split`, QGIS "Split with lines"): cada polígono ou linha cortado pelas
+  linhas (ou pelos contornos de polígonos), com `part` (1 o maior pedaço) e `parts`. Uma estrada que parte as manchas
+  de floresta: os fragmentos novos, antes e depois.
+- **`shape(a, tolerance, geometry)` / `vector.shape`**: `inscribed_radius` (`ST_MaximumInscribedCircle`, a
+  profundidade da mancha), `bounding_radius` (`ST_MinimumBoundingCircle`), `circle` (o CIRCLE do FRAGSTATS),
+  `rect_length`, `rect_width`, `elongation` e `orientation` (`ST_OrientedEnvelope`); `geometry` devolve a feição, o
+  círculo inscrito, o circunscrito ou o retângulo.
+- **`nearest(a, b=None, k=1)` / `vector.nearest` com `k` e `other` opcional**: os k vizinhos (`<->` com `LIMIT k`),
+  uma linha por par com `rank`; sem `b`, a mesma camada sem a própria feição (o ENN do FRAGSTATS). Com k=1 e `b`,
+  igual a antes.
+
+Depois: a parte 2 do tutorial de vetores, a tabela de equivalência, `python/api/vector.md`. Ideia para depois: `by`
+no `nearest` (vizinhos só da mesma classe, o ENN por classe).

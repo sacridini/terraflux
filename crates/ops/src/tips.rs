@@ -439,6 +439,16 @@ pub const TIPS: &[(&str, &str)] = &[
          middle half is 0.25 to 0.75); in map units they are clamped to the length of each part.",
     ),
     (
+        "vector.split",
+        "Cuts each feature by the blades that intersect it, so give the layer of roads, rivers or fences as `lines` \
+         (a polygon layer works too: its boundaries cut). A blade that only touches a polygon from outside, or \
+         ends inside it, cuts nothing, and the feature stays as it is with `parts` 1; a blade has to cross the \
+         polygon from edge to edge. `part` 1 is the largest piece (by area, by length for lines), so keep \
+         `part` = 1 to take the main piece of each feature, and measure the pieces again afterwards \
+         (vector.geometry): the attributes are copied, not recalculated. Points are refused; reproject to a \
+         projected system first if the lines are in degrees.",
+    ),
+    (
         "vector.split_lines",
         "The last piece of a line is the remainder, shorter than `length`. Use vector.points_along for stations at \
          a spacing instead of pieces, and measure the pieces again after splitting, as their lengths changed.",
