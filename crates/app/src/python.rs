@@ -2646,6 +2646,13 @@ const FRAMES: &[Frame] = &[
         gives: Gives::Features,
     },
     Frame {
+        op: "vector.coverage_node",
+        call: "tf.vector.coverage_node",
+        first: &["vector"],
+        named: &[("tolerance", "tolerance")],
+        gives: Gives::Features,
+    },
+    Frame {
         op: "vector.coverage_simplify",
         call: "tf.vector.coverage_simplify",
         first: &["vector", "tolerance"],
@@ -3567,6 +3574,12 @@ inputs = { vector = "edges.vector" }
 params = { iterations = 3, preserve_ends = false }
 
 [[nodes]]
+id = "noded"
+op = "vector.coverage_node"
+inputs = { vector = "ring.vector" }
+params = { tolerance = 0.01 }
+
+[[nodes]]
 id = "lighter"
 op = "vector.coverage_simplify"
 inputs = { vector = "ring.vector" }
@@ -3673,6 +3686,7 @@ from = "counted.table"
             t.contains("lighter = tf.vector.coverage_simplify(ring, 15, preserve_boundary=True)\n"),
             "{t}"
         );
+        assert!(t.contains("noded = tf.vector.coverage_node(ring, tolerance=0.01)\n"), "{t}");
         assert!(t.contains("checked = tf.vector.coverage_validate(ring, gap_width=2)\n"), "{t}");
         for gone in ["def _spatial_join", "def _overlay", "def _buffer", "def _clip", "def _dissolve", "def _meets"] {
             assert!(!t.contains(gone), "{gone}");

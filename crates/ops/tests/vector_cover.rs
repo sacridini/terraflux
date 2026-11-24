@@ -1,14 +1,16 @@
-//! vector.smooth, vector.coverage_simplify and vector.coverage_validate against the library's tf.vector
-//! (tests/data/reference/vector_cover.json, tools/make_vector_cover_reference.py): the same features in the same order,
-//! the same attributes and the same coordinates. The smoothing is plain arithmetic: bit for bit always. GEOS's coverage
-//! functions are bit for bit when the GEOS version is the reference's (3.13); on another version they are compared
-//! by kind, vertex count, bounds and area to 1e-9 (the simplifier may legitimately differ in a minor version) and the
-//! count is reported. Skipped without GDAL/GEOS.
+//! vector.smooth, vector.coverage_node, vector.coverage_simplify and vector.coverage_validate against the library's
+//! tf.vector (tests/data/reference/vector_cover.json, tools/make_vector_cover_reference.py): the same features in the
+//! same order, the same attributes and the same coordinates. The smoothing and the noding are plain arithmetic: bit for
+//! bit always. GEOS's coverage functions are bit for bit when the GEOS version is the reference's (3.13); on another
+//! version they are compared by kind, vertex count, bounds and area to 1e-9 (the simplifier may legitimately differ in
+//! a minor version) and the count is reported. Skipped without GDAL/GEOS. And vector.polygonize's polygons, noded by
+//! vector.coverage_node, pass GEOS's coverage check.
 
 use std::sync::Arc;
 
 use serde_json::json;
-use terraflux_ops::{Args, Ctx, Outputs, Registry, Value};
+use terraflux_ops::{Args, Ctx, Map, Outputs, Registry, Value};
+use terraflux_raster::Grid;
 use terraflux_raster::vector::{Column, Geometry, Vector};
 
 fn root() -> std::path::PathBuf {
@@ -108,7 +110,7 @@ fn smoothing_and_coverages_match_the_library() {
     let (mut checked, mut weakly) = (0, 0);
     for c in r["cases"].as_array().unwrap() {
         let (file, op, params) = (c["file"].as_str().unwrap(), c["op"].as_str().unwrap(), c["params"].clone());
-        let coverage = op != "vector.smooth";
+        let coverage = op == "vector.coverage_simplify" || op == "vector.coverage_validate";
         if coverage && !covers {
             continue;
         }
@@ -173,4 +175,42 @@ fn smoothing_and_coverages_match_the_library() {
     );
     eprintln!("{checked} cases, {weakly} geometries not bit for bit the library's (compared weakly)");
     assert!(checked >= 18, "only {checked} cases");
+}
+
+#[test]
+fn polygonized_patches_noded_are_a_valid_coverage() {
+    if !has_geos() || terraflux_gdal::geos::geos().unwrap().version_number() < (3, 12) {
+        return;
+    }
+    // 30 x 30 cells of 30 m in blocks of 3 with every seventh cell another class: many junctions of three patches
+    let (ny, nx) = (30, 30);
+    let mut grid = Grid::new(nx, ny);
+    grid.transform = [500000.0, 30.0, 0.0, 7000000.0, 0.0, -30.0];
+    let class = |r: usize, c: usize| {
+        let block = ((r / 3) * 7 + (c / 3) * 3) % 5;
+        if (r * nx + c).is_multiple_of(7) { ((block + 2) % 5) as f64 } else { block as f64 }
+    };
+    let map = Map::new(Arc::new(grid), (0..ny * nx).map(|i| class(i / nx, i % nx)).collect());
+    let valid = |v: Arc<Vector>| {
+        let out = run("vector.coverage_validate", vec![("vector", Value::Vector(v))], json!({})).unwrap();
+        vector(&out).column("valid").unwrap().numbers().iter().filter(|&&x| x == 1.0).count()
+    };
+    for neighbours in [4, 8] {
+        let polys =
+            run("vector.polygonize", vec![("map", Value::Map(map.clone()))], json!({ "neighbours": neighbours }))
+                .unwrap();
+        let raw = vector(&polys);
+        let noded =
+            vector(&run("vector.coverage_node", vec![("vector", Value::Vector(raw.clone()))], json!({})).unwrap());
+        let added = noded.column("added").unwrap().numbers().iter().sum::<f64>();
+        let (before, after) = (valid(raw.clone()), valid(noded.clone()));
+        eprintln!("{neighbours} neighbours: {} patches, {before} valid, {after} after {added} vertices", raw.len());
+        assert!(before < raw.len() && added > 0.0, "the raw patches should fail the check");
+        assert_eq!(after, raw.len(), "every noded patch is valid");
+        // the attributes stay, and the simplification keeps the neighbours together
+        assert_eq!(noded.column("value").unwrap().numbers(), raw.column("value").unwrap().numbers());
+        let simple =
+            run("vector.coverage_simplify", vec![("vector", Value::Vector(noded))], json!({"tolerance": 40.0}));
+        assert_eq!(valid(vector(&simple.unwrap())), raw.len());
+    }
 }

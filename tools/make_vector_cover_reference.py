@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What the library's tf.vector gives for smooth, coverage_simplify and coverage_validate, for Terraflux's tests of
-vector.smooth, vector.coverage_simplify and vector.coverage_validate: seeded layers (a polygonized staircase, lines,
-polygons with holes, a 4 x 4 coverage of jagged polygons and a coverage with an overlap and gaps) written as GeoPackages
-to tests/data/reference/vectors/ (cover_stairs.gpkg, cover_lines.gpkg, cover_polys.gpkg, cover_jagged.gpkg,
-cover_bad.gpkg, cover_gap.gpkg), and each call's result (the geometries as WKB hex, the attributes; a bool as 0/1) to
-tests/data/reference/vector_cover.json:
+"""What the library's tf.vector gives for smooth, coverage_node, coverage_simplify and coverage_validate, for
+Terraflux's tests of vector.smooth, vector.coverage_node, vector.coverage_simplify and vector.coverage_validate: seeded
+layers (a polygonized staircase, lines, polygons with holes, a 4 x 4 coverage of jagged polygons, a coverage with an
+overlap and gaps, a noisier polygonized map and the staircase reprojected) written as GeoPackages to
+tests/data/reference/vectors/ (cover_stairs.gpkg, cover_lines.gpkg, cover_polys.gpkg, cover_jagged.gpkg,
+cover_bad.gpkg, cover_gap.gpkg, cover_noisy.gpkg, cover_reprojected.gpkg), and each call's result (the geometries as
+WKB hex, the attributes; a bool as 0/1) to tests/data/reference/vector_cover.json:
 
     PYTHONPATH=<terraflux-py>/src python tools/make_vector_cover_reference.py
 
@@ -45,6 +46,21 @@ def stairs() -> gpd.GeoDataFrame:
         geoms.append(shape(g))
         cls.append(float(v))
     return gpd.GeoDataFrame({"id": np.arange(1, len(geoms) + 1, dtype=float), "cls": cls}, geometry=geoms, crs=32633)
+
+
+def noisy() -> gpd.GeoDataFrame:
+    """A seeded 5-class raster of 24 x 24 cells of 30 m (blocks of 3 cells, 8% of the cells redrawn), polygonized:
+    many junctions of three patches on a straight edge of a fourth."""
+    from rasterio.transform import from_origin
+
+    rng = np.random.default_rng(5)
+    img = np.kron(rng.integers(1, 6, (8, 8)), np.ones((3, 3), dtype=int))
+    img = np.where(rng.random(img.shape) < 0.08, rng.integers(1, 6, img.shape), img).astype("int32")
+    geoms, cls = [], []
+    for g, v in shapes(img, transform=from_origin(500000, 7000000, 30, 30)):
+        geoms.append(shape(g))
+        cls.append(float(v))
+    return gpd.GeoDataFrame({"cls": cls}, geometry=geoms, crs=32723)
 
 
 def lines() -> gpd.GeoDataFrame:
@@ -178,6 +194,9 @@ def main() -> None:
         "cover_jagged": jagged_coverage(),
         "cover_bad": bad_coverage(),
         "cover_gap": gap_coverage(),
+        "cover_noisy": noisy(),
+        # the staircase in Web Mercator: coordinates no longer exactly on the neighbours' edges
+        "cover_reprojected": stairs().to_crs(3857),
     }
     (REF / "vectors").mkdir(exist_ok=True)
     for name, gdf in files.items():
@@ -213,6 +232,12 @@ def main() -> None:
     case("cover_gap", "coverage_validate")
     case("cover_gap", "coverage_validate", gap_width=0.5)
     case("cover_polys", "coverage_validate")  # holes and a multipolygon: its own overlaps, if any
+    for f in ("cover_stairs", "cover_noisy", "cover_jagged", "cover_bad", "cover_gap", "cover_polys"):
+        case(f, "coverage_node")
+    case("cover_reprojected", "coverage_node")
+    case("cover_reprojected", "coverage_node", tolerance=1e-6)
+    case("cover_reprojected", "coverage_node", tolerance=0.01)
+    case("cover_bad", "coverage_node", tolerance=0.5)  # the gap of 0.3: the neighbours' corners taken across it
     out = {"library": tf.__version__, "geos": shapely.geos_version_string, "cases": cases}
     path = REF / "vector_cover.json"
     path.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")

@@ -520,6 +520,7 @@ const OVERRIDES: &[(&str, &str)] = &[
     ("vector.clip", "Clip vector"),
     ("vector.closest_point", "Closest point"),
     ("vector.cluster", "Cluster by distance"),
+    ("vector.coverage_node", "Add shared vertices"),
     ("vector.coverage_simplify", "Simplify coverage"),
     ("vector.coverage_validate", "Validate coverage"),
     ("vector.delaunay", "Delaunay triangulation"),

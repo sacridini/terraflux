@@ -90,6 +90,7 @@ pub(crate) const SUBJECTS: [(&str, &[&str]); 34] = [
             "vector.substring",
             "vector.split_lines",
             "vector.smooth",
+            "vector.coverage_node",
             "vector.coverage_simplify",
             "vector.coverage_validate",
         ],

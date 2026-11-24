@@ -200,8 +200,10 @@ vector.simplify (a `tolerance` in the layer's units), vector.envelope, vector.ma
 (multi-part to single parts) and vector.boundary. Lines: vector.points_along (a `spacing` or `n`), \
 vector.substring (between two measures), vector.split_lines (pieces of at most `length`), vector.locate (the \
 nearest line and the measure along it), vector.shortest_line and vector.closest_point (snap points to a layer, \
-within `max_distance`). Smoothing and coverages: vector.smooth (Chaikin, `iterations`), vector.coverage_simplify (polygons \
-simplified together, no gaps) and vector.coverage_validate (the edges that overlap or leave gaps, `valid`). \
+within `max_distance`). Smoothing and coverages: vector.smooth (Chaikin, `iterations`), vector.coverage_node (adds \
+the vertices neighbours share: vector.polygonize's polygons need it before the coverage tools), \
+vector.coverage_simplify (polygons simplified together, no gaps) and vector.coverage_validate (the edges that overlap \
+or leave gaps, `valid`). \
 Analysis: vector.voronoi (a cell for each point, `clip` to a layer), \
 vector.delaunay (triangles, or `edges`) and vector.cluster (groups of features within `distance`, \
 `min_points` for the DBSCAN core). Work in a projected system (metres), not in degrees, for tolerances, spacings and \

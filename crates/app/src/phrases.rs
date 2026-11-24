@@ -1456,6 +1456,7 @@ const PHRASES: &[(&str, &str)] = &[
         "The density of the points <vector> on the grid of <map>, a {kernel} kernel[ of radius {radius}][ weighted by \
          {field}].",
     ),
+    ("vector.coverage_node", "The polygons of <vector> with the vertices they share with their neighbours[, within {tolerance}]."),
     ("vector.coverage_simplify", "The polygons of <vector> simplified together, without gaps or overlaps, within {tolerance}."),
     ("vector.coverage_validate", "The edges of the polygons of <vector> that overlap or leave gaps[ narrower than {gap_width}]."),
     ("vector.delaunay", "The Delaunay triangulation of the vertices of <vector>[ as edges: {edges}]."),

@@ -492,14 +492,24 @@ pub const TIPS: &[(&str, &str)] = &[
          neighbours stop fitting and slivers and overlaps open along their shared edges. This simplifies the shared \
          edges once for both, but only where they match vertex for vertex: check the layer with \
          vector.coverage_validate first. The polygons of vector.polygonize usually fail it (a corner of one polygon \
-         lies on a straight edge of its neighbour, without a vertex there). Give `preserve_boundary` to keep the \
-         outline of the whole area, and a tolerance in metres (reproject first).",
+         lies on a straight edge of its neighbour, without a vertex there): put vector.coverage_node between them. \
+         Give `preserve_boundary` to keep the outline of the whole area, and a tolerance in metres (reproject \
+         first).",
+    ),
+    (
+        "vector.coverage_node",
+        "Run it on the polygons of vector.polygonize before vector.coverage_simplify: they meet their neighbours \
+         without sharing the vertices there, and GEOS does not take them for a coverage. Keep the default tolerance \
+         of 0 for polygons made from a raster (their corners are exactly on the edges); a small one (a millimetre \
+         or so) only for a layer that was reprojected. It adds vertices and nothing else: overlaps and gaps stay, \
+         so check the result with vector.coverage_validate.",
     ),
     (
         "vector.coverage_validate",
         "Valid coverage means no overlaps and shared edges that match vertex for vertex. Keep the features with \
          `valid` 0 to see where the problems are (their geometry is the invalid edges); `gap_width` (in the layer's \
-         units) also flags slivers narrower than that. Fix them before vector.coverage_simplify.",
+         units) also flags slivers narrower than that. Fix them before vector.coverage_simplify; edges that fail \
+         only for want of a vertex (the polygons of vector.polygonize) are fixed by vector.coverage_node.",
     ),
     // land change analysis
     (
