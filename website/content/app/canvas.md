@@ -253,6 +253,11 @@ outlined. **Trace inside the loops** runs a loop again keeping what it gives at 
 as text; **Ask the assistant why** gives it to the assistant. The [tour](/tutorials/getting-started/tour/#why-a-cell-has-its-value-trace)
 explains each kind of card.
 
+**Compare with another cell** (then a click on a second cell in the Viewer, or a right click's **Compare with the
+traced cell**) marks the two cells A and B and shows where their values begin to differ, and why. **Compare with a
+scenario** does the same for one cell in the model as it is and in the model run with a scenario you choose. The
+[tour](/tutorials/getting-started/tour/#why-a-cell-has-its-value-trace) describes what the comparison tells.
+
 ## Checks shown on nodes
 
 A [[check.assert]] node tests the model while it runs. After a run, a badge at the top right of its box says how it

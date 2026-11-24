@@ -5848,6 +5848,11 @@ como um nó do corpo, com as saídas `branch.inner.port`, e o `Keeper` (trace.rs
 
 7. **Documentação.** A página do Trace no site (a documentação da aplicação) com a comparação, as raízes e um exemplo
    do CLUE-S (a figura feita pelo binário de release); o CHANGELOG (Unreleased); as marcas de **Feito** aqui.
+   **Feito (2026-11-24).** O tour (*Why a cell has its value: Trace*) diz a comparação de duas células, as raízes
+   uma a uma, os laços (o passo em que as séries se separam), o switch e "Compare with a scenario", com a figura
+   `trace-compare.png` (duas células do CLUE-S marcadas A e B e o painel; `tour_compare_image` em
+   `readme_images.rs`, rodado em release); `app/canvas.md` e a tabela do MCP em `cli/assistants.md` com os
+   argumentos novos; o CHANGELOG (Unreleased, Added).
 
 Fica de fora, para depois: o caminho decisivo de um cartão só (qual condição de um `raster.calc` decidiu e a margem
 até virar: "ficaria `t0` se `suit` estivesse abaixo de 0.45"). Ele melhora as frases da fase 2 (a raiz num

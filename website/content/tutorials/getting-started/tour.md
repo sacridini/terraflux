@@ -289,6 +289,38 @@ group (`preparation/temperature`), and its cells are traced the same way.
 in words; **Explain with an MCP assistant**, in the cell's right-click menu, keeps it for an assistant connected
 through `terraflux mcp` and copies a request to paste in it ([AI assistants](/cli/assistants/)).
 
+**Compare with another cell** asks a different question: why do *these two* cells differ? Trace one cell, click
+**Compare with another cell** and click a second cell in the Viewer (or right-click it and choose **Compare with the
+traced cell**). The two cells are marked **A** and **B** on the map, and the pane becomes **Two cells compared**:
+both values, a sentence, **Where the difference begins** and **The chain**. The chain is the same nodes as a trace,
+but those that differ are shown with the value at A and at B, and the runs of nodes that are the same are folded
+into one line (*show all* opens them). The difference begins at a node whose values differ while everything it reads
+is the same at both, or at a switch that ran another branch, and the card tells why:
+
+- the **data** differ: the node reads no other node and the two cells hold other values;
+- the **cells around** differ: same inputs, but other neighbours in the window of a moving-window operator;
+- the **whole map** differs: an allocation or a regression decided it, with the lines of each cell side by side;
+- the **patches** differ: the two cells belong to other patches;
+- the **place** differs: the expression uses the position, or draws at random, with the same inputs;
+- a **switch** ran another branch at the two cells;
+- an **input** that is no node's, a `$` input of the model or a literal, has another value;
+- a **setting** differs (when comparing scenarios, below);
+- or *not known from here*, when a value was not kept, the trace stopped, or the difference was decided inside a
+  loop not yet traced (**Trace inside the loops** follows it into the loop's body).
+
+![The Trace pane comparing two cells](/img/tutorials/getting-started/tour/trace-compare.png "Two cells of the CLUE-S simulation compared: the cell at row 40, column 60 (A) and the cell at row 70, column 75 (B), marked on the map, and the Trace pane telling where their values begin to differ and the chain of nodes between them.")
+
+The trace follows the branch a [[control.switch]] ran, step by step in a loop, and the `@names` of groups and
+switches to what they are given. In a model with loops, **Trace inside the loops** runs the model once keeping both
+cells; the comparison looks for the step at which the two series part (*the series are the same up to step 2 and part
+at step 3*) and compares the nodes at that step. **Swap A and B** exchanges the cells, **Trace A alone** goes back to
+one cell, and **Ask the assistant why** and **Copy** take the comparison.
+
+**Compare with a scenario** compares one cell with itself: the model runs again with the scenario you choose from the
+model's list, and A is the cell in the model as it is, B the same cell in that scenario (the pane is titled **One
+cell in two scenarios**). The difference begins at the branch a switch ran, at a setting the scenario changed or at
+a `$` input it set apart, and the sentence names which.
+
 ### In Python
 
 The template is three calls of the library; nothing else of this tour (the window, the library of operators, the

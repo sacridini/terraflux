@@ -576,3 +576,50 @@ fn tour_images() {
     let (x1, y1) = ((b.right() + 40.0).min(canvas.right() + 6.0) as u32, (canvas.bottom() + 6.0) as u32);
     image::imageops::crop_imm(&img, x0, y0, x1 - x0, y1 - y0).to_image().save(out.join("node-pane.png")).unwrap();
 }
+
+/// The tour's picture of the Trace pane comparing two cells (`trace-compare.png`): the template CLUE-S, a cell of
+/// `simulation` traced, a second one picked in the Viewer, the two marked A and B on the map and the pane telling
+/// where the difference begins.
+/// `cargo test --release -p terraflux-app --test readme_images tour_compare -- --ignored`.
+#[test]
+#[ignore = "the website's pictures: run with --ignored"]
+fn tour_compare_image() {
+    let out = std::env::var("TOUR_OUT").map(PathBuf::from).unwrap_or_else(|_| {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../website/static/img/tutorials/getting-started/tour")
+    });
+    std::fs::create_dir_all(&out).unwrap();
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness_at((1280.0, 760.0), 1.0);
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    let t = terraflux_app::templates::TEMPLATES.iter().find(|t| t.name == "CLUE-S").expect("the template");
+    h.state_mut().start_template(&ctx, t);
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("simulation", "maps").is_some()
+    });
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        terraflux_app::builder::select(s, &terraflux_ops::Registry::standard(), "simulation");
+        s.preview = Some(("simulation".to_string(), "maps".to_string()));
+    }
+    h.state_mut().focus(Pane::Viewer);
+    settled(&mut h);
+    h.state_mut().session.as_mut().unwrap().preview_view.picked = Some((40, 60));
+    h.run_steps(3);
+    h.get_by_label("Trace this cell").click();
+    h.run_steps(4);
+    h.get_by_label("Compare with another cell").click_accesskit();
+    h.run_steps(3);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.preview_view.picked = Some((70, 75));
+        s.preview_view.clicks += 1;
+    }
+    h.run_steps(4);
+    assert!(h.state().trace.comparison.is_some(), "compared");
+    settled(&mut h);
+    h.event(egui::Event::PointerGone);
+    h.run_steps(2);
+    h.render().expect("the window drawn by wgpu").save(out.join("trace-compare.png")).unwrap();
+}

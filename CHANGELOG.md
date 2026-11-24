@@ -7,6 +7,10 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **The Trace pane compares two cells, or one cell in two scenarios** (`crates/app/src/trace/compare.rs`, `crates/app/src/trace_view.rs`): *Compare with another cell*, then a click in the Viewer (or a right click's *Compare with the traced cell*), marks the cells A and B and shows where the difference begins, with why (the data, the cells around, the whole map, the patches, the place, a switch that ran another branch, an input that is no node's, a setting), then the chain with the nodes the same folded. Inside the loops one run keeps both cells and the comparison looks for the step at which their series part. *Compare with a scenario* runs the model with it and compares the cell with itself. The trace now also goes into the branch a `control.switch` ran (per step in a loop) and follows the `@names` of groups and switches. Described in the tour's *Why a cell has its value: Trace*.
+- **`trace_cell` compares, `last_trace` keeps the comparison** (`crates/cli/src/mcp.rs`, `crates/app/src/tools.rs`): `trace_cell` takes `compare_with` (`{row, col}` or `{x, y}`), `scenario` or `scenarios: [a, b]`, with `inside_loops` for both sides, and answers with the sentence, where the difference begins and the chain; `last_trace` returns the comparison made last in the application.
+
 ## [1.65.1] - 2026-11-24
 
 ### Fixed
