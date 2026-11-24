@@ -5,14 +5,14 @@ description: Measure and reshape features one at a time, work along lines, divid
 order: 20
 level: intermediate
 time: 60 min
-ops: [vector.geometry, vector.centroid, vector.hull, vector.simplify, vector.points_along, vector.locate, vector.voronoi, vector.cluster, vector.smooth, vector.coverage_node, vector.coverage_simplify, vector.coverage_validate]
+ops: [vector.geometry, vector.centroid, vector.hull, vector.shape, vector.simplify, vector.points_along, vector.locate, vector.voronoi, vector.cluster, vector.smooth, vector.coverage_node, vector.coverage_simplify, vector.coverage_validate]
 series: Vector analysis
 part: 2
 ---
 
 [Part 1](../select-join-overlay/) compared layers with each other. This part is about the **shape of a single
-feature** and about what a set of features makes together: the centroid and the hull of a patch, the points along a
-road and where each record falls along it, the area closer to one monitoring station than to any other, the groups
+feature** and about what a set of features makes together: the centroid and the hull of a patch, how deep and how
+round a patch is, the points along a road and where each record falls along it, the area closer to one monitoring station than to any other, the groups
 that a scatter of records forms, and polygons simplified or smoothed so that neighbours still fit. At the end you
 will have catchments for six stations with the records in each, the colonies that the records make, and a
 polygon map simplified with no gap between its polygons.
@@ -58,6 +58,8 @@ polygonized land cover), and it is simplified *together* so that the shared edge
   lies on the feature.
 - **What is the extent of a species' records or a group?** [[vector.hull]], convex or concave, one per group with
   `by`.
+- **How deep is this forest patch, how round, which way does it point?** [[vector.shape]]: the largest circle that
+  fits in it, the smallest that holds it, its rectangle.
 - **Where along a road is each record? Stations every 2 km?** [[vector.locate]], [[vector.points_along]],
   [[vector.substring]] and [[vector.split_lines]].
 - **Which station is each record nearest to? How large is each catchment?** [[vector.voronoi]], then a join.
@@ -99,6 +101,7 @@ the coordinate system.
 | [[vector.hull]] | each feature's convex or concave hull | `kind`, `ratio` (1 is the convex hull, 0 the tightest), `by` (one hull per value of an attribute), `dissolve` (one hull of everything) |
 | [[vector.simplify]] | each geometry with fewer vertices | `tolerance`, in the layer's units; `preserve_topology` |
 | [[vector.envelope]] | the bounding box | |
+| [[vector.shape]] | the columns `inscribed_radius`, `bounding_radius`, `circle`, `rect_length`, `rect_width`, `elongation` and `orientation` (polygons only) | `geometry`: the feature's own, or the `inscribed` circle, the `bounding` circle or the `rectangle` as the result's geometry; `tolerance` of the inscribed circle |
 | [[vector.make_valid]] | invalid polygons repaired (a bow-tie becomes two polygons) | |
 | [[vector.explode]] | one feature for each part of a multi-part feature | |
 | [[vector.boundary]] | the rings of a polygon as lines | |
@@ -165,6 +168,104 @@ print(len(types), len(v.explode(types)), sorted(set(v.boundary(forest).geom_type
 A tolerance of 50 m takes the patches from 15,399 to 2,056 vertices; the patches come from a grid of 25 m cells, so
 a tolerance of two cells removes the stair steps but keeps the outline. `explode` gives back the 71 single parts of
 the three types.
+
+### How deep, how round, which way
+
+Three questions about a patch are about its shape and not its size. **How deep is it?** The **maximum inscribed
+circle** is the largest circle that fits inside the polygon, and its radius, the `inscribed_radius`, is the farthest
+any point of the patch is from its edge: the patch's *depth*. **How round is it?** The **minimum bounding circle** is
+the smallest circle that holds the whole patch (`bounding_radius`); the more of that circle the patch leaves empty,
+the more spread out or ragged it is. FRAGSTATS (McGarigal and Marks, 1995) turned this into the **related
+circumscribing circle**, `circle` here:
+
+\[ \mathrm{CIRCLE} = 1 - \frac{A}{\pi R^2} \]
+
+where \(A\) is the patch's area and \(R\) the radius of its bounding circle. It is 0 for a circle and approaches 1
+for a long, thin or ragged patch. **Which way does it point?** The **minimum rotated rectangle** is the smallest
+rectangle, turned to fit, that holds the patch: its long and short sides are `rect_length` and `rect_width`, the
+`elongation` is \(1 - \text{width} / \text{length}\) (0 for a square, near 1 for a strip), and the `orientation` is
+the direction of the long side in degrees clockwise from north, from 0 to 180 (90 is east-west).
+
+!!! science "Key idea: a patch with a shallow inscribed circle has no core"
+    The **edge effect** (microclimate, predators, invasive species) reaches some **edge depth** into a patch, 100 m
+    for many birds and 20 to 50 m for the microclimate of a forest. The **core** is what is farther than that from the
+    edge. If the inscribed radius is no larger than the edge depth, no point of the patch is that far from the edge:
+    the patch has **no core at all**, whatever its area. The inscribed radius is the quickest test of that, one number
+    for each patch, with no buffer to compute.
+
+```tfgraph
+#! caption: The shape of every forest patch: the radii, CIRCLE, the rectangle's sides, the elongation and the orientation, and the inscribed circles as geometry.
+#! highlight: shape, circles
+format = "terraflux/1"
+
+[[nodes]]
+id = "forest"
+op = "vector.read"
+params = { path = "forest.gpkg" }
+
+[[nodes]]
+id = "shape"
+op = "vector.shape"
+inputs = { vector = "forest.vector" }
+note = "Seven new columns for every patch."
+
+[[nodes]]
+id = "circles"
+op = "vector.shape"
+inputs = { vector = "forest.vector" }
+params = { geometry = "inscribed" }
+note = "The same columns, with the maximum inscribed circle of each patch as its geometry."
+```
+
+![Inscribed circles and rectangles of the largest forest patches](/img/tutorials/vector-analysis/shapes-lines-clusters/shape-circles.png "The six forest patches of 300 ha or more: the largest circle that fits in each (orange, the patch's depth) and the smallest rotated rectangle around it (dashed). Patch 1 is deep and compact; patches 2, 4, 5 and 6 are long and thin.")
+
+### How deep, how round, which way in Python
+
+```python
+s = v.shape(forest)                            # one row for each patch, seven new columns
+top = s.sort_values("inscribed_radius", ascending=False).head(4)
+print(top[["patch", "area_ha", "inscribed_radius", "circle", "elongation", "orientation"]].round(2).to_string())
+```
+
+```text
+   patch  area_ha  inscribed_radius  circle  elongation  orientation
+0      1   2118.1           1315.24    0.60        0.20       120.00
+2      3    599.6            816.37    0.66        0.36         0.00
+1      2   1913.9            690.07    0.81        0.57        87.33
+4      5    482.6            633.25    0.79        0.61        48.31
+```
+
+The deepest patch is patch 1, the largest: a point of it is 1,315 m from any edge. Patch 3, less than a third of its size, is the
+second deepest (816 m), while patch 2, nearly as large as patch 1, is shallower (690 m) and much more elongated
+(0.57, against 0.20): it runs east to west (an orientation of 87 degrees) along a rectangle 11.4 km long and 4.9 km
+wide. Its CIRCLE of 0.81 says the same thing as a number that is independent of the direction. What this means for the
+edge effect, at three edge depths:
+
+```python
+for depth in (50, 100, 200):
+    none = s[s["inscribed_radius"] <= depth]                 # no point of these is deeper than the edge effect
+    print(depth, len(none), round(none["area_ha"].sum()))
+core = v.buffer(forest, -100)                                # the core: what lies deeper than 100 m
+print(round(core.geometry.area.sum() / 1e4), int(core.geometry.is_empty.sum()))
+circles = v.shape(forest[forest["area_ha"] >= 300], geometry="inscribed")   # the circles as polygons
+print(circles.geom_type.unique().tolist(), (circles.geometry.area / 1e4).round().tolist())
+```
+
+```text
+50 6 2
+100 8 21
+200 32 872
+4904 8
+['Polygon'] [540.0, 149.0, 208.0, 92.0, 125.0, 48.0]
+```
+
+With an edge depth of 100 m, 8 of the 71 patches have no core, but they hold only 21 ha of the 9,624 ha of forest: the
+loss is in the number of patches and not in the area. The core itself is the forest shrunk by 100 m ([[vector.buffer]]
+with a negative distance): 4,904 ha, and 8 patches that vanish, the same 8. At 200 m, 32 patches, 872 ha (9%), have none. The circles of the
+six large patches cover 540, 149, 208, 92, 125 and 48 ha; the largest, in patch 1, is a quarter of its patch. The
+`geometry` setting gives them as polygons, to map or to use as a mask. A `tolerance` stops the search for the circle
+when the area still to search is smaller than it: by default it is a thousandth of the feature's size, which is
+finer than the 25 m cells of these patches.
 
 ## Lines and linear referencing
 
@@ -555,6 +656,13 @@ fit one another either: it is for the picture.
   where their neighbours meet: [[vector.coverage_node]] first. Its `tolerance` stays 0 for them (their corners lie
   exactly on the edges); give a small one (a millimetre) only to a layer that was reprojected, whose vertices are
   no longer exactly on the straight edges of their neighbours.
+- **An inscribed radius is not a core.** It tells that a patch *has no* core (when it is no larger than the edge
+  depth); it does not give the core's area. For that, shrink the patch by the edge depth with [[vector.buffer]] and a
+  negative distance: the area left is the core, as in the example above.
+- **The orientation of a square, or of a round patch.** A rectangle with nearly equal sides has no direction worth
+  reading (the long side can flip by 90 degrees with a small change). Read `orientation` where `elongation` is large.
+- **`shape` takes polygons.** A point or a line raises an error; take the polygons of a layer with
+  [[vector.filter]] first. A feature with an empty geometry gets no values (`NaN`) in every column.
 - **A centroid is not on the feature.** For a concave polygon use `inside`; for a patch with several parts, the
   centroid of the whole can be in none of them.
 - **DBSCAN counts the point itself.** `min_points = 5` means the point and four others. And `-1` is noise: do not
@@ -587,7 +695,9 @@ print(v.delaunay(square).geometry.to_wkt().tolist())
   every operation of the two parts, with its name in PostGIS, GDAL, QGIS and geopandas.
 - [Vector data](../../getting-started/vector-data/) and the [vector calculator](/calculators/vector/).
 - [Animal movement](/tutorials/animal-movement/): home ranges, which are hulls with a probability behind them.
-- The reference of [`tf.vector`](/python/api/vector/), and the operators [[vector.voronoi]], [[vector.cluster]],
+- [Part 1](../select-join-overlay/#cut-features-with-lines-split): [[vector.split]], the forest cut by the road,
+  and [[vector.nearest]] with `k` and with no second layer, the distance between patches (ENN).
+- The reference of [`tf.vector`](/python/api/vector/), and the operators [[vector.shape]], [[vector.voronoi]], [[vector.cluster]],
   [[vector.coverage_simplify]], [[vector.locate]].
 
 ## References
@@ -596,5 +706,6 @@ print(v.delaunay(square).geometry.to_wkt().tolist())
 - Delaunay, B. (1934). Sur la sphere vide. *Izvestia Akademii Nauk SSSR, Otdelenie Matematicheskikh i Estestvennykh Nauk*, 7, 793-800.
 - Douglas, D. H., & Peucker, T. K. (1973). Algorithms for the reduction of the number of points required to represent a digitized line or its caricature. *Cartographica*, 10(2), 112-122. https://doi.org/10.3138/FM57-6770-U75U-7727
 - Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. In *Proceedings of the Second International Conference on Knowledge Discovery and Data Mining (KDD-96)*, 226-231. AAAI Press.
+- McGarigal, K., & Marks, B. J. (1995). *FRAGSTATS: spatial pattern analysis program for quantifying landscape structure* (General Technical Report PNW-GTR-351). USDA Forest Service, Pacific Northwest Research Station. https://doi.org/10.2737/PNW-GTR-351
 - Okabe, A., Boots, B., Sugihara, K., & Chiu, S. N. (2000). *Spatial tessellations: Concepts and applications of Voronoi diagrams* (2nd ed.). Wiley. https://doi.org/10.1002/9780470317013
 - Visvalingam, M., & Whyatt, J. D. (1993). Line generalisation by repeated elimination of points. *The Cartographic Journal*, 30(1), 46-51. https://doi.org/10.1179/caj.1993.30.1.46

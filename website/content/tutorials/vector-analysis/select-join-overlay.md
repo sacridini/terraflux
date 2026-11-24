@@ -1,11 +1,11 @@
 ---
 title: "Vector analysis, part 1: select, join and overlay"
 short: Select, join, overlay
-description: Ask which features lie inside, near or beside others, join their attributes, find the nearest one, and cut layers with each other, with the same names as PostGIS, GDAL and QGIS; with the table that says which is which.
+description: Ask which features lie inside, near or beside others, join their attributes, find the nearest ones, and cut layers with each other and with lines, with the same names as PostGIS, GDAL and QGIS; with the table that says which is which.
 order: 10
 level: intermediate
 time: 60 min
-ops: [vector.select_by_location, vector.spatial_join, vector.nearest, vector.overlay, vector.buffer, vector.clip, vector.dissolve, vector.calc, vector.filter]
+ops: [vector.select_by_location, vector.spatial_join, vector.nearest, vector.overlay, vector.split, vector.buffer, vector.clip, vector.dissolve, vector.calc, vector.filter]
 series: Vector analysis
 part: 1
 ---
@@ -55,9 +55,13 @@ after the other, on one small study area.
 
 - **Which records are inside protected areas?** [[vector.select_by_location]] with `within`.
 - **How many records and how many birds does each reserve hold?** [[vector.spatial_join]] with `summary`.
-- **How far is each nest from the nearest river or road?** [[vector.nearest]].
+- **How far is each nest from the nearest river or road?** [[vector.nearest]]; with `k`, the three nearest.
+- **How isolated is each forest patch from the next one?** [[vector.nearest]] with no second layer: the distance
+  to the nearest *other* patch of the same layer.
 - **How much forest would a road, with a 500 m verge, affect?** [[vector.buffer]] and [[vector.overlay]].
 - **What part of the forest lies in reserves, by type?** [[vector.clip]] and [[vector.dissolve]].
+- **Into how many fragments would the road cut the forest?** [[vector.split]]: each patch cut by the road, one
+  feature per piece.
 - **Which patches are near a road and hold records?** A script of [[vector.calc]] or [[vector.filter]] that reads
   another layer, with `dwithin(road, 500)` and `count(records, "contains")`.
 
@@ -234,9 +238,16 @@ takes one; use `all` to see both.
 distance, and adds its `distance` (in map units, 0 where they touch). With `max_distance`, a feature with nothing
 that near keeps empty values.
 
+Two settings widen it. `k` asks for the **k nearest** features instead of the nearest: with `k` above 1 there is one
+row for each pair, the nearest first, and a column `rank` (1 to `k`) says which neighbour it is. And the `other`
+input may stay **unconnected**: the layer is then compared with itself, and a feature is never its own neighbour.
+For forest patches that is the distance from each patch to the nearest *other* patch, which landscape ecology calls
+the **Euclidean nearest-neighbour distance** (ENN, in FRAGSTATS: McGarigal and Marks, 1995), the usual measure of
+how isolated a patch is.
+
 ```tfgraph
-#! caption: Give each record the name of its reserve, count the records and birds in each reserve, and find the nearest water within 2 km.
-#! highlight: home, per_reserve, near_water
+#! caption: Give each record the name of its reserve, count the records and birds in each reserve, find the nearest water within 2 km and the three nearest water features, and the distance from each forest patch to the nearest other patch.
+#! highlight: home, per_reserve, near_water, three_water, enn
 format = "terraflux/1"
 
 [[nodes]]
@@ -253,6 +264,11 @@ params = { path = "reserves.gpkg" }
 id = "water"
 op = "vector.read"
 params = { path = "water.gpkg" }
+
+[[nodes]]
+id = "forest"
+op = "vector.read"
+params = { path = "forest.gpkg" }
 
 [[nodes]]
 id = "home"
@@ -274,6 +290,19 @@ op = "vector.nearest"
 inputs = { vector = "records.vector", other = "water.vector" }
 params = { max_distance = 2000 }
 note = "The nearest lake or river and the distance to it."
+
+[[nodes]]
+id = "three_water"
+op = "vector.nearest"
+inputs = { vector = "records.vector", other = "water.vector" }
+params = { k = 3 }
+note = "Three rows for every record, with rank 1, 2 and 3."
+
+[[nodes]]
+id = "enn"
+op = "vector.nearest"
+inputs = { vector = "forest.vector" }
+note = "No 'other': each patch and the nearest other patch, with the distance (ENN)."
 ```
 
 The order of the layers decides what is joined to what. The first graph node starts from the records and takes
@@ -327,6 +356,43 @@ max      1786.0
 
 Only 13 of the 355 records have water within 2 km; the distance is `NaN` for the others, so the statistics are of
 those 13. Write `near["distance"]` and not `near.distance`: a GeoDataFrame has a *method* called `distance`.
+
+With `k`, the three nearest water features of each record, one row each; with no second layer, the distance
+between forest patches:
+
+```python
+three = v.nearest(records, water, k=3)                     # one row for each pair, the nearest first
+print(len(three))
+print(three[["record", "kind", "distance", "rank"]].head(6).round(0).to_string())
+enn = v.nearest(forest)                                    # no second layer: the nearest other patch (ENN)
+print(enn[["patch", "patch_2", "distance"]].head(3).round(0).to_string())
+print(round(enn["distance"].mean()), round(enn["distance"].median()), round(enn["distance"].max()))
+print(int((enn["distance"] == 0).sum()), round(enn.loc[enn["distance"] > 0, "distance"].mean()))
+```
+
+```text
+1065
+   record   kind  distance  rank
+0       1   lake    4838.0     1
+1       1  river   11581.0     2
+2       1   lake   11686.0     3
+3       2   lake    6192.0     1
+4       2   lake   14766.0     2
+5       2  river   15786.0     3
+   patch  patch_2  distance
+0      1       19       0.0
+1      2       11       0.0
+2      3       20       0.0
+189 0 4453
+50 638
+```
+
+The 355 records give 1,065 rows (3 times 355), and `rank` is 1 for the nearest water. The columns of the neighbour
+have the suffix `_2` (`patch_2` is the number of the nearest other patch). The **mean ENN of the forest patches is
+189 m**, but the median is 0: 50 of the 71 patches *touch* another patch (the patches are cut from the map by class,
+so a coniferous patch next to a broad-leaved one has distance 0 to it, and so do two patches that meet at a corner).
+The other 21 are on average 638 m from the nearest one, and at most 4,453 m. To measure the isolation of patches of
+*forest* and not of classes, [[vector.dissolve]] the patches first, or work with one `type`.
 
 ## Overlay: cut layers with each other
 
@@ -456,6 +522,74 @@ runs through forest in 10 stretches that add up to 7,563 m of its 23,291 m, abou
 in the application's order (the pieces pair by pair, then the remainders), not in `geopandas.overlay`'s: the same
 rows, sorted differently.
 
+### Cut features with lines: split
+
+An overlay needs polygons as its second layer and keeps the pieces where the two meet. Sometimes the question is the
+opposite: **cut** a feature along a line and keep *every* piece. A road through a forest patch divides it into
+fragments, a fence divides a parcel, a river divides a floodplain. [[vector.split]] takes the features to cut
+(`vector`: polygons or lines) and the blades (`lines`: lines, or polygons, whose boundaries cut), and gives one
+feature for each piece, with the attributes of the feature it came from and two columns: `part`, the rank of the
+piece (1 is the **largest**, by area for polygons and by length for lines), and `parts`, how many pieces the feature
+became. A feature that nothing cuts stays whole, with `part` and `parts` equal to 1.
+
+```tfgraph
+#! caption: Cut the forest patches along the planned road, one feature for each piece.
+#! highlight: pieces
+format = "terraflux/1"
+
+[[nodes]]
+id = "forest"
+op = "vector.read"
+params = { path = "forest.gpkg" }
+
+[[nodes]]
+id = "road"
+op = "vector.read"
+params = { path = "road.gpkg" }
+
+[[nodes]]
+id = "pieces"
+op = "vector.split"
+inputs = { vector = "forest.vector", lines = "road.vector" }
+note = "The patches cut along the road: part 1 is the largest piece of each."
+```
+
+![Forest patches cut by the planned road](/img/tutorials/vector-analysis/select-join-overlay/split-road.png "The planned road cuts 10 of the 71 forest patches into 28 pieces. The largest piece of each cut patch is dark green, the others orange; the pale patches are not touched by the road.")
+
+The number of pieces says how much *fragmentation* the road causes, and the area of the largest piece how much of a
+patch stays together:
+
+```python
+cut = v.split(forest, road)                           # one row for each piece
+cut["ha"] = cut.geometry.area / 1e4
+hit = cut[cut["parts"] > 1]                           # the patches the road cuts
+print(len(forest), len(cut), hit["patch"].nunique(), len(hit))
+main = hit[hit["part"] == 1]                          # the largest piece of each cut patch
+print(main[["patch", "parts", "area_ha", "ha"]].head(4).round(0).to_string())
+print(int((hit["ha"] < 1).sum()), round(hit.loc[hit["part"] > 1, "ha"].median(), 1))
+```
+
+```text
+71 89 10 28
+    patch  parts  area_ha      ha
+0       1      3   2118.0  2115.0
+4       3      2    600.0   473.0
+7       5      8    483.0   304.0
+17      8      2    175.0   174.0
+8 2.5
+```
+
+The road cuts 10 of the 71 patches into 28 pieces: the layer grows from 71 to 89 features, the 61 patches it does not
+touch and the 28 pieces. Patch 3 (600 ha) keeps 473 ha in its largest piece; patch 5 (483 ha) falls into 8 pieces, the
+largest of 304 ha. Patch 1, the largest of all, is cut in three, but only 3 ha come off it. Eight of the 28 pieces
+are under 1 ha, and the median of the 18 pieces that are not the largest of their patch is 2.5 ha: most of what a road
+cuts off a patch is a sliver or a fragment too small to hold the species of the forest. That is why the number of
+pieces overstates the loss, and the largest piece is worth reading beside it.
+
+Blades can also be polygons, whose boundaries cut: `v.split(forest, reserves)` cuts the forest along the reserves'
+borders (10 patches into 27 pieces), a layer to report by reserve from, and unlike an overlay it keeps the forest that
+is outside the reserves, as pieces of its own.
+
 ## The calculator reads other layers
 
 The vector calculator ([[vector.calc]], [[vector.filter]]; see [its page](/calculators/vector/)) can ask these
@@ -552,6 +686,8 @@ are included, so that this is the one table.
 | Join the attributes of the first match or of every match | `a LEFT JOIN b ON ST_Within(a.geom, b.geom)` | `LEFT JOIN ... ON ST_Within(...)` in the SQL | Join attributes by location | `a.sjoin(b, how="left", predicate=...)` | `join(a, b, predicate, how="first")`, `how="all"` | [[vector.spatial_join]], `mode` attributes or all |
 | Count and total what meets each feature | `GROUP BY` over the join, `count(*)`, `sum()` | `GROUP BY` in the SQL | Join attributes by location (summary), Count points in polygon | `sjoin`, then `groupby` | `join(a, b, predicate, how="summary", fields=...)`, `count(a, b)` | [[vector.spatial_join]], `mode` summary |
 | The nearest feature and its distance | `ORDER BY a.geom <-> b.geom LIMIT 1` in a lateral join | — | Join attributes by nearest | `a.sjoin_nearest(b, max_distance=...)` | `nearest(a, b, max_distance)` | [[vector.nearest]] |
+| The k nearest features, with their rank | `ORDER BY a.geom <-> b.geom LIMIT 3` in a lateral join | — | Join attributes by nearest (Maximum nearest neighbors) | `sjoin_nearest` has no `k` (it gives all ties at the nearest distance): `shapely.STRtree.nearest` in a loop | `nearest(a, b, k=3)` | [[vector.nearest]], `k` |
+| Distance to the nearest other feature of the same layer (ENN) | `ORDER BY a.geom <-> b.geom LIMIT 1` with `b.id <> a.id` in a lateral join | — | — | `a.sjoin_nearest(a, exclusive=True, distance_col="distance")` | `nearest(a)` | [[vector.nearest]], no `other` |
 | Distance to the nearest feature | `min(ST_Distance(a.geom, b.geom))` | — | Distance to nearest hub (points) | `a.distance(b.union_all())` | `distance(a, b)` | `distance(layer)` in [[vector.calc]]; `distance` of [[vector.nearest]] |
 | A yes, a count or a distance as an attribute | `EXISTS (...)`, `count(...)` in the select list | the same in the SQL | `overlay_within('layer')`, `overlay_intersects`, `overlay_nearest` in the field calculator | a column of `a.within(...)`, `a.intersects(...)` | `relate(a, b, predicate)`, `count`, `distance` | `within(layer)`, `dwithin(layer, 500)`, `count(layer, "contains")`, `distance(layer)` in [[vector.calc]] and [[vector.filter]] |
 | Intersection (pieces with both attributes) | `ST_Intersection(a.geom, b.geom)` over the pairs that `ST_Intersects` | `Layer.Intersection` | Intersection | `overlay(a, b, how="intersection")` | `intersection(a, b)`, `overlay(a, b, "intersection")` | [[vector.overlay]], `intersection` |
@@ -559,6 +695,7 @@ are included, so that this is the one table.
 | Difference | `ST_Difference(a.geom, ST_Union(b.geom))` | `Layer.Erase` | Difference | `overlay(a, b, how="difference")` | `difference(a, b)` | [[vector.overlay]], `difference` |
 | Symmetric difference | `ST_SymDifference(a.geom, b.geom)` | `Layer.SymDifference` | Symmetrical difference | `overlay(a, b, how="symmetric_difference")` | `symmetric_difference(a, b)` | [[vector.overlay]], `symmetric_difference` |
 | Identity | — | `Layer.Identity` | — | `overlay(a, b, how="identity")` | `identity(a, b)` | [[vector.overlay]], `identity` |
+| Cut features by lines, one row for each piece | `ST_Split(a.geom, line)` (then `ST_Dump`) | — | Split with lines | `shapely.ops.split(geom, line)` | `split(a, lines)` | [[vector.split]] |
 | Clip to a mask | `ST_Intersection(a.geom, ST_Union(mask.geom))` | `ogr2ogr -clipsrc mask.gpkg`, `Layer.Clip` | Clip | `geopandas.clip(a, mask)` | `clip(a, mask)` | [[vector.clip]] |
 | Merge features, all or by an attribute | `SELECT by, ST_Union(geom) ... GROUP BY by` | `ST_Union(geometry) ... GROUP BY` in the SQL | Dissolve | `a.dissolve(by=...)` | `dissolve(a, by=...)`, `union(a)` | [[vector.dissolve]] |
 | Buffer | `ST_Buffer(geom, 500)` | `ST_Buffer(geometry, 500)` in the SQL | Buffer | `a.buffer(500)` | `buffer(a, 500, dissolve=...)` | [[vector.buffer]] |
@@ -571,6 +708,10 @@ are included, so that this is the one table.
 | Repair an invalid geometry | `ST_MakeValid(geom)` | `ogr2ogr -makevalid` | Fix geometries | `a.make_valid()` | `make_valid(a)` | [[vector.make_valid]] |
 | Split multi-part features | `ST_Dump(geom)` | `ogr2ogr -explodecollections` | Multipart to singleparts | `a.explode()` | `explode(a)` | [[vector.explode]] |
 | Boundary | `ST_Boundary(geom)` | `ST_Boundary(geometry)` in the SQL | Boundary | `a.boundary` | `boundary(a)` | [[vector.boundary]] |
+| Largest inscribed circle (the depth of a patch) | `ST_MaximumInscribedCircle(geom)` | — | Pole of inaccessibility (the centre and `dist_pole`, its distance to the edge) | `a.maximum_inscribed_circle()`, `shapely.maximum_inscribed_circle` | `shape(a)`, column `inscribed_radius`; `shape(a, geometry="inscribed")` for the circles | [[vector.shape]], `inscribed_radius`, `geometry` inscribed |
+| Smallest enclosing circle | `ST_MinimumBoundingCircle(geom)`, `ST_MinimumBoundingRadius(geom)` | — | Minimum bounding geometry (Minimum enclosing circle) | `a.minimum_bounding_circle()`, `a.minimum_bounding_radius()` | `shape(a)`, column `bounding_radius`; `geometry="bounding"` | [[vector.shape]], `bounding_radius`, `geometry` bounding |
+| Minimum rotated rectangle, its sides and direction | `ST_OrientedEnvelope(geom)` | — | Minimum bounding geometry (Minimum oriented rectangle) | `a.minimum_rotated_rectangle()`, `shapely.oriented_envelope` | `shape(a)`, columns `rect_length`, `rect_width`, `elongation`, `orientation`; `geometry="rectangle"` | [[vector.shape]], `geometry` rectangle |
+| Related circumscribing circle (FRAGSTATS CIRCLE) | — | — | — | `1 - a.area / (pi * shapely.minimum_bounding_radius(a) ** 2)` | `shape(a)`, column `circle` | [[vector.shape]], `circle` |
 | Area, perimeter, length, centroid | `ST_Area`, `ST_Perimeter`, `ST_Length`, `ST_X(ST_Centroid())` | `OGR_GEOM_AREA` in OGR SQL | Add geometry attributes | `a.area`, `a.length`, `a.centroid.x` | `measures(a, geodesic=False)` | [[vector.geometry]] |
 | Points along a line | `ST_LineInterpolatePoints(geom, 0.1)` | — | Points along geometry | `shapely.line_interpolate_point` | `points_along(a, spacing=1000)` | [[vector.points_along]] |
 | A piece of a line | `ST_LineSubstring(geom, 0.25, 0.75)` | — | Line substring | `shapely.ops.substring` | `substring(a, 0.25, 0.75, normalized=True)` | [[vector.substring]] |
@@ -610,22 +751,36 @@ are included, so that this is the one table.
   with [[vector.make_valid]].
 - **Empty geometries.** An empty or missing geometry never satisfies a predicate, `disjoint` included, and gives
   `NaN` for a distance.
+- **A blade that stops short does not cut.** [[vector.split]] cuts only where the line crosses a feature from one
+  side to the other. A road that ends inside a patch, or stops a few metres before its edge, leaves the patch in one
+  piece (`parts` is 1): a square cut by a line through it gives 2 pieces, by the same line shortened to end inside it
+  gives 1. Extend the line past the edge first, and compare the number of pieces with what you
+  expect.
+- **Slivers.** A line that clips the corner of a patch cuts off a piece of a few square metres. Count the pieces
+  below a size that matters (1 ha in the example above) before reporting a number of fragments.
+- **A nearest-neighbour distance of 0.** With no `other` layer, a patch that touches another one (at an edge or a
+  corner) is at distance 0 from it, and a layer cut by class has many such pairs. The mean ENN of 189 m above hides
+  a median of 0: read both, and decide whether touching patches of different classes are neighbours or one patch.
+- **`k` makes rows, not columns.** With `k` above 1 a feature has up to `k` rows, so a count of rows is no longer
+  a count of features: group by the feature's key, or keep `rank` equal to 1.
 - **Lines and points in an overlay.** The second layer is always polygons; `union` and `symmetric_difference` need
   polygons in both, and a layer that mixes points, lines and polygons is refused.
 
 ## Going further
 
-- [Part 2](../shapes-lines-clusters/): centroids, hulls and simplification, lines and linear referencing, Voronoi
-  catchments, clusters, smoothing and polygon coverages.
+- [Part 2](../shapes-lines-clusters/): centroids, hulls and simplification, the depth and shape of a patch
+  (inscribed circle, rectangle, CIRCLE), lines and linear referencing, Voronoi catchments, clusters, smoothing and
+  polygon coverages.
 - [The vector calculator](/calculators/vector/): scripts over attributes and the geometry's measures, now with
   spatial functions of other layers.
 - [Vector data](../../getting-started/vector-data/): burn polygons into a grid, statistics of a map in each polygon,
   values at points.
 - The operators: [[vector.select_by_location]], [[vector.spatial_join]], [[vector.nearest]], [[vector.overlay]],
-  [[vector.buffer]], [[vector.clip]], [[vector.dissolve]]. The library's reference: [`tf.vector`](/python/api/vector/).
+  [[vector.split]], [[vector.buffer]], [[vector.clip]], [[vector.dissolve]]. The library's reference: [`tf.vector`](/python/api/vector/).
 
 ## References
 
 - Clementini, E., Di Felice, P., & van Oosterom, P. (1993). A small set of formal topological relationships suitable for end-user interaction. In *Advances in Spatial Databases (SSD 1993)*, Lecture Notes in Computer Science 692, 277-295. https://doi.org/10.1007/3-540-56869-7_16
 - Egenhofer, M. J., & Franzosa, R. D. (1991). Point-set topological spatial relations. *International Journal of Geographical Information Systems*, 5(2), 161-174. https://doi.org/10.1080/02693799108927841
 - Herring, J. R. (Ed.). (2011). *OpenGIS implementation specification for geographic information: Simple feature access, part 1: Common architecture* (OGC 06-103r4). Open Geospatial Consortium.
+- McGarigal, K., & Marks, B. J. (1995). *FRAGSTATS: spatial pattern analysis program for quantifying landscape structure* (General Technical Report PNW-GTR-351). USDA Forest Service, Pacific Northwest Research Station. https://doi.org/10.2737/PNW-GTR-351

@@ -1,6 +1,6 @@
 ---
 title: Vector analysis
-description: "Vector analysis as in PostGIS: predicates and selection by location, joins, nearest feature, overlay, clip, dissolve, buffer, geometry, lines and linear referencing, Voronoi, Delaunay, clusters, smoothing and coverages (their shared vertices too)."
+description: "Vector analysis as in PostGIS: predicates and selection by location, joins, nearest features, overlay, split, clip, dissolve, buffer, geometry and shape, lines and linear referencing, Voronoi, Delaunay, clusters, smoothing and coverages (their shared vertices too)."
 order: 25
 ---
 
@@ -113,6 +113,29 @@ v.nearest(trees, parks)[["tree", "park", "distance"]]             # the nearest 
 
 ::: terraflux.vector.join
 
+With `k`, the `k` nearest features of `b`, one row for each pair and a column `rank`; without `b`, the layer itself, a
+feature never being its own neighbour (FRAGSTATS's ENN with `k=1`). A tie goes to the lower index of `b`: tree 4 is 5 m
+from both parks.
+
+```python
+two = v.nearest(trees, parks, k=2)                 # the two nearest parks of each tree
+print(two[["tree", "park", "distance", "rank"]].head(4).to_string())
+print(v.nearest(trees)[["tree", "tree_2", "distance"]].to_string())   # the nearest other tree
+```
+
+```text
+   tree park  distance  rank
+0     1    A       0.0     1
+1     1    B      15.0     2
+2     2    A       0.0     1
+3     2    B      10.0     2
+   tree  tree_2  distance
+0     1       2       5.0
+1     2       1       5.0
+2     3       4      10.0
+3     4       2       5.0
+```
+
 ::: terraflux.vector.nearest
 
 ## Overlay, clip, dissolve and buffer
@@ -156,6 +179,24 @@ identity 4 200
 
 ::: terraflux.vector.buffer
 
+`split` is the opposite of an overlay: it keeps every piece. Park A below is cut in two by a horizontal line and park B by
+a vertical one; the columns `part` (1 the largest piece) and `parts` come with the rows.
+
+```python
+cut = v.split(parks, gpd.GeoSeries([LineString([(-1, 5), (12, 5)]), LineString([(25, -1), (25, 11)])]))
+print(cut[["park", "part", "parts"]].assign(area=cut.area).to_string())
+```
+
+```text
+  park  part  parts  area
+0    A     1      2  50.0
+1    A     2      2  50.0
+2    B     1      2  50.0
+3    B     2      2  50.0
+```
+
+::: terraflux.vector.split
+
 ## Geometry
 
 One feature in, one feature out (`hull` with `by` or `dissolve` and `explode` excepted), with the attributes kept.
@@ -183,6 +224,23 @@ print(v.simplify(gpd.GeoSeries([LineString([(0, 0), (5, 0.1), (10, 0)])]), 1).ge
 ::: terraflux.vector.simplify
 
 ::: terraflux.vector.envelope
+
+`shape` describes each polygon: the radius of its largest inscribed circle (its depth), of its smallest bounding circle,
+FRAGSTATS's CIRCLE, and the sides, elongation and orientation (degrees clockwise from north) of its minimum rotated
+rectangle. A square and a strip of 20 by 5:
+
+```python
+strip = parks.assign(geometry=[box(0, 0, 10, 10), box(20, 0, 40, 5)])
+print(v.shape(strip).drop(columns="geometry").round(2).to_string())
+```
+
+```text
+  park  inscribed_radius  bounding_radius  circle  rect_length  rect_width  elongation  orientation
+0    A               5.0             7.07    0.36         10.0        10.0        0.00          0.0
+1    B               2.5            10.31    0.70         20.0         5.0        0.75         90.0
+```
+
+::: terraflux.vector.shape
 
 ::: terraflux.vector.make_valid
 
