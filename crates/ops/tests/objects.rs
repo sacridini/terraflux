@@ -2043,6 +2043,128 @@ fn samples_of_two_classes_on_an_object_leave_it_out() {
     assert!(e.contains("kind"), "{e}");
 }
 
+/// An old map of classes over `four_squares`: A all 1; B 24 cells of 2 and one of 1; C 15 of 3 and 10 of 1; D two
+/// rows without a value and 15 cells of 2.
+fn old_classes() -> Map {
+    let mut d = vec![NAN; 100];
+    for r in 0..10 {
+        for c in 0..10 {
+            let k = (r % 5) * 5 + c % 5;
+            d[r * 10 + c] = match (r < 5, c < 5) {
+                (true, true) => 1.0,
+                (true, false) => {
+                    if k == 0 {
+                        1.0
+                    } else {
+                        2.0
+                    }
+                }
+                (false, true) => {
+                    if k < 15 {
+                        3.0
+                    } else {
+                        1.0
+                    }
+                }
+                (false, false) => {
+                    if r < 7 {
+                        NAN
+                    } else {
+                        2.0
+                    }
+                }
+            };
+        }
+    }
+    map(10, 10, d)
+}
+
+fn samples_from(o: &Arc<Objects>, m: Map, params: serde_json::Value) -> (terraflux_ops::Result<Outputs>, Vec<String>) {
+    run_warn("objects.samples", vec![("objects", Value::Objects(o.clone())), ("map", Value::Map(m))], params)
+}
+
+#[test]
+fn samples_from_a_map_take_the_pure_objects() {
+    let o = four_squares();
+    let (out, w) = samples_from(&o, old_classes(), serde_json::json!({}));
+    let out = out.unwrap();
+    // A is 1, B and D are 2; C (60 %) is left out, said once with the old map's errors
+    assert_eq!(objects_of(&out).class_of, vec![1, 2, 0, 2]);
+    assert_eq!(objects_of(&out).classes.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["1", "2"]);
+    let t = table_of(&out);
+    assert_eq!(t.columns, ["class", "cells", "area"]);
+    assert_eq!(t.rows.iter().map(|r| r[0]).collect::<Vec<_>>(), vec![1.0, 2.0, 2.0]);
+    assert_eq!(t.cell(0, 2.0), "2");
+    assert!(w.iter().any(|m| m.contains("1 object(s) are left out")), "{w:?}");
+    assert_eq!(w.iter().filter(|m| m.contains("errors of the older map")).count(), 1, "{w:?}");
+    assert!(w.iter().any(|m| m.contains("sample object(s), under")), "{w:?}");
+    // purity 0.5: C takes its majority, 3
+    let (out, _) = samples_from(&o, old_classes(), serde_json::json!({ "purity": 0.5 }));
+    let out = out.unwrap();
+    assert_eq!(objects_of(&out).class_of, vec![1, 2, 3, 2]);
+    // the classes setting keeps only those
+    let (out, _) = samples_from(&o, old_classes(), serde_json::json!({ "purity": 0.5, "classes": [2.0, 3.0] }));
+    let out = out.unwrap();
+    assert_eq!(objects_of(&out).class_of, vec![0, 1, 2, 1]);
+    assert_eq!(objects_of(&out).classes.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["2", "3"]);
+}
+
+#[test]
+fn samples_from_a_map_name_the_classes_by_its_legend() {
+    use terraflux_ops::legend::{Class, with_legend};
+    let o = four_squares();
+    let m = old_classes();
+    let class = |value: f64, name: &str| Class { value, name: name.to_string(), colour: String::new() };
+    let legend = [class(1.0, "water"), class(2.0, "forest")];
+    let m = Map { grid: Arc::new(with_legend(&m.grid, Some(&legend))), data: m.data.clone() };
+    let (out, _) = samples_from(&o, m, serde_json::json!({}));
+    let out = out.unwrap();
+    // by name: forest 1, water 2
+    assert_eq!(objects_of(&out).class_of, vec![2, 1, 0, 1]);
+    assert_eq!(table_of(&out).cell(0, 1.0), "forest");
+}
+
+#[test]
+fn samples_from_a_map_draw_per_class_with_a_seed() {
+    let m = map(20, 20, vec![1.0; 400]);
+    let out = run("segment.chessboard", vec![("image", Value::Map(m.clone()))], serde_json::json!({ "size": 5 }));
+    let o = objects_of(&out.unwrap());
+    assert_eq!(o.count, 16);
+    let go = |seed: u64| {
+        let (out, _) = samples_from(&o, m.clone(), serde_json::json!({ "per_class": 5, "seed": seed }));
+        objects_of(&out.unwrap()).class_of.clone()
+    };
+    let a = go(1);
+    assert_eq!(a.iter().filter(|&&c| c == 1).count(), 5);
+    assert_eq!(a, go(1));
+    assert!((2..10).any(|s| go(s) != a));
+    // fewer objects than asked: all
+    let (out, _) = samples_from(&o, m, serde_json::json!({ "per_class": 40 }));
+    assert_eq!(objects_of(&out.unwrap()).class_of.iter().filter(|&&c| c == 1).count(), 16);
+}
+
+#[test]
+fn samples_from_a_map_check_the_inputs() {
+    let o = four_squares();
+    let both = run_warn(
+        "objects.samples",
+        vec![
+            ("objects", Value::Objects(o.clone())),
+            ("map", Value::Map(old_classes())),
+            ("samples", sample_set(vec![])),
+        ],
+        serde_json::json!({}),
+    )
+    .0;
+    assert!(both.unwrap_err().to_string().contains("not both"));
+    let none = run_warn("objects.samples", vec![("objects", Value::Objects(o.clone()))], serde_json::json!({}));
+    assert!(none.0.is_err());
+    let (e, _) = samples_from(&o, map(8, 8, vec![1.0; 64]), serde_json::json!({}));
+    assert!(e.unwrap_err().to_string().contains("another grid"));
+    let (e, _) = samples_from(&o, old_classes(), serde_json::json!({ "purity": 0.0 }));
+    assert!(e.unwrap_err().to_string().contains("purity"));
+}
+
 /// The blocky nlm image cut in objects, their basic features, and the truth.
 fn obia_case(segmenter: &str, params: serde_json::Value) -> (Arc<Objects>, Map) {
     let image = run("nlm.image", vec![("classes", blocky())], serde_json::json!({})).unwrap();

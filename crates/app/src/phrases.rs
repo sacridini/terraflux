@@ -1056,7 +1056,10 @@ const PHRASES: &[(&str, &str)] = &[
         "The attributes {features} of the objects of <objects>, from <image>[ and the layers of <more>][, with the thematic layer <thematic> (field {field})][, skeleton spurs under {spur} cells cut].",
     ),
     ("objects.to_map", "The objects of <objects> as a map[ of their {what}]."),
-    ("objects.samples", "The objects under the samples of <samples> (the class in {class}), as a training table."),
+    (
+        "objects.samples",
+        "The objects of <objects>[ under the samples of <samples> (the class in {class})][ taking the class of the map <map> (at least {purity} pure)], as a training table.",
+    ),
     (
         "objects.classify",
         "The objects of <objects> classed by <model>[, a class only above a probability of {min}][, novelty by {novelty}].",

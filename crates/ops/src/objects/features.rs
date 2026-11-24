@@ -642,31 +642,50 @@ fn thematic_of(o: &Objects, cells: &[f64]) -> (Vec<f64>, Vec<f64>) {
         .into_par_iter()
         .map(|k| {
             let total = offsets[k + 1] - offsets[k];
-            // (+ 0.0 makes -0 a 0)
-            let mut v: Vec<f64> = at[offsets[k]..offsets[k + 1]]
-                .iter()
-                .map(|&i| cells[i as usize])
-                .filter(|x| !x.is_nan())
-                .map(|x| x + 0.0)
-                .collect();
-            if v.is_empty() {
+            let Some((best, best_n, valid)) = majority(&at[offsets[k]..offsets[k + 1]], cells) else {
                 return (f64::NAN, f64::NAN);
-            }
-            v.sort_unstable_by(f64::total_cmp);
-            let (mut best, mut best_n, mut run) = (v[0], 0usize, 0usize);
-            for (j, &x) in v.iter().enumerate() {
-                run = if j > 0 && x == v[j - 1] { run + 1 } else { 1 };
-                if run > best_n {
-                    (best, best_n) = (x, run);
-                }
-            }
-            if total - v.len() > best_n {
+            };
+            if total - valid > best_n {
                 return (f64::NAN, f64::NAN);
             }
             (best, best_n as f64 / total as f64)
         })
         .collect();
     pairs.into_iter().unzip()
+}
+
+/// The most common value of `cells` at the positions `at` (the smallest on a tie), the cells holding it and the cells
+/// with a value; None when no cell has one.
+fn majority(at: &[u32], cells: &[f64]) -> Option<(f64, usize, usize)> {
+    // (+ 0.0 makes -0 a 0)
+    let mut v: Vec<f64> = at.iter().map(|&i| cells[i as usize]).filter(|x| !x.is_nan()).map(|x| x + 0.0).collect();
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_unstable_by(f64::total_cmp);
+    let (mut best, mut best_n, mut run) = (v[0], 0usize, 0usize);
+    for (j, &x) in v.iter().enumerate() {
+        run = if j > 0 && x == v[j - 1] { run + 1 } else { 1 };
+        if run > best_n {
+            (best, best_n) = (x, run);
+        }
+    }
+    Some((best, best_n, v.len()))
+}
+
+/// Per object (index k = id - 1) the most common value of `cells` among the cells with a value, the share of those
+/// cells it covers, and the share of the object's cells that have a value (`None` for an object with no such cell).
+/// `objects.samples` reads an older map of classes with it.
+pub(super) fn thematic_purity(o: &Objects, cells: &[f64]) -> Vec<Option<(f64, f64, f64)>> {
+    let (offsets, at) = index(o);
+    (0..o.count)
+        .into_par_iter()
+        .map(|k| {
+            let total = offsets[k + 1] - offsets[k];
+            majority(&at[offsets[k]..offsets[k + 1]], cells)
+                .map(|(best, n, valid)| (best, n as f64 / valid as f64, valid as f64 / total as f64))
+        })
+        .collect()
 }
 
 // ---- spectral

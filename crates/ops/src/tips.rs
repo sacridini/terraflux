@@ -918,7 +918,9 @@ pub const TIPS: &[(&str, &str)] = &[
         "Give at least 10 objects per class (a few points or small polygons on each class, over its different \
          looks): a point picks its object, a polygon every object it covers by half. Objects with samples of \
          two classes are left out, so draw the samples inside one object. Fit the table with `column` = class: every \
-         other column is a predictor (the table has no id).",
+         other column is a predictor (the table has no id). With an older map of classes (`map`) the objects \
+         that are pure (`purity`, 0.9) take its class and its errors become the training's: keep `purity` high, \
+         `classes` to the ones you trust and `per_class` to balance the classes.",
     ),
     (
         "objects.classify",

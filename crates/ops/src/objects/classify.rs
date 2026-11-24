@@ -12,6 +12,7 @@ use terraflux_raster::vector::{Column, Geometry, Vector};
 use super::{ObjectClass, Objects, objects_in};
 use crate::ml::{Model, novelty};
 use crate::sdm::extrapolation::Frame;
+use crate::signatures::NumpyRng;
 use crate::{Args, Ctx, Error, Map, Operator, Outputs, Registry, Result, Table, Value, outputs};
 
 pub fn register(r: &mut Registry) {
@@ -42,12 +43,26 @@ impl Operator for Samples {
              is inside when its centre is). An object picked with two different classes is left out, and so are \
              points outside every object, with a warning. The training table (class, then the numeric attributes of \
              the objects; a row per sampled object, in id order, the `objects` output marks them) goes to ml.fit \
-             with column = class (every other column is then a predictor, no id among them). Classes are numbered by their names in alphabetical order, so a model fitted on the table has the codes \
-             1.. of that order.",
+             with column = class (every other column is then a predictor, no id among them). Classes are numbered by \
+             their names in alphabetical order, so a model fitted on the table has the codes 1.. of that order. \
+             Instead of samples, `map` (an older classification, a land-cover map) gives them: each object takes the \
+             class of most of its cells with a value in the map, when that class covers `purity` of those cells and \
+             at least half of the object's cells have a value; the objects not pure enough are left out. The classes \
+             take the map's legend names, else their numbers.",
             Access::Global,
         )
         .input(PortSpec::new("objects", Type::Objects, "the objects, with the attributes (objects.features)"))
-        .input(PortSpec::new("samples", Type::Vector, "points or polygons with a class, in any coordinate system"))
+        .input(PortSpec::optional(
+            "samples",
+            Type::Vector,
+            "points or polygons with a class, in any coordinate system (this or `map`)",
+        ))
+        .input(PortSpec::optional(
+            "map",
+            Type::Map,
+            "or a map of classes (an older classification, a land-cover map) on the objects' grid: each object takes \
+             the class of most of its cells, when it covers `purity` of the object",
+        ))
         .output(PortSpec::new("table", Type::Table, "class (text) and the numeric attributes, a row per sampled object"))
         .output(PortSpec::new(
             "objects",
@@ -60,15 +75,38 @@ impl Operator for Samples {
             Type::Text,
             "the samples' attribute holding the class, text or numbers (default class)",
         ))
+        .param(PortSpec::optional(
+            "purity",
+            Type::Number,
+            "with `map`: the share of the object's cells with a value in the map that its majority class must cover, \
+             above 0 to 1 (default 0.9); cells without a value do not count, but at least half of the object's cells \
+             must have one",
+        ))
+        .param(PortSpec::optional("classes", Type::Any, "with `map`: the classes that give samples (default: all)"))
+        .param(PortSpec::optional(
+            "per_class",
+            Type::Integer,
+            "with `map`: at most this many objects of each class, drawn at random (default: all the pure objects)",
+        ))
+        .param(PortSpec::optional("seed", Type::Integer, "with `per_class`: the seed of the draw (default 1)"))
     }
 
     fn run(&self, ctx: &mut Ctx, args: &Args) -> Result<Outputs> {
         let node = args.node;
         let o = objects_in(args, "objects")?;
         let attr: String = args.param("class", "class".to_string())?;
-        let v = crate::vector::on_grid(crate::vector::vector_of(args, "samples")?, &o.grid)?;
         let mut polygon_cells = Vec::new();
-        let (names, class_of) = sample_classes_sized(ctx, node, o, &v, &attr, &mut polygon_cells)?;
+        let (names, class_of) = match (args.get("samples"), args.get("map")) {
+            (Some(_), Some(_)) => {
+                return Err(Error::msg(format!("node {node:?}: give samples or a map, not both")));
+            }
+            (None, None) => return Err(Error::msg(format!("node {node:?}: connect samples or a map of classes"))),
+            (None, Some(m)) => map_classes(ctx, args, o, m)?,
+            (Some(_), None) => {
+                let v = crate::vector::on_grid(crate::vector::vector_of(args, "samples")?, &o.grid)?;
+                sample_classes_sized(ctx, node, o, &v, &attr, &mut polygon_cells)?
+            }
+        };
         // the training table
         let numeric: Vec<usize> = (1..o.table.columns.len())
             .filter(|&j| !o.table.is_text(&o.table.columns[j]) && o.table.columns[j] != "class")
@@ -110,6 +148,97 @@ impl Operator for Samples {
         out.insert("objects".into(), Value::Objects(Arc::new(marked)));
         Ok(out)
     }
+}
+
+/// The class of each object from an older map of classes: the majority class of its cells with a value, when it
+/// covers `purity` of them and they are at least half of the object's cells. The names as `sample_classes` gives them
+/// (alphabetical; the map's legend names, else the numbers), the codes 1.. in that order, 0 for none.
+fn map_classes(ctx: &mut Ctx, args: &Args, o: &Objects, m: &Value) -> Result<(Vec<String>, Vec<u32>)> {
+    let node = args.node;
+    let bad = |m: String| Error::msg(format!("node {node:?}: {m}"));
+    let Value::Map(m) = m else { return Err(bad(format!("map: a map, not a {:?}", m.ty()))) };
+    if !m.grid.same_as(&o.grid) {
+        return Err(bad("map: a map of another grid than the objects".into()));
+    }
+    let purity: f64 = args.param("purity", 0.9)?;
+    if !(purity > 0.0 && purity <= 1.0) {
+        return Err(bad(format!("purity {purity}: above 0 to 1")));
+    }
+    let only = args.opt_param::<Vec<f64>>("classes")?;
+    let per_class = args.opt_param::<usize>("per_class")?;
+    if per_class == Some(0) {
+        return Err(bad("per_class: at least 1".into()));
+    }
+    let seed: u64 = args.param("seed", 1)?;
+    let found = super::features::thematic_purity(o, &m.data);
+    // the objects with a class: (object index, class value)
+    let (mut impure, mut sparse) = (0usize, 0usize);
+    let mut chosen: Vec<(usize, f64)> = Vec::new();
+    for (k, f) in found.iter().enumerate() {
+        let Some(&(class, share, valid)) = f.as_ref() else {
+            sparse += 1;
+            continue;
+        };
+        if only.as_ref().is_some_and(|c| !c.contains(&class)) {
+            continue;
+        }
+        if valid < 0.5 {
+            sparse += 1;
+        } else if share + 1e-9 < purity {
+            impure += 1;
+        } else {
+            chosen.push((k, class));
+        }
+    }
+    if impure + sparse > 0 {
+        ctx.warn(format!(
+            "objects.samples: node {node:?}: {} object(s) are left out: {impure} with no class covering {purity} of \
+             their cells with a value in the map, {sparse} with under half of their cells in the map",
+            impure + sparse
+        ));
+    }
+    // the classes in the order of their names: the legend's, else the numbers
+    let mut values: Vec<f64> = chosen.iter().map(|c| c.1).collect();
+    values.sort_by(f64::total_cmp);
+    values.dedup();
+    let legend = crate::legend::of_grid(&m.grid).unwrap_or_default();
+    let plain = |v: f64| format!("{v}");
+    let named: Vec<String> = values
+        .iter()
+        .map(|&v| {
+            legend.iter().find(|c| c.value == v && !c.name.is_empty()).map_or_else(|| plain(v), |c| c.name.clone())
+        })
+        .collect();
+    let mut unique = named.clone();
+    unique.sort();
+    unique.dedup();
+    // (two classes with one name: the numbers tell them apart)
+    let named: Vec<String> =
+        if unique.len() == named.len() { named } else { values.iter().map(|&v| plain(v)).collect() };
+    let mut order: Vec<usize> = (0..values.len()).collect();
+    order.sort_by(|&a, &b| named[a].cmp(&named[b]));
+    let mut class_of = vec![0u32; o.count];
+    let mut rng = NumpyRng::new(seed);
+    for (code, &j) in order.iter().enumerate() {
+        let mut ks: Vec<usize> = chosen.iter().filter(|c| c.1 == values[j]).map(|c| c.0).collect();
+        if let Some(n) = per_class
+            && ks.len() > n
+        {
+            let mut pick: Vec<usize> = rng.choice_distinct(ks.len(), n).into_iter().map(|i| ks[i]).collect();
+            pick.sort_unstable();
+            ks = pick;
+        }
+        for k in ks {
+            class_of[k] = code as u32 + 1;
+        }
+    }
+    if !order.is_empty() {
+        ctx.warn(format!(
+            "objects.samples: node {node:?}: the errors of the older map become errors of the training: look at the \
+             samples before fitting"
+        ));
+    }
+    Ok((order.iter().map(|&j| named[j].clone()).collect(), class_of))
 }
 
 /// The class of each object under samples (points or polygons with a class attribute `attr`, already on the
