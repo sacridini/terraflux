@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **`ml.fit` gives the random forest's out-of-bag error** (`crates/ops/src/ml/forest.rs`, `crates/ops/src/ml/cv.rs`, `crates/ops/src/ml/mod.rs`, `crates/app/src/python/models.rs`): with the setting `oob` (a `random_forest` with `bootstrap`), each record is predicted by the trees that did not draw it, and the output `oob` scores those predictions with the cross-validation's columns (n, then the accuracy, kappa, macro F1 and the F1 of each class, or the RMSE, MAE and R2). A warning says that the out-of-bag error is not spatial, so it is optimistic for neighbouring records as random folds are (`objects.folds` and the setting `fold` give spatial folds), and how many records every tree drew, if any. The same predictions as scikit-learn's `oob_decision_function_` and `oob_prediction_`, checked against its reference in `tests/data/reference/ml_oob.npz`; the exported Python passes `oob_score=True` and builds the same table.
+
 ## [1.66.0] - 2026-11-24
 
 ### Added

@@ -50,7 +50,7 @@ fn subset(x: &Frame, rows: &[usize]) -> Frame {
 /// The scores of some predictions of classes: the number of records, the accuracy, Cohen's kappa, the macro F1 and the
 /// F1 of each class (none, NaN, for a class that is neither in the reference nor in the predictions), from the
 /// confusion matrix `count[predicted][reference]`.
-fn class_scores(count: &[Vec<f64>]) -> Vec<f64> {
+pub(super) fn class_scores(count: &[Vec<f64>]) -> Vec<f64> {
     let q = count.len();
     let n: f64 = count.iter().flatten().sum();
     let row: Vec<f64> = count.iter().map(|r| r.iter().sum()).collect();
@@ -68,7 +68,7 @@ fn class_scores(count: &[Vec<f64>]) -> Vec<f64> {
 }
 
 /// The scores of some predictions of values: the number of records, RMSE, MAE and R2.
-fn value_scores(pred: &[f64], real: &[f64]) -> Vec<f64> {
+pub(super) fn value_scores(pred: &[f64], real: &[f64]) -> Vec<f64> {
     let n = real.len() as f64;
     let mean = real.iter().sum::<f64>() / n;
     let res: f64 = pred.iter().zip(real).map(|(p, r)| (r - p).powi(2)).sum();
@@ -82,6 +82,51 @@ fn value_scores(pred: &[f64], real: &[f64]) -> Vec<f64> {
         0.0
     };
     vec![n, (res / n).sqrt(), mae, r2]
+}
+
+/// The table of the out-of-bag predictions of a forest (`pred` per record: the averaged outputs, none for a record
+/// every tree drew), scored as the cross-validation's last row, without its fold column. `known` are the forest's
+/// classes (empty for values); returns the table and how many records had no prediction.
+pub(super) fn oob_table(
+    pred: &[Option<Vec<f64>>],
+    y: &[f64],
+    known: &[f64],
+    name: &dyn Fn(f64) -> String,
+) -> (Table, usize) {
+    let regression = known.is_empty();
+    let mut head = vec!["n".to_string()];
+    if regression {
+        head.extend(["rmse", "mae", "r2"].map(String::from));
+    } else {
+        head.extend(["accuracy", "kappa", "macro_f1"].map(String::from));
+        head.extend(known.iter().map(|&c| format!("f1_{}", name(c))));
+    }
+    let mut table = Table::new(head);
+    let q = known.len();
+    let mut count = vec![vec![0.0f64; q]; q];
+    let (mut p, mut r) = (Vec::new(), Vec::new());
+    let mut left = 0;
+    for (o, &real) in pred.iter().zip(y) {
+        let Some(o) = o else {
+            left += 1;
+            continue;
+        };
+        if regression {
+            p.push(o[0]);
+            r.push(real);
+        } else {
+            // the class of the largest probability, the first on ties
+            let mut k = 0;
+            for c in 1..o.len() {
+                if o[c] > o[k] {
+                    k = c;
+                }
+            }
+            count[k][known.partition_point(|c| *c < real)] += 1.0;
+        }
+    }
+    table.rows.push(if regression { value_scores(&p, &r) } else { class_scores(&count) });
+    (table, left)
 }
 
 /// Fit the model of the node with each fold out and test it on that fold. `folds` is a fold of each record (NaN: in

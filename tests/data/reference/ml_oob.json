@@ -1,0 +1,11 @@
+{
+ "classifier": {
+  "n_estimators": 40,
+  "random_state": 3
+ },
+ "regressor": {
+  "n_estimators": 40,
+  "random_state": 5,
+  "max_features": 0.4
+ }
+}

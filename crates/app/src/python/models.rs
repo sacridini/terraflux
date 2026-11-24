@@ -165,6 +165,10 @@ fn estimator(n: &Node, sc: &Scope, cls: Option<&str>, code: &mut String) -> Resu
             Some("all") => a.push("max_features=None".into()),
             _ => a.extend(given(n, &[("max_features", "max_features")], sc)?),
         }
+        // (the out-of-bag error of the forest)
+        if flag(n, "oob")? == Some(true) {
+            a.push("oob_score=True".into());
+        }
         (a, "RandomForestClassifier", "RandomForestRegressor")
     };
     args.push(format!("random_state={}", setting(n, "random_state", sc)?.unwrap_or_else(|| "0".into())));
@@ -204,8 +208,16 @@ fn fit(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
             "l2_regularization",
             "max_bins",
             "random_state",
+            "oob",
         ],
     )?;
+    let oob = flag(n, "oob")? == Some(true);
+    if oob && choice(n, "method") == Some("gradient_boosting") {
+        return Err("oob: only a random_forest has an out-of-bag error".into());
+    }
+    if oob && flag(n, "bootstrap")? == Some(false) {
+        return Err("oob: needs bootstrap (each tree on a bootstrap of the records)".into());
+    }
     let task = match n.params.get("task") {
         None | Some(Value::Null) => "auto",
         Some(Value::String(t)) if matches!(t.as_str(), "auto" | "classes" | "values") => t.as_str(),
@@ -293,11 +305,34 @@ fn fit(n: &Node, var: &str, sc: &Scope) -> Result<Code, String> {
         ));
         format!("{var}_importance")
     };
-    let outs = HashMap::from([
+    let mut outs = HashMap::from([
         ("model".to_string(), var.to_string()),
         ("importance".to_string(), importance),
         ("@kind".to_string(), "ml.fit".to_string()),
     ]);
+    if oob {
+        // the out-of-bag predictions as scikit-learn keeps them (all-zero rows: never out of bag)
+        code.push_str(&format!(
+            "if hasattr({var}, \"classes_\"):\n\
+             \x20   from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score\n\
+             \x20   {c}_p = {var}.oob_decision_function_\n\
+             \x20   {c}_k = {c}_p.sum(axis=1) > 0\n\
+             \x20   {c}_pred = {var}.classes_[{c}_p[{c}_k].argmax(axis=1)]\n\
+             \x20   {c}_real = np.asarray({c}_y)[{c}_k]\n\
+             \x20   {c}_f1 = f1_score({c}_real, {c}_pred, labels={var}.classes_, average=None, zero_division=0)\n\
+             \x20   {var}_oob = pd.DataFrame([[int({c}_k.sum()), accuracy_score({c}_real, {c}_pred), \
+             cohen_kappa_score({c}_real, {c}_pred, labels={var}.classes_), float({c}_f1.mean()), *{c}_f1]], \
+             columns=[\"n\", \"accuracy\", \"kappa\", \"macro_f1\"] + [\"f1_\" + str({LABEL}) for _c in {var}.classes_])\n\
+             else:\n\
+             \x20   from sklearn.metrics import r2_score\n\
+             \x20   {c}_k = ~np.isnan({var}.oob_prediction_)\n\
+             \x20   {c}_real, {c}_pred = np.asarray({c}_y, dtype=float)[{c}_k], {var}.oob_prediction_[{c}_k]\n\
+             \x20   {c}_e = {c}_real - {c}_pred\n\
+             \x20   {var}_oob = pd.DataFrame([[int({c}_k.sum()), float(np.sqrt(np.mean({c}_e ** 2))), \
+             float(np.mean(np.abs({c}_e))), r2_score({c}_real, {c}_pred)]], columns=[\"n\", \"rmse\", \"mae\", \"r2\"])\n"
+        ));
+        outs.insert("oob".to_string(), format!("{var}_oob"));
+    }
     Ok((code, outs, Need::Nothing))
 }
 
@@ -878,6 +913,41 @@ params = { size = [200, 400], type = "shape" }
         assert!(t.contains("# (not passed: block_rows: out of core, the same result)"), "{t}");
         assert!(t.contains("many = tf.scale_sample(lc, pts, size=[200, 400], type=\"shape metric\")"), "{t}");
         parses(t);
+    }
+
+    #[test]
+    fn the_out_of_bag_error_of_a_forest() {
+        let model = |extra: &str| {
+            format!(
+                r#"
+format = "terraflux/1"
+
+[[nodes]]
+id = "rec"
+op = "table.of"
+params = {{ columns = ["a", "b", "target"], rows = [[1, 2, 0], [2, 1, 1], [3, 5, 0], [4, 3, 1]] }}
+
+[[nodes]]
+id = "fit"
+op = "ml.fit"
+inputs = {{ table = "rec.table" }}
+params = {{ n_estimators = 20, oob = true{extra} }}
+"#
+            )
+        };
+        let s = script_of(&model(""));
+        let t = &s.text;
+        assert!(s.left.is_empty(), "{:?}\n{t}", s.left);
+        assert!(t.contains("oob_score=True"), "{t}");
+        assert!(t.contains("fit_oob = pd.DataFrame("), "{t}");
+        assert!(t.contains("oob_decision_function_") && t.contains("oob_prediction_"), "{t}");
+        parses(t);
+        let s = script_of(&model(", method = \"gradient_boosting\""));
+        assert_eq!(s.left.len(), 1, "{:?}", s.left);
+        assert!(s.left[0].2.contains("only a random_forest"), "{:?}", s.left);
+        let s = script_of(&model(", bootstrap = false"));
+        assert_eq!(s.left.len(), 1, "{:?}", s.left);
+        assert!(s.left[0].2.contains("needs bootstrap"), "{:?}", s.left);
     }
 
     #[test]

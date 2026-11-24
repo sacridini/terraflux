@@ -753,6 +753,106 @@ pub fn regressor(
     Ok(Forest { predictors: x.names.clone(), trees, classes: Vec::new(), training: None })
 }
 
+/// A weighted bootstrap: RandomState.choice(n, n, p = w / sum(w)), its cdf (none: the plain bootstrap).
+fn bootstrap_cdf(weights: Option<&[f64]>, n: usize) -> Option<Vec<f64>> {
+    weights.map(|w| {
+        let total = crate::change::numpy_sum(w);
+        let mut acc = 0.0;
+        let mut c: Vec<f64> = w
+            .iter()
+            .map(|v| {
+                acc += v / total;
+                acc
+            })
+            .collect();
+        let last = c[n - 1];
+        c.iter_mut().for_each(|v| *v /= last);
+        c
+    })
+}
+
+/// The trees' seeds, drawn from the forest's.
+fn tree_seeds(s: &Settings) -> Vec<u32> {
+    let mut forest_rng = Mt19937::new(s.random_state);
+    (0..s.n_estimators).map(|_| forest_rng.randint(0, i64::from(i32::MAX)) as u32).collect()
+}
+
+/// A tree's bootstrap: how many times each of the n records was drawn.
+fn bootstrap_counts(seed: u32, n: usize, cdf: Option<&[f64]>) -> Vec<f64> {
+    let mut r = Mt19937::new(seed);
+    let mut counts = vec![0.0f64; n];
+    for _ in 0..n {
+        let k = match cdf {
+            // searchsorted(side = right): the cells of the cdf at or below the draw
+            Some(c) => {
+                let u = r.random_sample();
+                c.partition_point(|v| *v <= u).min(n - 1)
+            }
+            None => r.randint(0, n as i64) as usize,
+        };
+        counts[k] += 1.0;
+    }
+    counts
+}
+
+/// The out-of-bag predictions (scikit-learn's _compute_oob_predictions): for each record, the outputs of the trees
+/// that did not draw it, added and divided by their number (a share per class, or the value). None for a record
+/// every tree drew. `x`, `y` and `weights` are the records the forest was fitted on, with the same `s`.
+pub fn oob(
+    x: &Frame,
+    y: &[f64],
+    weights: Option<&[f64]>,
+    s: &Settings,
+    forest: &Forest,
+) -> Result<Vec<Option<Vec<f64>>>, String> {
+    use rayon::prelude::*;
+    if !s.bootstrap {
+        return Err("the out-of-bag error needs bootstrap".into());
+    }
+    let n = y.len();
+    if x.columns.first().map_or(0, Vec::len) != n || n == 0 {
+        return Err("the out-of-bag error: the records of the fit".into());
+    }
+    if forest.trees.len() != s.n_estimators {
+        return Err("the out-of-bag error: the settings of the fit".into());
+    }
+    let cdf = bootstrap_cdf(weights, n);
+    let seeds = tree_seeds(s);
+    // per tree, the records it left out
+    let left: Vec<Vec<bool>> = seeds
+        .par_iter()
+        .map(|&seed| bootstrap_counts(seed, n, cdf.as_deref()).iter().map(|c| *c == 0.0).collect())
+        .collect();
+    let cols = forest.columns(x)?;
+    let k = forest.classes.len().max(1);
+    Ok((0..n)
+        .into_par_iter()
+        .map_init(
+            || vec![0f32; cols.len()],
+            |row, i| {
+                for (r, c) in row.iter_mut().zip(&cols) {
+                    *r = c[i];
+                }
+                let mut acc = vec![0.0; k];
+                let mut m = 0usize;
+                for (tree, out) in forest.trees.iter().zip(&left) {
+                    if out[i] {
+                        for (a, v) in acc.iter_mut().zip(tree.leaf(row)) {
+                            *a += v;
+                        }
+                        m += 1;
+                    }
+                }
+                if m == 0 {
+                    return None;
+                }
+                acc.iter_mut().for_each(|a| *a /= m as f64);
+                Some(acc)
+            },
+        )
+        .collect())
+}
+
 /// BaseForest.fit: the trees' seeds drawn from the forest's, each tree grown from its bootstrap (in parallel:
 /// each from its own seed, the same trees; in batches, `stop` asked before each).
 fn grow(
@@ -787,40 +887,12 @@ fn grow(
     {
         return Err("the weights: one per record, 0 or more".into());
     }
-    // a weighted bootstrap: RandomState.choice(n, n, p = w / sum(w)), its cdf
-    let cdf: Option<Vec<f64>> = weights.map(|w| {
-        let total = crate::change::numpy_sum(w);
-        let mut acc = 0.0;
-        let mut c: Vec<f64> = w
-            .iter()
-            .map(|v| {
-                acc += v / total;
-                acc
-            })
-            .collect();
-        let last = c[n - 1];
-        c.iter_mut().for_each(|v| *v /= last);
-        c
-    });
-    let mut forest_rng = Mt19937::new(s.random_state);
-    let seeds: Vec<u32> = (0..s.n_estimators).map(|_| forest_rng.randint(0, i64::from(i32::MAX)) as u32).collect();
+    let cdf = bootstrap_cdf(weights, n);
+    let seeds = tree_seeds(s);
     let build = |seed: u32| -> Tree {
         {
             let w: Vec<f64> = if s.bootstrap {
-                let mut r = Mt19937::new(seed);
-                let mut counts = vec![0.0f64; n];
-                for _ in 0..n {
-                    let k = match &cdf {
-                        // searchsorted(side = right): the cells of the cdf at or below the draw
-                        Some(c) => {
-                            let u = r.random_sample();
-                            c.partition_point(|v| *v <= u).min(n - 1)
-                        }
-                        None => r.randint(0, n as i64) as usize,
-                    };
-                    counts[k] += 1.0;
-                }
-                counts
+                bootstrap_counts(seed, n, cdf.as_deref())
             } else {
                 weights.map_or_else(|| vec![1.0; n], <[f64]>::to_vec)
             };

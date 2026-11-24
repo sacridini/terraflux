@@ -398,6 +398,19 @@ impl Operator for Fit {
                 "with fold or cv, for classes: the confusion matrix of all the folds' predictions, a row per predicted \
                  class and a column per reference class, as objects.accuracy's matrix",
             ))
+            .output(PortSpec::optional(
+                "oob",
+                Type::Table,
+                "with oob: the out-of-bag error, a row with n, then the same scores as cv (accuracy, kappa, macro F1 \
+                 and f1_<class> for classes; RMSE, MAE and R2 for values)",
+            ))
+            .param(PortSpec::optional(
+                "oob",
+                Type::Bool,
+                "random_forest with bootstrap: the out-of-bag error, each record predicted by the trees that did not \
+                 draw it (scikit-learn's oob_score); not spatial, so optimistic for neighbouring records as random \
+                 folds are (default false)",
+            ))
             .param(PortSpec::optional("column", Type::Text, "with a table: the target's column (default target)"))
             .param(PortSpec::optional(
                 "fold",
@@ -447,6 +460,16 @@ impl Operator for Fit {
         }
         if cv.is_some_and(|k| k < 2) {
             return Err(fail(args, "cv: 2 folds or more"));
+        }
+        let with_oob: bool = args.param("oob", false)?;
+        if with_oob {
+            let method: String = args.param("method", "random_forest".to_string())?;
+            if method != "random_forest" {
+                return Err(fail(args, "oob: only a random_forest has an out-of-bag error"));
+            }
+            if !args.param("bootstrap", true)? {
+                return Err(fail(args, "oob: needs bootstrap (each tree on a bootstrap of the records)"));
+            }
         }
         // (the target's name, to name the classes in the cross-validation)
         let mut named: Option<(Table, String)> = None;
@@ -574,12 +597,43 @@ impl Operator for Fit {
         };
         let f = fit_model(args, &x, &y, regression, &mut || !ctx.stopped())?
             .with_training(novelty::Training::of(&x, args.param("seed", 1)?));
+        // the out-of-bag error: each record predicted by the trees that did not draw it
+        let oob_table = match (&f, with_oob) {
+            (Fitted::Forest(m), true) => {
+                let s = settings_of(args, regression)?;
+                let pred = forest::oob(&x, &y, None, &s, m).map_err(|e| fail(args, e))?;
+                let name = |c: f64| match &named {
+                    Some((t, column)) => t.label(column, c).map_or_else(|| class_label(c), str::to_string),
+                    None => class_label(c),
+                };
+                let (table, left) = cv::oob_table(&pred, &y, &m.classes, &name);
+                ctx.warn(format!(
+                    "node {:?}: oob: the out-of-bag error is not spatial: records next to each other are alike, so \
+                     it is higher than the model's accuracy on other places (objects.folds makes spatial folds, \
+                     with the setting fold)",
+                    args.node
+                ));
+                if left > 0 {
+                    ctx.warn(format!(
+                        "node {:?}: oob: {left} of {} records were drawn by every tree and are left out of the \
+                         out-of-bag error (more trees, n_estimators, would leave fewer)",
+                        args.node,
+                        y.len()
+                    ));
+                }
+                Some(table)
+            }
+            _ => None,
+        };
         let importance = importance_table(f.predictors(), &[(None, f.importances())]);
         let model = match f {
             Fitted::Forest(f) => Model::Forest(f),
             Fitted::Boosting(b) => Model::Boosting(b),
         };
         let mut out = outputs([("model", Value::MlModel(Arc::new(model))), ("importance", Value::Table(importance))]);
+        if let Some(t) = oob_table {
+            out.insert("oob".into(), Value::Table(t));
+        }
         if let Some(v) = validation {
             out.insert("cv".into(), Value::Table(v.table));
             if let Some(m) = v.matrix {

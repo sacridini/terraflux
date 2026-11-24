@@ -2580,3 +2580,125 @@ fn predict_tells_what_lies_outside_the_training() {
     assert_eq!(nov.keys[0].to_string(), "mop");
     assert_eq!((nov.layers[1][0], nov.layers[1][1]), (1.0, 0.0));
 }
+
+// -- the out-of-bag error ------------------------------------------------------------------------------------------
+
+fn oob_reference() -> (BTreeMap<String, Array>, serde_json::Value) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/reference");
+    let z = terraflux_raster::npy::read_npz(dir.join("ml_oob.npz")).unwrap();
+    let meta = serde_json::from_str(&std::fs::read_to_string(dir.join("ml_oob.json")).unwrap()).unwrap();
+    (z, meta)
+}
+
+fn near_all(what: &str, got: &[f64], want: &[f64]) {
+    assert_eq!(got.len(), want.len(), "{what}: length");
+    for (k, (a, b)) in got.iter().zip(want).enumerate() {
+        assert!((a - b).abs() < 1e-12, "{what}: at {k}: {a} {b}");
+    }
+}
+
+/// The forest's settings and records as the operator makes them (tools/make_ml_oob_reference.py).
+fn oob_forest(
+    z: &BTreeMap<String, Array>,
+    params: &serde_json::Value,
+    regression: bool,
+) -> (terraflux_ops::sdm::extrapolation::Frame, Vec<f64>, terraflux_ops::ml::forest::Settings, Vec<f64>) {
+    use terraflux_ops::ml::forest::Settings;
+    let x = &z["table/x"];
+    let (n, k) = (x.shape[0], x.shape[1]);
+    let frame = terraflux_ops::sdm::extrapolation::Frame {
+        names: (0..k).map(|j| format!("x{j}")).collect(),
+        columns: (0..k).map(|j| (0..n).map(|i| x.data[i * k + j]).collect()).collect(),
+    };
+    let y = z[if regression { "table/value" } else { "table/class" }].data.clone();
+    let mut s = Settings {
+        n_estimators: params["n_estimators"].as_u64().unwrap() as usize,
+        random_state: params["random_state"].as_u64().unwrap() as u32,
+        ..Settings::default()
+    };
+    if regression {
+        s.max_features = serde_json::json!(params["max_features"].as_f64().unwrap());
+    }
+    (frame, y, s, Vec::new())
+}
+
+#[test]
+fn the_out_of_bag_predictions_are_scikit_learns() {
+    use terraflux_ops::ml::forest;
+    let (z, _) = reference();
+    let (o, meta) = oob_reference();
+    for regression in [false, true] {
+        let task = if regression { "regressor" } else { "classifier" };
+        let (frame, y, s, _) = oob_forest(&z, &meta[task], regression);
+        let mut go = || true;
+        let f = if regression {
+            forest::regressor(&frame, &y, None, &s, &mut go)
+        } else {
+            forest::classifier(&frame, &y, None, &s, &mut go)
+        }
+        .unwrap();
+        let pred = forest::oob(&frame, &y, None, &s, &f).unwrap();
+        assert!(pred.iter().all(Option::is_some));
+        if regression {
+            let got: Vec<f64> = pred.iter().map(|p| p.as_ref().unwrap()[0]).collect();
+            near_all("oob_prediction_", &got, &o["regressor/predict"].data);
+        } else {
+            let got: Vec<f64> = pred.iter().flat_map(|p| p.clone().unwrap()).collect();
+            near_all("oob_decision_function_", &got, &o["classifier/proba"].data);
+        }
+    }
+}
+
+#[test]
+fn fit_gives_the_out_of_bag_error() {
+    let (z, _) = reference();
+    let (o, meta) = oob_reference();
+    let x = &z["table/x"];
+    for regression in [false, true] {
+        let task = if regression { "regressor" } else { "classifier" };
+        let mut params = meta[task].clone();
+        params["task"] = serde_json::json!(if regression { "values" } else { "classes" });
+        params["oob"] = serde_json::json!(true);
+        let y = &z[if regression { "table/value" } else { "table/class" }].data;
+        let r = Registry::standard();
+        let p = params.as_object().cloned().unwrap();
+        let args = Args {
+            node: "n",
+            inputs: [("table".to_string(), Value::Table(records(x, Some(y))))].into_iter().collect(),
+            params: &p,
+        };
+        let mut ctx = Ctx::default();
+        let out = r.get("ml.fit").unwrap().run(&mut ctx, &args).unwrap();
+        let t = table(&out["oob"]);
+        assert_eq!(t.rows.len(), 1);
+        assert_eq!(t.rows[0][0], 600.0);
+        if regression {
+            assert_eq!(t.columns, ["n", "rmse", "mae", "r2"]);
+            assert!((t.rows[0][3] - o["regressor/score"].data[0]).abs() < 1e-12);
+        } else {
+            assert_eq!(t.columns, ["n", "accuracy", "kappa", "macro_f1", "f1_1", "f1_2", "f1_5"]);
+            assert!((t.rows[0][1] - o["classifier/score"].data[0]).abs() < 1e-12);
+        }
+        assert!(ctx.warnings.iter().any(|w| w.contains("oob") && w.contains("not spatial")), "{:?}", ctx.warnings);
+    }
+}
+
+#[test]
+fn the_out_of_bag_error_needs_a_forest_with_bootstrap() {
+    let (z, _) = reference();
+    let x = &z["table/x"];
+    let y = &z["table/class"].data;
+    for (extra, want) in [("method", "only a random_forest"), ("bootstrap", "needs bootstrap")] {
+        let mut params = serde_json::json!({"task": "classes", "oob": true, "n_estimators": 5});
+        params[extra] = if extra == "method" { "gradient_boosting".into() } else { false.into() };
+        let r = Registry::standard();
+        let p = params.as_object().cloned().unwrap();
+        let args = Args {
+            node: "n",
+            inputs: [("table".to_string(), Value::Table(records(x, Some(y))))].into_iter().collect(),
+            params: &p,
+        };
+        let e = r.get("ml.fit").unwrap().run(&mut Ctx::default(), &args).expect_err("an error").to_string();
+        assert!(e.contains(want), "{e}");
+    }
+}
