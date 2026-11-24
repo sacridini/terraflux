@@ -5860,6 +5860,173 @@ até virar: "ficaria `t0` se `suit` estivesse abaixo de 0.45"). Ele melhora as f
 árvore do parser da calculadora, e uma regra de "quem decidiu" por família de operadores (`min`/`max`, `argmax`,
 classificadores).
 
+## Bacias, inundação e perda de solo: morfometria, HAND e RUSLE (pedido de 2026-11-23)
+
+O que o `hydro.*` já dá e este bloco reaproveita: o condicionamento (`fill`, `breach`), as direções e a acumulação
+(D8, Dinf, FD8, Quinn, MFD), o `hand`, a rede (`streams`, `stream_links` com a ordem de Strahler feita em Rust,
+`hydro.rs` ~722-800), as bacias por sementes (`watersheds`, só um raster de rótulos), o `hydro_flow_distance` do
+C++ (a distância ao longo do fluxo até um alvo) e o fator LS do InVEST, hoje uma função privada de `services.sdr`
+(`services.rs` ~1010, Desmet & Govers 1996 com os expoentes por classe do InVEST). Quase tudo é Rust fino sobre o
+C++ da biblioteca (`extern/terraflux-py/src/cpp/hydro/`). O que falta: a ordem de Horton, a de Hack e a magnitude de
+Shreve como mapas (Shreve só existe dentro do `hydro.centrality`); os comprimentos de fluxo; qualquer índice de
+bacia (hipsometria, Melton, forma, densidade de drenagem, razões de Horton); a mancha de inundação (só o FUTURES
+usa `nível - HAND`, `src/cpp/sim/futures.cpp` ~543); a curva-chave sintética; o LS como operador; os fatores R, K, C
+e P (a SWAT tem o EI diário e o K de Williams, `hru_daily.cpp` ~523 e `hru_init.cpp` ~486-515, presos a ela).
+
+**Primeiro a biblioteca (terraflux-py), depois a GUI**, como sempre. Um commit por fase em cada repositório (a
+biblioteca primeiro e o submódulo atualizado em seguida), sem push nem release enquanto não for pedido; testes, clippy
+e fmt verdes em cada fase; no máximo 4 núcleos, um build pesado de cada vez.
+
+**As referências** (todas instaladas nesta máquina em 2026-11-23): o WhiteboxTools 2.4 (pacote `whitebox` do Python
+base: `StrahlerStreamOrder`, `HortonStreamOrder`, `HackStreamOrder`, `ShreveStreamMagnitude`,
+`DownslopeFlowpathLength`, `MaxUpslopeFlowpathLength`, `LongestFlowpath`, `HypsometricAnalysis`, `ElongationRatio`,
+`CompactnessRatio`, `SedimentTransportIndex`), o GRASS 8.4 e o SAGA que vêm com o QGIS 3.34.14
+(`C:\Program Files\QGIS 3.34.14\apps\grass\grass84`, `apps\saga`: o `r.watershed` com `length_slope` e
+`slope_steepness`, e o *LS Factor* do `ta_hydrology` com os métodos de Moore et al. 1991, Desmet & Govers 1996 e
+Böhner & Selige 2006), e o InVEST no env `invest-ref` (o LS do SDR). O que não tem ferramenta de referência (Melton,
+forma, Horton, curva-chave, os fatores R, K, C e P) é testado contra um script independente em numpy, que segue
+as equações dos artigos, e contra casos analíticos (um plano inclinado, um vale em V e um cone, com área, volume e
+perímetro conhecidos).
+
+### Na biblioteca (`tf.hydro` e um módulo novo `tf.erosion`)
+
+0. **O harness de referências.** `tools/make_reference_basins.py` (WhiteboxTools, GRASS e SAGA pelos executáveis do
+   QGIS, sobre os DEMs de `tests/data/reference/hydro/whitebox.npz` e um DEM real pequeno), as versões gravadas num
+   `basins.json`, como o `make_reference_hydro.py`. Cada ferramenta recebe a mesma entrada já condicionada (o DEM
+   preenchido, as direções, a rede), para comparar só o passo em teste.
+
+1. **Ordem da rede e comprimentos de fluxo** (C++, `src/cpp/hydro/`).
+   - `stream_order(dem | directions, streams, method="strahler" | "horton" | "hack" | "shreve" | "topological")`,
+     bit a bit com o Whitebox. A ordem de Strahler que o Rust faz em `link_table` passa a vir daqui (a tabela do
+     `stream_links` fica igual, conferida pelo teste existente).
+   - `flow_length(dem, direction="down" | "up", to="outlet" | "stream")`: a distância de cada célula ao exutório ou à
+     drenagem ao longo do fluxo, e o maior caminho que chega a cada célula (`DownslopeFlowpathLength` e
+     `MaxUpslopeFlowpathLength`), em metros, também em longitude e latitude.
+   - `longest_flowpath(dem, basins)`: a linha do caminho mais longo de cada bacia, com o comprimento, o desnível e a
+     declividade média (`LongestFlowpath`). É o comprimento da bacia nas fases 2 e 3.
+   - `watersheds` ganha `polygons=True`: as bacias também como polígonos, com a área e o perímetro.
+
+2. **Morfometria de bacias.** `basin_morphometry(dem, basins, streams=None)` devolve uma tabela, uma linha por bacia:
+   - **Área e relevo:** área, perímetro, elevação mínima, máxima e média, amplitude, declividade média.
+   - **Hipsometria:** a integral hipsométrica (Strahler 1952), pela razão elevação-relevo de Pike & Wilson 1971,
+     `(média - mín) / (máx - mín)`, e pela integral da curva.
+   - **Melton:** a rugosidade de Melton (1965), `amplitude / √área`, o índice que separa bacias de corrida de
+     detritos das de enxurrada.
+   - **Forma:** a razão de relevo (Schumm 1956, a amplitude sobre o comprimento da bacia, que é o caminho mais longo
+     da fase 1), a razão de alongamento (Schumm 1956), a circularidade (Miller 1953, `4πA/P²`), o fator de forma
+     (Horton 1932, `A/L²`) e o coeficiente de compacidade (Gravelius, `P / (2√(πA))`, muito usado no Brasil).
+   - **Rede, com `streams`:** o comprimento total, a densidade de drenagem e a frequência de canais (Horton 1945), a
+     ordem máxima, o comprimento e a declividade do canal principal, e as razões de Horton (bifurcação `Rb`,
+     comprimento `Rl` e área `Ra`, pela regressão do log contra a ordem, como o `r.stream.stats`).
+   - **A curva:** `hypsometric_curve(dem, basins, bins=100)` dá a curva de cada bacia como tabela (área relativa
+     acima de cada altura relativa), igual à `HypsometricAnalysis` do Whitebox.
+   - **O perímetro:** contado nas arestas das células, o mesmo valor que o polígono da bacia teria. Fica escrito no
+     docstring que ele cresce com a resolução.
+
+3. **Inundação pelo HAND.**
+   - `hand` passa a dar também o **trecho** de cada célula, o id do elo do `stream_links` em que a sua água chega à
+     rede, pela mesma descida que dá a altura. É o "catchment" do HAND por trecho, como no FIM do NOAA OWP.
+   - `inundation(hand, stage)`: a profundidade `stage - HAND` onde é positiva, o raster de extensão e uma tabela por
+     trecho (área inundada e volume). `stage` pode ser um número ou uma tabela por trecho; uma célula só inunda pelo
+     nível do seu próprio trecho, para a água não pular de bacia.
+   - `rating_curve(hand, reaches, dem, links, n=0.06, stages=0..20 m de 0,3 em 0,3)`: a curva-chave sintética de cada
+     trecho (Zheng et al. 2018; Aristizabal et al. 2023). Para cada nível `h`, a área da superfície alagada, a área do
+     leito (cada célula alagada vezes `√(1 + declividade²)`), o volume `Σ(h - HAND)·área da célula`, a seção `A = V/L`,
+     o perímetro molhado `P = leito/L`, o raio hidráulico `R = A/P` e a vazão de Manning
+     `Q = A·R^(2/3)·S^(1/2)/n`. `L` e `S` vêm do comprimento e do desnível do trecho, que entram na tabela do
+     `stream_links` se ainda não estiverem lá. `n` pode ser um por trecho.
+   - `inundation(hand, discharge=..., curve=...)`: a vazão de cada trecho (uma tabela, por exemplo a de um tempo de
+     retorno) vira o nível pela curva, interpolado linearmente, e o nível vira a mancha.
+   - Referências: casos analíticos (no vale em V de declividade conhecida, a seção e o Manning têm forma fechada) e
+     o script em numpy. A paridade com o código do OWP fica entre os pontos a decidir.
+
+4. **Fator LS.** `tf.erosion.ls_factor(dem, method=..., sca=None, max_length=None)`:
+   - Métodos: `"desmet_govers"` (1996, com o `m` de McCool 1989 pela razão sulco e entressulco `β`, e o `S` de McCool
+     1987), `"moore"` (Moore et al. 1991, Moore & Burch 1986), `"bohner_selige"` (2006) e `"invest"` (o do SDR, com os
+     expoentes por classe).
+   - `sca` dá uma área de contribuição própria; sem ela, a acumulação vem por MFD. Bit a bit com o *LS Factor* do SAGA
+     sobre a mesma `sca`, e com o InVEST no caso `"invest"`. O `r.watershed` do GRASS entra só como comparação, com
+     tolerância, porque ele calcula o próprio fluxo.
+   - O `services.sdr` passa a chamar esta função. Os seus números do InVEST não podem mudar (o teste existente).
+
+5. **RUSLE e os seus fatores** (`tf.erosion`, em unidades do SI: `A` em t ha⁻¹ ano⁻¹, `R` em MJ mm ha⁻¹ h⁻¹ ano⁻¹,
+   `K` em t ha h ha⁻¹ MJ⁻¹ mm⁻¹). Cada um é um raster, ou um número para o caso uniforme:
+   - `r_factor(precip, method=...)`, com a chuva mensal (uma pilha de 12) ou anual:
+     - pelo índice de Fournier modificado (Arnoldus 1980);
+     - por Renard & Freimund 1994 (a anual);
+     - por Lombardi Neto & Moldenhauer 1992 (`EI = 68,73·(p²/P)^0,841`, a mais usada no Brasil);
+     - pelos coeficientes do usuário (`a·MFI^b`).
+   - `k_factor(sand, silt, clay, organic_carbon, method=...)`:
+     - Williams 1995 (EPIC), o mesmo código da SWAT tirado para cá, com a SWAT conferida igual;
+     - Wischmeier & Smith 1978, a equação do nomograma, com a estrutura e a permeabilidade;
+     - Torri et al. 1997, só pela textura, bom para o SoilGrids.
+   - `c_factor(ndvi, method="van_der_knijff" | "durigon")`: van der Knijff et al. 2000 (`exp(-α·NDVI/(β - NDVI))`,
+     `α = 2`, `β = 1`) e Durigon et al. 2014 (`(1 - NDVI)/2`, para o Brasil). Para C por classe de uso continua o
+     `raster.reclassify` com a tabela do usuário. Nenhuma tabela de valores é inventada.
+   - `p_factor(slope, practice=...)`: a tabela de Wischmeier & Smith 1978 por declividade e prática (nível,
+     cultivo em faixas, terraços). Sem prática, `P = 1`.
+   - `rusle(R, K, LS, C, P)`: a perda `A = R·K·LS·C·P`, e uma tabela por zona (bacia, classe de uso) com `zones=`.
+   - Referências: o script em numpy com os exemplos resolvidos dos artigos, e a SWAT para o K de Williams.
+
+6. **A biblioteca fechada.** Os docstrings com as referências, o CHANGELOG (Unreleased) e o IDEAS da biblioteca. O
+   README só se houver uma seção de hidrologia a estender.
+
+### No Terraflux (a GUI), depois da biblioteca
+
+7. **Os operadores** (`crates/ls-sys/shim/shim.{h,cc}`, `src/lib.rs`, `crates/ops/src/hydro.rs` e um `erosion.rs`
+   novo). Testes em `crates/ops/tests/hydro.rs` e num `erosion.rs` novo, contra `tests/data/reference/basins.*` e
+   `erosion.*`, feitos por `tools/make_basins_reference.py` e `make_erosion_reference.py` com a biblioteca, bit a
+   bit:
+   - `hydro.stream_order`, `hydro.flow_length`, `hydro.longest_flowpath`;
+   - `hydro.watersheds` com a saída `polygons`;
+   - `hydro.basin_morphometry`, com as saídas `table` e `curve`;
+   - `hydro.hand` com a saída `reach`;
+   - `hydro.rating_curve` e `hydro.inundation`, com as saídas `depth`, `extent` e `table`;
+   - `erosion.ls_factor`, `erosion.r_factor`, `erosion.k_factor`, `erosion.c_factor`, `erosion.p_factor`,
+     `erosion.rusle`.
+
+   O `services.sdr` passa a usar o LS compartilhado.
+
+8. **O app em volta.** O mapa para o Python (`crates/app/src/python.rs`, `python/terrain.rs` e um `python/erosion.rs`
+   novo) e os textos de cada operador nas tips, nas phrases, no advice, no methods e no op_label; a família `erosion`
+   com o seu ícone e a sua cor (o bloco dos nós). Avisos do `check` que valem a pena:
+   - LS sem DEM projetado;
+   - RUSLE com unidades misturadas (um `R` em unidades americanas, cerca de 17 vezes menor);
+   - inundação com um `stage` maior que o maior nível da curva;
+   - Melton numa bacia de poucas células.
+
+   O tópico `hydrology` do guia do MCP ganha a morfometria, a mancha e a perda de solo, e o `erosion` vira parte
+   dele.
+
+9. **Três templates**, com dados do `nlm.*` para rodar como estão e prontos para o "Use my data":
+   - **Morfometria de bacias:** DEM → fill → acumulação → rede → ordem → bacias pelos exutórios → tabela e curvas
+     hipsométricas num Plot.
+   - **Mancha de inundação pelo HAND:** DEM → rede → HAND com os trechos → curva-chave → mancha para uma vazão, com
+     um cenário por tempo de retorno.
+   - **Perda de solo (RUSLE):** DEM → LS; chuva mensal → R; textura → K; NDVI → C; declividade → P → `A` e a média por
+     bacia.
+
+10. **O site.** Uma parte nova na série de tutoriais de hidrologia para cada template (com o "In Python" dentro, como
+    as outras), as páginas da API Python (`website/content/python/api/`, `python_api.json`), o CHANGELOG e as marcas
+    de **Feito** aqui. O `ops.json` é refeito na release.
+
+### Pontos a decidir no caminho
+
+- **O nome da família.** `erosion.*` para o LS e a RUSLE, e `hydro.*` para as bacias e a inundação (proposto), ou
+  tudo em `hydro.*`.
+- **A curva-chave.** Bit a bit com o código aberto do OWP (`NOAA-OWP/inundation-mapping`, a parte das propriedades
+  hidráulicas, portada) ou só as equações de Zheng et al. 2018 com os casos analíticos (proposto, e o OWP como
+  comparação com tolerância, se der para rodar a parte dele sem os seus dados nacionais).
+- **As equações do R.** Quais do Brasil entram além da de Lombardi Neto & Moldenhauer (há dezenas de equações
+  regionais; a proposta é deixá-las como coeficientes do usuário, com as mais citadas como predefinições).
+
+### Andamento
+
+- Plano aprovado (2026-11-23) com as três propostas dos pontos a decidir: `erosion.*`; a curva-chave pelas equações
+  de Zheng et al. 2018 (o OWP só como comparação); o R por Lombardi Neto & Moldenhauer, Fournier modificado e Renard &
+  Freimund, mais os coeficientes do usuário. Todo cálculo por célula em C++ na biblioteca. Implementação adiada a
+  pedido do usuário (2026-11-23): nada começado.
+
 ## Análise espacial de vetores como no PostGIS: predicados, vizinho mais próximo, sobreposição e geometria (pedido de 2026-11-23)
 
 O usuário: "o terraflux possui opções de fazer análise espacial com vetores com within, union, etc como no
