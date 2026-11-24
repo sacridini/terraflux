@@ -9,8 +9,14 @@ abstract: >-
 authors:
   - family-names: Lacerda
     given-names: Eduardo
-version: 1.52.0
-date-released: 2026-11-15
+    orcid: "https://orcid.org/0000-0003-3803-5842"
+version: 1.67.0
+date-released: 2026-11-24
+doi: 10.5281/zenodo.24515275
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24515275
+    description: "The concept DOI of Terraflux on Zenodo: it resolves to the latest version, and each version has its own DOI."
 license: GPL-3.0-or-later
 repository-code: "https://github.com/sacridini/terraflux"
 url: "https://sacridini.github.io/terraflux/"

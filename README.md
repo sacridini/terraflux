@@ -12,7 +12,8 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"></a>
-  <img alt="Version 0.80" src="https://img.shields.io/badge/version-0.80-orange">
+  <a href="https://github.com/sacridini/terraflux/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/sacridini/terraflux?color=orange"></a>
+  <a href="https://doi.org/10.5281/zenodo.24515275"><img alt="DOI 10.5281/zenodo.24515275" src="https://zenodo.org/badge/DOI/10.5281/zenodo.24515275.svg"></a>
   <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-b7410e?logo=rust">
   <img alt="Windows, macOS, Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey">
 </p>

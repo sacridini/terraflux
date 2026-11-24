@@ -14,7 +14,7 @@ credit to the people who created the methods.
 Cite the version you used (`terraflux --version` prints it):
 
 > Lacerda, E. (2026). *Terraflux: landscape ecology and land change modelling from a laptop to a cluster*
-> (Version {{version}}) [Computer software]. https://github.com/sacridini/terraflux
+> (Version {{version}}) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.24515275
 
 ```bibtex
 @software{terraflux,
@@ -22,10 +22,17 @@ Cite the version you used (`terraflux --version` prints it):
   title   = {Terraflux: landscape ecology and land change modelling from a laptop to a cluster},
   version = {{{version}}},
   year    = {2026},
+  publisher = {Zenodo},
+  doi     = {10.5281/zenodo.24515275},
   url     = {https://github.com/sacridini/terraflux},
   license = {GPL-3.0-or-later}
 }
 ```
+
+Every release is archived on [Zenodo](https://doi.org/10.5281/zenodo.24515275). The DOI above,
+`10.5281/zenodo.24515275`, stands for Terraflux as a whole and always resolves to the latest version; each version
+also has a DOI of its own, listed on the Zenodo page under **Versions**, for when a paper must point to the exact
+release it used.
 
 The repository has a `CITATION.cff` file, which GitHub reads: the **Cite this repository** button on the
 repository's page gives the reference in APA and BibTeX, and reference managers such as Zotero read the file too.
