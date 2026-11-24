@@ -36614,7 +36614,7 @@
  },
  {
   "name": "vector.nearest",
-  "doc": "Each feature joined to the nearest feature of another layer, as geopandas' sjoin_nearest, QGIS's Join Attributes by Nearest and PostGIS's ORDER BY a.geom <-> b.geom LIMIT 1 (GEOS's distance, through a spatial index): it takes that feature's attributes and `distance` (map units, 0 where they meet); a tie goes to the first feature of the other layer. None within `max_distance`: no values and a NaN distance. The other layer is reprojected to the first's.",
+  "doc": "Each feature joined to the nearest feature of another layer, as geopandas' sjoin_nearest, QGIS's Join Attributes by Nearest and PostGIS's ORDER BY a.geom <-> b.geom LIMIT k (GEOS's distance, through a spatial index): it takes that feature's attributes and `distance` (map units, 0 where they meet); a tie goes to the first feature of the other layer. None within `max_distance`: no values and a NaN distance. The other layer is reprojected to the first's. With `k` above 1 it gives the k nearest, one row per pair, in the order of the features and then by `rank` (1..k; fewer rows when the other layer has fewer features or `max_distance` cuts them; a feature with no neighbour keeps one row with a missing rank). Without `other` the layer is its own: a feature is never its own neighbour (by its place in the layer, so a duplicate at distance 0 counts), all the neighbour's columns take the suffix, and `k` 1 is FRAGSTATS's ENN, the distance between a patch and the nearest of its layer.",
   "inputs": [
    {
     "name": "vector",
@@ -36625,8 +36625,8 @@
    {
     "name": "other",
     "type": "vector",
-    "required": true,
-    "doc": "the features to find the nearest of"
+    "required": false,
+    "doc": "the features to find the nearest of (none: the same layer, apart from itself)"
    }
   ],
   "outputs": [
@@ -36651,6 +36651,12 @@
     "doc": "the farthest a feature may be (map units; none: any)"
    },
    {
+    "name": "k",
+    "type": "integer",
+    "required": false,
+    "doc": "how many nearest features of the other layer (1; 2 or more adds the column rank)"
+   },
+   {
     "name": "suffix",
     "type": "text",
     "required": false,
@@ -36659,7 +36665,7 @@
   ],
   "access": "none",
   "container": false,
-  "advice": "The distance is in the layers' units: reproject both to a metric coordinate system first, as degrees give distances that are not metres. A feature that meets one of the other layer has distance 0. Give `max_distance` to leave without values those with nothing near."
+  "advice": "The distance is in the layers' units: reproject both to a metric coordinate system first, as degrees give distances that are not metres. A feature that meets one of the other layer has distance 0. Give `max_distance` to leave without values those with nothing near. `k` above 1 gives the k nearest, one row each with its `rank`. Leave `other` unconnected for the distances between the features of one layer (the patches' nearest neighbour, FRAGSTATS's ENN): none is its own neighbour."
  },
  {
   "name": "vector.overlay",
@@ -37096,6 +37102,55 @@
   "advice": "`within` keeps the features inside the other layer's (a point on a border is not within, but it is covered_by); `intersects` also keeps those that only touch. Distances (`dwithin`) are in the layers' units: reproject to a metric coordinate system first, not degrees."
  },
  {
+  "name": "vector.shape",
+  "doc": "Shape descriptors of each polygon or multipolygon (the library's tf.vector.shape; PostGIS's ST_MaximumInscribedCircle, ST_MinimumBoundingCircle and ST_OrientedEnvelope; FRAGSTATS's CIRCLE), as new columns in the units of the layer: `inscribed_radius` (the radius of the maximum inscribed circle, the patch's depth: how far its most interior point is from the edge), `bounding_radius` (of the minimum bounding circle), `circle` (1 - area / (pi r^2) of the bounding circle: 0 for a circle, near 1 for a long thin patch), `rect_length` and `rect_width` (the sides of the minimum rotated rectangle), `elongation` (1 - width / length: 0 for a square, near 1 for an elongated patch) and `orientation` (the long side's direction in degrees clockwise from north, 0 up to 180). An empty feature gives NaN everywhere; points and lines are refused. A name the layer already has gets `_2`. `tolerance` stops the search of the inscribed circle (default: the larger side of each feature's envelope over 1000). `geometry` sets what the features become: the feature itself, the `inscribed` circle (a polygon of 8 segments a quadrant), the `bounding` circle or the `rectangle`.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the features with their shape columns"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [
+   {
+    "name": "tolerance",
+    "type": "number",
+    "required": false,
+    "doc": "the inscribed circle's search tolerance, in the layer's units (the envelope's larger side / 1000)"
+   },
+   {
+    "name": "geometry",
+    "type": "text",
+    "required": false,
+    "doc": "what the geometry becomes (feature)",
+    "choices": [
+     "feature",
+     "inscribed",
+     "bounding",
+     "rectangle"
+    ]
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "`inscribed_radius` is the patch's depth: how far its most interior point is from the edge, so compare it with an edge-effect depth (a patch whose radius is below it is all edge). `circle` is FRAGSTATS's CIRCLE (0 for a circle, near 1 for a long thin patch); `elongation` and `orientation` come from the minimum rotated rectangle (orientation in degrees clockwise from north, 0 up to 180). Reproject to a projected coordinate system first: the columns are in the layer's units, and degrees make no sense for a distance. Set `geometry` = inscribed to draw the circle and see the core."
+ },
+ {
   "name": "vector.shortest_line",
   "doc": "The line from each feature to the nearest feature of another layer (PostGIS's ST_ShortestLine, QGIS's Shortest line between features): GEOS's nearest points of the two, the first of them on the feature. Each keeps its attributes and takes those of the other feature (a name the first has gets `suffix`) and `distance`; the first feature on a tie. An empty feature, or an empty other layer, gives an empty line and no values. The other layer is reprojected to the first's.",
   "inputs": [
@@ -37308,6 +37363,42 @@
   "access": "none",
   "container": false,
   "advice": "Each feature takes the attributes of the first feature of the other layer it meets: a point on borders or overlaps gets one of them only (`mode` all gives a feature for each pair). To count what falls in each polygon (the points in each) use `summary`, which gives the count and the sum and mean of `fields`."
+ },
+ {
+  "name": "vector.split",
+  "doc": "Each polygon or line cut by the lines of another layer, one feature per piece (PostGIS's ST_Split, QGIS's Split with lines; the library's tf.vector.split). The blades are lines, or polygons (a polygon gives its boundary); points raise an error. For each feature the blade is the union of the blades that intersect it. A polygon is cut as shapely's split does: the faces polygonized from the union of its boundary and the blade, those within the polygon (a multipolygon part by part; holes are kept). A line is cut at its crossings with the blade (a stretch along the blade is removed). A feature that is not cut stays as it is, one feature (a blade that only dangles inside, or touches it from outside; a multi-part feature none of whose parts is cut). Each piece keeps the attributes and takes `part` (1 the largest by area, or by length for lines; on a tie the higher, then the more western point on surface) and `parts` (how many pieces the feature gave); a name the layer already has gets `_2`. Empty features stay as one piece. Rows follow the layer, then `part`. The blades are reprojected to the first layer's coordinate system.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons or lines to cut"
+   },
+   {
+    "name": "lines",
+    "type": "vector",
+    "required": true,
+    "doc": "the lines (or polygons, their boundaries) that cut"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the pieces, with part and parts"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes"
+   }
+  ],
+  "params": [],
+  "access": "none",
+  "container": false,
+  "advice": "Cuts each feature by the blades that intersect it, so give the layer of roads, rivers or fences as `lines` (a polygon layer works too: its boundaries cut). A blade that only touches a polygon from outside, or ends inside it, cuts nothing, and the feature stays as it is with `parts` 1; a blade has to cross the polygon from edge to edge. `part` 1 is the largest piece (by area, by length for lines), so keep `part` = 1 to take the main piece of each feature, and measure the pieces again afterwards (vector.geometry): the attributes are copied, not recalculated. Points are refused; reproject to a projected system first if the lines are in degrees."
  },
  {
   "name": "vector.split_lines",
