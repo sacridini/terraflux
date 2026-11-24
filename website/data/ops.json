@@ -35776,8 +35776,45 @@
   "advice": "`distance` is in the layer's units: reproject to a metric coordinate system first, as 50 degrees would join everything. `min_points` 1 groups the features that chain within the distance, with no noise; raise it (4 to 5 is usual) to leave isolated features as -1, noise, and to cut thin bridges between groups. The column is a number: -1 is noise."
  },
  {
+  "name": "vector.coverage_node",
+  "doc": "The polygons with the vertices they share with their neighbours: every vertex of another feature that lies on an edge of a polygon is added to that edge, so that shared edges match vertex for vertex and the layer is a valid coverage for vector.coverage_validate and vector.coverage_simplify. The polygons of vector.polygonize need it: where two patches meet the straight edge of a third, that edge has no vertex. Nothing else changes (the features, their order and attributes, every ring's start and the vertices already there), and a column `added` counts the vertices each feature gained; overlaps and gaps stay. A vertex is added when it lies on the segment strictly between its ends: exactly on it by default (coordinates on a grid), or within `tolerance` (in the layer's units, for coordinates that went through a reprojection). Like PostGIS's ST_Snap that only adds vertices, or QGIS's Snap geometries to layer inserting extra vertices.",
+  "inputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "vector",
+    "type": "vector",
+    "required": true,
+    "doc": "the polygons with the shared vertices"
+   },
+   {
+    "name": "table",
+    "type": "table",
+    "required": true,
+    "doc": "their attributes and added"
+   }
+  ],
+  "params": [
+   {
+    "name": "tolerance",
+    "type": "number",
+    "required": false,
+    "doc": "how far a neighbour's vertex may be from the edge, in the layer's units (0: exactly on it)"
+   }
+  ],
+  "access": "none",
+  "container": false,
+  "advice": "Run it on the polygons of vector.polygonize before vector.coverage_simplify: they meet their neighbours without sharing the vertices there, and GEOS does not take them for a coverage. Keep the default tolerance of 0 for polygons made from a raster (their corners are exactly on the edges); a small one (a millimetre or so) only for a layer that was reprojected. It adds vertices and nothing else: overlaps and gaps stay, so check the result with vector.coverage_validate."
+ },
+ {
   "name": "vector.coverage_simplify",
-  "doc": "The polygons of a coverage simplified together with Visvalingam-Whyatt (GEOS 3.12's, as PostGIS's ST_CoverageSimplify and QGIS's Simplify coverage): neighbours keep sharing their edges, so no gap or overlap opens, which simplifying each polygon alone (vector.simplify) cannot promise. The layer must be polygons that form a valid coverage (see vector.coverage_validate). `tolerance` is in the layer's units; with `preserve_boundary` the outer boundary of the coverage is left as it is and only the edges between polygons are simplified. The attributes are kept.",
+  "doc": "The polygons of a coverage simplified together with Visvalingam-Whyatt (GEOS 3.12's, as PostGIS's ST_CoverageSimplify and QGIS's Simplify coverage): neighbours keep sharing their edges, so no gap or overlap opens, which simplifying each polygon alone (vector.simplify) cannot promise. The layer must be polygons that form a valid coverage (see vector.coverage_validate; vector.coverage_node adds the shared vertices that the polygons of vector.polygonize lack). `tolerance` is in the layer's units; with `preserve_boundary` the outer boundary of the coverage is left as it is and only the edges between polygons are simplified. The attributes are kept.",
   "inputs": [
    {
     "name": "vector",
@@ -35816,7 +35853,7 @@
   ],
   "access": "none",
   "container": false,
-  "advice": "Do not use vector.simplify on a coverage (parcels, districts): it simplifies every polygon alone, so neighbours stop fitting and slivers and overlaps open along their shared edges. This simplifies the shared edges once for both, but only where they match vertex for vertex: check the layer with vector.coverage_validate first. The polygons of vector.polygonize usually fail it (a corner of one polygon lies on a straight edge of its neighbour, without a vertex there). Give `preserve_boundary` to keep the outline of the whole area, and a tolerance in metres (reproject first)."
+  "advice": "Do not use vector.simplify on a coverage (parcels, districts): it simplifies every polygon alone, so neighbours stop fitting and slivers and overlaps open along their shared edges. This simplifies the shared edges once for both, but only where they match vertex for vertex: check the layer with vector.coverage_validate first. The polygons of vector.polygonize usually fail it (a corner of one polygon lies on a straight edge of its neighbour, without a vertex there): put vector.coverage_node between them. Give `preserve_boundary` to keep the outline of the whole area, and a tolerance in metres (reproject first)."
  },
  {
   "name": "vector.coverage_validate",
@@ -35853,7 +35890,7 @@
   ],
   "access": "none",
   "container": false,
-  "advice": "Valid coverage means no overlaps and shared edges that match vertex for vertex. Keep the features with `valid` 0 to see where the problems are (their geometry is the invalid edges); `gap_width` (in the layer's units) also flags slivers narrower than that. Fix them before vector.coverage_simplify."
+  "advice": "Valid coverage means no overlaps and shared edges that match vertex for vertex. Keep the features with `valid` 0 to see where the problems are (their geometry is the invalid edges); `gap_width` (in the layer's units) also flags slivers narrower than that. Fix them before vector.coverage_simplify; edges that fail only for want of a vertex (the polygons of vector.polygonize) are fixed by vector.coverage_node."
  },
  {
   "name": "vector.delaunay",
