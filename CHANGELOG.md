@@ -7,6 +7,8 @@ version.
 
 ## [Unreleased]
 
+## [1.65.0] - 2026-11-24
+
 ### Added
 - **`vector.coverage_node`: the vertices that polygons share with their neighbours** (`crates/ops/src/vector_cover.rs`, `crates/app/src/python.rs`): every vertex of another feature that lies on an edge of a polygon, strictly between its ends, is added to that edge (exactly on it by default; within `tolerance`, in the layer's units, for a layer that was reprojected), so that the polygons of `vector.polygonize`, whose straight edges have no vertex where two neighbours meet them, become a valid coverage for `vector.coverage_validate` and `vector.coverage_simplify`. The features, their order, attributes, rings and vertices are kept, and a column `added` counts the new vertices. Bit for bit with terraflux-py's `tf.vector.coverage_node` (the exported Python calls it), checked against its reference in `tests/data/reference/vector_cover.json`; its tips, phrase and label, in the Builder's Vector geometry subject and the MCP guide. The tutorial *Shapes, lines, Voronoi cells and clusters* nodes its polygonized patches with it instead of three lines of shapely.
 
