@@ -268,10 +268,10 @@ print(v.locate(trees, road)[["tree", "line", "measure", "distance"]].to_string()
 3   R1     30.0
 ['LINESTRING (7.5 0, 22.5 0)']
    tree  line  measure  distance
-0     1     0       5.0       5.0
-1     2     0      10.0       5.0
-2     3     0      25.0       5.0
-3     4     0      15.0       5.0
+0     1     0      5.0       5.0
+1     2     0     10.0       5.0
+2     3     0     25.0       5.0
+3     4     0     15.0       5.0
 ```
 
 ::: terraflux.vector.points_along
