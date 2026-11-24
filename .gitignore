@@ -7,3 +7,6 @@ Thumbs.db
 .vscode/
 .idea/
 .terraflux/
+
+# The manuscript and its data, kept out of the repository
+paper/
