@@ -13114,9 +13114,21 @@
     "type": "table",
     "required": false,
     "doc": "with fold or cv, for classes: the confusion matrix of all the folds' predictions, a row per predicted class and a column per reference class, as objects.accuracy's matrix"
+   },
+   {
+    "name": "oob",
+    "type": "table",
+    "required": false,
+    "doc": "with oob: the out-of-bag error, a row with n, then the same scores as cv (accuracy, kappa, macro F1 and f1_<class> for classes; RMSE, MAE and R2 for values)"
    }
   ],
   "params": [
+   {
+    "name": "oob",
+    "type": "bool",
+    "required": false,
+    "doc": "random_forest with bootstrap: the out-of-bag error, each record predicted by the trees that did not draw it (scikit-learn's oob_score); not spatial, so optimistic for neighbouring records as random folds are (default false)"
+   },
    {
     "name": "column",
     "type": "text",
@@ -20456,7 +20468,7 @@
  },
  {
   "name": "objects.samples",
-  "doc": "Training samples of objects: points or polygons with a class pick the objects under them. A point gives the object of its cell; a polygon gives every object with at least half of its cells inside it (a cell is inside when its centre is). An object picked with two different classes is left out, and so are points outside every object, with a warning. The training table (class, then the numeric attributes of the objects; a row per sampled object, in id order, the `objects` output marks them) goes to ml.fit with column = class (every other column is then a predictor, no id among them). Classes are numbered by their names in alphabetical order, so a model fitted on the table has the codes 1.. of that order.",
+  "doc": "Training samples of objects: points or polygons with a class pick the objects under them. A point gives the object of its cell; a polygon gives every object with at least half of its cells inside it (a cell is inside when its centre is). An object picked with two different classes is left out, and so are points outside every object, with a warning. The training table (class, then the numeric attributes of the objects; a row per sampled object, in id order, the `objects` output marks them) goes to ml.fit with column = class (every other column is then a predictor, no id among them). Classes are numbered by their names in alphabetical order, so a model fitted on the table has the codes 1.. of that order. Instead of samples, `map` (an older classification, a land-cover map) gives them: each object takes the class of most of its cells with a value in the map, when that class covers `purity` of those cells and at least half of the object's cells have a value; the objects not pure enough are left out. The classes take the map's legend names, else their numbers.",
   "inputs": [
    {
     "name": "objects",
@@ -20467,8 +20479,14 @@
    {
     "name": "samples",
     "type": "vector",
-    "required": true,
-    "doc": "points or polygons with a class, in any coordinate system"
+    "required": false,
+    "doc": "points or polygons with a class, in any coordinate system (this or `map`)"
+   },
+   {
+    "name": "map",
+    "type": "map",
+    "required": false,
+    "doc": "or a map of classes (an older classification, a land-cover map) on the objects' grid: each object takes the class of most of its cells, when it covers `purity` of the object"
    }
   ],
   "outputs": [
@@ -20497,11 +20515,35 @@
     "type": "text",
     "required": false,
     "doc": "the samples' attribute holding the class, text or numbers (default class)"
+   },
+   {
+    "name": "purity",
+    "type": "number",
+    "required": false,
+    "doc": "with `map`: the share of the object's cells with a value in the map that its majority class must cover, above 0 to 1 (default 0.9); cells without a value do not count, but at least half of the object's cells must have one"
+   },
+   {
+    "name": "classes",
+    "type": "any",
+    "required": false,
+    "doc": "with `map`: the classes that give samples (default: all)"
+   },
+   {
+    "name": "per_class",
+    "type": "integer",
+    "required": false,
+    "doc": "with `map`: at most this many objects of each class, drawn at random (default: all the pure objects)"
+   },
+   {
+    "name": "seed",
+    "type": "integer",
+    "required": false,
+    "doc": "with `per_class`: the seed of the draw (default 1)"
    }
   ],
   "access": "global",
   "container": false,
-  "advice": "Give at least 10 objects per class (a few points or small polygons on each class, over its different looks): a point picks its object, a polygon every object it covers by half. Objects with samples of two classes are left out, so draw the samples inside one object. Fit the table with `column` = class: every other column is a predictor (the table has no id)."
+  "advice": "Give at least 10 objects per class (a few points or small polygons on each class, over its different looks): a point picks its object, a polygon every object it covers by half. Objects with samples of two classes are left out, so draw the samples inside one object. Fit the table with `column` = class: every other column is a predictor (the table has no id). With an older map of classes (`map`) the objects that are pure (`purity`, 0.9) take its class and its errors become the training's: keep `purity` high, `classes` to the ones you trust and `per_class` to balance the classes."
  },
  {
   "name": "objects.series",
@@ -20787,7 +20829,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "For crowns, buildings, cells and mounds that were segmented as one object. by distance cuts at the necks: a centre must stand `h` (default one cell) above the saddle that joins it to a higher one, so raise `h` if round objects split and lower it if a pinched one does not. by surface floods a map instead (a canopy height model, the brightness: smooth it with `sigma` first when it is noisy) and `invert` is for dark centres. `max_neck` keeps the objects whose parts are joined by a wide neck (a cut longer than max_neck times the smaller piece's width is undone: 0.5 to 1 is usual), `min_size` sends the crumbs back to a neighbour piece, and `classes` limits it to the objects of some classes. The pieces keep the class; the level above and the other attributes are dropped, so run objects.features after it."
+  "advice": "For crowns, buildings, cells and mounds that were segmented as one object. by distance cuts at the necks: a centre must stand `h` (default one cell) above the saddle that joins it to a higher one, so raise `h` if round objects split and lower it if a pinched one does not. by surface floods a map instead (a canopy height model, the brightness: smooth it with `sigma` first when it is noisy) and `invert` is for dark centres. `max_neck` keeps the objects whose parts are joined by a wide neck (a cut longer than max_neck times the smaller piece's width is undone: 0.5 to 1 is usual), `min_size` sends the crumbs back to a neighbour piece, and `classes` limits it to the objects of some classes. The pieces keep the class; the level above and the other attributes are dropped, so run objects.features after it. `min_size` and `sigma` are in cells: after resampling the image, choose them again."
  },
  {
   "name": "objects.temporal",
@@ -29483,7 +29525,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. For objects that follow what the image holds, use segment.quadtree or segment.from_map. `bounds` (a map, vectors such as parcels, or objects) cuts the squares where they cross a zone."
+  "advice": "The simplest segmentation, with no regard to the image: use it for a first level above finer objects, to test a rule set, or to give the scale of a sampling grid. `size` is in cells: 1 gives a cell per object. For objects that follow what the image holds, use segment.quadtree or segment.from_map. `bounds` (a map, vectors such as parcels, or objects) cuts the squares where they cross a zone. A change of the image's cell size changes what `size` makes: choose it again after resampling."
  },
  {
   "name": "segment.evaluate",
@@ -29603,7 +29645,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "`k` sets how large the segments grow, in the units of the bands (standard deviations by default): raise it for larger segments; `min_size` joins the smallest ones. It makes segments of very different sizes, from a graph of the cells' differences, which suits irregular scenes and less a fixed scale: for a scale you control, use segment.multiresolution. `bounds` (a map, vectors such as parcels, or objects) leaves out the graph's edges between zones, so no segment crosses one."
+  "advice": "`k` sets how large the segments grow, in the units of the bands (standard deviations by default): raise it for larger segments; `min_size` joins the smallest ones. It makes segments of very different sizes, from a graph of the cells' differences, which suits irregular scenes and less a fixed scale: for a scale you control, use segment.multiresolution. `bounds` (a map, vectors such as parcels, or objects) leaves out the graph's edges between zones, so no segment crosses one. `sigma` and `min_size` are in cells: after resampling the image, choose them again."
  },
  {
   "name": "segment.from_map",
@@ -29763,7 +29805,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "It is the slowest of the segmenters: its cost grows with the square of `spatial_radius` and with the cells, so try it on a part of the image first. `range_radius` (in standard deviations when the bands are standardised) sets how different cells may be and still be one object; `min_size` removes the specks. `bounds` cuts the regions where they cross a zone."
+  "advice": "It is the slowest of the segmenters: its cost grows with the square of `spatial_radius` and with the cells, so try it on a part of the image first. `range_radius` (in standard deviations when the bands are standardised) sets how different cells may be and still be one object; `min_size` removes the specks. `spatial_radius` and `min_size` are in cells: after resampling the image, choose them again. `bounds` cuts the regions where they cross a zone."
  },
  {
   "name": "segment.multiresolution",
@@ -29878,7 +29920,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "The scale is in the image's units (the same scale gives other objects on reflectance 0-1 than on 0-10000), so find it with segment.scale, which suggests scales from the image, then look at the objects in the Viewer and raise or lower it. shape 0.1 and compactness 0.5 are eCognition's usual start: more shape gives smoother, more compact objects at the cost of following the colour. For a hierarchy, connect a level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the first one makes the run faster than starting from single cells. Weights tell the bands apart (0 leaves one out of the colour). `bounds` (a map, vectors such as parcels, or objects) keeps every object inside one zone; with `from`, the objects of the level below are cut by the zones first."
+  "advice": "The scale is in the image's units (the same scale gives other objects on reflectance 0-1 than on 0-10000), so find it with segment.scale, which suggests scales from the image, then look at the objects in the Viewer and raise or lower it. shape 0.1 and compactness 0.5 are eCognition's usual start: more shape gives smoother, more compact objects at the cost of following the colour. For a hierarchy, connect a level to `from` of the next with a higher scale; a superpixel level (segment.slic, segment.snic) as the first one makes the run faster than starting from single cells. Weights tell the bands apart (0 leaves one out of the colour). `bounds` (a map, vectors such as parcels, or objects) keeps every object inside one zone; with `from`, the objects of the level below are cut by the zones first. The scale is tied to the cell size too (the cost grows with the cells an object has): when the image is resampled, choose it again."
  },
  {
   "name": "segment.optimize",
@@ -30043,7 +30085,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Squares as small as the image needs: big where it is even, small at its edges. `threshold` is in the image's units (a range inside a square, any band): start from a tenth of the image's range and lower it until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses every band, so give it the bands that tell the classes apart. `bounds` cuts the squares where they cross a zone."
+  "advice": "Squares as small as the image needs: big where it is even, small at its edges. `threshold` is in the image's units (a range inside a square, any band): start from a tenth of the image's range and lower it until the objects follow the edges you want; `min_size` stops the splitting at a few cells. A stack uses every band, so give it the bands that tell the classes apart. `bounds` cuts the squares where they cross a zone. `min_size` is in cells: after resampling the image, choose it again."
  },
  {
   "name": "segment.quickshift",
@@ -30110,7 +30152,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Quick shift finds the modes of a density over position and colour, so it needs no count of objects: `kernel_size` (cells) and `max_dist` set how far apart the objects are, `ratio` how much colour counts against position (the bands are standardised, so one standard deviation counts as `ratio` cells: 5 to 30 is the usual range). The cost is about (6 x kernel_size) squared exponentials per cell, so keep `kernel_size` small on a large image. The objects are always connected: a mode's area that its links leave in pieces is split. `bounds` cuts the segments where they cross a zone."
+  "advice": "Quick shift finds the modes of a density over position and colour, so it needs no count of objects: `kernel_size` (cells) and `max_dist` set how far apart the objects are, `ratio` how much colour counts against position (the bands are standardised, so one standard deviation counts as `ratio` cells: 5 to 30 is the usual range). The cost is about (6 x kernel_size) squared exponentials per cell, so keep `kernel_size` small on a large image. The objects are always connected: a mode's area that its links leave in pieces is split. `kernel_size` and `sigma` are in cells: after resampling the image, choose them again. `bounds` cuts the segments where they cross a zone."
  },
  {
   "name": "segment.region_growing",
@@ -30413,7 +30455,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "ESP runs the segmentation at 30 scales on the central `window` of the image (512 x 512 cells by default) so it stays fast on large images: the scales hold for the whole image, but choose a window that holds the objects you want, or 0 for all of it. The peaks of the ROC are guides: open the chart of the table, try the suggested scales in segment.multiresolution and look at the objects. Give `start` and `step` to look closer at a range of scales."
+  "advice": "ESP runs the segmentation at 30 scales on the central `window` of the image (512 x 512 cells by default) so it stays fast on large images: the scales hold for the whole image, but choose a window that holds the objects you want, or 0 for all of it. The peaks of the ROC are guides: open the chart of the table, try the suggested scales in segment.multiresolution and look at the objects. Give `start` and `step` to look closer at a range of scales. The scales depend on the cell size: run it again after resampling the image."
  },
  {
   "name": "segment.slic",
@@ -30480,7 +30522,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Superpixels are many small, regular objects: use them as the first level of segment.multiresolution (`from`), or as the cells of a classification, not as the final objects. `size` sets their side in cells and `compactness` their regularity (higher: more regular; lower: closer to the edges). `bounds` (a map, vectors such as parcels, or objects) cuts the superpixels where they cross a zone."
+  "advice": "Superpixels are many small, regular objects: use them as the first level of segment.multiresolution (`from`), or as the cells of a classification, not as the final objects. `size` sets their side in cells and `compactness` their regularity (higher: more regular; lower: closer to the edges); `size` is in cells, so after resampling the image choose it again. `bounds` (a map, vectors such as parcels, or objects) cuts the superpixels where they cross a zone."
  },
  {
   "name": "segment.snic",
@@ -30541,7 +30583,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution (`from`), or as the cells of a classification. `bounds` cuts the superpixels where they cross a zone."
+  "advice": "As segment.slic, and no iterations: it grows the superpixels from their seeds in one pass, so it is faster and needs no tuning of `iterations`. Use the superpixels as the first level of segment.multiresolution (`from`), or as the cells of a classification. `size` is in cells: after resampling the image, choose it again. `bounds` cuts the superpixels where they cross a zone."
  },
  {
   "name": "segment.spectral_difference",
@@ -30750,7 +30792,7 @@
   ],
   "access": "global",
   "container": false,
-  "advice": "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of the trees or the buildings, a classification's cores) every object has one marker, which is the way to control what it finds. `bounds` cuts the basins where they cross a zone."
+  "advice": "Without markers the basins are the minima of the gradient, so many on a noisy image: raise `sigma` (the smoothing) or `h` until they are about the objects you want. With markers (a map of seeds, the centres of the trees or the buildings, a classification's cores) every object has one marker, which is the way to control what it finds. `sigma` is in cells: after resampling the image, choose it again. `bounds` cuts the basins where they cross a zone."
  },
  {
   "name": "sensitivity.analyze",
