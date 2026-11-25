@@ -7,6 +7,8 @@ version.
 
 ## [Unreleased]
 
+## [1.69.0] - 2026-11-25
+
 ### Added
 - **Shortcuts of the spatial predicates in the searches** (`crates/app/src/op_presets.rs`, `crates/app/src/builder.rs`, `crates/app/src/commands.rs`, `crates/app/src/app.rs`): typing in the quick add (`/`), the Operators pane's search or the commands (Ctrl+K) offers *Within*, *Contains*, *Intersects*, *Touches*, *Disjoint*, *Covered by*, *Within a distance* (`vector.select_by_location` with its `predicate` set) and *Count points in polygons* (`vector.spatial_join` in `summary` mode), before the operators; each adds a node of the operator with its settings filled, so there is no operator of its own to learn. The row shows the family's icon, the shortcut's name and its operator.
 - **The searches find operators by other words, without accents** (`crates/app/src/search.rs`, `crates/app/src/builder.rs`, `crates/app/src/commands.rs`, `crates/app/src/tools.rs`): words an operator's documentation lacks (`dentro`, `localização`, `sjoin`, `ST_Within`, `extract by location`, `vizinho mais próximo`...) find `vector.select_by_location`, `vector.spatial_join` and `vector.nearest` in the quick add, the Operators pane, the commands and the MCP's `list_operators`, ranked before the operators whose description only mentions them; every search ignores accents.
