@@ -4,8 +4,9 @@ type: software
 title: "Terraflux: landscape ecology and land change modelling from a laptop to a cluster"
 abstract: >-
   Terraflux is a free, open-source desktop application and command line for landscape ecology: habitat patterns,
-  landscape metrics, connectivity, spatial prioritization, species distributions and land use change simulation,
-  with the same results as the reference tools, from a laptop to a cluster.
+  landscape metrics, connectivity, spatial prioritization, species distributions, animal movement, object-based
+  image analysis and land use change simulation, with the same results as the reference tools, from a laptop to a
+  cluster.
 authors:
   - family-names: Lacerda
     given-names: Eduardo
@@ -29,3 +30,5 @@ keywords:
   - species distribution modelling
   - spatial prioritization
   - raster analysis
+  - object-based image analysis
+  - animal movement

@@ -6,8 +6,16 @@
 </p>
 
 <p align="center">
-  <strong>Landscape ecology, conservation planning and land change simulation in one open-source application.</strong><br>
+  <strong>Landscape ecology, conservation planning, image objects and land change simulation in one open-source application.</strong><br>
   Built on the methods of the reference tools, from a laptop to a cluster.
+</p>
+
+<p align="center">
+  <a href="https://sacridini.github.io/terraflux/"><strong>Website</strong></a> ·
+  <a href="https://sacridini.github.io/terraflux/quickstart/">Quickstart</a> ·
+  <a href="https://sacridini.github.io/terraflux/tutorials/">Tutorials</a> ·
+  <a href="https://github.com/sacridini/terraflux/releases/latest">Download</a> ·
+  <a href="https://github.com/sacridini/terraflux-py">Python library</a>
 </p>
 
 <p align="center">
@@ -22,8 +30,10 @@
   <a href="#features">Features</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#the-application">The application</a> ·
   <a href="#scaling-up">Scaling up</a> ·
   <a href="#documentation">Documentation</a> ·
+  <a href="#citing-terraflux">Citing</a> ·
   <a href="#building-from-source">Building</a>
 </p>
 
@@ -32,11 +42,10 @@
 </p>
 
 Terraflux is a native desktop application and command line for spatial ecology. Habitat patterns, landscape
-metrics, connectivity, spatial prioritization, restoration planning, species distributions and land use change
-are operators in one visual model builder: connect them node by node, and every result shows as soon as the
-graph changes. The same model runs unchanged from the command line, on a workstation (never on every core: a
-quarter is always left free), on the computers of a local network or on a Slurm cluster, and on maps larger than
-memory.
+metrics, connectivity, spatial prioritization, restoration planning, species distributions, animal movement,
+object-based image analysis and land use change are operators in one visual model builder: connect them node by
+node, and every result shows as soon as the graph changes. The same model runs unchanged from the command line,
+on a workstation, on the computers of a local network or on a Slurm cluster, and on maps larger than memory.
 
 ## Why Terraflux
 
@@ -44,13 +53,14 @@ memory.
   results to the bit: GuidosToolbox, landscapemetrics, Zonation 5, Marxan, Dinamica EGO and lulcc's CLUE-S among
   them. Parity tests against [terraflux-py](https://github.com/sacridini/terraflux-py) run in the
   test suite.
-- **No code needed, nothing hidden.** More than 340 operators in a searchable library, 45 ready-to-run templates and
+- **No code needed, nothing hidden.** More than 550 operators in a searchable library, 80 ready-to-run templates and
   Use my data, which puts your files in place of a template's drawn data, checks them and puts their grids and
   classes right. Every automatic choice is a visible node, with a note on why it is there.
 - **One model, many front-ends.** A model is a typed graph saved as readable text (TOML or JSON). The builder,
   Use my data, the command line and Python all read and write the same file.
 - **Any scale.** An exact engine on one machine, and a tiled engine that gives the same maps whatever the number
-  of tiles, threads or machines.
+  of tiles, threads or machines. A quarter of the cores is always left free, so the computer stays usable during a
+  long run.
 
 ## Features
 
@@ -58,7 +68,8 @@ memory.
 |---|---|---|
 | **Land change simulation** | Dinamica EGO's model (Markov chains, weights of evidence, Expander and Patcher, the Patcher of a stock, endogenous roads), CLUE-S, ordered allocation, PLUS's land expansion analysis and CARS, cellular automata in loops, validation by fuzzy similarity | Dinamica EGO, lulcc, PLUS, terraflux-py |
 | **Carbon and REDD+** | Emissions and removals of land change with regrowth curves; Verra's VT0007 deforestation risk maps, their fit, allocation of the expected deforestation and assessment | IPCC, UDef-ARP |
-| **Machine learning** | Random forests and histogram gradient boosting of classes or values on tables and maps, their predictions, the predictors' importances (impurity, permutation) and partial dependence, the potential of each class to appear | scikit-learn, terraflux-py |
+| **Machine learning** | Random forests and histogram gradient boosting of classes or values on tables and maps, their predictions, out-of-bag error, the predictors' importances (impurity, permutation) and partial dependence, the potential of each class to appear; principal components, k-means and self-organizing maps | scikit-learn, terraflux-py |
+| **Object-based image analysis** | Segmentation (multiresolution, SLIC, SNIC, Felzenszwalb, mean shift, quickshift, watershed, quadtree, chessboard, Segment Anything) with the scale found by ESP and optimised; objects described by their spectra, shape, texture, neighbours and levels, classified by rules and class trees, nearest neighbours or random forests (samples from points, polygons or an older map), merged, split, grown and edited by hand; change by objects, accuracy against reference objects, polygons for a report | eCognition, InterIMAGE, scikit-image, ESP |
 | **Map accuracy and area** | Stratified random samples sized and drawn for a map, the error matrix, user's, producer's and overall accuracies and each class's area with confidence intervals | Olofsson et al. (2014), mapaccuracy |
 | **Spatial statistics** | Every cell's trend along a series of maps (Mann-Kendall, Sen's slope), global and local Moran's I (LISA's clusters), Getis-Ord's Gi* hot and cold spots, variograms, ordinary kriging and inverse distance weighting of points | pymannkendall, PySAL's esda, gstat |
 | **Habitat patterns** | MSPA (also tiled, for maps larger than memory), SPA, Accounting, FAD and FOS fragmentation, landscape mosaic, spatial entropy, change between two dates | GuidosToolbox |
@@ -67,11 +78,11 @@ memory.
 | **Conservation planning** | Zonation 5 rankings and projects, Marxan reserves, optimal plans as integer linear programs solved by HiGHS, irreplaceability, multi-action planning | Zonation, Marxan, ProxIRR, Salgado-Rojas et al. (2020) |
 | **Restoration** | Ecological intactness, restoration plans under area targets and budgets, trade-off curves | Beyer et al. (2020), Strassburg et al. (2020) |
 | **Species distributions** | GBIF records, CoordinateCleaner's tests, thinning, background points (with a target group's sampling bias), spatial folds, MaxNet, GLM and random forests, evaluation and extrapolation (MESS, MOP), dispersal through the periods of a changing climate | dismo, ENMeval, blockCV, usdm, MigClim |
-| **Animal movement** | Movebank's tracks read, cleaned and resampled into bursts; distances, speeds, azimuths and turn angles on the ellipsoid; interpolation along great circles, track lines and the azimuthal equidistant CRS of the tracks; steps, their summaries (straightness, sinuosity, mean squared displacement), time of day, fitted step-length and turn-angle distributions, random steps and the covariates of step selection functions | move2, amt |
+| **Animal movement** | Movebank's tracks read, cleaned and resampled into bursts; distances, speeds, azimuths and turn angles on the ellipsoid; interpolation along great circles, track lines and the azimuthal equidistant CRS of the tracks; steps, their summaries (straightness, sinuosity, mean squared displacement), time of day, fitted step-length and turn-angle distributions, random steps and the covariates of step selection functions; integrated step selection functions with relative selection strength and simulated paths; home ranges (minimum convex polygons, kernels, local convex hulls) and utilization distributions of dynamic Brownian bridges, their contours and overlap; the energy of walking over relief | move2, amt, move2utils, enerscape |
 | **Agents** | Macro agents, parcel managers and CRAFTY's competition for land, in the same graph as the cellular automata | CRAFTY |
 | **Hydrology and ecosystem services** | Depressions filled and breached, flow directions and accumulation (D8, D-infinity, multiple flow), streams, HAND, watersheds, wetness indices; rivers as a network (points snapped onto it, the land upstream of each link or point, each point's catchment, distances along it, the centrality of the links, the dendritic connectivity index of dams and which to remove); InVEST's carbon, habitat quality, annual water yield and sediment delivery ratio; SWAT+ watershed simulations | WhiteboxTools, pygeoprocessing, hydrographr, riverconn, InVEST, SWAT+ |
 | **Surfaces and data** | Terrain, geomorphons, Brazil's Forest Code (APPs of rivers, lakes, springs, slopes and hilltops; Reserva Legal balances), gravity potentials, distances, map algebra, reprojection and resampling, downloads of WorldClim, CHELSA, the Copernicus DEM, SoilGrids, MapBiomas, Hydrography90m and Environment90m, vectors by OGR, zonal statistics, tables filtered, computed, summarised, joined, sorted and pivoted, Monte Carlo uncertainty, global sensitivity (Morris, Sobol) | GDAL, GRASS, exactextractr, dplyr, tidyr |
-| **Vector analysis** | PostGIS's spatial predicates (within, contains, intersects, touches, dwithin...) to select and join features, the nearest feature, overlays (intersection, union, difference, symmetric difference, identity), buffers, clips and dissolves, centroids, hulls, simplification, Voronoi polygons, Delaunay triangles, clusters by distance, points along lines and linear referencing, smoothing, coverages simplified without gaps, and the vector calculator over other layers (`within(parks)`, `distance(roads)`); the same functions in Python as `tf.vector` | PostGIS, GEOS, geopandas, shapely |
+| **Vector analysis** | PostGIS's spatial predicates (within, contains, intersects, touches, dwithin...) to select and join features (offered by name in the searches: *Within*, *Contains*...), the k nearest features, overlays (intersection, union, difference, symmetric difference, identity), buffers, clips and dissolves, polygons split by lines, shape descriptors (inscribed and bounding circles, elongation), centroids, hulls, simplification, Voronoi polygons, Delaunay triangles, clusters by distance, points along lines and linear referencing, smoothing, coverages simplified without gaps, and the vector calculator over other layers (`within(parks)`, `distance(roads)`); the same functions in Python as `tf.vector` | PostGIS, GEOS, geopandas, shapely |
 
 <table>
   <tr>
@@ -152,9 +163,13 @@ terraflux app                 # the model builder
 terraflux app model.toml      # with a model
 ```
 
-Start from **Templates** (each runs as soon as it opens, its data drawn by neutral landscape models), open a raster
-with **File > Open a raster or vectors...** (ctrl+O), from the **Files** drawer or by dropping one on the window, then click operators in the library: each comes connected to
-the node selected. Press `/` to search the operators from the keyboard.
+Start from **Templates**: each runs as soon as it opens, its data drawn by neutral landscape models, and **Use my
+data** puts your own files in their place. Open a raster or vectors with **File > Open a raster or vectors...**
+(ctrl+O), from the **Files** drawer or by dropping them on the window, then click operators in the library: each
+comes connected to the node selected. Press `/` to search the operators from the keyboard, ctrl+K for every
+command. The [quickstart](https://sacridini.github.io/terraflux/quickstart/) and the
+[tour of the application](https://sacridini.github.io/terraflux/tutorials/getting-started/tour/) take it step by
+step.
 
 The same work from the command line:
 
@@ -193,117 +208,59 @@ For Claude Desktop, add to its `claude_desktop_config.json` (Settings, Developer
 { "mcpServers": { "terraflux": { "command": "terraflux", "args": ["mcp"] } } }
 ```
 
-The assistant reads the guide of your field before it builds (the steps of a land change model, of connectivity,
-of landscape metrics, of conservation planning, of a species distribution model, each with its operators and
-templates); `check_model` and `run_model` advise it on the method as a paper's reviewer would (a simulation
-validated on the map it was calibrated on, metrics of maps in degrees...); and it finds operators and templates by
-what they do. Prompts start a workflow by name (`build_model`, `adapt_template`, `review_model`,
-`explain_model`, `explain_cell`: slash commands in Claude Code), and the guides, templates and operators'
-documentation are resources (`terraflux://guide/land-change`).
+The assistant reads the guide of your field before it builds; `check_model` and `run_model` advise it on the
+method as a paper's reviewer would (a simulation validated on the map it was calibrated on, metrics of maps in
+degrees...); prompts start a workflow by name (`build_model`, `adapt_template`, `review_model`, `explain_cell`).
+The application has an assistant of its own too (View, Assistant), with the same tools on the model open. It talks
+to any server of OpenAI's chat completions API with tool calling: a university's open models (the HU Berlin's
+KI-Service, the GWDG's Chat AI), a model on this computer (Ollama, LM Studio, llama.cpp's server) or a commercial
+provider. See [AI assistants](https://sacridini.github.io/terraflux/cli/assistants/).
 
-The application has an assistant of its own too (View, Assistant): a chat beside the graph with the same tools,
-on the model open. Ask what a model or a node does ("Explain" asks about the node selected), for a change, or for
-a run and what it gave; each change shows on the canvas at once and ctrl+Z undoes it. The assistant talks to any
-server of OpenAI's chat completions API with tool calling:
+## The application
 
-- a university's open models: the HU Berlin's KI-Service (Qwen, from its network or VPN, no key), the GWDG's
-  Chat AI;
-- a model on this computer, offline: Ollama, LM Studio, llama.cpp's server;
-- a commercial provider: OpenAI, Anthropic.
+Beyond building and running a model, the application answers the questions that come after a result:
 
-Its settings take the server's address, its model and, when it asks for one, a key, kept in the system's store of
-credentials. "Test the connection" says whether the server answers, has the model and lets it call tools. For a
-small model, "Few tools" offers only those to explain, change settings, run and check, and to write and explain a
-calculator's script.
+- **What did the assistant change?** The **Changes** pane shows an assistant's edits as a pull request's review:
+  the nodes, connections and settings before and after, and the maps of the changed nodes side by side, each change
+  accepted or rejected. **File, Compare** does the same against the saved file, another file or the last commit.
+- **How would a reviewer read it?** The **Document** pane reads the graph as the methods section of a paper: its
+  data, preparation, model, validation and results, a step per node with its note, why and settings in words, the
+  plots as numbered figures. **File, Export report** writes it as HTML or PDF, as `terraflux report` does.
+- **Why does this cell have this value?** Right-click a cell, **Trace this cell**: node by node, the value each gave
+  there and how. Two cells, or one cell in two scenarios, are compared to show where they part. An assistant
+  explains the same chain (`trace_cell`), from what made the result rather than from what the model should do.
+- **Why did it fail?** The **Problems** pane names the node that failed and shows what it was given side by side
+  (each input's grid, coordinate system and what differs), with what likely puts it right.
+- **What did I run last week?** The **Runs** pane keeps a journal beside the model: each run's values, outputs and
+  model as it was, two runs compared. **File, Save a version...** keeps the model under a name, without git.
+- **Is it right before a run of hours?** **Check run** runs the model on the part of the map in view, or at 1/2,
+  1/4 or 1/8 of the resolution, in seconds. `check.assert` nodes carry a badge of how they fared in the last run.
+- **Debugging.** **Step** through a loop, a **Breakpoint** before a node, **Freeze** a node's result on disk, and
+  **Stop** the long operators between their parts.
+- **Scenarios.** The **Parameters** pane shows the values to change as a form, keeps them as named scenarios and
+  compares their maps side by side (`terraflux run --scenario name`).
+- **A folder of rasters.** **Run on a folder...** runs a node, and the chain after it, on every raster of a folder,
+  file by file, and does not run again the files already done.
+- **Map algebra in words.** In the Calculator pane, say what to compute ("the NDVI of img in 3 classes") or ask for
+  a script to be explained; the script is tried on a sample of the cells before anything changes.
 
-The assistant writes map algebra too: in the Calculator pane, say what to compute ("the NDVI of img in 3 classes",
-**Write**) or ask for the script to be explained (**Explain**). Its tool `write_calc` (also in `terraflux mcp`)
-checks the script before anything changes (its language, every name an input of the node, the layers a stack has)
-and tries it on a sample of the inputs' cells: a script that fails there is refused with the reason, and the reply
-says what each output gives (its classes and their shares, or its least, mean and largest values), for the
-assistant to see when it is not what was asked. `explain_calc` takes a script apart: what each input is and what
-each name holds on the sample.
-
-![The assistant explaining a node, answered by the HU Berlin's Qwen](docs/images/assistant.png)
-
-What an assistant changes (in the application, or through `terraflux mcp` with the model open) comes to the
-**Changes** pane as a pull request's review: the nodes added, removed and changed, each connection and setting
-before and after, the maps the changed nodes give before and now side by side, the changed nodes outlined on the
-canvas. Each change is accepted or rejected, or all at once. File, Compare lists the same way the differences
-with the saved file, another file or the last commit.
-
-![The review of a change made by the assistant](docs/images/review.png)
-
-The **Document** pane reads the same graph as the methods section of a paper, for whoever checks a model rather
-than builds it: its data, preparation, model, validation and results, a step per node with its note, why and
-settings in words, map algebra's expressions linked to the nodes they read, loops with their bodies, the plots as
-numbered figures and the maps and tables of the last run. A step's name selects its node; its settings are edited
-in place. File, Export report writes it as one HTML page or a PDF, as does
-`terraflux report model.toml`.
-**Group the model by stage** (ctrl+K) puts it in a group per stage, each with a note: a few blocks on the
-canvas, opened one at a time, and a section per stage in the document; zoomed out, a model without groups shows
-its stages framed and named. The **Parameters** pane shows the values a user is to change as a form (sliders,
-choices, a unit and a help each), keeps them as named scenarios and compares scenarios side by side, their maps
-and differences; `terraflux run model.toml --scenario name` runs one.
+<table>
+  <tr>
+    <td width="50%"><img alt="The assistant explaining a node, answered by the HU Berlin's Qwen" src="docs/images/assistant.png"></td>
+    <td width="50%"><img alt="The review of a change made by the assistant" src="docs/images/review.png"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The application's assistant explaining a node</sub></td>
+    <td align="center"><sub>The review of a change made by the assistant</sub></td>
+  </tr>
+</table>
 
 ![A species distribution model read as a document](docs/images/document.png)
 
-**Why does this cell have this value?** Right-click a cell of any map, then **Trace this cell** (or **Ask the
-assistant why**): the Trace pane walks
-back through the graph and shows, node by node, the value each gave there and how (map algebra's expression with
-the values in place of its names, the cells around for a neighbourhood, the layers a model weighs, a loop's value
-step by step; inside the loops on demand). **Ask the assistant why** has the assistant explain the trace in
-words; its tool `trace_cell` (in the application and in `terraflux mcp`) gives an assistant the same chain, so it
-explains a result from what made it rather than from what the model should do; `last_trace` gives an assistant
-through `terraflux mcp` the cell you traced last, and its prompt `explain_cell` (a slash command in Claude Code)
-asks it to explain that cell (the cell's menu, **Explain with an MCP assistant**, copies such a request too).
+Every pane, menu and key is described in [the application's reference](https://sacridini.github.io/terraflux/app/).
 
-**Why did it fail?** When a run fails, the status bar says so and the **Problems** pane explains it: the node that
-failed, its message and what it was given side by side (each input's grid: size, cells, coordinate system, what
-differs marked), with what likely does not fit and what puts it right (raster.match, raster.reproject); then the
-graph's checks and the data's findings, each a click away from its node. The assistant is told the same.
+## Models as text
 
-**What did I run last week?** Each run you ask for is kept in a journal beside the model (`.terraflux`): when, how
-long, how it ended, the values it ran with, the outputs it wrote and the model as it was. The **Runs** pane lists
-them, newest first, with what changed since the run before; a run selected shows its outputs in the Viewer or
-restores its model (one step of undo), and two compare (their values, their models, their maps). The small
-outputs are copied with each run (50 MB a run, 1 GB in all, in Settings), so a run's maps can still be seen after
-a later run writes over the files; the journal's folder ignores itself in git, and several windows can write to it
-at once. `terraflux run` and
-the MCP's `run_model` write to it too (`--no-journal` leaves a run out), and the MCP's `list_runs` reads it. **File,
-Save a version...** (ctrl+alt+S) keeps the model under a name, with no git: the Runs pane's Versions tab lists them,
-reviews one against the model open, restores it or deletes it, and the MCP's `save_version` marks one before a large
-change. Before a run or a batch the disk is checked (the outputs' estimated size against the free space, asked about when it
-may not fit), and **File, Clean outputs...** deletes the files the runs wrote, after asking. The **Check run** menu beside Run starts a **check run**: the model
-on the part of the map in view, or at 1/2, 1/4 or 1/8 of the resolution, to see in seconds whether it is right before a run of hours (its outputs
-apart from the real ones, its results marked; `terraflux run --coarsen N --window ...` does the same).
-
-**Is the model healthy?** The model's own checks (`check.assert`: the demand met, the areas summing to the total,
-the probabilities between 0 and 1) carry a badge of how they fared in the last run: green when it passed, amber
-when it failed and only warned, red when it failed and stopped the run, grey when it has not run or is turned off.
-The badge is on the check's node (a container's is the worst of the checks it holds; its tooltip says what failed)
-and on its step of the document, and the status bar and the document's top line give the model's health at a
-glance ("3 checks: 2 passed, 1 warned"), each check listed on hover.
-
-**Running and debugging.** **Step** in the status bar runs a loop step by step: the run pauses after each step, its
-maps shown, until **Next** or **Continue**; **Breakpoint** in the Node pane pauses the run before that node (a red
-dot on the canvas), until **Next node** or **Continue**. **Stop** stops the long operators between their parts (MSPA's tiles,
-the circuits' batches of points, a fit's folds, the metrics' blocks). **Freeze** in the Node pane keeps a node's
-result on disk next to the model (a ❄ on the canvas) and uses it instead of running the node, in later sessions
-and by `terraflux run` too, a node inside a group too; what only it reads does not run either. A whole run of a model saved writes its outputs
-and the run's manifest (`output/manifest.json`), as `terraflux run` does, for `terraflux reproduce`.
-
-**A folder of rasters.** Any node that takes a map runs on every raster of a folder: **Run on a folder...** (in the
-Node pane, or a node's right-click menu on the canvas) reads the folder where the node takes its map. The node,
-and the nodes after it that take its maps, run as one chain, file by file. The files' names follow the maps: a
-`raster.write` after them writes a file per file (`{name}` in its path, or for files of different grids the
-file's name before its own), and the tables are gathered in one. A file that fails does not stop the others.
-Several files run at the same time (`raster.read`'s `workers`), its `first` tries the chain on a few files, and
-a chain that writes files records each one (`.json`) and does not run again the files already done. Two folders
-given to one node are paired file by file by name. **File > Process a folder...** builds the whole model from a
-folder and an operator, and a `batch.run` of an older model becomes the same nodes (**Make it a chain of nodes**).
-
-### Models as text
 
 A model is a graph of operators. Each node reads the model's inputs (`$name`), other nodes' outputs
 (`node.port`), values carried along a loop (`@name`) or literal values:
@@ -341,7 +298,8 @@ Map algebra (`raster.calc`), reusable submodels (`control.submodel`), loops and 
 ## Scaling up
 
 **Many runs.** Replicates, scenarios, calibration and sensitivity analysis (one at a time, Morris, Sobol), on the
-cores of one machine or on many. The **Many runs** pane does the same without the command line. A setting's right-click menu (or a parameter) marks it as a factor of a sensitivity analysis.
+cores of one machine or on many. The **Many runs** pane does the same without the command line, and a setting's
+right-click menu (or a parameter) marks it as a factor of a sensitivity analysis.
 
 ```bash
 terraflux submit model.toml --replicates 50 --out replicates
@@ -373,7 +331,10 @@ See [`docs/cluster.md`](docs/cluster.md) for the details, and `tools/slurm` for 
 
 ## From Python
 
-[terraflux-py](https://github.com/sacridini/terraflux-py) writes its fitted models as Terraflux graphs:
+[terraflux-py](https://github.com/sacridini/terraflux-py) is the same methods as a Python library
+(`pip install terraflux-py`), and every model of the application can be written as a Python script of it
+(**File, Python script...**; `python_script` in `terraflux mcp`). The library writes its fitted models as
+Terraflux graphs too:
 
 ```python
 import terraflux as tf
@@ -388,10 +349,11 @@ maps = S.terraflux("dinamica.json")                            # run by Terraflu
 
 | | |
 |---|---|
+| [**The website**](https://sacridini.github.io/terraflux/) | A quickstart, 157 tutorials for ecologists in 23 fields, the application's reference, the calculators, a catalog of landscape metrics, the CLI and operator references, and the Python library's API |
 | [`docs/modelling.md`](docs/modelling.md) | The node editor, map algebra, groups, submodels, parameters and scenarios, plugins |
 | [`docs/agents.md`](docs/agents.md) | Agents and CRAFTY's competition for land |
 | [`docs/cluster.md`](docs/cluster.md) | Batches, coordinators, workers and clusters |
-| [`website/`](website/) | The documentation website: a quickstart, 99 tutorials for ecologists in 18 fields, the CLI and operator references (`python website/build.py`) |
+| [`website/`](website/) | The website's sources (`python website/build.py` builds it) |
 | [`CHANGELOG.md`](CHANGELOG.md) | The changes of every release |
 | [`docs/PLAN.md`](docs/PLAN.md) | The roadmap (in Portuguese) |
 
@@ -436,6 +398,32 @@ cargo test --release           # parity with terraflux-py included
 | `terraflux-app` | The application (egui and wgpu) |
 | `terraflux-dist` | The coordinator, the workers and the batches (gRPC) |
 | `terraflux-cli` | The `terraflux` command |
+
+## Citing Terraflux
+
+If you use Terraflux in your work, please cite it, and cite the papers of the methods you used: each operator's
+reference names them, and **File, Methods and citations...** drafts the methods section of a model with its
+references (`terraflux methods model.toml`). The DOI [10.5281/zenodo.24515275](https://doi.org/10.5281/zenodo.24515275)
+always resolves to the latest version, and each version has its own on Zenodo; GitHub's **Cite this repository**
+reads [`CITATION.cff`](CITATION.cff).
+
+```bibtex
+@software{lacerda_terraflux,
+  author  = {Lacerda, Eduardo},
+  title   = {Terraflux: landscape ecology and land change modelling from a laptop to a cluster},
+  url     = {https://github.com/sacridini/terraflux},
+  doi     = {10.5281/zenodo.24515275},
+  license = {GPL-3.0-or-later}
+}
+```
+
+## Contributing
+
+Bug reports, feature requests, corrections to the documentation and code are welcome: see
+[`CONTRIBUTING.md`](CONTRIBUTING.md), and report bugs in the
+[issues](https://github.com/sacridini/terraflux/issues). Everyone who takes part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md); security problems are reported privately, as [`SECURITY.md`](SECURITY.md)
+says.
 
 ## Acknowledgements
 
