@@ -12102,3 +12102,57 @@ fn use_my_data_offers_a_cloud_free_sentinel_2_scene_of_an_area_for_an_image() {
     assert_eq!(s.source.node("image_scene").unwrap().op, "data.stac");
     assert!(s.source.nodes.iter().all(|n| !n.op.starts_with("nlm.")));
 }
+
+/// The samples of a template are points a file replaces (a table of x, y and a class: the column guessed and
+/// shown), and an image chosen without them is told on the samples' row before Apply, not as an error.
+#[test]
+fn use_my_data_takes_the_samples_as_points_and_says_when_an_image_leaves_them_behind() {
+    use terraflux_raster::{Band, DataType, Grid, Raster};
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    template_run(&mut h, "Classify an image by clicking samples", ("classify", "map"));
+    let dir = tmp("use-my-data-samples");
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = dir.join("points.csv");
+    std::fs::write(&csv, "x,y,Label\n8.5,105.5,water\n84.5,44.5,water\n99.5,23.5,forest\n23.5,111.5,forest\n").unwrap();
+    let mut g = Grid::new(20, 20);
+    g.transform = [5000.0, 10.0, 0.0, 5200.0, 0.0, -10.0];
+    let names = ["blue", "green", "red", "nir", "swir1", "swir2"];
+    let bands = names.iter().map(|n| Band { name: Some(n.to_string()), data: vec![0.2; 400] }).collect();
+    let far = dir.join("far.tif");
+    Raster { grid: g, bands, dtype: DataType::F32, nodata: None }.write(&far).unwrap();
+    let reg = terraflux_ops::Registry::standard();
+
+    // the points: a table, the class column guessed
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        w.choose(s, &reg, "samples", &csv).unwrap();
+    }
+    until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
+    h.run_steps(2);
+    let w = h.state().my_data.as_ref().unwrap();
+    assert!(w.can_apply(), "{:?}", w.findings().iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    let plan = w.plan().unwrap();
+    assert_eq!(plan.model.node("training").unwrap().params["class"], "Label");
+    assert_eq!(plan.model.node("samples_points").unwrap().op, "vector.from_table");
+    assert!(h.query_by_label("class in column").is_some(), "the column of the class is shown");
+    shot(&mut h, "38-use-my-data-points");
+
+    // an image only: the example points are left on the drawn image, told on their row, no error
+    h.state_mut().my_data = Some(terraflux_app::my_data_view::State::new());
+    h.run_steps(3);
+    {
+        let app = h.state_mut();
+        let (w, s) = (app.my_data.as_mut().unwrap(), app.session.as_mut().unwrap());
+        w.choose(s, &reg, "image", &far).unwrap();
+    }
+    until(&mut h, "the check", |a| a.my_data.as_ref().unwrap().current());
+    h.run_steps(2);
+    let w = h.state().my_data.as_ref().unwrap();
+    assert!(w.can_apply(), "{:?}", w.findings().iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    assert!(h.query_by_label_contains("none falls on yours").is_some(), "told on the samples' row");
+    shot(&mut h, "38b-use-my-data-points-left-behind");
+}

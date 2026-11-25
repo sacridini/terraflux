@@ -713,11 +713,14 @@ pub enum DataKind {
     /// A multispectral image (a stack of bands: blue, green, red, nir, swir1, swir2): the bands' roles and the
     /// reflectance's scale are set by Use my data.
     Image,
+    /// Points with a class each (the samples a classifier learns from): a file of features with a column of the
+    /// class, or a table of x, y and the class. Use my data reads them; they have no grid.
+    Points,
 }
 
 impl DataKind {
-    pub const ALL: [DataKind; 5] =
-        [DataKind::Classes, DataKind::Values, DataKind::Mask, DataKind::Stack, DataKind::Image];
+    pub const ALL: [DataKind; 6] =
+        [DataKind::Classes, DataKind::Values, DataKind::Mask, DataKind::Stack, DataKind::Image, DataKind::Points];
 
     /// The kind as it is written in the model file.
     pub fn name(self) -> &'static str {
@@ -727,6 +730,7 @@ impl DataKind {
             DataKind::Mask => "mask",
             DataKind::Stack => "stack",
             DataKind::Image => "image",
+            DataKind::Points => "points",
         }
     }
 

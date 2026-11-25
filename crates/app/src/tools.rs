@@ -1780,7 +1780,7 @@ fn all() -> Vec<Value> {
         "alternatives": list("What was considered and set aside, and why (empty: none)."),
         "data": {
             "type": "object",
-            "description": "That the node stands for a data of the user's (a drawn map the user's file takes the place of): `what` (\"a land use map, the first date\"), `kind` (classes, values, mask, stack, image), `classes` (code -> name, for classes and mask) and `expect` (for values: \"1 or more\", a unit). Empty object or null: not data of the user's.",
+            "description": "That the node stands for a data of the user's (a drawn map the user's file takes the place of): `what` (\"a land use map, the first date\"), `kind` (classes, values, mask, stack, image, points), `classes` (code -> name, for classes and mask) and `expect` (for values: \"1 or more\", a unit). Empty object or null: not data of the user's.",
             "properties": {
                 "what": { "type": "string" },
                 "kind": { "type": "string", "enum": ["classes", "values", "mask", "stack", "image"] },
@@ -2885,7 +2885,7 @@ fn set_record(m: &mut Model, path: &[String], id: &str, a: &Value) -> std::resul
     Ok(())
 }
 
-/// The data a node stands for, given: an object with `what`, `kind` (classes, values, mask, stack, image), `classes` (an
+/// The data a node stands for, given: an object with `what`, `kind` (classes, values, mask, stack, image, points), `classes` (an
 /// object of code -> name, or a text of `1 = forest` lines) and `expect`; null, an empty object or an empty text:
 /// none.
 fn data_given(v: &Value) -> std::result::Result<Option<terraflux_graph::Data>, String> {
@@ -2900,7 +2900,7 @@ fn data_given(v: &Value) -> std::result::Result<Option<terraflux_graph::Data>, S
     let what = o.get("what").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
     let what = what.ok_or("`data` needs `what`: the data in a phrase (\"a land use map, the first date\")")?;
     let kind = o.get("kind").and_then(Value::as_str).unwrap_or("");
-    let kind = DataKind::parse(kind).ok_or("`data.kind` is classes, values, mask, stack or image")?;
+    let kind = DataKind::parse(kind).ok_or("`data.kind` is classes, values, mask, stack, image or points")?;
     let mut d = Data::new(what, kind);
     match o.get("classes") {
         None | Some(Value::Null) => {}

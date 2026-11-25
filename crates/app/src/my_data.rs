@@ -35,6 +35,7 @@ use terraflux_exec::lint::{Finding, Level};
 use terraflux_graph::{Data, DataKind, Input, Model, Node, Parameter, Ref, Severity, Source as Wire, Type};
 use terraflux_ops::Registry;
 use terraflux_raster::Grid;
+use terraflux_raster::vector::{Column, Geometry, Vector};
 
 use crate::editor;
 use crate::rgb::Scale;
@@ -84,6 +85,9 @@ pub struct Choice {
     pub files: Vec<PathBuf>,
     /// For an image with no file of the user's: a cloud-free Sentinel-2 scene of an area, read by `data.stac`.
     pub scene: Option<Scene>,
+    /// For points (the samples of a classifier): the column of the file that holds the class (none: guessed by
+    /// [`points_file`]).
+    pub class_column: Option<String>,
 }
 
 /// The assets of Earth Search's Sentinel-2 L2A a scene reads, in the order of their roles (blue, green, red, nir,
@@ -291,6 +295,11 @@ pub struct Plan {
     pub reference: String,
     /// The images put in place of drawn ones (the source's node) and the roles their bands have (without `other`).
     pub images: Vec<(String, Vec<String>)>,
+    /// What the plan tells of the samples, as findings that [`check`] adds to its own: the points brought (on the
+    /// image? each class?) and the drawn points left on an image that was replaced.
+    pub notices: Vec<Finding>,
+    /// The points sources (their nodes) left drawn on an image that was replaced.
+    pub stray: Vec<String>,
 }
 
 /// What a model reads of the bands of an image, by role: for each, the names it reads it by (`mean_swir2`, `ndvi`)
@@ -438,8 +447,11 @@ fn source_of(m: &Model, r: &Registry, n: &Node) -> Source {
         let sig = m.node(c).and_then(|c| r.sig(&c.op));
         sig.and_then(|s| s.inputs.iter().find(|i| &i.name == p)).is_some_and(|i| i.ty == Type::Stack)
     });
-    let stack =
-        stack_out || stack_in || n.data.as_ref().is_some_and(|d| matches!(d.kind, DataKind::Stack | DataKind::Image));
+    let points = n.data.as_ref().is_some_and(|d| d.kind == DataKind::Points);
+    let stack = !points
+        && (stack_out
+            || stack_in
+            || n.data.as_ref().is_some_and(|d| matches!(d.kind, DataKind::Stack | DataKind::Image)));
     let what = n
         .data
         .as_ref()
@@ -452,7 +464,13 @@ fn source_of(m: &Model, r: &Registry, n: &Node) -> Source {
         data: n.data.clone(),
         what,
         port,
-        needs: if stack { Type::Stack } else { Type::Map },
+        needs: if points {
+            Type::Vector
+        } else if stack {
+            Type::Stack
+        } else {
+            Type::Map
+        },
         file: None,
     }
 }
@@ -503,6 +521,358 @@ pub fn sources(m: &Model, r: &Registry) -> Vec<Source> {
         }
     }
     out
+}
+
+/// Whether a source stands for points with a class each (the samples of a classifier).
+pub fn is_points(s: &Source) -> bool {
+    s.needs == Type::Vector
+}
+
+/// The names a column of the class goes by, the first found is taken.
+const CLASS_NAMES: [&str; 14] = [
+    "class",
+    "classe",
+    "class_name",
+    "classname",
+    "label",
+    "name",
+    "nome",
+    "cover",
+    "landcover",
+    "land_cover",
+    "lc",
+    "type",
+    "tipo",
+    "category",
+];
+const X_NAMES: [&str; 7] = ["x", "lon", "lng", "long", "longitude", "easting", "east"];
+const Y_NAMES: [&str; 5] = ["y", "lat", "latitude", "northing", "north"];
+
+/// A file of points with a class each, as the user brings it for the samples of a classifier.
+#[derive(Debug, Clone)]
+pub struct PointsFile {
+    /// A table of x, y and the class (a CSV, read by table.read and vector.from_table); else features GDAL reads
+    /// (vector.read).
+    pub csv: bool,
+    /// The columns that can hold the class (text, or whole numbers), in the file's order.
+    pub columns: Vec<String>,
+    /// The column most likely the class.
+    pub class: Option<String>,
+    /// The columns of the x and the y of a table.
+    pub xy: Option<(String, String)>,
+    /// The features (the rows of a table as points, with no coordinate system).
+    pub features: Vector,
+}
+
+/// Whether a file is a table of values (`.csv`, `.tsv`, `.txt`), by its extension.
+pub fn is_table_file(p: &Path) -> bool {
+    p.extension().is_some_and(|e| ["csv", "tsv", "txt"].iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// The class of each feature as text, an empty text where it has none.
+pub fn class_labels(v: &Vector, column: &str) -> Vec<String> {
+    match v.column(column) {
+        Some(Column::Texts(t)) => t.iter().map(|s| s.trim().to_string()).collect(),
+        Some(Column::Numbers(n)) => {
+            n.iter().map(|x| if x.is_finite() { format!("{}", *x as i64) } else { String::new() }).collect()
+        }
+        None => vec![String::new(); v.len()],
+    }
+}
+
+/// A file of points read: its features, the columns that can be the class and the one that most likely is.
+pub fn points_file(path: &Path) -> Result<PointsFile, String> {
+    let (features, xy, csv) = if is_table_file(path) {
+        let t = terraflux_ops::tables::read_table(path).map_err(|e| e.to_string())?;
+        let find = |names: &[&str]| t.columns.iter().position(|c| names.contains(&c.trim().to_lowercase().as_str()));
+        let (Some(xi), Some(yi)) = (find(&X_NAMES), find(&Y_NAMES)) else {
+            return Err(format!(
+                "{}: no columns of coordinates (x and y, or lon and lat); its columns are {}",
+                path.display(),
+                t.columns.join(", ")
+            ));
+        };
+        let keep: Vec<usize> =
+            (0..t.rows.len()).filter(|&i| t.rows[i][xi].is_finite() && t.rows[i][yi].is_finite()).collect();
+        let attributes = t
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != xi && *j != yi)
+            .map(|(j, c)| {
+                let col = if t.is_text(c) {
+                    Column::Texts(
+                        keep.iter().map(|&i| t.label(c, t.rows[i][j]).unwrap_or_default().to_string()).collect(),
+                    )
+                } else {
+                    Column::Numbers(keep.iter().map(|&i| t.rows[i][j]).collect())
+                };
+                (c.clone(), col)
+            })
+            .collect();
+        let geometries = keep.iter().map(|&i| Geometry::Point([t.rows[i][xi], t.rows[i][yi]])).collect();
+        let xy = (t.columns[xi].clone(), t.columns[yi].clone());
+        (Vector { geometries, attributes, crs: None }, Some(xy), true)
+    } else {
+        let v = terraflux_gdal::read_vector(path, None).map_err(|e| format!("{}: {e}", path.display()))?;
+        (v, None, false)
+    };
+    if features.is_empty() {
+        return Err(format!("{}: no points in it", path.display()));
+    }
+    let mut columns = Vec::new();
+    let mut texts = Vec::new();
+    for (name, col) in &features.attributes {
+        let ok = match col {
+            Column::Texts(_) => true,
+            Column::Numbers(n) => {
+                n.iter().any(|x| x.is_finite()) && n.iter().all(|x| !x.is_finite() || x.fract() == 0.0)
+            }
+        };
+        if ok {
+            columns.push(name.clone());
+            texts.push(matches!(col, Column::Texts(_)));
+        }
+    }
+    let class = CLASS_NAMES
+        .iter()
+        .find_map(|n| columns.iter().find(|c| c.trim().to_lowercase() == *n))
+        .or_else(|| columns.iter().zip(&texts).find(|(_, t)| **t).map(|(c, _)| c))
+        .or(columns.first())
+        .cloned();
+    Ok(PointsFile { csv, columns, class, xy, features })
+}
+
+/// The bounds of a grid: west, south, east, north.
+fn grid_bounds(g: &Grid) -> [f64; 4] {
+    let t = g.transform;
+    let (x1, y1) = (t[0] + t[1] * g.width as f64, t[3] + t[5] * g.height as f64);
+    [t[0].min(x1), t[3].min(y1), t[0].max(x1), t[3].max(y1)]
+}
+
+fn inside(b: &[f64; 4], p: [f64; 2]) -> bool {
+    p[0] >= b[0] && p[0] <= b[2] && p[1] >= b[1] && p[1] <= b[3]
+}
+
+/// A number for a sentence: no more digits than tell it.
+fn short(x: f64) -> String {
+    if x.abs() >= 1000.0 {
+        format!("{x:.0}")
+    } else {
+        format!("{x:.4}").trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+/// What is wrong with the points a user brings, in words: how many fall on the image (their coordinate system
+/// carried to the image's) and that each class has some there. `ground` is the grid of the user's image and its
+/// coordinate system; none when the image is the template's own (not known before it runs).
+fn points_findings(at: &str, f: &PointsFile, class: &str, ground: Option<(&Grid, Option<&str>)>) -> Vec<Finding> {
+    let say = |level, message: String, fix: &str| Finding {
+        level,
+        at: at.to_string(),
+        message,
+        fix: Some(fix.to_string()),
+        action: None,
+    };
+    let labels = class_labels(&f.features, class);
+    let n = labels.len();
+    let mut out = Vec::new();
+    let blank = labels.iter().filter(|l| l.is_empty()).count();
+    if blank > 0 {
+        out.push(say(
+            Level::Warning,
+            format!("{blank} of your {n} points have no class (the column {class} is empty there): they are left out."),
+            "fill the column, or choose another column for the class",
+        ));
+    }
+    // where each point lies on the image (all of them when the image is not known)
+    let mut on: Vec<bool> = vec![true; n];
+    if let Some((grid, crs)) = ground {
+        let centre = |g: &Geometry| g.bounds().map(|b| [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0]);
+        let mut at_points: Vec<Option<[f64; 2]>> = f.features.geometries.iter().map(centre).collect();
+        let mut moved = true;
+        if let (Some(from), Some(to)) = (&f.features.crs, crs)
+            && !terraflux_gdal::same_crs(from, to).unwrap_or(true)
+        {
+            let v = Vector {
+                geometries: at_points.iter().map(|p| p.map_or(Geometry::Empty, Geometry::Point)).collect(),
+                attributes: Vec::new(),
+                crs: Some(from.clone()),
+            };
+            match terraflux_gdal::reproject_vector(&v, to) {
+                Ok(r) if r.geometries.len() == n => {
+                    at_points = r
+                        .geometries
+                        .iter()
+                        .map(|g| match g {
+                            Geometry::Point(p) if p[0].is_finite() && p[1].is_finite() => Some(*p),
+                            _ => None,
+                        })
+                        .collect();
+                }
+                _ => moved = false,
+            }
+        }
+        if !moved {
+            out.push(say(
+                Level::Warning,
+                "Your points' coordinate system could not be carried to your image's: whether they fall on it is not known."
+                    .into(),
+                "give the file a coordinate system GDAL knows (EPSG:4326, a UTM zone...)",
+            ));
+        } else {
+            let b = grid_bounds(grid);
+            on = at_points.iter().map(|p| p.is_some_and(|p| inside(&b, p))).collect();
+            let k = on.iter().filter(|x| **x).count();
+            let spans = {
+                let xs: Vec<f64> = at_points.iter().flatten().map(|p| p[0]).collect();
+                let ys: Vec<f64> = at_points.iter().flatten().map(|p| p[1]).collect();
+                let lo = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
+                let hi = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                format!(
+                    "your image covers x {} to {}, y {} to {}; the points x {} to {}, y {} to {}",
+                    short(b[0]),
+                    short(b[2]),
+                    short(b[1]),
+                    short(b[3]),
+                    short(lo(&xs)),
+                    short(hi(&xs)),
+                    short(lo(&ys)),
+                    short(hi(&ys)),
+                )
+            };
+            let tip = if f.csv {
+                "a table of x and y is taken to be in your image's coordinate system: are the coordinates in another?"
+            } else {
+                "check the file's coordinate system (it is carried to the image's), or choose another file"
+            };
+            if k == 0 {
+                out.push(say(Level::Error, format!("None of your {n} points falls on your image ({spans})."), tip));
+            } else if k * 2 < n {
+                out.push(say(Level::Error, format!("Only {k} of your {n} points fall on your image ({spans})."), tip));
+            } else if k < n {
+                out.push(say(
+                    Level::Warning,
+                    format!("{} of your {n} points fall outside your image: they are left out.", n - k),
+                    tip,
+                ));
+            }
+        }
+    }
+    // each class has some points on the image
+    let mut per: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for (l, here) in labels.iter().zip(&on).filter(|(l, _)| !l.is_empty()) {
+        let e = per.entry(l.as_str()).or_default();
+        e.0 += 1;
+        e.1 += usize::from(*here);
+    }
+    let with = per.values().filter(|c| c.1 > 0).count();
+    if with < 2 && !per.is_empty() {
+        out.push(say(
+            Level::Error,
+            format!(
+                "Your points have {with} class{} on the image: a classifier learns from two or more.",
+                if with == 1 { "" } else { "es" }
+            ),
+            "choose the column that holds the class, or a file with the points of more classes",
+        ));
+    } else {
+        for (l, c) in per.iter().filter(|(_, c)| c.1 == 0) {
+            out.push(say(
+                Level::Warning,
+                format!("No point of the class {l} falls on your image ({} in the file): it will not be learned.", c.0),
+                "add points of that class on the image",
+            ));
+        }
+    }
+    out
+}
+
+/// The nodes and inputs the data of a node is made from: what the nodes that read it read, and so on upstream.
+fn upstream(m: &Model, id: &str) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut todo: Vec<String> = readers(m, id).nodes.into_iter().map(|(n, _)| n).collect();
+    while let Some(k) = todo.pop() {
+        if !seen.insert(k.clone()) {
+            continue;
+        }
+        let Some(n) = m.node(&k) else { continue };
+        for r in reads(n) {
+            if let Some(t) = target_of(&r) {
+                let t = t.trim_start_matches('$').to_string();
+                if t != id {
+                    todo.push(t);
+                }
+            }
+        }
+    }
+    seen
+}
+
+/// The images (and stacks) the samples of a source sit on: what the nodes that read the points are made from.
+fn grounds<'a>(m: &Model, srcs: &'a [Source], s: &Source) -> Vec<&'a Source> {
+    let up = upstream(m, &s.node);
+    srcs.iter()
+        .filter(|g| g.needs != Type::Vector && (g.needs == Type::Stack || is_image(g)) && up.contains(&g.node))
+        .collect()
+}
+
+/// The points a template draws (a `vector.from_table` of a `table.of`'s rows), in the coordinates of its drawn image.
+fn drawn_points(m: &Model, s: &Source) -> Option<Vec<[f64; 2]>> {
+    let n = m.node(&s.node).filter(|n| n.op == "vector.from_table")?;
+    let Some(Wire::Ref(r)) = n.inputs.get("table") else { return None };
+    let t = m.node(&target_of(r)?).filter(|t| t.op == "table.of")?;
+    let cols: Vec<&str> = t.params.get("columns")?.as_array()?.iter().filter_map(|c| c.as_str()).collect();
+    let at = |k: &str| {
+        let want = n.params.get(k).and_then(|v| v.as_str()).unwrap_or(k);
+        cols.iter().position(|c| *c == want)
+    };
+    let (xi, yi) = (at("x")?, at("y")?);
+    let rows = t.params.get("rows")?.as_array()?;
+    Some(
+        rows.iter()
+            .filter_map(|r| {
+                let r = r.as_array()?;
+                Some([r.get(xi)?.as_f64()?, r.get(yi)?.as_f64()?])
+            })
+            .collect(),
+    )
+}
+
+/// Whether a choice of points can be made: the file read and the column of its class, or why not.
+fn vet_points(m: &Model, s: &Source, c: &Choice) -> Result<(PointsFile, String), String> {
+    if s.op == INPUT {
+        return Err("points are read from a file of features, not as an input".into());
+    }
+    if readers(m, &s.node).ports.len() > 1 {
+        return Err("the model reads more than one of its outputs: it cannot be replaced by a file".into());
+    }
+    if c.band.is_some()
+        || c.bands.is_some()
+        || c.roles.is_some()
+        || c.scale.is_some()
+        || c.scene.is_some()
+        || !c.files.is_empty()
+        || c.dates
+        || !c.crosswalk.is_empty()
+    {
+        return Err("points take a file of points and the column of their class, nothing else".into());
+    }
+    let f = points_file(&c.file)?;
+    let class = match &c.class_column {
+        Some(k) => k.clone(),
+        None => f.class.clone().ok_or_else(|| {
+            format!("{} has no column for the class (text or whole numbers): add one", c.file.display())
+        })?,
+    };
+    if !f.columns.contains(&class) {
+        return Err(format!(
+            "{} has no column {class:?} that can hold the class (its columns: {})",
+            c.file.display(),
+            f.columns.join(", ")
+        ));
+    }
+    Ok((f, class))
 }
 
 /// A name not taken (`base`, else `base_2`...), taken from now on.
@@ -949,21 +1319,30 @@ pub fn plan(
         refused.push(format!("{k}: the model has no such data to replace"));
     }
     let mut ok: Vec<(&Source, &Choice, Grid)> = Vec::new();
+    // the points of the samples, with the column of their class
+    let mut pts: Vec<(&Source, &Choice, PointsFile, String)> = Vec::new();
     for s in &srcs {
         let Some(c) = choices.get(&s.node) else { continue };
+        if is_points(s) {
+            match vet_points(m, s, c) {
+                Ok((f, class)) => pts.push((s, c, f, class)),
+                Err(e) => refused.push(format!("{}: {e}", s.node)),
+            }
+            continue;
+        }
         match vet(m, s, c) {
             Ok(g) => ok.push((s, c, g)),
             Err(e) => refused.push(format!("{}: {e}", s.node)),
         }
     }
-    if ok.is_empty() {
+    if ok.is_empty() && pts.is_empty() {
         return Err(if refused.is_empty() {
             "choose the file of at least one data".into()
         } else {
             refused.join("; ")
         });
     }
-    let (ref_node, ref_grid, ref_stack) = match reference {
+    let found = match reference {
         Some(k) => ok.iter().find(|(s, ..)| s.node == k).map(|(s, _, g)| (s.node.clone(), g.clone(), s.needs)),
         None => ok
             .iter()
@@ -972,8 +1351,13 @@ pub fn plan(
             .or(ok.first())
             .map(|(s, _, g)| (s.node.clone(), g.clone(), s.needs)),
     }
-    .map(|(n, g, t)| (n, g, t == Type::Stack))
-    .ok_or_else(|| format!("the reference {:?} is not among the data chosen", reference.unwrap_or("")))?;
+    .map(|(n, g, t)| (n, g, t == Type::Stack));
+    // (only points chosen: no grid to put anything on)
+    let (ref_node, ref_grid, ref_stack) = if ok.is_empty() {
+        (String::new(), Grid::new(1, 1), false)
+    } else {
+        found.ok_or_else(|| format!("the reference {:?} is not among the data chosen", reference.unwrap_or("")))?
+    };
 
     let mut out = m.clone();
     let mut notes = Vec::new();
@@ -1001,7 +1385,7 @@ pub fn plan(
         names.insert(s.node.clone(), list[finest].clone());
         band_inputs.insert(s.node.clone(), list);
     }
-    let ref_in = names[&ref_node].clone();
+    let ref_in = names.get(&ref_node).cloned().unwrap_or_default();
     let mut inputs = Vec::new();
     // the images put in place, with the roles their bands got
     let mut images: Vec<(String, Vec<String>)> = Vec::new();
@@ -1283,6 +1667,148 @@ pub fn plan(
         }
     }
 
+    // the points of the samples: a file of features (or a table of x, y and the class) in place of the drawn points,
+    // their class column named for what reads them; objects.samples carries their coordinate system to the image's
+    let mut notices: Vec<Finding> = Vec::new();
+    let mut stray: Vec<String> = Vec::new();
+    for (s, c, f, class) in &pts {
+        // (a node's path is read from where the model runs, not from its folder: the file's own, whole)
+        let whole = std::path::absolute(&c.file).unwrap_or_else(|_| c.file.clone());
+        let file = whole.to_string_lossy().replace('\\', "/");
+        let why = format!("in place of the drawn {}: your file {file}", s.node);
+        // the user's image these points sit on: its grid and coordinate system
+        let on = grounds(m, &srcs, s);
+        let ground = ok.iter().find(|(o, ..)| on.iter().any(|g| g.node == o.node)).map(|(_, c, grid)| {
+            let crs =
+                if c.scene.is_some() { Some("EPSG:4326".to_string()) } else { terraflux_ops::prepare::crs_of(grid) };
+            (grid, crs)
+        });
+        let mut chain: Vec<Node> = Vec::new();
+        let cur;
+        if let Some((x, y)) = &f.xy {
+            let tid = fresh(&mut taken, &format!("{}_table", s.node));
+            chain.push(
+                Node::new(&tid, "table.read")
+                    .param("path", file.clone())
+                    .note("Your table of points: their x and y and the class of each.")
+                    .why(&why),
+            );
+            let pid = fresh(&mut taken, &format!("{}_points", s.node));
+            let mut n = Node::new(&pid, "vector.from_table")
+                .input("table", &format!("{tid}.table"))
+                .param("x", x.clone())
+                .param("y", y.clone())
+                .note("Your table as points: the x and y are coordinates in the image's coordinate system, the class an attribute.")
+                .why(&why);
+            if let Some((_, Some(crs))) = &ground {
+                n = n.param("crs", crs.clone());
+            }
+            chain.push(n);
+            cur = format!("{pid}.vector");
+        } else {
+            let id = fresh(&mut taken, &format!("{}_read", s.node));
+            chain.push(
+                Node::new(&id, "vector.read")
+                    .param("path", file.clone())
+                    .note("Your points, with the class of each in a column; objects.samples carries them to the image's coordinate system.")
+                    .why(&why),
+            );
+            cur = format!("{id}.vector");
+        }
+        if let Some(d) = &s.data {
+            chain.last_mut().expect("a chain").data = Some(d.clone());
+        }
+        let old = format!("{}.{}", s.node, s.port);
+        repoint(&mut out, &old, &cur);
+        // what reads the points takes the class from the column of the file
+        for n in out.nodes.iter_mut() {
+            let reads_it = n.inputs.values().any(|w| matches!(w, Wire::Ref(r) if *r == cur));
+            if reads_it && r.sig(&n.op).is_some_and(|g| g.params.iter().any(|p| p.name == "class")) {
+                if class == "class" {
+                    n.params.remove("class");
+                } else {
+                    n.params.insert("class".into(), Json::from(class.clone()));
+                }
+            }
+        }
+        let at = out.nodes.iter().position(|n| n.id == s.node).expect("a source is a node of the model");
+        let old_node = out.nodes.remove(at);
+        candidates.extend(reads(&old_node).iter().filter_map(|r| target_of(r)));
+        if let Some([x, y]) = old_node.pos {
+            for (k, n) in chain.iter_mut().enumerate() {
+                n.pos = Some([x, y + 140.0 * k as f32]);
+            }
+        }
+        let ids: Vec<String> = chain.iter().map(|n| n.id.clone()).collect();
+        for f in out.notes.iter_mut().filter(|f| f.nodes.contains(&s.node)) {
+            f.nodes.retain(|k| k != &s.node);
+            f.nodes.extend(ids.clone());
+        }
+        let prefix = format!("{}.", s.node);
+        out.parameters.retain(|p| !p.key.starts_with(&prefix));
+        for sc in out.scenarios.iter_mut() {
+            sc.values.retain(|k, _| !k.starts_with(&prefix));
+        }
+        out.nodes.splice(at..at, chain);
+        let labels = class_labels(&f.features, class);
+        let mut per: BTreeMap<&str, usize> = BTreeMap::new();
+        labels.iter().filter(|l| !l.is_empty()).for_each(|l| *per.entry(l.as_str()).or_default() += 1);
+        let list: Vec<String> = per.iter().map(|(l, n)| format!("{l} ({n})")).collect();
+        notes.push(format!(
+            "{}: your file {file}, {} points; the class in the column {class}: {}",
+            s.node,
+            labels.len(),
+            list.join(", ")
+        ));
+        if f.xy.is_some() {
+            notes.push(match &ground {
+                Some((_, Some(crs))) => {
+                    format!("{}: its x and y are taken to be in the coordinate system of your image ({crs})", s.node)
+                }
+                _ => format!("{}: its x and y are taken to be in the coordinate system of the image", s.node),
+            });
+        } else {
+            notes.push(format!(
+                "{}: the points' coordinate system is carried to the image's when the objects are picked (objects.samples)",
+                s.node
+            ));
+        }
+        notices.extend(points_findings(&s.node, f, class, ground.as_ref().map(|(g, crs)| (*g, crs.as_deref()))));
+    }
+    // the drawn points left on an image that was replaced: they are on the template's image, not on the user's
+    for s in srcs.iter().filter(|s| is_points(s) && !pts.iter().any(|(p, ..)| p.node == s.node)) {
+        if choices.contains_key(&s.node) {
+            continue;
+        }
+        let on = grounds(m, &srcs, s);
+        let Some((_, _, grid)) = ok.iter().find(|(o, ..)| on.iter().any(|g| g.node == o.node)) else { continue };
+        let tip =
+            "bring a file of your points with their class, or click them in the Viewer after Apply (the Samples box)";
+        let message = match drawn_points(m, s) {
+            Some(p) if !p.is_empty() => {
+                let b = grid_bounds(grid);
+                let k = p.iter().filter(|p| inside(&b, **p)).count();
+                if k == 0 {
+                    format!("The template's example points are on its drawn image and none falls on yours: {tip}.")
+                } else {
+                    format!(
+                        "The template's example points are on its drawn image, not on yours: {k} of its {} fall inside your image's extent by their numbers only, and name the template's classes, not what is under them: {tip}.",
+                        p.len()
+                    )
+                }
+            }
+            _ => format!("The template's example points are on its drawn image, not on yours: {tip}."),
+        };
+        notices.push(Finding {
+            level: Level::Warning,
+            at: s.node.clone(),
+            message,
+            fix: Some("choose a file of points for it".into()),
+            action: None,
+        });
+        stray.push(s.node.clone());
+    }
+
     // every band of a file as a date (CLUE-S): the demand reads a stack of the file, and the node that stacked the
     // two dates keeps the maps the simulation can start from (it is named for that)
     for (s, c, _) in ok.iter().filter(|(_, c, _)| c.dates) {
@@ -1351,7 +1877,7 @@ pub fn plan(
     }
 
     // the drawn maps left go on the reference grid
-    for n in out.nodes.iter_mut().filter(|n| n.op.starts_with("nlm.")) {
+    for n in out.nodes.iter_mut().filter(|n| !ok.is_empty() && n.op.starts_with("nlm.")) {
         let like = r.sig(&n.op).is_some_and(|s| s.inputs.iter().any(|i| i.name == "like"));
         if !like {
             notes.push(format!(
@@ -1370,7 +1896,7 @@ pub fn plan(
             notes.push(format!("{}: still drawn, on the grid of ${ref_in}", n.id));
         }
     }
-    Ok(Plan { model: out, notes, refused, inputs, reference: ref_in, images })
+    Ok(Plan { model: out, notes, refused, inputs, reference: ref_in, images, notices, stray })
 }
 
 /// The problems of the planned model: those of the model's check, and of its data as the data of any model is
@@ -1389,6 +1915,7 @@ pub fn check(plan: &Plan, base: &Path) -> Vec<Finding> {
         })
         .collect();
     out.extend(missing_bands(plan));
+    out.extend(plan.notices.iter().cloned());
     match terraflux_exec::load_inputs(&plan.model, base, &Default::default()) {
         Err(e) => out.push(Finding {
             level: Level::Error,
@@ -3201,5 +3728,241 @@ mod tests {
         user[1].name = "water".into();
         assert!(apply_classes(&mut rules_model(), "rules", &user).is_err());
         assert!(apply_classes(&mut rules_model(), "rules", &[]).is_err());
+    }
+
+    const OBIA: &str = "Classify an image by clicking samples";
+
+    /// The template's drawn scene (its image) written as a file of the user's: six bands named blue to swir2, in
+    /// EPSG:32633; and the template's example points as rows `(x, y, class)`.
+    fn obia_scene(d: &Path) -> (PathBuf, Vec<(f64, f64, String)>) {
+        let m = template(OBIA);
+        let mut scene = Model::new("scene");
+        scene.nodes = m.nodes[..2].to_vec();
+        let inputs = terraflux_exec::load_inputs(&scene, d, &Default::default()).unwrap();
+        let out = terraflux_exec::Engine::default().run(&scene, &inputs, &mut terraflux_exec::Quiet).unwrap();
+        let Some(terraflux_ops::Value::Stack(st)) = out.get("image.image") else { panic!("no image") };
+        let bands = st
+            .keys
+            .iter()
+            .zip(&st.layers)
+            .map(|(k, l)| terraflux_raster::Band {
+                name: match k {
+                    terraflux_ops::Key::Name(n) => Some(n.clone()),
+                    _ => None,
+                },
+                data: l.to_vec(),
+            })
+            .collect();
+        let f = d.join("scene.tif");
+        // (the file's CRS as GeoTIFF keys: UTM 33N, projected, pixel is area)
+        let mut grid = (*st.grid).clone();
+        grid.geo = terraflux_raster::GeoTags {
+            geokeys: Some(vec![1, 1, 0, 3, 1024, 0, 1, 1, 1025, 0, 1, 1, 3072, 0, 1, 32633]),
+            ..Default::default()
+        };
+        Raster { grid, bands, dtype: DataType::F32, nodata: None }.write(&f).unwrap();
+        let rows = m.node("sample_table").unwrap().params["rows"].as_array().unwrap().clone();
+        let rows = rows
+            .iter()
+            .map(|r| (r[0].as_f64().unwrap(), r[1].as_f64().unwrap(), r[2].as_str().unwrap().to_string()))
+            .collect();
+        (f, rows)
+    }
+
+    /// Points in a coordinate system, a text column `column`, written as a GeoPackage in EPSG:4326.
+    fn write_points(d: &Path, name: &str, rows: &[(f64, f64, String)], column: &str) -> PathBuf {
+        let v = Vector {
+            geometries: rows.iter().map(|r| Geometry::Point([r.0, r.1])).collect(),
+            attributes: vec![(column.to_string(), Column::Texts(rows.iter().map(|r| r.2.clone()).collect()))],
+            crs: Some("EPSG:32633".into()),
+        };
+        let v = terraflux_gdal::reproject_vector(&v, "EPSG:4326").unwrap();
+        let p = d.join(name);
+        let _ = std::fs::remove_file(&p);
+        terraflux_gdal::write_vector(&p, "samples", &v).unwrap();
+        p
+    }
+
+    fn write_csv(d: &Path, name: &str, rows: &[(f64, f64, String)], head: &str) -> PathBuf {
+        let mut t = format!("{head}\n");
+        for r in rows {
+            t.push_str(&format!("{},{},{}\n", r.0, r.1, r.2));
+        }
+        let p = d.join(name);
+        std::fs::write(&p, t).unwrap();
+        p
+    }
+
+    /// The plan's model run whole, its files written in the folder of the test.
+    fn run_in(p: &Plan, d: &Path) -> terraflux_exec::Results {
+        let mut p = p.clone();
+        for n in p.model.nodes.iter_mut().filter(|n| n.op == "vector.write") {
+            n.params.insert("path".into(), d.join("out.gpkg").to_string_lossy().replace('\\', "/").into());
+        }
+        run(&p, d)
+    }
+
+    fn said<'a>(p: &Plan, base: &Path, level: Level, has: &str) -> Vec<String> {
+        check(p, base).into_iter().filter(|f| f.level == level && f.message.contains(has)).map(|f| f.message).collect()
+    }
+
+    #[test]
+    fn the_samples_of_a_template_are_data_of_points_a_file_replaces() {
+        let r = Registry::standard();
+        let m = template(OBIA);
+        let s = sources(&m, &r);
+        assert_eq!(ids(&s), ["image", "samples"]);
+        assert!(is_points(&s[1]) && !is_points(&s[0]));
+        assert_eq!(s[1].data.as_ref().unwrap().kind, DataKind::Points);
+        // every template that classifies by clicked samples offers them
+        for name in [
+            "Classify a second scene with the model of the first",
+            "Classify objects by principal components of their attributes",
+            "Crops by their seasons",
+            "Each class its own way",
+        ] {
+            assert!(sources(&template(name), &r).iter().any(is_points), "{name}");
+        }
+        let d = dir("samples-gpkg");
+        let (scene, rows) = obia_scene(&d);
+        let points = write_points(&d, "points.gpkg", &rows, "cover");
+        let f = points_file(&points).unwrap();
+        assert_eq!(
+            (f.csv, f.class.as_deref(), f.columns.as_slice()),
+            (false, Some("cover"), ["cover".to_string()].as_slice())
+        );
+        // the image and the points, the class column guessed
+        let both = BTreeMap::from([("image".to_string(), choice(&scene)), ("samples".to_string(), choice(&points))]);
+        let p = plan(&m, &r, &both, None, &d).unwrap();
+        assert!(p.refused.is_empty(), "{:?}", p.refused);
+        let md = &p.model;
+        for gone in ["samples", "sample_table", "image", "land"] {
+            assert!(md.node(gone).is_none(), "{gone}");
+        }
+        let read = md.node("samples_read").expect("the points read");
+        assert_eq!(read.op, "vector.read");
+        assert!(read.params["path"].as_str().unwrap().ends_with("points.gpkg"));
+        assert_eq!(read.data.as_ref().map(|d| d.kind), Some(DataKind::Points));
+        let training = md.node("training").unwrap();
+        assert!(matches!(training.inputs.get("samples"), Some(Wire::Ref(x)) if x == "samples_read.vector"));
+        assert_eq!(training.params["class"], "cover");
+        assert_eq!(errors(&p, &d), Vec::<String>::new());
+        assert!(p.stray.is_empty() && !p.notes.is_empty());
+        assert!(
+            p.notes.iter().any(|n| n.contains("the class in the column cover") && n.contains("water (12)")),
+            "{:?}",
+            p.notes
+        );
+        // it runs to the classifier: the points fall on the objects
+        let out = run_in(&p, &d);
+        let Some(terraflux_ops::Value::Table(t)) = out.get("training.table") else { panic!("no training table") };
+        assert!(t.rows.len() > 20, "{} objects sampled", t.rows.len());
+        assert!(out.get("model.model").is_some());
+        // a second run of Use my data finds the points again, and replaces them
+        let again = sources(&p.model, &r);
+        assert!(again.iter().any(|s| s.node == "samples_read" && is_points(s)), "{:?}", ids(&again));
+        // another column for the class
+        let mut c = choice(&points);
+        c.class_column = Some("nope".into());
+        let bad = plan(&m, &r, &BTreeMap::from([("samples".to_string(), c)]), None, &d);
+        assert!(bad.unwrap_err().contains("no column \"nope\""));
+    }
+
+    #[test]
+    fn a_table_of_points_is_read_in_the_images_coordinate_system() {
+        let r = Registry::standard();
+        let m = template(OBIA);
+        let d = dir("samples-csv");
+        let (scene, rows) = obia_scene(&d);
+        let csv = write_csv(&d, "points.csv", &rows, "X,Y,Label");
+        let f = points_file(&csv).unwrap();
+        assert_eq!((f.csv, f.class.as_deref(), f.xy.clone()), (true, Some("Label"), Some(("X".into(), "Y".into()))));
+        let both = BTreeMap::from([("image".to_string(), choice(&scene)), ("samples".to_string(), choice(&csv))]);
+        let p = plan(&m, &r, &both, None, &d).unwrap();
+        assert!(p.refused.is_empty(), "{:?}", p.refused);
+        let t = p.model.node("samples_table").unwrap();
+        assert_eq!(t.op, "table.read");
+        let v = p.model.node("samples_points").unwrap();
+        assert_eq!(
+            (v.op.as_str(), v.params["crs"].as_str(), v.params["x"].as_str()),
+            ("vector.from_table", Some("EPSG:32633"), Some("X"))
+        );
+        assert_eq!(p.model.node("training").unwrap().params["class"], "Label");
+        assert_eq!(errors(&p, &d), Vec::<String>::new());
+        let out = run_in(&p, &d);
+        assert!(out.get("model.model").is_some());
+        // the points only (the template's image stays): no grid to check them on, the class read all the same
+        let p = plan(&m, &r, &BTreeMap::from([("samples".to_string(), choice(&csv))]), None, &d).unwrap();
+        assert!(p.model.node("image").is_some() && p.model.node("samples_points").is_some());
+        assert_eq!(p.model.node("samples_points").unwrap().params.get("crs"), None);
+        assert_eq!(errors(&p, &d), Vec::<String>::new());
+        // a table with no coordinates
+        let bad = write_csv(&d, "nocoords.csv", &rows, "a,b,class");
+        assert!(points_file(&bad).unwrap_err().contains("no columns of coordinates"));
+    }
+
+    #[test]
+    fn the_points_are_checked_against_the_image_before_apply() {
+        let r = Registry::standard();
+        let m = template(OBIA);
+        let d = dir("samples-check");
+        let (scene, rows) = obia_scene(&d);
+        let plan_of = |points: &Path| {
+            let both = BTreeMap::from([("image".to_string(), choice(&scene)), ("samples".to_string(), choice(points))]);
+            plan(&m, &r, &both, None, &d).unwrap()
+        };
+        // far from the image
+        let far: Vec<_> = rows.iter().map(|r| (r.0 + 100_000.0, r.1, r.2.clone())).collect();
+        let p = plan_of(&write_csv(&d, "far.csv", &far, "x,y,class"));
+        assert_eq!(said(&p, &d, Level::Error, "None of your 59 points falls on your image").len(), 1);
+        // half of them outside: told, not stopped
+        let part: Vec<_> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (if i % 5 == 0 { r.0 + 1e5 } else { r.0 }, r.1, r.2.clone()))
+            .collect();
+        let p = plan_of(&write_csv(&d, "part.csv", &part, "x,y,class"));
+        assert_eq!(said(&p, &d, Level::Warning, "12 of your 59 points fall outside your image").len(), 1);
+        assert!(errors(&p, &d).iter().all(|e| !e.contains("points")), "{:?}", errors(&p, &d));
+        // one class only
+        let one: Vec<_> = rows.iter().filter(|r| r.2 == "water").cloned().collect();
+        let p = plan_of(&write_csv(&d, "one.csv", &one, "x,y,class"));
+        assert_eq!(said(&p, &d, Level::Error, "1 class on the image").len(), 1);
+        // a class whose points are all outside the image
+        let lost: Vec<_> =
+            rows.iter().map(|r| (if r.2 == "urban" { r.0 + 1e5 } else { r.0 }, r.1, r.2.clone())).collect();
+        let p = plan_of(&write_csv(&d, "lost.csv", &lost, "x,y,class"));
+        assert_eq!(said(&p, &d, Level::Warning, "No point of the class urban falls on your image").len(), 1);
+        // no class in some rows
+        let blank: Vec<_> =
+            rows.iter().enumerate().map(|(i, r)| (r.0, r.1, if i < 3 { String::new() } else { r.2.clone() })).collect();
+        let p = plan_of(&write_csv(&d, "blank.csv", &blank, "x,y,class"));
+        assert_eq!(said(&p, &d, Level::Warning, "3 of your 59 points have no class").len(), 1);
+    }
+
+    #[test]
+    fn an_image_replaced_without_the_samples_says_so_before_apply() {
+        let r = Registry::standard();
+        let m = template(OBIA);
+        let d = dir("samples-stray");
+        let names: Vec<Option<&str>> =
+            ["blue", "green", "red", "nir", "swir1", "swir2"].iter().map(|n| Some(*n)).collect();
+        let far = write_bands(&d, "far.tif", &names, |b, row, col| 0.1 * (b + 1) as f64 + (row + col) as f64 * 0.001);
+        let p = plan(&m, &r, &one("image", choice(&far)), None, &d).unwrap();
+        assert_eq!(p.stray, ["samples"]);
+        let told = said(&p, &d, Level::Warning, "none falls on yours");
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert!(told[0].starts_with("The template's example points are on its drawn image and none falls on yours: bring a file of your points with their class, or click them in the Viewer after Apply (the Samples box)"), "{}", told[0]);
+        // not an error: the points can be clicked after Apply
+        assert!(!check(&p, &d).iter().any(|f| f.at == "samples" && f.level == Level::Error));
+        // the same image with the points brought: nothing stray
+        let (scene, rows) = obia_scene(&d);
+        let points = write_points(&d, "points.gpkg", &rows, "cover");
+        let both = BTreeMap::from([("image".to_string(), choice(&scene)), ("samples".to_string(), choice(&points))]);
+        assert!(plan(&m, &r, &both, None, &d).unwrap().stray.is_empty());
+        // the points only: the image is the template's own, nothing to tell
+        let p = plan(&m, &r, &one("samples", choice(&points)), None, &d).unwrap();
+        assert!(p.stray.is_empty());
+        assert_eq!(said(&p, &d, Level::Warning, "example points").len(), 0);
     }
 }

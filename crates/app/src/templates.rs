@@ -6313,6 +6313,7 @@ rows = SAMPLE_ROWS
 id = "samples"
 op = "vector.from_table"
 inputs = { table = "sample_table.table" }
+data = { what = "the example points: a class at each (a point on an object of each class, with the class's name)", kind = "points" }
 note = "The points as features, with the class as an attribute."
 
 [[nodes]]
@@ -6502,6 +6503,7 @@ rows = SAMPLE_ROWS
 id = "samples"
 op = "vector.from_table"
 inputs = { table = "sample_table.table" }
+data = { what = "the example points: a class at each (a point on an object of each class, with the class's name)", kind = "points" }
 note = "The points as features, with the class as an attribute."
 
 [[nodes]]
@@ -6682,6 +6684,7 @@ rows = SAMPLE_ROWS
 id = "samples"
 op = "vector.from_table"
 inputs = { table = "sample_table.table" }
+data = { what = "the example points: a class at each (a point on an object of each class, with the class's name)", kind = "points" }
 note = "The points as features, with the class as an attribute."
 
 [[nodes]]
@@ -6928,6 +6931,7 @@ rows = SAMPLE_ROWS
 id = "samples"
 op = "vector.from_table"
 inputs = { table = "sample_table.table" }
+data = { what = "the example points: a class at each (a point on an object of each class, with the class's name)", kind = "points" }
 note = "The points as features, with the crop as an attribute."
 
 [[nodes]]
@@ -7070,6 +7074,7 @@ rows = SAMPLE_ROWS
 id = "samples"
 op = "vector.from_table"
 inputs = { table = "sample_table.table" }
+data = { what = "the example points: a class at each (a point on an object of each class, with the class's name)", kind = "points" }
 note = "The points as features, with the class as an attribute."
 "#,
     );

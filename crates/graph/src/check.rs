@@ -451,12 +451,17 @@ impl<'a> Checker<'a> {
                 for why in d.problems() {
                     self.warn(&at, why);
                 }
-                let gives = sig
-                    .outputs_of(n)
-                    .iter()
-                    .any(|p| matches!(p.ty, Type::Map | Type::Stack | Type::Raster | Type::Any));
+                let points = d.kind == crate::DataKind::Points;
+                let gives = sig.outputs_of(n).iter().any(|p| {
+                    matches!(p.ty, Type::Map | Type::Stack | Type::Raster | Type::Any)
+                        || (points && p.ty == Type::Vector)
+                });
                 if !sig.container && !gives {
-                    self.warn(&at, format!("{} gives no map or stack, and `data` says it stands for one", n.op));
+                    if points {
+                        self.warn(&at, format!("{} gives no features, and `data` says it stands for points", n.op));
+                    } else {
+                        self.warn(&at, format!("{} gives no map or stack, and `data` says it stands for one", n.op));
+                    }
                 }
             }
             let known: BTreeSet<&str> = sig.params.iter().map(|p| p.name.as_str()).collect();

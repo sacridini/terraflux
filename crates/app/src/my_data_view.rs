@@ -227,6 +227,9 @@ struct Pick {
     files: Vec<PathBuf>,
     /// An image with no file of the user's: a Sentinel-2 scene of an area.
     scene: Option<my_data::Scene>,
+    /// Points with a class (the samples): `bands` are the file's columns that can hold the class, `band` the one
+    /// chosen (none: the one guessed), and no band, table of classes or grid.
+    points: bool,
 }
 
 /// What a thread did.
@@ -467,6 +470,9 @@ impl State {
     pub fn choose(&mut self, s: &mut Session, r: &Registry, node: &str, file: &Path) -> Result<(), String> {
         let src = sources_of(s, r).iter().find(|x| x.node == node).cloned();
         let Some(src) = src else { return Err(format!("{node}: the model draws no such data")) };
+        if my_data::is_points(&src) {
+            return self.choose_points(node, file);
+        }
         match bands_of(file) {
             Ok(bands) => {
                 self.problems.remove(node);
@@ -498,6 +504,7 @@ impl State {
                     image,
                     files: Vec::new(),
                     scene: None,
+                    points: false,
                 };
                 self.picks.insert(node.to_string(), pick);
                 if self.dates.iter().any(|d| d == node) {
@@ -510,6 +517,42 @@ impl State {
                 self.problems.insert(node.to_string(), e.clone());
                 Err(e)
             }
+        }
+    }
+
+    /// Choose a file of points for the samples: its columns read, the class guessed (a column of text or whole
+    /// numbers named class, label, cover...). The reason when it cannot be.
+    fn choose_points(&mut self, node: &str, file: &Path) -> Result<(), String> {
+        match my_data::points_file(file) {
+            Ok(f) => {
+                self.problems.remove(node);
+                let pick = Pick {
+                    file: file.to_path_buf(),
+                    bands: f.columns,
+                    band: f.class,
+                    template: None,
+                    classes: Cls::None,
+                    crosswalk: BTreeMap::new(),
+                    like: None,
+                    image: None,
+                    files: Vec::new(),
+                    scene: None,
+                    points: true,
+                };
+                self.picks.insert(node.to_string(), pick);
+                Ok(())
+            }
+            Err(e) => {
+                self.problems.insert(node.to_string(), e.clone());
+                Err(e)
+            }
+        }
+    }
+
+    /// The column of a file of points that holds the class.
+    pub fn set_class_column(&mut self, node: &str, column: &str) {
+        if let Some(p) = self.picks.get_mut(node).filter(|p| p.points) {
+            p.band = Some(column.to_string());
         }
     }
 
@@ -569,6 +612,7 @@ impl State {
                 image: Some(image),
                 files,
                 scene: None,
+                points: false,
             },
         );
         self.scene_form = None;
@@ -612,6 +656,7 @@ impl State {
                 image: Some(image),
                 files: Vec::new(),
                 scene: Some(scene),
+                points: false,
             },
         );
         self.scene_form = None;
@@ -647,6 +692,7 @@ impl State {
             image: None,
             files: Vec::new(),
             scene: None,
+            points: false,
         };
         self.problems.remove(node);
         self.picks.insert(node.to_string(), pick);
@@ -874,7 +920,8 @@ impl State {
                 let dated = all && self.dates.contains(k);
                 let c = Choice {
                     file: p.file.clone(),
-                    band: p.band.clone(),
+                    band: p.band.clone().filter(|_| !p.points),
+                    class_column: p.band.clone().filter(|_| p.points),
                     crosswalk: if dated { BTreeMap::new() } else { p.crosswalk.clone() },
                     dates: dated && self.dates.first() == Some(k),
                     roles: p.image.as_ref().map(|i| i.roles.clone()),
@@ -1076,11 +1123,12 @@ impl State {
         let first = sources
             .iter()
             .find(|x| self.picks.contains_key(&x.node) && x.needs == Type::Map)
-            .or_else(|| sources.iter().find(|x| self.picks.contains_key(&x.node)))
+            .or_else(|| sources.iter().find(|x| self.picks.contains_key(&x.node) && x.needs != Type::Vector))
             .map(|x| x.node.clone());
         let reference = self.reference_now().or(first);
-        let many = self.picks.len() > 1;
+        let many = self.picks.values().filter(|p| !p.points).count() > 1;
         let (mut choose, mut keep, mut band, mut refer, mut same) = (None, None, None, None, None);
+        let mut class_column: Option<(String, String)> = None;
         let mut all: Option<(String, String)> = None;
         let mut files: Option<(String, Vec<PathBuf>)> = None;
         let mut open_form: Option<String> = None;
@@ -1100,9 +1148,13 @@ impl State {
             let pick = self.picks.get(&src.node);
             ui.horizontal_wrapped(|ui| {
                 if ui.button("Choose a file...").clicked()
-                    && let Some(p) = crate::fixes::pick_file("raster.read")
+                    && let Some(p) = if my_data::is_points(src) {
+                        pick_points()
+                    } else {
+                        crate::fixes::pick_file("raster.read").map(PathBuf::from)
+                    }
                 {
-                    choose = Some((src.node.clone(), PathBuf::from(p)));
+                    choose = Some((src.node.clone(), p));
                 }
                 // an image: a band to a file, a folder of them, or a scene of an area for the one who has no image
                 if my_data::is_image(src) {
@@ -1183,7 +1235,20 @@ impl State {
                     None => p.file.display().to_string(),
                 };
                 ui.label(RichText::new(name).strong()).on_hover_text(tip);
-                if src.needs == Type::Stack {
+                if p.points {
+                    // the column of the file that holds the class
+                    let shown = p.band.clone().unwrap_or_default();
+                    ui.label(RichText::new("class in column").weak());
+                    egui::ComboBox::from_id_salt(("my data class column", &src.node))
+                        .selected_text(shown.clone())
+                        .show_ui(ui, |ui| {
+                            for b in &p.bands {
+                                if ui.selectable_label(*b == shown, b).clicked() {
+                                    class_column = Some((src.node.clone(), b.clone()));
+                                }
+                            }
+                        });
+                } else if src.needs == Type::Stack {
                     ui.label(RichText::new(format!("all {} bands", p.bands.len())).weak());
                 } else if p.bands.len() > 1 {
                     let shown = p.band.clone().unwrap_or_else(|| p.bands[0].clone());
@@ -1198,6 +1263,7 @@ impl State {
                         });
                 }
                 if many
+                    && !p.points
                     && ui
                         .radio(reference.as_deref() == Some(src.node.as_str()), "grid of reference")
                         .on_hover_text("the grid the other files are put on (cells, extent, CRS)")
@@ -1219,7 +1285,9 @@ impl State {
             if let Some(Pick { classes: Cls::Failed(e), .. }) = pick {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
-            if pick.is_some() && self.current {
+            // (a drawn data too when the plan has something to tell of it: the example points left on a replaced image)
+            let stray = self.plan().is_some_and(|p| p.stray.contains(&src.node));
+            if (pick.is_some() || stray) && self.current {
                 self.row_findings(ui, &src.node);
             }
         }
@@ -1281,6 +1349,9 @@ impl State {
         }
         if let Some((n, b)) = band {
             self.set_band(&n, b);
+        }
+        if let Some((n, c)) = class_column {
+            self.set_class_column(&n, &c);
         }
         if let Some(n) = refer {
             self.reference = Some(n);
@@ -1478,7 +1549,8 @@ impl State {
             RichText::new(
                 "Your classes in place of the template's: rename, recolour, remove, add. A class keeps the rule it \
                  had (edit the rules in the model afterwards); a new class has the rule 0 until you write one. Where \
-                 you classify by samples, the classes are the names of your samples.",
+                 you classify by samples, the classes are the values of the class column of the points you bring \
+                 (Your data page), not these rules' names; the template's own points name the template's classes.",
             )
             .weak(),
         );
@@ -1710,6 +1782,19 @@ fn scene_form(
 }
 
 /// A finding: its level, where, what, and what to do about it.
+/// The file of the points of the samples: features (GeoPackage, GeoJSON, Shapefile...) or a table of x, y and the class.
+fn pick_points() -> Option<PathBuf> {
+    let mut both: Vec<&str> = crate::builder::VECTOR_EXTENSIONS.to_vec();
+    both.extend(["csv", "tsv", "txt"]);
+    rfd::FileDialog::new()
+        .set_title("Your points, with the class of each")
+        .add_filter("Points", &both)
+        .add_filter("Vectors", &crate::builder::VECTOR_EXTENSIONS)
+        .add_filter("Tables of x, y and the class", &["csv", "tsv", "txt"])
+        .add_filter("Every file", &["*"])
+        .pick_file()
+}
+
 fn finding_line(ui: &mut Ui, f: &Finding) {
     let (word, colour) = match f.level {
         Level::Error => ("Error", ui.visuals().error_fg_color),
