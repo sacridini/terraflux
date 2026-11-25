@@ -18,7 +18,11 @@
       Scope="perUser"
       Compressed="yes">
     <SummaryInformation Description="Terraflux $(var.Version): land use and land cover change modelling" />
-    <MajorUpgrade DowngradeErrorMessage="A newer Terraflux is installed already." />
+    <!-- the old version removed right after InstallInitialize, inside the transaction of the new one's install: a
+         failure (a package missing, a file in use) rolls back to the old version, not to no Terraflux at all (the
+         default, after InstallValidate, commits the removal first) -->
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer Terraflux is installed already." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/sacridini/terraflux" />

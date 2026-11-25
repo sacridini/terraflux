@@ -166,6 +166,17 @@ pub fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
 
 /// Open the application's window (with a model, if given).
 pub fn run(model: Option<PathBuf>) -> eframe::Result<()> {
+    // an update installing (its script's marker, its process alive): nothing written (settings, layout, the
+    // downloads cleaned), the window not opened; the update opens Terraflux when it is done
+    if let Some(version) = update::busy() {
+        rfd::MessageDialog::new()
+            .set_title("Terraflux")
+            .set_description(update::installing_text(&version))
+            .set_level(rfd::MessageLevel::Info)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
+        return Ok(());
+    }
     terraflux_ops::threads::ensure();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

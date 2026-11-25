@@ -354,6 +354,9 @@ impl Updater {
     pub fn download(&self, r: Release, wake: impl Fn() + Send + 'static) {
         let Some(how) = install() else { return };
         let Some((name, url)) = r.package(&how) else { return };
+        if let Some(v) = busy() {
+            return self.set(State::Failed(installing_text(&v)), &wake);
+        }
         self.set(State::Downloading(0, None), &wake);
         let me = self.clone();
         std::thread::spawn(move || {
@@ -410,20 +413,148 @@ pub fn log_file() -> PathBuf {
     std::env::temp_dir().join("terraflux-update.log")
 }
 
-/// The packages of the updates before, removed (when the application starts).
+/// How long a package or a folder of an update is kept when nothing says it is wanted: leftovers older than this
+/// are removed whatever their version.
+const LEFTOVER: Duration = Duration::from_secs(2 * 24 * 3600);
+
+/// How long an installing marker is believed (its process may be gone and its number given to another).
+const MARKER_LIFE: Duration = Duration::from_secs(6 * 3600);
+
+/// The name of the marker an update's script keeps in [`downloads`] while it installs.
+const MARKER: &str = "installing";
+
+/// The version a package's file name has (`terraflux-1.71.1-x64.msi`, `terraflux_1.71.1_amd64.deb`,
+/// `terraflux-1.71.1-1.x86_64.rpm`, `terraflux-1.71.1-windows-x64.zip`, ...).
+fn package_version(name: &str) -> Option<Version> {
+    let rest = name.strip_prefix("terraflux")?.trim_start_matches(['-', '_']);
+    let end = rest.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(rest.len());
+    parse_version(rest[..end].trim_end_matches('.'))
+}
+
+/// How long ago a file or folder was last written.
+fn age(path: &Path) -> Duration {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| SystemTime::now().duration_since(t).ok())
+        .unwrap_or_default()
+}
+
+/// Whether the folder of the downloads has a package of a version newer than `now` (an update pending or being
+/// installed), or a file of no version, written recently: not to be removed.
+fn wanted(path: &Path, name: &str, now: Version) -> bool {
+    name != MARKER && age(path) < LEFTOVER && package_version(name).is_none_or(|v| v > now)
+}
+
+/// The downloads of the updates before removed: those of a version up to `now`, and the leftovers of 2 days or
+/// more. A newer package (an install pending or in progress, perhaps by another Terraflux) stays.
+fn clean_downloads(dir: &Path, now: Version) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let (path, name) = (e.path(), e.file_name().to_string_lossy().into_owned());
+        // the marker is judged by `busy`
+        if name == MARKER || wanted(&path, &name, now) {
+            continue;
+        }
+        let _ = if path.is_dir() { std::fs::remove_dir_all(&path) } else { std::fs::remove_file(&path) };
+    }
+}
+
+/// Whether a newer package is waiting in the folder of the downloads (the folders it was unpacked in are then
+/// not to be removed).
+fn pending(dir: &Path, now: Version) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    entries.flatten().any(|e| {
+        let name = e.file_name().to_string_lossy().into_owned();
+        package_version(&name).is_some_and(|v| v > now) && wanted(&e.path(), &name, now)
+    })
+}
+
+/// The packages of the updates before, removed (when the application starts): not those of a newer version than
+/// this one, which an installation may be using.
 pub fn clean() {
-    let _ = std::fs::remove_dir_all(downloads());
+    let keep = pending(&downloads(), current());
+    clean_downloads(&downloads(), current());
     match install() {
         Some(Install::App(old) | Install::Folder(old)) => {
-            let _ = std::fs::remove_dir_all(staging(&old));
+            if !keep || age(&staging(&old)) >= LEFTOVER {
+                let _ = std::fs::remove_dir_all(staging(&old));
+            }
         }
         Some(Install::Portable(dir)) => {
-            let _ = std::fs::remove_dir_all(portable_staging(&dir));
+            if !keep || age(&portable_staging(&dir)) >= LEFTOVER {
+                let _ = std::fs::remove_dir_all(portable_staging(&dir));
+            }
             // the files an update renamed because they were in use (a folder of thousands of files: not waited for)
             std::thread::spawn(move || remove_old(&dir));
         }
         _ => {}
     }
+}
+
+/// What a Terraflux started while an update installs says (and the updater, asked to start another).
+pub fn installing_text(version: &str) -> String {
+    format!("Terraflux is being updated to {version}; it opens again when the update is done.")
+}
+
+/// The file an update's script keeps while it installs (its process number, then the version), so that a Terraflux
+/// started meanwhile leaves the installation alone.
+pub fn marker_file() -> PathBuf {
+    downloads().join(MARKER)
+}
+
+/// Whether a process is running.
+fn pid_alive(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        const STILL_ACTIVE: u32 = 259;
+        // SAFETY: a handle opened, asked and closed
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                return false;
+            }
+            let mut code = 0u32;
+            let ok = GetExitCodeProcess(h, &mut code) != 0;
+            CloseHandle(h);
+            ok && code == STILL_ACTIVE
+        }
+    }
+    #[cfg(unix)]
+    {
+        // a number past i32 is not a process (and -1 would be every one)
+        let Some(pid) = i32::try_from(pid).ok().filter(|p| *p > 0) else { return false };
+        // SAFETY: signal 0 only asks whether the process exists
+        unsafe { libc::kill(pid, 0) == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+/// The version an update's script is installing now (its marker read, its process alive and the marker not old),
+/// told as `X.Y.Z`. A marker of a process that is gone is stale: removed.
+pub fn busy() -> Option<String> {
+    busy_in(&marker_file(), pid_alive)
+}
+
+/// [`busy`] with the marker's file and the way to tell a process is alive.
+fn busy_in(file: &Path, alive: impl Fn(u32) -> bool) -> Option<String> {
+    let text = std::fs::read_to_string(file).ok()?;
+    let mut lines = text.lines();
+    let pid = lines.next().and_then(|l| l.trim().parse::<u32>().ok());
+    let version = lines.next().unwrap_or_default().trim().to_string();
+    if pid.is_some_and(|p| age(file) < MARKER_LIFE && alive(p)) {
+        return Some(version);
+    }
+    let _ = std::fs::remove_file(file);
+    None
 }
 
 /// The folder a portable copy's update is unpacked in: inside it (the user may write there).
@@ -553,7 +684,15 @@ fn windows_tar() -> PathBuf {
 /// once this process has ended, then opens Terraflux again (with a model). Only the files of the zip are
 /// written: the user's others stay. A file in use (the program, a DLL, by a server of `terraflux.exe mcp`) is
 /// renamed `<name>.old` and the new one put in its place; the `.old` are removed when Terraflux starts.
-pub fn portable_script(pid: u32, stage: &Path, dir: &Path, model: Option<&Path>, log: &Path) -> String {
+pub fn portable_script(
+    pid: u32,
+    stage: &Path,
+    dir: &Path,
+    model: Option<&Path>,
+    log: &Path,
+    marker: &Path,
+    version: Version,
+) -> String {
     let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
     let path = |p: &Path| lit(&p.display().to_string());
     let exe = dir.join("terraflux.exe");
@@ -561,8 +700,7 @@ pub fn portable_script(pid: u32, stage: &Path, dir: &Path, model: Option<&Path>,
         Some(m) => format!("Start-Process {} -ArgumentList {}", path(&exe), lit(&format!("\"{}\"", m.display()))),
         None => format!("Start-Process {}", path(&exe)),
     };
-    const SCRIPT: &str = r##"Wait-Process -Id @PID@ -ErrorAction SilentlyContinue
-$src = @SRC@; $dst = @DST@; $log = @LOG@
+    const SCRIPT: &str = r##"$src = @SRC@; $dst = @DST@; $log = @LOG@; $marker = @MARKER@
 function Put($from, $to) {
     for ($i = 0; $i -lt 5; $i++) {
         try { Copy-Item -LiteralPath $from -Destination $to -Force -ErrorAction Stop; return $true }
@@ -576,17 +714,25 @@ function Put($from, $to) {
     }
     catch { Add-Content -LiteralPath $log -Value ('not replaced: ' + $to + ': ' + $_); return $false }
 }
-$all = $true
-$root = (Get-Item -LiteralPath $src).FullName.TrimEnd('\')
-foreach ($f in @(Get-ChildItem -LiteralPath $src -Recurse -File -Force)) {
-    $to = Join-Path $dst $f.FullName.Substring($root.Length).TrimStart('\')
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
-    if (-not (Put $f.FullName $to)) { $all = $false }
+# the marker a Terraflux started meanwhile reads (removed, whatever happens, before this one opens)
+try {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $marker) | Out-Null
+    Set-Content -LiteralPath $marker -Value ("$PID`n@VERSION@")
+    Wait-Process -Id @PID@ -ErrorAction SilentlyContinue
+    $all = $true
+    $root = (Get-Item -LiteralPath $src).FullName.TrimEnd('\')
+    foreach ($f in @(Get-ChildItem -LiteralPath $src -Recurse -File -Force)) {
+        $to = Join-Path $dst $f.FullName.Substring($root.Length).TrimStart('\')
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+        if (-not (Put $f.FullName $to)) { $all = $false }
+    }
+    if ($all) {
+        Add-Content -LiteralPath $log -Value 'installed'
+        Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
-if ($all) {
-    Add-Content -LiteralPath $log -Value 'installed'
-    Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue
-}
+catch { Add-Content -LiteralPath $log -Value ('not installed: ' + $_) }
+finally { Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue }
 try { @OPEN@ } catch { Add-Content -LiteralPath $log -Value ('not opened: ' + $_) }
 "##;
     SCRIPT
@@ -594,12 +740,22 @@ try { @OPEN@ } catch { Add-Content -LiteralPath $log -Value ('not opened: ' + $_
         .replace("@SRC@", &path(stage))
         .replace("@DST@", &path(dir))
         .replace("@LOG@", &path(log))
+        .replace("@MARKER@", &path(marker))
+        .replace("@VERSION@", &show(version))
         .replace("@OPEN@", &open)
 }
 
 /// The command that installs the installer once this process has ended (its log kept), then opens Terraflux again
 /// (with a model): PowerShell's, its script encoded (no quoting of the paths to get wrong).
-pub fn install_script(pid: u32, msi: &Path, exe: &Path, model: Option<&Path>, log: &Path) -> String {
+pub fn install_script(
+    pid: u32,
+    msi: &Path,
+    exe: &Path,
+    model: Option<&Path>,
+    log: &Path,
+    marker: &Path,
+    version: Version,
+) -> String {
     // a PowerShell string ('' for a '), and a path in double quotes in it (Start-Process joins its arguments
     // as they are: a path with spaces needs them)
     let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
@@ -608,18 +764,32 @@ pub fn install_script(pid: u32, msi: &Path, exe: &Path, model: Option<&Path>, lo
         Some(m) => format!("Start-Process {} -ArgumentList {}", lit(&exe.display().to_string()), quoted(m)),
         None => format!("Start-Process {}", lit(&exe.display().to_string())),
     };
+    // the marker a Terraflux started meanwhile reads, removed whatever happens (a failure told in the log) before
+    // this one opens
     format!(
-        "Wait-Process -Id {pid} -ErrorAction SilentlyContinue; \
-         Start-Process msiexec.exe -ArgumentList {} -Wait; {open}",
+        "$m = {}; try {{ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $m) | Out-Null; \
+         Set-Content -LiteralPath $m -Value (\"$PID`n{}\"); \
+         Wait-Process -Id {pid} -ErrorAction SilentlyContinue; \
+         Start-Process msiexec.exe -ArgumentList {} -Wait }} \
+         catch {{ Add-Content -LiteralPath {} -Value ('not installed: ' + $_) }} \
+         finally {{ Remove-Item -LiteralPath $m -Force -ErrorAction SilentlyContinue }}; {open}",
+        lit(&marker.display().to_string()),
+        show(version),
         lit(&format!("/i \"{}\" /passive /norestart /l*v \"{}\"", msi.display(), log.display())),
+        lit(&log.display().to_string()),
     )
 }
 
 /// The shell's script that installs an update once a process has ended, then opens Terraflux again. Its
 /// arguments: the process, the package (or the application or folder unpacked), what it replaces (or the
-/// program), then the model if one.
+/// program), the marker's file, the version, then the model if one. The marker (the script's process, the
+/// version) is kept while it waits and installs, removed whatever happens before Terraflux opens again.
 pub fn unix_script(how: &Install) -> String {
-    let wait = "pid=$1 new=$2 old=$3; shift 3\n\
+    let wait = "pid=$1 new=$2 old=$3 marker=$4 ver=$5; shift 5\n\
+                mkdir -p \"$(dirname \"$marker\")\"\n\
+                trap 'rm -f \"$marker\"' EXIT\n\
+                trap 'rm -f \"$marker\"; exit 1' HUP INT TERM\n\
+                printf '%s\\n%s\\n' \"$$\" \"$ver\" > \"$marker\"\n\
                 while kill -0 \"$pid\" 2>/dev/null; do sleep 0.2; done\n";
     // moved into the place of the old one (the old one moved back if that fails), its staging folder removed
     let swap = "if mv \"$old\" \"$old.old\"; then\n\
@@ -636,24 +806,30 @@ pub fn unix_script(how: &Install) -> String {
         Install::Package(Manager::Rpm) => (manager("rpm -U"), "exec \"$old\" \"$@\"\n"),
         Install::Package(Manager::Arch) => (manager("pacman -U --noconfirm"), "exec \"$old\" \"$@\"\n"),
     };
-    format!("{wait}{install}{open}")
+    // (`exec` ends the shell with no trap: the marker is removed first)
+    format!("{wait}{install}rm -f \"$marker\"\n{open}")
 }
 
 /// Install the update made ready after this application closes, and open it again (with a model). The version
 /// tried is kept: an update that did not install is told when Terraflux opens again.
 pub fn install_after_exit(how: &Install, version: Version, ready: &Path, model: Option<&Path>) -> Result<(), String> {
+    // another installation going on (a Terraflux of another window): not a second
+    if let Some(v) = busy() {
+        return Err(installing_text(&v));
+    }
     let log = log_file();
     let _ = std::fs::remove_file(&log);
     crate::settings::update(|s| s.update_tried = Some(show(version)));
+    let (pid, marker) = (std::process::id(), marker_file());
     let started = match how {
-        Install::Msi(exe) => run_powershell(&install_script(std::process::id(), ready, exe, model, &log)),
-        Install::Portable(dir) => run_powershell(&portable_script(std::process::id(), ready, dir, model, &log)),
+        Install::Msi(exe) => run_powershell(&install_script(pid, ready, exe, model, &log, &marker, version)),
+        Install::Portable(dir) => run_powershell(&portable_script(pid, ready, dir, model, &log, &marker, version)),
         _ => {
             let old = match how {
                 Install::App(old) | Install::Folder(old) => old.clone(),
                 _ => PathBuf::from("/opt/terraflux/terraflux"),
             };
-            run_shell(&unix_script(how), ready, &old, model, &log)
+            run_shell(&unix_script(how), ready, &old, model, &log, &marker, version)
         }
     };
     started.map_err(|e| {
@@ -690,10 +866,19 @@ fn run_powershell(script: &str) -> std::io::Result<()> {
 }
 
 /// The shell, in a group of processes of its own (the terminal's hang-up not sent to it), its output in the log.
-fn run_shell(script: &str, new: &Path, old: &Path, model: Option<&Path>, log: &Path) -> std::io::Result<()> {
+fn run_shell(
+    script: &str,
+    new: &Path,
+    old: &Path,
+    model: Option<&Path>,
+    log: &Path,
+    marker: &Path,
+    version: Version,
+) -> std::io::Result<()> {
     let out = std::fs::File::create(log)?;
     let mut c = Command::new("/bin/sh");
     c.arg("-c").arg(script).arg("terraflux-update").arg(std::process::id().to_string()).arg(new).arg(old);
+    c.arg(marker).arg(show(version));
     c.args(model);
     c.stdin(Stdio::null()).stdout(out.try_clone()?).stderr(out);
     #[cfg(unix)]
@@ -906,11 +1091,96 @@ mod tests {
             Path::new(r"C:\O'Neil\copy"),
             Some(Path::new(r"C:\My models\a.toml")),
             Path::new(r"C:\Temp\terraflux-update.log"),
+            Path::new(r"C:\O'Neil\Temp\terraflux-update\installing"),
+            (1, 71, 1),
         );
-        assert!(s.starts_with("Wait-Process -Id 42 -ErrorAction SilentlyContinue\n"));
+        assert!(s.contains("Wait-Process -Id 42 -ErrorAction SilentlyContinue\n"));
         assert!(s.contains(r"$src = 'C:\O''Neil\copy\.terraflux-update'; $dst = 'C:\O''Neil\copy';"));
         assert!(s.contains(r#"Start-Process 'C:\O''Neil\copy\terraflux.exe' -ArgumentList '"C:\My models\a.toml"'"#));
-        assert!(["@PID@", "@SRC@", "@DST@", "@LOG@", "@OPEN@"].iter().all(|p| !s.contains(p)));
+        assert!(["@PID@", "@SRC@", "@DST@", "@LOG@", "@MARKER@", "@VERSION@", "@OPEN@"].iter().all(|p| !s.contains(p)));
+        // the marker: written (the script's process, the version) before the wait, removed in a finally, before
+        // Terraflux opens
+        let at = |needle: &str| s.find(needle).unwrap_or_else(|| panic!("{needle} not in {s}"));
+        assert!(s.contains(r"$marker = 'C:\O''Neil\Temp\terraflux-update\installing'"));
+        assert!(s.contains("Set-Content -LiteralPath $marker -Value (\"$PID`n1.71.1\")"));
+        assert!(at("Set-Content -LiteralPath $marker") < at("Wait-Process"));
+        assert!(at("finally { Remove-Item -LiteralPath $marker") < at("Start-Process 'C:"));
+    }
+
+    /// The names of the packages of every kind tell their version.
+    #[test]
+    fn a_package_s_name_tells_its_version() {
+        for name in [
+            "terraflux-1.71.1-x64.msi",
+            "terraflux-1.71.1-windows-x64.zip",
+            "terraflux-1.71.1-macos-arm64.zip",
+            "terraflux-1.71.1-linux-x64.tar.gz",
+            "terraflux_1.71.1_amd64.deb",
+            "terraflux-1.71.1-1.x86_64.rpm",
+            "terraflux-1.71.1-1-x86_64.pkg.tar.zst",
+        ] {
+            assert_eq!(package_version(name), Some((1, 71, 1)), "{name}");
+        }
+        assert_eq!(package_version("SHA256SUMS.txt"), None);
+        assert_eq!(package_version("installing"), None);
+    }
+
+    /// An update's package of a newer version (an install pending or in progress) is not removed when Terraflux
+    /// starts; the older and equal ones are, and a leftover of days.
+    #[test]
+    fn clean_keeps_a_newer_package() {
+        let dir = temp("clean");
+        let files = [
+            "terraflux-1.70.0-x64.msi",
+            "terraflux-1.71.0-x64.msi",
+            "terraflux-1.71.1-x64.msi",
+            "terraflux-1.72.0-windows-x64.zip",
+            "installing",
+            "other.bin",
+        ];
+        for f in files {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        // a new one a few minutes old is wanted, an old one of 3 days is not
+        assert!(pending(&dir, (1, 71, 0)));
+        let old = dir.join("terraflux-1.80.0-x64.msi");
+        let file = std::fs::File::create(&old).unwrap();
+        file.set_modified(SystemTime::now() - Duration::from_secs(3 * 24 * 3600)).unwrap();
+        drop(file);
+        clean_downloads(&dir, (1, 71, 1));
+        let left = |f: &str| dir.join(f).exists();
+        assert!(left("terraflux-1.72.0-windows-x64.zip"));
+        assert!(
+            !left("terraflux-1.70.0-x64.msi") && !left("terraflux-1.71.0-x64.msi") && !left("terraflux-1.71.1-x64.msi")
+        );
+        assert!(!left("terraflux-1.80.0-x64.msi"));
+        // the marker is judged by `busy`, a file of no version recent stays
+        assert!(left("installing") && left("other.bin"));
+        assert!(!pending(&dir, (1, 72, 0)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_marker_tells_an_update_is_installing() {
+        let dir = temp("marker");
+        let file = dir.join(MARKER);
+        // none
+        assert_eq!(busy_in(&file, |_| true), None);
+        // the process alive: busy, with the version; the marker stays
+        std::fs::write(&file, format!("{}\n1.71.1\n", std::process::id())).unwrap();
+        assert_eq!(busy_in(&file, pid_alive).as_deref(), Some("1.71.1"));
+        assert!(file.exists());
+        // the process gone: stale, removed and ignored
+        std::fs::write(&file, "4294967295\n1.71.1\n").unwrap();
+        assert!(!pid_alive(u32::MAX));
+        assert_eq!(busy_in(&file, pid_alive), None);
+        assert!(!file.exists());
+        // not a number: stale too
+        std::fs::write(&file, "x\n").unwrap();
+        assert_eq!(busy_in(&file, pid_alive), None);
+        assert!(!file.exists());
+        assert!(installing_text("1.71.1").contains("being updated to 1.71.1"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The script waits for the application, replaces the files of the zip (a file in use renamed `.old`), keeps
@@ -938,7 +1208,8 @@ mod tests {
             std::fs::OpenOptions::new().read(true).share_mode(1 | 4).open(copy.join("terraflux.exe")).unwrap();
         let mut app = Command::new("cmd.exe").args(["/c", "ping -n 2 127.0.0.1 >nul"]).spawn().unwrap();
         let log = dir.join("update.log");
-        run_powershell(&portable_script(app.id(), &stage, &copy, None, &log)).unwrap();
+        let marker = dir.join("downloads").join(MARKER);
+        run_powershell(&portable_script(app.id(), &stage, &copy, None, &log, &marker, (1, 71, 1))).unwrap();
         // not before the application has ended
         std::thread::sleep(Duration::from_millis(100));
         assert_eq!(std::fs::read(copy.join("terraflux.exe")).unwrap(), with("old"));
@@ -957,6 +1228,8 @@ mod tests {
         assert_eq!(std::fs::read_to_string(copy.join("gdal").join("b.dll")).unwrap(), "new b");
         assert_eq!(std::fs::read_to_string(copy.join("mine.txt")).unwrap(), "mine");
         assert!(!stage.exists());
+        // the marker (written while it waited) is gone before the program opens again
+        assert!(!marker.exists());
         drop(_in_use);
         // the old one goes when Terraflux starts again
         remove_old(&copy);
@@ -1091,12 +1364,19 @@ mod tests {
             Path::new(r"C:\Users\O'Neil\AppData\Local\Programs\Terraflux\terraflux.exe"),
             Some(Path::new(r"C:\My models\a.toml")),
             Path::new(r"C:\Temp\terraflux-update.log"),
+            Path::new(r"C:\Temp\terraflux-update\installing"),
+            (1, 19, 0),
         );
         assert_eq!(
             s,
-            "Wait-Process -Id 42 -ErrorAction SilentlyContinue; Start-Process msiexec.exe -ArgumentList \
+            "$m = 'C:\\Temp\\terraflux-update\\installing'; \
+             try { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $m) | Out-Null; \
+             Set-Content -LiteralPath $m -Value (\"$PID`n1.19.0\"); \
+             Wait-Process -Id 42 -ErrorAction SilentlyContinue; Start-Process msiexec.exe -ArgumentList \
              '/i \"C:\\Temp\\terraflux-update\\terraflux-1.19.0-x64.msi\" /passive /norestart \
-             /l*v \"C:\\Temp\\terraflux-update.log\"' -Wait; \
+             /l*v \"C:\\Temp\\terraflux-update.log\"' -Wait } \
+             catch { Add-Content -LiteralPath 'C:\\Temp\\terraflux-update.log' -Value ('not installed: ' + $_) } \
+             finally { Remove-Item -LiteralPath $m -Force -ErrorAction SilentlyContinue }; \
              Start-Process 'C:\\Users\\O''Neil\\AppData\\Local\\Programs\\Terraflux\\terraflux.exe' \
              -ArgumentList '\"C:\\My models\\a.toml\"'"
         );
@@ -1148,14 +1428,18 @@ mod tests {
         let out = std::fs::File::create(&log).unwrap();
         let mut c = Command::new("/bin/sh");
         c.arg("-c").arg(unix_script(&Install::Folder(old.clone()))).arg("terraflux-update");
-        c.arg(app.id().to_string()).arg(&new).arg(&old).arg("/models/a b.toml");
+        let marker = dir.join("downloads").join(MARKER);
+        c.arg(app.id().to_string()).arg(&new).arg(&old).arg(&marker).arg("1.20.0").arg("/models/a b.toml");
         c.stdout(out.try_clone().unwrap()).stderr(out);
         let mut sh = c.spawn().unwrap();
         // not before the application has ended
         std::thread::sleep(Duration::from_millis(200));
         assert!(!mark.exists());
+        // the marker holds the script's process and the version while it waits
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), format!("{}\n1.20.0\n", sh.id()));
         app.wait().unwrap();
         assert!(sh.wait().unwrap().success(), "{}", std::fs::read_to_string(&log).unwrap());
+        assert!(!marker.exists());
         assert_eq!(std::fs::read_to_string(&mark).unwrap(), "1.20.0 /models/a b.toml\n");
         assert!(!staging(&old).exists() && !dir.join("terraflux-1.19.0-linux-x64.old").exists());
         let _ = std::fs::remove_dir_all(&dir);
