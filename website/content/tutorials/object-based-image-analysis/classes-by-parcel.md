@@ -100,7 +100,9 @@ the method that does not matter. For a report it would: use your cadastre.
 
 The template **Classes by parcel** (the library's *Templates*, group *Objects*) is the same model on a synthetic image,
 with nine parcels drawn by [[vector.grid_zones]] in place of the file. Open it, run it, and replace the parcels with a
-[[vector.read]] of yours.
+[[vector.read]] of yours. **File > Use my data...** does it too: the row of the parcels takes a vector file
+(GeoPackage, GeoJSON, Shapefile) and says how many of its polygons overlap your image. Bring the image and the parcels
+together: the drawn parcels lie on the drawn image, and the window warns when you replace only one.
 
 ## Build the model
 

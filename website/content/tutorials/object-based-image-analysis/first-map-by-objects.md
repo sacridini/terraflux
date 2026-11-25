@@ -302,11 +302,16 @@ instead, [[objects.to_map]] gives one number per class (`what = "class"`).
    has **Choose a file...**: choose your image, a file with a layer per band.
 2. The layers of the image should be named for the bands they are (`blue`, `green`, `red`, `nir`, `swir1`, `swir2`
    where your image has them): the NDVI and NDWI attributes find the bands by these names. If your layers are named
-   otherwise, give `red`, `nir` and `green` in the settings of `features`.
-3. Go through the pages with **Next** and press **Apply** on the last (tick **Run it now** to run the model once its
+   otherwise, give `red`, `nir` and `green` in the settings of `features`. Names such as `band_1` get no role: choose the
+   bands on the **Bands** page. A band the template reads and your image lacks is told before **Apply**, which waits for
+   your choice. An 8-bit image (NAIP) is divided by 255; a Sentinel-2 file from 2022 on is divided by 10 000 less 0.1.
+3. The example points belong to the example image: they mean nothing on yours, and the window says so. Either bring
+   your own: on the row of the points, **Choose a file...** takes a GeoPackage, GeoJSON or Shapefile, or a CSV of `x`, `y`
+   in the image's coordinate system, with the column that holds the class in **class in column**. The window counts the
+   points that fall on your image and warns of a class with none. Or leave them and click your samples as above after
+   **Apply**.
+4. Go through the pages with **Next** and press **Apply** on the last (tick **Run it now** to run the model once its
    data is read).
-4. The example points belong to the example image: they mean nothing on yours. Click your own samples as above
-   and **Apply** them.
 
 </div>
 
@@ -314,7 +319,8 @@ Things to watch with real images:
 
 - **Scale of the values.** Reflectance from 0 to 1, or digital numbers from 0 to 10000? The template's `scale = 2`
   fits its own image. On yours, empty the `scale` of `segments` so that it follows the image (its `scale` output tells
-  the one it took), then choose from there.
+  the one it took), then choose from there. When your cells differ from the drawn ones, *Use my data* tells you this and
+  names the settings in cells to choose again.
 - **Few samples.** Under 10 per class the palette says *few*: add more, in different looks of the class.
 - **Coordinate system.** The polygons carry the image's, so an image without one gives polygons that a GIS cannot
   place (the template's image has EPSG:32633, drawn on purpose).

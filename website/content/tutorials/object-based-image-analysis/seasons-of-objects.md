@@ -59,6 +59,8 @@ see what the phenology leaves out.
 
 - A series of an index with a layer for each date, **named by its date** (`ndvi_20230215`, or `2023-02-15` anywhere in the name) or the setting `dates`, and the objects.
   [[objects.series]] reads the date from the name, and refuses a layer with no date, a date that does not follow the one before, and a series of fewer than four dates.
+- In the template *Crops by their seasons*, **File > Use my data...** takes your own parcels, as a map of parcel ids or as
+  polygons, and the series of your image.
 - Terraflux: the application for the profile in the Viewer, the command line for the numbers. About 75 minutes, mostly the downloads.
 
 ## Build the model

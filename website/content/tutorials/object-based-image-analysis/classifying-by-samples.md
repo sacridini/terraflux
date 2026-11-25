@@ -92,7 +92,9 @@ attributes alone (part 9). In either case, an accuracy assessment is still neede
 - **The objects and their attributes** of part 4: the Sentinel-2 clip of Lago Paranoá, cut by [[segment.multiresolution]]
   at the scale 2 into 2,973 objects, with [[objects.features]] to describe them.
 - **Training samples**: points, or polygons, each with a class name, in any coordinate system. In the Viewer you make
-  them by clicking.
+  them by clicking. In the template, **File > Use my data...** takes a file of points (GeoPackage, GeoJSON, Shapefile,
+  or a CSV of `x`, `y`) with the column of the class, and checks how many fall on your image and that two classes at
+  least have a point.
 - **Reference samples**, that were not used for training, to assess the map. A real study draws them with
   [[objects.sample]] and labels them from better data than the image (see the section on the reference).
 - **A template to start from**: *Classify an image by clicking samples* is a small model, with a synthetic image, that

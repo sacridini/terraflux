@@ -63,7 +63,9 @@ poor one can be classified well. [Classifying by samples](/tutorials/object-base
 
 - The Sentinel-2 clip of the series (`data.stac` in the application, the same as in the other parts), cut into objects at several scales.
 - Twelve polygons, drawn by you over the places that matter: in the application, **Draw on the map** in the Viewer. Here they are in
-  a GeoPackage, `reference.gpkg`, which you can replace with your own.
+  a GeoPackage, `reference.gpkg`, which you can replace with your own. In the template *Choose the segmentation by
+  reference objects*, **File > Use my data...** takes your polygons (a GeoPackage, GeoJSON or Shapefile) in the place of
+  the drawn ones, and says how many overlap your image.
 - About an hour. Twenty to fifty reference objects is a good number for a real study; twelve are enough to see how the measures behave.
 
 ## Build the model

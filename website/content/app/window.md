@@ -237,12 +237,41 @@ map's is put on its grid by a `raster.match`, its method chosen by the data (the
 coarser). The checks are those of every model (the grids, whole class codes, some change between the two dates, the drivers'
 values), whatever the inputs are called: they follow the ports the data feeds, through the new nodes.
 
+**What a template can take.** Each row of *Your data* has a kind, and the kind decides what you can bring:
+
+- **An image** (a stack of bands, or the band files of a scene): the layers are named by their roles (`blue`, `green`,
+  `red`, `nir`, `swir1`, `swir2`) on the **Bands** page. A band the template reads and your image lacks (the `swir2` of a
+  mean of that band, say) is told before **Apply**, which waits until you choose one in **Bands**. Names such as
+  `band_1` or *Band 4* carry no role: choose them yourself. The **scale** is read from the file where it can be: an 8-bit
+  image (NAIP) is *8-bit, divided by 255*, and a Sentinel-2 file of 2022 on, which carries its offset
+  (`BOA_ADD_OFFSET`), is divided by 10 000 less 0.1; where the file does not say, **Bands** reminds you of
+  *Sentinel-2 from 2022*.
+- **Points**, the example samples of the OBIA templates: a vector file (GeoPackage, GeoJSON, Shapefile) or a table (CSV) of
+  `x`, `y` in your image's coordinate system, with a **class in column** box for the column that holds the class. The
+  window says how many points fall on the image, a class with none, and a single class (a classifier needs two); the
+  points that do not fall are left out.
+- **Polygons**, the parcels of *Classes by parcel* and of *Crops by their seasons* (the latter also takes a map of parcel
+  ids), and the reference objects of *Choose the segmentation by reference objects*: a vector file, checked for how many
+  overlap the image.
+
+A template's drawn data lies on its own image, so replacing the image alone leaves the points and the polygons behind.
+The window says so (*the template's example points are on its drawn image...*): bring a file of yours, or click the
+points in the Viewer after **Apply** (the Samples box). Maps the template draws only to help draw others (noise, cloud
+fields, patches, the ground of a height model) are not offered.
+
+When your file's cells differ from the drawn ones, a note names the settings measured in cells that were chosen for the
+drawn cells (the `scale` of *segments*, for example) and says to choose them again; an empty `scale` of a segmenter fits
+your image.
+
 **Apply** changes the model in one step named *Use my data*: your file as an input of the model, a reclassification of
 your classes into the model's, the drawn node gone, what read it reading the end of the new nodes, each with a note. It
 shows in the **Changes** pane, ++ctrl+z++ puts the template back, and the model runs once its data is read (untick
 **Run it now** to skip that). A file read as it is stays an input that says what it stands for (*Stands for your
 data* in the Node pane), so a second **Use my data...** offers it again, to replace the file; and a model of your
 files only no longer shows the strip.
+
+A model not saved yet (a template just opened) writes its outputs under `Documents/Terraflux/<the model's name>`, not in
+the folder the program runs in; once the model is saved they go beside its file.
 
 ## Several models at once
 
