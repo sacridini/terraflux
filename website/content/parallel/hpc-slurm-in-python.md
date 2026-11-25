@@ -58,7 +58,30 @@ apptainer exec terraflux.sif terraflux-py doctor
 
 Apptainer runs as you and sees your home and the current folder; give it other
 folders with `--bind /scratch`. Use a version instead of `latest`
-(`terraflux:1.51.0`) to keep the results of a study reproducible.
+(`terraflux-py:1.62.0`) to keep the results of a study reproducible.
+`apptainer pull` converts the image on the login node, which takes a few
+minutes and some gigabytes of temporary space: when the home or `/tmp` is
+small, point both at the scratch space first:
+
+<!-- no-run -->
+```bash
+export APPTAINER_CACHEDIR=/scratch/$USER/apptainer-cache
+export APPTAINER_TMPDIR=/scratch/$USER/apptainer-tmp
+mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
+```
+
+Clusters with **Enroot and Pyxis** (a Slurm plugin, common on GPU clusters)
+run the image straight from `srun`, with no conversion by hand; mount the
+folders the script reads and writes:
+
+<!-- no-run -->
+```bash
+srun --cpus-per-task=16 --container-image=ghcr.io#sacridini/terraflux-py:1.62.0 \
+     --container-mounts="$PWD:/data,/scratch" python analysis.py
+```
+
+**Podman** (`podman run --userns=keep-id ...`) and **Charliecloud** take the
+same image too.
 
 ## One job: a script on one node
 
@@ -138,6 +161,23 @@ folders as `key=value` (`terraflux-py slurm mspa tiles/ out/ edge_width=2`);
 `--partition`, `--account`, `--tasks`, `--max-running`, `--sbatch` (any other
 `#SBATCH` option) and `--setup` (a line run before Terraflux, such as
 `module load ...`) shape the script.
+
+With the **Apptainer image**, run `terraflux-py slurm` inside it: it notices
+the container and writes a script whose tasks run in the same image, with the
+input and output folders bound in (`exec "$RUNTIME" exec --bind tiles,fad_out
+terraflux.sif python -m terraflux batch ...`, where `$RUNTIME` is `apptainer`,
+or `singularity` on older clusters). Submit it with `sbatch` outside the
+container, which has no `sbatch`:
+
+<!-- no-run -->
+```bash
+apptainer exec terraflux.sif terraflux-py slurm fad tiles/ fad_out/ --cpus 16 --time 1:00:00
+sbatch fad_out/.terraflux-batch/fad.sbatch
+```
+
+`--container terraflux.sif` names the image by hand (for a script written
+with Terraflux installed on the login node), and `--container none` writes
+the plain script even inside a container.
 
 Each task runs the same command, `terraflux-py batch ... --shard array`, and
 processes its part of the rasters: in the order of the folder, raster `i` goes
@@ -268,6 +308,7 @@ terraflux 1.51.0 (Python 3.12.4, Linux x86_64, glibc 2.34)
   compiled core: _core.cpython-312-x86_64-linux-gnu.so, OpenMP yes, AVX2+FMA yes
 Threads (the default of n_threads): 6 threads (8 of 128 processors available to this process; Slurm job 4567; a quarter kept free)
 Job: Slurm job 4567 on node042
+Container: none
 Cache: /home/me/.cache/terraflux/python (default), writable
 Network:
   GBIF (sdm.download_gbif)               NO: the name does not resolve (no DNS)  (api.gbif.org)
@@ -291,5 +332,8 @@ tf.doctor(network=False)
 | `Disk quota exceeded` in the cache | `export TERRAFLUX_CACHE=/scratch/$USER/terraflux-cache` |
 | `could not reach ... no internet access` | `terraflux-py fetch` on the login node |
 | `GLIBC_2.28 not found` when importing | the system is older than the wheels: use the Apptainer image |
+| a job array fails at once with `/usr/local/bin/python: No such file or directory` | its script was written by Terraflux 1.63 or older inside the container: write it again with this version |
+| `apptainer (or singularity) is not on this node` in a task's log | add `--setup 'module load apptainer'` to `terraflux-py slurm` |
+| `apptainer pull` fails with `no space left on device` | set `APPTAINER_CACHEDIR` and `APPTAINER_TMPDIR` to the scratch space |
 | a task killed with `OUT_OF_MEMORY` | more `--mem`, fewer `--cpus` per task, or `--max-memory` lower |
 | tasks of a resubmitted array take other rasters | the split changed: `terraflux-py slurm` warns; delete `.terraflux-batch/split.json` only to start over |
