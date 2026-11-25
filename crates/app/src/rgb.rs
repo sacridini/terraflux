@@ -297,6 +297,23 @@ pub fn pca_bands(names: &[String]) -> Option<[usize; 3]> {
     Some([find("pc1")?, find("pc2")?, find("pc3")?])
 }
 
+/// A band's number when its name is a sensor's code ("B4", "SR_B4", "B04", "S2_B8A_10m": a word that is a `b` and a
+/// number), not a generic count ("band_4", "Band 4", "4"), which says nothing of the sensor's bands.
+fn code_id(name: &str) -> Option<String> {
+    let lower = name.to_lowercase();
+    lower.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty() && !w.starts_with("band")).find_map(
+        |w| {
+            let rest = w.strip_prefix('b')?;
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            let tail = &rest[digits.len()..];
+            if digits.is_empty() || !(tail.is_empty() || tail == "a") {
+                return None;
+            }
+            Some(format!("{}{tail}", digits.trim_start_matches('0')))
+        },
+    )
+}
+
 /// The roles of an image's bands the OBIA operators and templates read.
 pub const ROLES: [&str; 6] = ["blue", "green", "red", "nir", "swir1", "swir2"];
 
@@ -304,9 +321,10 @@ pub const ROLES: [&str; 6] = ["blue", "green", "red", "nir", "swir1", "swir2"];
 /// A name that says it (`blue`, `nir08`, `swir16`, `swir22`) is taken as it is; else the number of the band by the
 /// sensor the names tell: Sentinel-2 (B02 blue, B03 green, B04 red, B08 nir, B11 swir1, B12 swir2; B8A is `other`
 /// when a B08 is there) or Landsat 8/9 (SR_B2 to SR_B7), which is also taken when a B5 is there without a B8 or a
-/// B11. A role is given to one band (the first): a second is `other`.
+/// B11. A role is given to one band (the first): a second is `other`. Names that only count the bands (`band_1`,
+/// `Band 4`) are no sensor's codes: they give no role (the roles are to be chosen).
 pub fn band_roles(names: &[String]) -> Vec<&'static str> {
-    let ids: Vec<Option<String>> = names.iter().map(|n| band_id(n)).collect();
+    let ids: Vec<Option<String>> = names.iter().map(|n| code_id(n)).collect();
     let find = |id: &str| ids.iter().position(|x| x.as_deref() == Some(id));
     let landsat = find("10").is_some()
         || names.iter().any(|n| n.to_lowercase().contains("sr_b"))
@@ -351,15 +369,18 @@ pub enum Scale {
     /// Sentinel-2 L2A of processing baseline 04.00 or later (from 25 January 2022 on): `DN / 10 000 - 0.1`, the
     /// offset of 1000 the products add.
     Sentinel2Offset,
+    /// 8 bits (0 to 255: aerial photographs such as NAIP): divided by 255.
+    Div255,
 }
 
 impl Scale {
-    pub const ALL: [Scale; 4] = [Scale::None, Scale::Div10000, Scale::LandsatC2, Scale::Sentinel2Offset];
+    pub const ALL: [Scale; 5] = [Scale::None, Scale::Div10000, Scale::Div255, Scale::LandsatC2, Scale::Sentinel2Offset];
 
     pub fn label(self) -> &'static str {
         match self {
             Scale::None => "none (already 0 to 1)",
             Scale::Div10000 => "divided by 10 000",
+            Scale::Div255 => "8-bit, divided by 255",
             Scale::LandsatC2 => "Landsat collection 2 (x 0.0000275 - 0.2)",
             Scale::Sentinel2Offset => "Sentinel-2 from 2022 (divided by 10 000, - 0.1)",
         }
@@ -370,14 +391,16 @@ impl Scale {
         match self {
             Scale::None => (1.0, 0.0),
             Scale::Div10000 => (1e-4, 0.0),
+            Scale::Div255 => (1.0 / 255.0, 0.0),
             Scale::LandsatC2 => (0.000_027_5, -0.2),
             Scale::Sentinel2Offset => (1e-4, -0.1),
         }
     }
 
     /// The scale the bands' names and the greatest value of the image tell: values up to 1.5 are reflectance;
-    /// Landsat's `SR_B2`... names with larger ones, collection 2; other larger values are 0 to 10 000.
-    pub fn detect(names: &[String], max: f64) -> Scale {
+    /// Landsat's `SR_B2`... names with larger ones, collection 2; values up to 255 that are mostly above 1.5
+    /// (`high` is their share of the sample) are 8 bits; other larger values are 0 to 10 000.
+    pub fn detect(names: &[String], max: f64, high: f64) -> Scale {
         let c2 = names.iter().any(|n| {
             let n = n.to_lowercase();
             n.find("sr_b").is_some_and(|i| n[i + 4..].starts_with(|c: char| c.is_ascii_digit()))
@@ -386,6 +409,8 @@ impl Scale {
             Scale::None
         } else if c2 {
             Scale::LandsatC2
+        } else if max <= 255.0 && high > 0.5 {
+            Scale::Div255
         } else {
             Scale::Div10000
         }
@@ -575,13 +600,40 @@ mod tests {
     }
 
     #[test]
+    fn generic_band_names_give_no_role_but_sensor_codes_do() {
+        let roles = |v: &[&str]| band_roles(&names(v));
+        // a count of the bands is no Sentinel-2 band number
+        assert_eq!(roles(&["band_1", "band_2", "band_3", "band_4", "band_5", "band_6"]), ["other"; 6]);
+        assert_eq!(roles(&["Band 1", "Band 2", "Band 3", "Band 4"]), ["other"; 4]);
+        assert_eq!(roles(&["Band1", "Band2", "Band3", "Band4"]), ["other"; 4]);
+        // the sensor's codes still are, in a longer name too
+        assert_eq!(roles(&["B02", "B03", "B04", "B08"]), ["blue", "green", "red", "nir"]);
+        assert_eq!(roles(&["T32UMU_B02_10m", "T32UMU_B03_10m", "T32UMU_B8A_20m"]), ["blue", "green", "other"]);
+    }
+
+    #[test]
+    fn eight_bit_images_are_divided_by_255_and_other_scales_stay() {
+        let n = names(&["red", "green", "blue", "nir"]);
+        assert_eq!(Scale::detect(&n, 255.0, 0.9), Scale::Div255);
+        // values up to 255 that are mostly 0 or 1: not an image of 8 bits
+        assert_eq!(Scale::detect(&n, 200.0, 0.1), Scale::Div10000);
+        assert_eq!(Scale::detect(&n, 0.9, 1.0), Scale::None);
+        assert_eq!(Scale::detect(&n, 9500.0, 1.0), Scale::Div10000);
+        assert_eq!(Scale::detect(&names(&["SR_B2"]), 200.0, 1.0), Scale::LandsatC2);
+        assert!(Scale::ALL.contains(&Scale::Div255));
+        assert_eq!(Scale::Div255.label(), "8-bit, divided by 255");
+        let (k, off) = Scale::Div255.factors();
+        assert!((255.0 * k + off - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
     fn the_scale_is_told_by_the_values_and_the_names() {
         let n = names(&["SR_B2", "SR_B3"]);
-        assert_eq!(Scale::detect(&n, 0.9), Scale::None);
-        assert_eq!(Scale::detect(&n, 21000.0), Scale::LandsatC2);
-        assert_eq!(Scale::detect(&names(&["B02"]), 9500.0), Scale::Div10000);
-        assert_eq!(Scale::detect(&names(&["sr_band2"]), 9500.0), Scale::Div10000);
-        assert_eq!(Scale::detect(&names(&["B02"]), f64::NEG_INFINITY), Scale::None);
+        assert_eq!(Scale::detect(&n, 0.9, 0.0), Scale::None);
+        assert_eq!(Scale::detect(&n, 21000.0, 1.0), Scale::LandsatC2);
+        assert_eq!(Scale::detect(&names(&["B02"]), 9500.0, 1.0), Scale::Div10000);
+        assert_eq!(Scale::detect(&names(&["sr_band2"]), 9500.0, 1.0), Scale::Div10000);
+        assert_eq!(Scale::detect(&names(&["B02"]), f64::NEG_INFINITY, 0.0), Scale::None);
         let (k, off) = Scale::LandsatC2.factors();
         assert!((20000.0 * k + off - 0.35).abs() < 1e-9);
     }

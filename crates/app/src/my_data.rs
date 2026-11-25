@@ -21,7 +21,8 @@
 //! - A stack is one file's bands (`Choice::bands`); a stack of several files is not offered yet.
 //! - An image (data of kind `image`, or an `nlm.image`'s `image` output) is one multiband file: a `stack.rename` names
 //!   its bands by their roles (blue, green, red, nir, swir1, swir2; guessed from the names, else `other`, dropped) and
-//!   scales the reflectance to 0-1 (detected: none, divided by 10 000, Landsat collection 2); no node when the bands are
+//!   scales the reflectance to 0-1 (detected: none, divided by 10 000, Landsat collection 2, 8 bits divided by 255, the
+//!   Sentinel-2 offset of 2022 when the file says it); no node when the bands are
 //!   named already and the scale is 0-1. An image can also be a folder (or a selection) of single-band files ([`Choice::files`]:
 //!   sorted by band number, each an input, the coarser put on the finest by `raster.match`, a `stack.of`), or a cloud-free
 //!   Sentinel-2 scene of an area ([`Scene`]: a `data.stac` node, nothing downloaded before the model runs).
@@ -288,6 +289,87 @@ pub struct Plan {
     pub inputs: Vec<String>,
     /// The input whose grid is the reference.
     pub reference: String,
+    /// The images put in place of drawn ones (the source's node) and the roles their bands have (without `other`).
+    pub images: Vec<(String, Vec<String>)>,
+}
+
+/// What a model reads of the bands of an image, by role: for each, the names it reads it by (`mean_swir2`, `ndvi`)
+/// and the node (its path) that reads it first. Found in the settings of the `objects.*`, `ml.*` and `rules.*`
+/// nodes, bodies too: the columns of the features (`mean_`, `sd_`, `min_`, `max_`, `median_`, `ratio_`, `glcm_<stat>_`
+/// and the band's role) and the indices NDVI (red, nir), NDWI (green, nir) and NDMI (nir, swir1).
+pub fn band_reads(m: &Model) -> BTreeMap<&'static str, (BTreeSet<String>, String)> {
+    fn words(v: &Json, out: &mut Vec<String>) {
+        match v {
+            Json::String(s) => out.extend(
+                s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .filter(|w| !w.is_empty())
+                    .map(str::to_lowercase),
+            ),
+            Json::Array(a) => a.iter().for_each(|x| words(x, out)),
+            Json::Object(o) => o.values().for_each(|x| words(x, out)),
+            _ => {}
+        }
+    }
+    fn roles_of(word: &str) -> Vec<&'static str> {
+        match word {
+            "ndvi" => return vec!["red", "nir"],
+            "ndwi" => return vec!["green", "nir"],
+            "ndmi" => return vec!["nir", "swir1"],
+            _ => {}
+        }
+        let rest = ["mean_", "sd_", "min_", "max_", "median_", "ratio_"]
+            .iter()
+            .find_map(|p| word.strip_prefix(p))
+            .or_else(|| word.strip_prefix("glcm_").and_then(|r| r.split_once('_')).map(|(_, band)| band));
+        rest.and_then(|r| crate::rgb::ROLES.iter().find(|x| **x == r)).map(|r| vec![*r]).unwrap_or_default()
+    }
+    fn walk(nodes: &[Node], path: &str, out: &mut BTreeMap<&'static str, (BTreeSet<String>, String)>) {
+        for n in nodes {
+            let here = if path.is_empty() { n.id.clone() } else { format!("{path}/{}", n.id) };
+            if ["objects.", "ml.", "rules."].iter().any(|p| n.op.starts_with(p)) {
+                let mut w = Vec::new();
+                n.params.values().for_each(|v| words(v, &mut w));
+                for word in w {
+                    for role in roles_of(&word) {
+                        out.entry(role).or_insert_with(|| (BTreeSet::new(), here.clone())).0.insert(word.clone());
+                    }
+                }
+            }
+            if let Some(b) = &n.body {
+                walk(&b.nodes, &here, out);
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(&m.nodes, "", &mut out);
+    out
+}
+
+/// The bands the model reads that an image's roles lack, as findings on the image: what the model reads it by, and
+/// the node that stops. (The run stops at that node: "no column mean_swir2".)
+fn missing_bands(plan: &Plan) -> Vec<Finding> {
+    let reads = band_reads(&plan.model);
+    let mut out = Vec::new();
+    for (source, have) in &plan.images {
+        for (role, (by, node)) in &reads {
+            if have.iter().any(|h| h == role) {
+                continue;
+            }
+            let shown: Vec<&str> = by.iter().take(3).map(String::as_str).collect();
+            let more = if by.len() > 3 { ", ..." } else { "" };
+            out.push(Finding {
+                level: Level::Error,
+                at: source.clone(),
+                message: format!(
+                    "This template reads {role} (in {}{more}); your image has no band for it. Choose one in Bands, or the run will stop at node {node}.",
+                    shown.join(", ")
+                ),
+                fix: Some(format!("choose the band that is the {role} on the Bands page")),
+                action: None,
+            });
+        }
+    }
+    out
 }
 
 /// The references a node reads (its inputs, settings and body).
@@ -456,13 +538,20 @@ pub fn image_scale(path: &Path, names: &[String]) -> Result<Scale, String> {
     let win = terraflux_raster::tiff::Window { x0: 0, y0: 0, width: w, height: h };
     let nodata = meta.nodata.filter(|n| !n.is_nan());
     let mut max = f64::NEG_INFINITY;
+    let (mut high, mut total) = (0usize, 0usize);
     for b in 0..names.len() {
         let v = f.sample(b, win, step).map_err(|e| format!("{}: {e}", path.display()))?;
         for x in v.into_iter().map(f64::from).filter(|x| x.is_finite() && Some(*x) != nodata) {
             max = max.max(x);
+            total += 1;
+            high += usize::from(x > 1.5);
         }
     }
-    Ok(Scale::detect(names, max))
+    let scale = Scale::detect(names, max, if total == 0 { 0.0 } else { high as f64 / total as f64 });
+    // (Sentinel-2 L2A processed from 2022 on says its offset: ESA's BOA_ADD_OFFSET, -1000 or 1000)
+    let offset =
+        meta.grid.geo.item("BOA_ADD_OFFSET").and_then(|v| v.trim().parse::<f64>().ok()).is_some_and(|v| v != 0.0);
+    Ok(if scale == Scale::Div10000 && offset { Scale::Sentinel2Offset } else { scale })
 }
 
 /// What a file says of an image: its bands, their roles by their names, and its scale.
@@ -827,6 +916,8 @@ pub fn plan(
     }
     let ref_in = names[&ref_node].clone();
     let mut inputs = Vec::new();
+    // the images put in place, with the roles their bands got
+    let mut images: Vec<(String, Vec<String>)> = Vec::new();
     // what the drawn nodes read, to take away what only they read
     let mut candidates: Vec<String> = Vec::new();
     for (s, c, grid) in &ok {
@@ -1017,13 +1108,18 @@ pub fn plan(
                 cur = format!("{id}.stack");
                 chain.push((n, "stack"));
             }
+            let values = if scale == Scale::Div255 {
+                "8-bit values divided by 255 (0 to 1)".to_string()
+            } else {
+                format!("reflectance {}", scale.label())
+            };
             notes.push(format!(
-                "{}: the bands {}{}; reflectance {}",
+                "{}: the bands {}{}; {values}",
                 s.node,
                 kept.join(" "),
                 if dropped > 0 { format!(" ({dropped} with no role dropped)") } else { String::new() },
-                scale.label()
             ));
+            images.push((s.node.clone(), kept.iter().map(|k| k.to_string()).collect()));
         }
         if !c.crosswalk.is_empty() {
             let rules = rules_of(&c.crosswalk);
@@ -1184,12 +1280,12 @@ pub fn plan(
             notes.push(format!("{}: still drawn, on the grid of ${ref_in}", n.id));
         }
     }
-    Ok(Plan { model: out, notes, refused, inputs, reference: ref_in })
+    Ok(Plan { model: out, notes, refused, inputs, reference: ref_in, images })
 }
 
 /// The problems of the planned model: those of the model's check, and of its data as the data of any model is
 /// read ([`terraflux_exec::load_inputs`] and [`terraflux_exec::lint::lint`]), without those of grids of the inputs
-/// that a `raster.match` puts right.
+/// that a `raster.match` puts right; and the bands of an image the model reads that the image has no role for.
 pub fn check(plan: &Plan, base: &Path) -> Vec<Finding> {
     let r = Registry::standard();
     let mut out: Vec<Finding> = terraflux_graph::check(&plan.model, &r)
@@ -1202,6 +1298,7 @@ pub fn check(plan: &Plan, base: &Path) -> Vec<Finding> {
             action: None,
         })
         .collect();
+    out.extend(missing_bands(plan));
     match terraflux_exec::load_inputs(&plan.model, base, &Default::default()) {
         Err(e) => out.push(Finding {
             level: Level::Error,
@@ -2823,6 +2920,126 @@ mod tests {
         let Some(Input::Stack { data: Some(data), .. }) = p.model.inputs.get("image") else { panic!("no data") };
         assert_eq!(data.kind, DataKind::Image);
         assert_eq!(errors(&p, &d), Vec::<String>::new());
+    }
+
+    /// The errors of a template with an image file in place of its drawn image: what the check says of the image.
+    fn image_errors(template_name: &str, file: &Path, d: &Path) -> Vec<String> {
+        let r = Registry::standard();
+        let m = template(template_name);
+        let node = sources(&m, &r).into_iter().find(is_image).expect("an image").node;
+        let p = plan(&m, &r, &one(&node, choice(file)), None, d).unwrap();
+        check(&p, d).into_iter().filter(|f| f.level == Level::Error && f.at == node).map(|f| f.message).collect()
+    }
+
+    #[test]
+    fn an_image_without_a_band_the_model_reads_is_told_before_apply() {
+        let d = dir("image-missing");
+        let s2 = [Some("blue"), Some("green"), Some("red"), Some("nir"), Some("swir16")];
+        let five = write_bands(&d, "five.tif", &s2, |b, row, col| 500.0 * (b + 1) as f64 + (row + col) as f64);
+        let six = write_bands(
+            &d,
+            "six.tif",
+            &[Some("blue"), Some("green"), Some("red"), Some("nir"), Some("swir16"), Some("swir22")],
+            |b, row, col| 500.0 * (b + 1) as f64 + (row + col) as f64,
+        );
+        // the 5-band clip lacks the swir2 the unsupervised classes read
+        let e = image_errors("Unsupervised classes of objects", &five, &d);
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].contains("reads swir2 (in ") && e[0].contains("mean_swir2"), "{}", e[0]);
+        assert!(e[0].contains("no band for it") && e[0].contains("Choose one in Bands"), "{}", e[0]);
+        assert!(e[0].contains("will stop at node "), "{}", e[0]);
+        // the 6-band one has it
+        assert_eq!(image_errors("Unsupervised classes of objects", &six, &d), Vec::<String>::new());
+        // NAIP: red, green, blue and nir, no swir: the rules read mean_swir1
+        let naip = write_bands(&d, "naip.tif", &[Some("red"), Some("green"), Some("blue"), Some("nir")], |b, r, c| {
+            100.0 + 10.0 * b as f64 + (r + c) as f64
+        });
+        let e = image_errors("Classify an image by rules", &naip, &d);
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].contains("reads swir1 (in mean_swir1)"), "{}", e[0]);
+        // an index needs its two bands: no green, no ndwi
+        let nogreen = write_bands(&d, "nogreen.tif", &[Some("red"), Some("nir"), Some("swir16")], |b, _, _| {
+            100.0 * (b + 1) as f64
+        });
+        let e = image_errors("Classify an image by rules", &nogreen, &d);
+        assert!(e.iter().any(|m| m.contains("reads green (in ndwi")), "{e:?}");
+        // the roles chosen make up for the names
+        let r = Registry::standard();
+        let m = template("Unsupervised classes of objects");
+        let node = sources(&m, &r).into_iter().find(is_image).unwrap().node;
+        let mut c = choice(&five);
+        c.roles = Some(["blue", "green", "red", "nir", "swir1"].map(String::from).to_vec());
+        let p = plan(&m, &r, &one(&node, c), None, &d).unwrap();
+        assert_eq!(p.images, [(node.clone(), ["blue", "green", "red", "nir", "swir1"].map(String::from).to_vec())]);
+        assert!(check(&p, &d).iter().any(|f| f.message.contains("reads swir2")));
+    }
+
+    #[test]
+    fn what_a_model_reads_of_the_bands_is_found_by_its_columns_and_indices() {
+        let mut m = Model::new("reads");
+        let fit =
+            Node::new("fit", "ml.fit").param("columns", serde_json::json!(["mean_nir", "sd_swir2", "ndvi", "area"]));
+        let body = terraflux_graph::Body { nodes: vec![fit], ..Default::default() };
+        let mut each = Node::new("each", "control.repeat");
+        each.body = Some(body);
+        m.nodes.push(each);
+        m.nodes.push(Node::new("t", "objects.rules").param(
+            "classes",
+            serde_json::json!([{ "name": "a", "rule": "above(glcm_contrast_green, 1, 2) and below(ndwi, 0, 1)" }]),
+        ));
+        // (a node of another family reads no band)
+        m.nodes.push(Node::new("calc", "raster.calc").param("expr", "mean_blue"));
+        let reads = band_reads(&m);
+        let keys: Vec<&str> = reads.keys().copied().collect();
+        assert_eq!(keys, ["green", "nir", "red", "swir2"]);
+        assert_eq!(reads["swir2"].1, "each/fit");
+        assert_eq!(reads["nir"].0.iter().map(String::as_str).collect::<Vec<_>>(), ["mean_nir", "ndvi", "ndwi"]);
+        assert_eq!(reads["green"].0.iter().map(String::as_str).collect::<Vec<_>>(), ["glcm_contrast_green", "ndwi"]);
+    }
+
+    #[test]
+    fn an_image_of_8_bits_is_divided_by_255_and_a_sentinel_2_offset_is_read_from_the_file() {
+        let r = Registry::standard();
+        let d = dir("image-scales");
+        let names = [Some("red"), Some("green"), Some("blue"), Some("nir")];
+        let f = write_bands(&d, "naip8.tif", &names, |b, row, col| 20.0 + 40.0 * b as f64 + (row + col) as f64);
+        let info = image_info(&f).unwrap();
+        assert_eq!(info.scale, Scale::Div255);
+        let p = plan(&image_model(true), &r, &one("image", choice(&f)), None, &d).unwrap();
+        let n = p.model.node("image_bands").expect("the scale node");
+        assert_eq!(n.params["scale"], serde_json::json!(1.0 / 255.0));
+        assert!(p.notes.iter().any(|n| n.contains("8-bit values divided by 255")), "{:?}", p.notes);
+        assert!(!p.notes.iter().any(|n| n.contains("divided by 10 000")), "{:?}", p.notes);
+        // 0 to 10 000 stays so; the offset item of the file chooses the offset scale
+        let s2 = [Some("blue"), Some("green"), Some("red"), Some("nir")];
+        let plain = write_bands(&d, "plain10k.tif", &s2, |b, _, _| 1000.0 + 300.0 * b as f64);
+        assert_eq!(image_info(&plain).unwrap().scale, Scale::Div10000);
+        let mut g = terraflux_raster::Grid::new(20, 20);
+        g.transform = [1000.0, 10.0, 0.0, 1200.0, 0.0, -10.0];
+        g.geo.metadata.push(("BOA_ADD_OFFSET".into(), "-1000".into()));
+        let bands = s2
+            .iter()
+            .enumerate()
+            .map(|(b, n)| terraflux_raster::Band {
+                name: n.map(String::from),
+                data: vec![1000.0 + 300.0 * b as f64; 400],
+            })
+            .collect();
+        let off = d.join("offset.tif");
+        Raster { grid: g, bands, dtype: DataType::F32, nodata: None }.write(&off).unwrap();
+        assert_eq!(image_info(&off).unwrap().scale, Scale::Sentinel2Offset);
+    }
+
+    #[test]
+    fn generic_band_names_have_no_role_so_the_plan_asks_for_them() {
+        let r = Registry::standard();
+        let d = dir("image-generic");
+        let f = write_bands(&d, "generic.tif", &[Some("band_1"), Some("band_2"), Some("band_3")], |b, _, _| {
+            1000.0 * (b + 1) as f64
+        });
+        assert_eq!(image_info(&f).unwrap().roles, ["other"; 3]);
+        let e = plan(&image_model(true), &r, &one("image", choice(&f)), None, &d).unwrap_err();
+        assert!(e.contains("has a role"), "{e}");
     }
 
     fn rules_model() -> Model {

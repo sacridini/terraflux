@@ -324,7 +324,10 @@ fn hex_rgb(s: &str) -> Option<[u8; 3]> {
 fn reflectance_line(s: Scale) -> String {
     match s {
         Scale::None => "Reflectance 0\u{2013}1: kept as it is".to_string(),
-        Scale::Div10000 => "Reflectance 0\u{2013}10 000 \u{2192} divided by 10 000".to_string(),
+        Scale::Div10000 => "Reflectance 0\u{2013}10 000 \u{2192} divided by 10 000. A Sentinel-2 file processed from \
+                            2022 on has an offset of 1000: choose \"Sentinel-2 from 2022\""
+            .to_string(),
+        Scale::Div255 => "8 bits, 0\u{2013}255 \u{2192} divided by 255, reflectance 0\u{2013}1".to_string(),
         Scale::LandsatC2 => "Landsat collection 2 \u{2192} x 0.0000275 - 0.2, reflectance 0\u{2013}1".to_string(),
         Scale::Sentinel2Offset => {
             "Sentinel-2 from 2022 \u{2192} divided by 10 000, - 0.1 (the offset of processing baseline 04.00)"
@@ -1312,6 +1315,7 @@ impl State {
             any = true;
             ui.separator();
             ui.label(RichText::new(&src.what).strong());
+            self.row_findings(ui, &src.node);
             let Some(p) = self.picks.get_mut(&src.node) else { continue };
             let bands = p.bands.clone();
             let Some(img) = p.image.as_mut() else { continue };
