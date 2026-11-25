@@ -641,6 +641,9 @@ pub struct Session {
     pub ask_calculator: bool,
     /// The Viewer asked for (a node double-clicked: its output shown there).
     pub ask_viewer: bool,
+    /// A node double-clicked whose output is being made: the Viewer comes to the front when it is there, not
+    /// before (an empty Viewer is never shown), and not at all when the run gives nothing.
+    pub view_when_made: Option<(String, String)>,
     /// Factors asked for a sensitivity analysis (a setting's or a parameter's menu): the key (`node.setting`,
     /// `$input`) and its range (none: 20 % either side). Many runs takes them and comes to the front.
     pub ask_vary: Vec<(String, Option<(f64, f64)>)>,
@@ -1035,6 +1038,7 @@ impl Session {
             ask_problems: false,
             ask_calculator: false,
             ask_viewer: false,
+            view_when_made: None,
             ask_vary: Vec::new(),
             ask_sensitivity: None,
             ask_model: false,
@@ -5733,6 +5737,17 @@ impl TerrafluxApp {
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.viewer_toggle)) {
             let out = !self.detached().contains(&Pane::Viewer);
             self.set_viewer_out(out);
+        }
+        // a node double-clicked whose output was being made: the Viewer once it is there; nothing if it is not
+        if let Some(s) = self.session.as_mut()
+            && let Some((node, port)) = s.view_when_made.clone()
+        {
+            if s.value_of(&node, &port).is_some() {
+                s.view_when_made = None;
+                s.ask_viewer = true;
+            } else if !s.running() {
+                s.view_when_made = None;
+            }
         }
         if self.session.as_mut().is_some_and(|s| std::mem::take(&mut s.ask_viewer)) {
             self.focus(Pane::Viewer);

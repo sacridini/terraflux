@@ -2839,24 +2839,59 @@ pub fn show_in_viewer(ui: &Ui, s: &mut Session, r: &Registry, id: &str) {
 
 /// [`show_in_viewer`] without a `Ui` (from a window).
 pub fn show_in_viewer_ctx(ctx: &egui::Context, s: &mut Session, r: &Registry, id: &str) {
+    // a node with nothing the Viewer can show (a random generator, a fitted model, a writer's path): nothing at all,
+    // the Viewer is not brought up empty
+    let path = s.editor.path.clone();
+    let Some(n) = s.source.scope(&path).and_then(|ns| ns.iter().find(|n| n.id == id)).cloned() else { return };
+    let Some(port) = viewable_output(&n, r) else { return };
     select(s, r, id);
-    s.ask_viewer = true;
-    if !s.editor.path.is_empty() {
+    if !path.is_empty() {
+        // inside a group: what its run gave, if it gave it (a group's body is not run to one of its nodes)
+        if let Some((node, port)) = shown_at(s, &path, id, &port)
+            && s.value_of(&node, &port).is_some()
+        {
+            s.preview = Some((node, port));
+            s.ask_viewer = true;
+        }
         return;
     }
-    let Some(n) = s.source.nodes.iter().find(|n| n.id == id) else { return };
-    let Some(port) = first_output(n, r) else { return };
+    s.preview = Some((id.to_string(), port.clone()));
     // a map or features kept as a layer: they stay on the map as other nodes are clicked
-    let mappable = crate::editor::output_ports(n, r)
+    let mappable = crate::editor::output_ports(&n, r)
         .iter()
         .any(|(p, t)| *p == port && matches!(t, Type::Raster | Type::Map | Type::Stack | Type::Series | Type::Vector));
     if mappable {
         pin(&mut s.preview_layers, id, &port);
     }
-    if s.value_of(id, &port).is_none() {
+    if s.value_of(id, &port).is_some() {
+        s.ask_viewer = true;
+    } else {
+        // made first: the Viewer comes once the output is there ([`Session::view_when_made`]), not before
         let ctx = ctx.clone();
-        s.run_to_show(id, Box::new(move || ctx.request_repaint()));
+        if s.run_to_show(id, Box::new(move || ctx.request_repaint())) {
+            s.view_when_made = Some((id.to_string(), port));
+        }
     }
+}
+
+/// The first output of a node that the Viewer shows: a map, a stack, a series, rasters, features, objects or a
+/// table, weights of evidence (its own views), a number, a yes or no or a text (shown as it is), or one of any type
+/// (a container's).
+/// None for a node that gives nothing it can show: a writer, whose only output is the path of the file it wrote, and
+/// the types it cannot draw (a random generator, fitted models, rules...), which would leave it empty.
+pub fn viewable_output(n: &Node, r: &Registry) -> Option<String> {
+    let writer = n.op.ends_with(".write") || terraflux_dist::worker::WRITE_OPS.contains(&n.op.as_str());
+    crate::editor::output_ports(n, r)
+        .into_iter()
+        .find(|(port, t)| match t {
+            Type::Raster | Type::Map | Type::Stack | Type::Series | Type::Vector | Type::Objects | Type::Table => true,
+            // (weights of evidence: edited in a view of their own there; a container's outputs: any)
+            Type::Woe | Type::Any => true,
+            // (a writer's `path`: where it wrote, not something to look at)
+            Type::Number | Type::Integer | Type::Bool | Type::Text => !(writer && port == "path"),
+            _ => false,
+        })
+        .map(|(port, _)| port)
 }
 
 /// Put the nodes of the scope shown in tidy places, and look at them all.
@@ -9222,5 +9257,20 @@ params = { rows = 4, columns = 4 }
         let again = link.to_own(lc);
         assert!((again - Vec2::new(500.0, 400.0)).length() < 0.05, "{again:?}");
         assert!((lz - 8.0).abs() < 0.2, "twice as close: {lz}");
+    }
+
+    /// The Viewer is for the nodes that give something to look at: a map, features, a table, a value; not for a
+    /// random generator or a fitted model (it cannot draw them) nor a writer, whose only output is its file's path.
+    #[test]
+    fn only_a_node_with_something_to_see_has_an_output_for_the_viewer() {
+        let r = Registry::standard();
+        let port = |op: &str| viewable_output(&Node::new("n", op), &r);
+        let shown = ["raster.read", "raster.calc", "nlm.random", "vector.read", "table.read", "landscape.mspa_tiled"];
+        for op in shown.into_iter().chain(["woe.fit"]) {
+            assert!(port(op).is_some(), "{op}");
+        }
+        for op in ["rng.numpy", "raster.write", "vector.write", "table.write", "ml.write", "no.such.operator"] {
+            assert_eq!(port(op), None, "{op}");
+        }
     }
 }

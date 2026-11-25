@@ -319,6 +319,52 @@ fn big_raster_shows_at_once() {
     h.render().unwrap().save(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-big-raster.png")).unwrap();
 }
 
+/// A double click brings the Viewer only for a node that has something to show, and only once it is there: a
+/// random generator, a writer (its only output the path it wrote) and a node whose run fails do nothing at all; a
+/// map is made, then shown.
+#[test]
+fn a_double_click_shows_the_viewer_only_with_something_in_it() {
+    let _lock = settings_lock();
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("canvas-double-click-out.tif");
+    let mut m = Model::new("double click");
+    m.nodes.push(Node::new("gen", "rng.numpy").param("seed", 1));
+    m.nodes.push(Node::new("land", "nlm.random").param("rows", 20).param("columns", 20).param("seed", 3));
+    m.nodes.push(Node::new("wr", "raster.write").input("raster", "land.map").param("path", out.to_string_lossy()));
+    m.nodes.push(Node::new("bad", "raster.calc").input("a", "land.map").param("expression", "a +"));
+    for (i, n) in m.nodes.iter_mut().enumerate() {
+        n.pos = Some([(i % 2) as f32 * 320.0, (i / 2) as f32 * 220.0]);
+    }
+    let mut h = harness(open(&m, "canvas-double-click.toml"));
+    h.run_steps(5);
+    let viewer = |h: &mut Harness<TerrafluxApp>| h.state_mut().focused() == Some(Pane::Viewer);
+    assert!(!viewer(&mut h));
+    let settle = |h: &mut Harness<TerrafluxApp>| {
+        let t = Instant::now();
+        while h.state().session.as_ref().unwrap().running() {
+            h.step();
+            assert!(t.elapsed() < Duration::from_secs(30));
+        }
+        h.run_steps(5);
+    };
+    for id in ["gen", "wr", "bad"] {
+        h.run_steps(60);
+        let at = editor(&h).screen_of(id).unwrap();
+        double_click(&mut h, at);
+        settle(&mut h);
+        assert!(!viewer(&mut h), "{id}: no Viewer");
+        assert!(h.state().session.as_ref().unwrap().view_when_made.is_none(), "{id}: nothing waits to be shown");
+    }
+    // a map: made, then shown
+    h.run_steps(60);
+    let at = editor(&h).screen_of("land").unwrap();
+    double_click(&mut h, at);
+    settle(&mut h);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.value_of("land", "map").is_some());
+    assert_eq!(s.preview, Some(("land".to_string(), "map".to_string())));
+    assert!(viewer(&mut h), "the Viewer, with the map");
+}
+
 /// A double click: two clicks a frame apart.
 fn double_click(h: &mut Harness<TerrafluxApp>, at: egui::Pos2) {
     h.hover_at(at);
