@@ -7,6 +7,8 @@ version.
 
 ## [Unreleased]
 
+## [1.71.0] - 2026-11-25
+
 ### Added
 - **A file chosen on the node's box** (`crates/app/src/editor_view.rs`, `crates/app/src/node_view.rs`, `crates/app/src/builder.rs`): the `path` of a reader or a writer (raster.read, raster.write, vector.read...) is no longer only in the node's settings: a click on its row (a folder icon at its right) or on the file under the box opens the file dialog (a save dialog for a writer), and its menu has *Choose a file...* (and *Choose a folder...* for raster.read). A node still without its file says *choose a file…* in the accent colour on that row and, for a reader, in the place of its picture, where a click chooses it too.
 - **The arrow keys in the Viewer's Layers** (`crates/app/src/layers_panel.rs`, `crates/app/src/keymap.rs`): with the pointer over the Layers (or after a click in them), up and down select the layer above or below (with Shift, the range from the first), the map then shown; right and left unfold and fold the legend of the layer selected. The keys are the panel's while it is active (the player of a series' frames leaves them to it); elsewhere they do what they did. Up and down can be bound again in the shortcuts (F1).
