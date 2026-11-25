@@ -7,6 +7,24 @@ version.
 
 ## [Unreleased]
 
+## [1.70.0] - 2026-11-25
+
+### Added
+- **Use my data takes the user's sample points** (`crates/app/src/my_data.rs`, `crates/app/src/my_data_view.rs`, `crates/graph/src/lib.rs`, `crates/app/src/templates.rs`): a new data kind, `points`, marks the example samples of the OBIA templates by samples; a GeoPackage, GeoJSON, Shapefile or a CSV of x, y (in the image's coordinate system) replaces them, with a *class in column* box for the column `objects.samples` reads. Before Apply the window says how many points fall on the image, a class with none and a single class; an image chosen without points is told on the samples' row (bring a file, or click them in the Viewer after Apply).
+- **Use my data takes parcels and reference objects as polygons** (`crates/app/src/my_data.rs`, `crates/graph/src/lib.rs`, `crates/graph/src/check.rs`, `crates/ops/src/objects/optimize.rs`): a new data kind, `polygons`, marks the parcels of *Classes by parcel*, the reference objects of *Choose the segmentation by reference objects* and the parcels of *Crops by their seasons* (which also takes a map of parcel ids; polygons are laid on a layer of the series by `segment.from_vector`). They are checked against the image before Apply (none, under half, some outside), and an image chosen without them is told on their row. `segment.optimize` says that no reference object lies on the image instead of "no value gave a score".
+- **Use my data says which band a template reads that the image lacks** (`crates/app/src/my_data.rs`, `crates/app/src/my_data_view.rs`): the bands the model reads (attribute columns such as `mean_swir2` and indices such as NDWI of `objects.*`, `ml.*` and `rules.*` nodes) are compared with the roles of the user's bands; a missing one is an error of the image's row and Bands page, before the run would stop at a node like `fit`.
+- **Use my data notes other cells** (`crates/app/src/my_data.rs`, `crates/app/src/cells.rs`): when the user's file has other cells than the drawn data, a note names the settings in cells chosen for the drawn ones (segments' `scale`, slic's size) and that an empty `scale` fits the user's image.
+
+### Changed
+- **The OBIA templates open with few warnings** (`crates/app/src/templates.rs`, `crates/ops/src/objects/warnings.rs`): 0 to 3 a template, from up to 26: their drawn images have a coordinate system, twelve samples a class, `scale` 2 beside ESP's suggestion, folds by blocks, predictors without the near copy `mean_green`, a second scene closer to the first. The reflectance warning no longer takes a single layer (heights, an index, classes) for reflectance in 0 to 10 000. The first OBIA tutorial and *From eCognition* follow (107 objects, 59 samples, kappa 0.86).
+- **A model not saved yet writes under Documents/Terraflux/<its name>** (`crates/app/src/app.rs`, `crates/app/src/layers_panel.rs`, `crates/app/src/params_view.rs`): a template opened runs its model, and its writers went to the folder the program runs in (beside terraflux.exe from the Start menu; a failure from macOS's Finder). The folder is made only before a run that writes; once saved, paths are relative to the model's file as before.
+- **Use my data no longer offers the maps that only help to draw** (`crates/app/src/my_data.rs`): noise, cloud fields, patches, the ground of a height model.
+
+### Fixed
+- **`ml.write` and `ml.read` resolve their path against the model's folder** (`crates/graph/src/lib.rs`, `crates/exec/src/testing.rs`), as their documentation says; a run's manifest counts `ml.write`'s file as written.
+- **8-bit images are divided by 255** in Use my data (`crates/app/src/rgb.rs`), not by 10 000 (a new scale, *8-bit, divided by 255*); band names such as `band_1` or *Band 4* are no longer read as Sentinel-2's B1, B4, which shifted every role; Sentinel-2's offset of 2022 is read from a file's `BOA_ADD_OFFSET`.
+- **No false "reference grid" error on inputs a `raster.match` puts on another grid** (`crates/exec/src/lint.rs`): after Use my data's Apply the Problems pane flagged `$ndsm` or `$series` of a model that ran fine.
+
 ## [1.69.0] - 2026-11-25
 
 ### Added
