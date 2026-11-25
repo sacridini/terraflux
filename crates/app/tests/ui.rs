@@ -2524,6 +2524,10 @@ fn templates_run() {
         }
         // (a template that writes its result, the polygons of the objects', writes beside the model: not here)
         m.nodes.retain(|n| n.op != "vector.write");
+        // (the files it writes and reads back, a fitted model's, are under a folder of the tests', not the crate's)
+        let dir = tmp("templates-run");
+        std::fs::create_dir_all(&dir).unwrap();
+        terraflux_graph::submodel::expand(&mut m, &dir).unwrap();
         let r = terraflux_exec::Engine::default().run(&m, &Default::default(), &mut terraflux_exec::Quiet);
         assert!(r.is_ok(), "{}: {:?}", t.name, r.err());
     }

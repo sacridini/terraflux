@@ -281,7 +281,7 @@ fn compare(st: &mut State, s: &Session, outputs: &[String], ctx: &egui::Context)
     if wanted.is_empty() {
         return;
     }
-    let base = s.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or_default();
+    let base = s.base();
     let runs: Vec<(String, Result<Model, String>)> = s
         .source
         .scenarios

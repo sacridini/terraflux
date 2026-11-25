@@ -2577,7 +2577,7 @@ fn editable(s: &Session, l: &Layer) -> Result<(PathBuf, Option<String>), String>
     if n.params.get("extent").is_some_and(|e| !e.is_null() && e.as_array().is_none_or(|a| !a.is_empty())) {
         return Err("the node reads only the features in an extent: the others would be lost".into());
     }
-    let base = s.path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_default();
+    let base = s.base();
     let file = crate::relink::resolve(path, &base);
     if !file.is_file() {
         return Err("it is not one file (a folder or a pattern of files, or a file not found)".into());
@@ -2632,7 +2632,7 @@ fn edit_panel(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     match crate::vector_edit::panel(ui, e, &name, salt) {
         Some(Ask::Stop) => end_edit(sh, true),
         Some(Ask::Save) => {
-            let base = s.path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_default();
+            let base = s.base();
             let path = crate::relink::resolve(e.target.trim(), &base);
             let saved = e.save(&path).and_then(|()| add_file(s, r, &path, None));
             match saved {
