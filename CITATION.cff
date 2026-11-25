@@ -11,7 +11,7 @@ authors:
   - family-names: Lacerda
     given-names: Eduardo
     orcid: "https://orcid.org/0000-0003-3803-5842"
-version: 1.71.0
+version: 1.71.1
 date-released: 2026-11-25
 doi: 10.5281/zenodo.24515275
 identifiers:
