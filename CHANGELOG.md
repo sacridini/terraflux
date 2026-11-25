@@ -12,6 +12,9 @@ version.
 - **The arrow keys in the Viewer's Layers** (`crates/app/src/layers_panel.rs`, `crates/app/src/keymap.rs`): with the pointer over the Layers (or after a click in them), up and down select the layer above or below (with Shift, the range from the first), the map then shown; right and left unfold and fold the legend of the layer selected. The keys are the panel's while it is active (the player of a series' frames leaves them to it); elsewhere they do what they did. Up and down can be bound again in the shortcuts (F1).
 - **`data.download_file`: any file a link names, downloaded** (`crates/ops/src/download_file.rs`): like curl or wget, an http or https `url` (redirects followed) saved to `path` (a file, or a folder to save into with the file's name) or, without it, to Terraflux's cache; the name the server gives (Content-Disposition), else the link's. Written to a `.part` first, so a failed or stopped download leaves no half file; the server's error said plainly ("the server answered 404 Not Found"). Kept once downloaded: the next runs make no request (`refresh` downloads it again). `unzip` extracts a zip beside it and gives the folder. Its output `path` can feed another node's setting, e.g. the `path` of raster.read, vector.read or table.read. The Python script downloads it with the standard library.
 
+### Fixed
+- **A double click brings the Viewer only for a node with something to show** (`crates/app/src/builder.rs`, `crates/app/src/app.rs`, `crates/app/src/editor_view.rs`): a node whose outputs the Viewer cannot show (a random generator such as `rng.numpy`, fitted models, rules; a writer, whose only output is the path it wrote; a reader without its file) does nothing; a map, features, objects, a table, weights of evidence or a value is shown, and when it has to be made first the Viewer comes once it is there, and not at all when the run fails. The fix of 1.63.0 had stayed on a side branch.
+
 ## [1.70.0] - 2026-11-25
 
 ### Added
