@@ -7,6 +7,12 @@ version.
 
 ## [Unreleased]
 
+## [1.71.2] - 2026-11-25
+
+### Fixed
+- **An update that fails no longer leaves no Terraflux installed** (`installer/terraflux.wxs`): the old version is removed inside the transaction of the new one's install (`MajorUpgrade Schedule="afterInstallInitialize"`), so a failure rolls back to it; before, its removal was committed first, and an install that failed after it left nothing.
+- **A Terraflux opened while an update installs no longer breaks it** (`crates/app/src/update.rs`, `crates/app/src/lib.rs`): every start removed the folder of the downloads, the package being installed among them, and Windows Installer then failed (error 1316, 1603). The scripts that install an update keep a marker (their process and the version) while they wait and install; a Terraflux started meanwhile says that it is being updated and opens nothing, and the updater starts no second install. The downloads cleaned at a start are only the packages of the version running or older (and leftovers of two days).
+
 ## [1.71.1] - 2026-11-25
 
 ### Fixed
