@@ -27,6 +27,8 @@ fn shot(h: &mut Harness<TerrafluxApp>, name: &str) {
 fn setup() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("keymap-settings.json")) };
+    // (a model not saved writes under Documents/Terraflux: a folder of the tests', never the user's)
+    unsafe { std::env::set_var("TERRAFLUX_DOCUMENTS", std::env::temp_dir().join("terraflux-test-documents")) };
     ONCE.call_once(|| {
         let _ = std::fs::remove_file(tmp("keymap-settings.json"));
         terraflux_app::settings::update(|st| st.theme = "Classic".into());

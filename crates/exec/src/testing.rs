@@ -45,7 +45,7 @@ impl Hashed {
 }
 
 /// The operators that write the file their `path` names (the others of [`FILE_OPS`] read it).
-const WRITERS: [&str; 3] = ["raster.write", "vector.write", "table.write"];
+const WRITERS: [&str; 4] = ["raster.write", "vector.write", "table.write", "ml.write"];
 
 /// What a run was: enough to run it again and to tell whether it gave the same.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

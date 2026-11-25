@@ -8473,6 +8473,42 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(too_many.is_empty(), "{too_many:#?}");
     }
+
+    #[test]
+    fn a_template_not_saved_writes_under_the_documents_folder_not_the_working_directory() {
+        let docs = std::env::temp_dir().join(format!("terraflux-documents-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&docs);
+        // (the test's own Documents: nothing is written to the user's)
+        unsafe { std::env::set_var("TERRAFLUX_DOCUMENTS", &docs) };
+        let t = TEMPLATES.iter().find(|t| t.name == "Classify an image by rules").unwrap();
+        let mut s = crate::app::Session::from_model(t.model()).expect("a template opens");
+        s.wait();
+        let folder = docs.join("Terraflux").join("Classify an image by rules");
+        assert_eq!(s.base(), folder);
+        assert!(!folder.exists(), "opening makes no folder");
+        s.start(Box::new(|| {}));
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        while s.running() && std::time::Instant::now() < until {
+            s.poll();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!s.running(), "the run did not end");
+        assert!(s.error.is_none(), "{:?}", s.error);
+        let found: Vec<_> = std::fs::read_dir(&folder).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+        assert!(folder.join("objects_by_rules.gpkg").is_file(), "the objects are written in the template's folder: {found:?}");
+        let _ = std::fs::remove_dir_all(&docs);
+    }
+
+    #[test]
+    fn the_folder_of_a_model_not_saved_is_its_title_made_safe() {
+        use crate::app::{folder_name, unsaved_base};
+        assert_eq!(folder_name("a/b\\c:d*e?f\"g<h>i|j"), "a_b_c_d_e_f_g_h_i_j");
+        assert_eq!(folder_name("  Water. "), "Water");
+        assert_eq!(folder_name(" . "), "Untitled");
+        let base = unsaved_base(Some("What: is/this?"));
+        assert!(base.ends_with("Terraflux/What_ is_this_"), "{base:?}");
+        assert!(unsaved_base(None).ends_with("Terraflux/Untitled"));
+    }
 }
 
 #[cfg(test)]

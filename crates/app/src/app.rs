@@ -887,6 +887,42 @@ pub fn python_beside(s: &mut Session, r: &Registry) {
     }
 }
 
+/// The user's Documents folder: `TERRAFLUX_DOCUMENTS` (for the tests), else `Documents` of the home folder when it
+/// is there, else the folder of the application's data.
+pub fn documents_dir() -> PathBuf {
+    if let Some(d) = std::env::var_os("TERRAFLUX_DOCUMENTS").filter(|d| !d.is_empty()) {
+        return PathBuf::from(d);
+    }
+    // (the unit tests never write into the user's Documents)
+    if cfg!(test) {
+        return std::env::temp_dir().join("terraflux-test-documents");
+    }
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
+    home.map(|h| h.join("Documents")).filter(|d| d.is_dir()).unwrap_or_else(crate::settings::data_dir)
+}
+
+/// A model's title as a folder name: the characters a file name cannot hold replaced, no dots or spaces at the end.
+pub fn folder_name(title: &str) -> String {
+    let clean: String =
+        title.chars().map(|c| if "\\/:*?\"<>|".contains(c) || c.is_control() { '_' } else { c }).collect();
+    let clean = clean.trim().trim_end_matches('.').trim_end();
+    if clean.is_empty() { "Untitled".into() } else { clean.to_string() }
+}
+
+/// Where the relative paths of a model not saved yet (a template just opened) go: a folder the user can see and
+/// write, `<Documents>/Terraflux/<the model's name>`, not the folder the program happens to run in. Not made here.
+pub fn unsaved_base(name: Option<&str>) -> PathBuf {
+    documents_dir().join("Terraflux").join(folder_name(name.unwrap_or("Untitled")))
+}
+
+/// The folder paths are relative to: the model file's, else that of a model not saved ([`unsaved_base`]).
+fn base_of(path: Option<&Path>, name: Option<&str>) -> PathBuf {
+    match path {
+        Some(p) => p.parent().map(Path::to_path_buf).unwrap_or_default(),
+        None => unsaved_base(name),
+    }
+}
+
 impl Session {
     /// Read a model and check it; its data is read in a thread (see [`Session::loading`]).
     pub fn open(path: &Path) -> Result<Session, String> {
@@ -947,7 +983,7 @@ impl Session {
     fn new(mut source: Model, path: Option<PathBuf>) -> Result<Session, String> {
         // (a model made in code, as a template's, brought up to date as a model read is)
         source.upgrade();
-        let base = path.as_deref().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_default();
+        let base = base_of(path.as_deref(), source.name.as_deref());
         let shown = path.as_ref().map_or("the model".into(), |p| p.display().to_string());
         let mut model = source.clone();
         terraflux_graph::submodel::expand(&mut model, &base).map_err(|e| format!("{shown}: {e}"))?;
@@ -1131,9 +1167,24 @@ impl Session {
         self.relink.follow(&self.source, &base, (self.revision, self.loads), saved);
     }
 
-    /// The folder the model's paths are relative to.
+    /// The folder the model's paths are relative to: its file's, else (not saved yet) the model's folder in the
+    /// user's Documents ([`unsaved_base`]).
     pub fn base(&self) -> PathBuf {
-        self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_default()
+        base_of(self.path.as_deref(), self.model.name.as_deref())
+    }
+
+    /// Make the folder of a model not saved yet, before a run that writes files (a saved model's folder is there).
+    fn make_base(&self) {
+        fn writes(nodes: &[terraflux_graph::Node]) -> bool {
+            nodes.iter().any(|n| {
+                terraflux_dist::worker::WRITE_OPS.contains(&n.op.as_str())
+                    || n.op == "ml.write"
+                    || n.body.as_ref().is_some_and(|b| writes(&b.nodes))
+            })
+        }
+        if self.path.is_none() && writes(&self.model.nodes) {
+            let _ = std::fs::create_dir_all(self.base());
+        }
     }
 
     /// The model's name, else its file's.
@@ -1768,6 +1819,7 @@ impl Session {
             }
         }
         self.check = check.clone();
+        self.make_base();
         let base = self.base();
         self.edited_at = None;
         // (the statuses this run sets are of the model as it is now)

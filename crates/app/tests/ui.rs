@@ -133,6 +133,8 @@ fn setup() {
     ONCE.call_once(|| {
         // (once: the same value each time, and an environment changed under the threads of other tests is not safe)
         unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("settings.json")) };
+        // (a model not saved writes under Documents/Terraflux: a folder of the tests', never the user's)
+        unsafe { std::env::set_var("TERRAFLUX_DOCUMENTS", std::env::temp_dir().join("terraflux-test-documents")) };
         let _ = std::fs::remove_file(tmp("settings.json"));
         // (and the Node tab opening by itself, as these tests look for it: the panel beside the box is the canvas's)
         terraflux_app::settings::update(|st| {

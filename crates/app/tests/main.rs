@@ -41,6 +41,8 @@ pub fn point_settings() {
         // the canvas's tests measure by)
         std::fs::write(dir.join("settings.json"), r#"{ "theme": "Classic", "minimap": false }"#).unwrap();
         unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("settings.json")) };
+        // (a model not saved writes under Documents/Terraflux: a folder of the tests', never the user's)
+        unsafe { std::env::set_var("TERRAFLUX_DOCUMENTS", std::env::temp_dir().join("terraflux-test-documents")) };
     });
 }
 

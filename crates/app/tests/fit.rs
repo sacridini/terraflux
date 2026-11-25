@@ -68,6 +68,8 @@ fn shot(h: &mut Harness<TerrafluxApp>, name: &str) {
 /// Settings of its own (not the user's, nor the other tests'); no computer shared or lent.
 fn setup() {
     unsafe { std::env::set_var("TERRAFLUX_SETTINGS", tmp("fit-settings.json")) };
+    // (a model not saved writes under Documents/Terraflux: a folder of the tests', never the user's)
+    unsafe { std::env::set_var("TERRAFLUX_DOCUMENTS", std::env::temp_dir().join("terraflux-test-documents")) };
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
 }
 

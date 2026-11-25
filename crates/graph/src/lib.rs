@@ -64,8 +64,10 @@ pub const PLUGIN: &str = "plugin.wasm";
 
 /// The operators whose `params.path` is a file: relative to the model's folder in the model file, absolute
 /// once the model is expanded to run ([`submodel::expand`]).
-pub const FILE_OPS: [&str; 11] = [
+pub const FILE_OPS: [&str; 13] = [
     PLUGIN,
+    "ml.read",
+    "ml.write",
     "raster.read",
     "raster.write",
     "landscape.mspa_tiled",
@@ -1404,6 +1406,21 @@ mod tests {
             assert!(!is_remote(local), "{local}");
         }
         assert!(is_sent("bundle:ab/c.tif") && is_sent("blob:ab") && !is_sent("data/b.tif"));
+    }
+
+    #[test]
+    fn the_path_of_a_fitted_model_file_is_a_file_of_the_model() {
+        for op in ["ml.write", "ml.read"] {
+            let mut n = Node::new("m", op).param("path", "scene_model.json");
+            assert_eq!(file_settings(&mut n).count(), 1, "{op}'s path is a file");
+        }
+        let dir = std::env::temp_dir().join("tf_ml_files");
+        let mut nodes = vec![Node::new("w", "ml.write").param("path", "scene_model.json")];
+        for p in file_settings(&mut nodes[0]) {
+            *p = dir.join(p.as_str()).to_string_lossy().into_owned();
+        }
+        relative_paths(&mut nodes, &dir);
+        assert_eq!(nodes[0].params["path"], "scene_model.json");
     }
 
     #[test]

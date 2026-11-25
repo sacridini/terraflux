@@ -28,6 +28,8 @@ fn harness(size: (f32, f32), ppp: f32, theme: &str) -> Harness<'static, Terraflu
     ONCE.call_once(|| {
         std::fs::write(dir.join("canvas-shots-settings.json"), r#"{ "theme": "Slate" }"#).unwrap();
         unsafe { std::env::set_var("TERRAFLUX_SETTINGS", dir.join("canvas-shots-settings.json")) };
+        // (a model not saved writes under Documents/Terraflux: a folder of the tests', never the user's)
+        unsafe { std::env::set_var("TERRAFLUX_DOCUMENTS", std::env::temp_dir().join("terraflux-test-documents")) };
     });
     terraflux_app::settings::update(|s| s.theme = theme.into());
     terraflux_app::computers::AUTOSTART.store(false, std::sync::atomic::Ordering::Relaxed);
