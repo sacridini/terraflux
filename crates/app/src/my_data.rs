@@ -549,6 +549,33 @@ pub fn is_polygons(s: &Source) -> bool {
     is_vector(s) && s.data.as_ref().is_some_and(|d| d.kind == DataKind::Polygons)
 }
 
+/// The `segment.from_map` that turns a drawn map of classes into objects, when it is the only one that does (the
+/// parcels of a series are such a map).
+fn parcels_reader(m: &Model, s: &Source) -> Option<String> {
+    let mut found = readers(m, &s.node)
+        .nodes
+        .into_iter()
+        .filter(|(c, p)| p.as_deref() == Some("map") && m.node(c).is_some_and(|c| c.op == "segment.from_map"));
+    let first = found.next()?;
+    found.next().is_none().then_some(first.0)
+}
+
+/// Whether a source that is a map can be brought as polygons too: a drawn map of classes (the parcels) that
+/// `segment.from_map` turns into objects, read together with a series or an image, one layer of which gives the
+/// objects their grid (`segment.from_vector`).
+pub fn takes_polygons(m: &Model, srcs: &[Source], s: &Source) -> bool {
+    s.needs == Type::Map
+        && s.op != INPUT
+        && s.data.as_ref().is_some_and(|d| d.kind == DataKind::Classes)
+        && parcels_reader(m, s).is_some()
+        && grounds_downstream(m, srcs, s).iter().any(|g| g.needs == Type::Stack)
+}
+
+/// Whether a file for a source that takes polygons is one: features, by its extension (a raster is a map of ids).
+pub fn is_polygons_file(p: &Path) -> bool {
+    crate::builder::is_vector(p)
+}
+
 /// The names a column of the class goes by, the first found is taken.
 const CLASS_NAMES: [&str; 14] = [
     "class",
@@ -1525,8 +1552,17 @@ pub fn plan(
     let mut pts: Vec<(&Source, &Choice, PointsFile, String)> = Vec::new();
     // the polygons of the parcels or the reference objects
     let mut polys: Vec<(&Source, &Choice, Vector)> = Vec::new();
+    // the parcels of a series brought as polygons instead of a map of ids
+    let mut lots: Vec<(&Source, &Choice, Vector)> = Vec::new();
     for s in &srcs {
         let Some(c) = choices.get(&s.node) else { continue };
+        if is_polygons_file(&c.file) && takes_polygons(m, &srcs, s) {
+            match vet_vector(m, s, c, "polygons").and_then(|_| polygons_file(&c.file)) {
+                Ok(v) => lots.push((s, c, v)),
+                Err(e) => refused.push(format!("{}: {e}", s.node)),
+            }
+            continue;
+        }
         if is_polygons(s) {
             match vet_vector(m, s, c, "polygons").and_then(|_| polygons_file(&c.file)) {
                 Ok(v) => polys.push((s, c, v)),
@@ -1546,7 +1582,7 @@ pub fn plan(
             Err(e) => refused.push(format!("{}: {e}", s.node)),
         }
     }
-    if ok.is_empty() && pts.is_empty() && polys.is_empty() {
+    if ok.is_empty() && pts.is_empty() && polys.is_empty() && lots.is_empty() {
         return Err(if refused.is_empty() {
             "choose the file of at least one data".into()
         } else {
@@ -1602,6 +1638,71 @@ pub fn plan(
     let mut images: Vec<(String, Vec<String>)> = Vec::new();
     // what the drawn nodes read, to take away what only they read
     let mut candidates: Vec<String> = Vec::new();
+    let mut notices: Vec<Finding> = Vec::new();
+    let mut stray: Vec<String> = Vec::new();
+    // the parcels as polygons: segment.from_vector on the grid of one layer of the series, in place of
+    // segment.from_map of the drawn map (done before the series is replaced: what reads it is pointed to its end)
+    for (s, c, v) in &lots {
+        let seg = parcels_reader(m, s).expect("a source that takes polygons has its reader");
+        let g = grounds_downstream(m, &srcs, s).into_iter().find(|g| g.needs == Type::Stack).expect("a series");
+        let series = if g.op == INPUT { format!("${}", g.node) } else { format!("{}.{}", g.node, g.port) };
+        let ground = ok.iter().find(|(o, ..)| o.node == g.node).map(|(_, c, grid)| {
+            let crs =
+                if c.scene.is_some() { Some("EPSG:4326".to_string()) } else { terraflux_ops::prepare::crs_of(grid) };
+            (grid, crs)
+        });
+        let whole = std::path::absolute(&c.file).unwrap_or_else(|_| c.file.clone());
+        let file = whole.to_string_lossy().replace('\\', "/");
+        let why = format!("in place of the drawn {}: your file {file}", s.node);
+        let rid = fresh(&mut taken, &format!("{}_read", s.node));
+        let lid = fresh(&mut taken, &format!("{}_like", s.node));
+        let mut read = Node::new(&rid, "vector.read")
+            .param("path", file.clone())
+            .note("Your parcels as polygons, one feature each.")
+            .why(&why);
+        read.data = Some(Data::new(
+            "parcels: polygons of the parcels (a GeoPackage, GeoJSON or Shapefile), one object each",
+            DataKind::Polygons,
+        ));
+        let like = Node::new(&lid, "stack.extract_layer")
+            .input("stack", &series)
+            .param("layer", "0")
+            .note("The first layer of the series: the grid (cells, extent, coordinate system) the parcels are laid on.")
+            .why(&why);
+        let old = m.node(&seg).expect("the reader is a node of the model");
+        let mut objects = Node::new(&seg, "segment.from_vector")
+            .input("vector", &format!("{rid}.vector"))
+            .input("like", &format!("{lid}.map"))
+            .note(
+                "The parcels as objects: each polygon of your file is one parcel (laid on the grid of the series, \
+                 your polygons' coordinate system carried to it), the cells in no polygon are no object.",
+            )
+            .why(&why);
+        if let Some(n) = old.params.get("neighbours") {
+            objects = objects.param("neighbours", n.clone());
+        }
+        objects.refs = old.refs.clone();
+        splice_in(&mut out, &seg, vec![read, like, objects], &mut candidates);
+        notes.push(format!(
+            "{}: your file {file}, {} polygons, the parcels: {seg} is segment.from_vector on the grid of the first layer of {} (in place of the drawn map)",
+            s.node,
+            v.len(),
+            g.node
+        ));
+        if ground.is_none() {
+            notices.push(Finding {
+                level: Level::Warning,
+                at: s.node.clone(),
+                message: format!(
+                    "Your {} polygons are laid on the template's drawn series, which has coordinates of its own: bring your series too.",
+                    v.len()
+                ),
+                fix: Some("choose your series".into()),
+                action: None,
+            });
+        }
+        notices.extend(polygons_findings(&s.node, v, ground.as_ref().map(|(g, crs)| (*g, crs.as_deref()))));
+    }
     for (s, c, grid) in &ok {
         let name = names[&s.node].clone();
         let file = if let Some(sc) = &c.scene {
@@ -1880,8 +1981,6 @@ pub fn plan(
 
     // the points of the samples: a file of features (or a table of x, y and the class) in place of the drawn points,
     // their class column named for what reads them; objects.samples carries their coordinate system to the image's
-    let mut notices: Vec<Finding> = Vec::new();
-    let mut stray: Vec<String> = Vec::new();
     for (s, c, f, class) in &pts {
         // (a node's path is read from where the model runs, not from its folder: the file's own, whole)
         let whole = std::path::absolute(&c.file).unwrap_or_else(|_| c.file.clone());
@@ -2042,6 +2141,8 @@ pub fn plan(
                 .to_string();
             let tip = if is_polygons(s) {
                 format!("bring a file of your {noun} (polygons: a GeoPackage, GeoJSON or Shapefile)")
+            } else if takes_polygons(m, &srcs, s) {
+                format!("bring a map of your {noun} (a number for each one), or polygons of them")
             } else {
                 format!("bring a map of your {noun} (a number for each one)")
             };
@@ -4481,6 +4582,70 @@ mod tests {
         let out = run(&upto, &d);
         let Some(terraflux_ops::Value::Table(t)) = out.get("seasons.table") else { panic!("no table") };
         assert_eq!(t.rows.len(), 4, "four parcels");
+    }
+
+    #[test]
+    fn the_parcels_of_the_crops_can_be_polygons_on_a_layer_of_the_series() {
+        let r = Registry::standard();
+        let m = template(CROPS);
+        let s = sources(&m, &r);
+        assert!(takes_polygons(&m, &s, &s[0]) && !takes_polygons(&m, &s, &s[1]), "only the parcels");
+        assert!(s[0].what.contains("or polygons of the parcels"), "{}", s[0].what);
+        let d = dir("crops-polygons");
+        // the series in UTM 33N, the parcels in another coordinate system
+        let series = user_series(&d, "series.tif");
+        let mut raster = terraflux_ops::files::read_raster(&series).unwrap();
+        raster.grid.geo = terraflux_raster::GeoTags {
+            geokeys: Some(vec![1, 1, 0, 3, 1024, 0, 1, 1, 1025, 0, 1, 1, 3072, 0, 1, 32633]),
+            ..Default::default()
+        };
+        raster.write(&series).unwrap();
+        let parcels = write_squares(&d, "lots.gpkg", &QUARTERS, "EPSG:4326");
+        let both = BTreeMap::from([("land".to_string(), choice(&parcels)), ("series".to_string(), choice(&series))]);
+        let p = plan(&m, &r, &both, None, &d).unwrap();
+        // (the template's example points stay on its own series: the parcels are not stray)
+        assert!(p.refused.is_empty() && p.stray == ["samples"], "{:?} {:?}", p.refused, p.stray);
+        let seg = p.model.node("parcels").expect("the objects keep their node");
+        assert_eq!(seg.op, "segment.from_vector");
+        assert!(matches!(seg.inputs.get("vector"), Some(Wire::Ref(x)) if x == "land_read.vector"));
+        assert!(matches!(seg.inputs.get("like"), Some(Wire::Ref(x)) if x == "land_like.map"));
+        let like = p.model.node("land_like").expect("a layer of the series");
+        assert_eq!(like.op, "stack.extract_layer");
+        assert!(matches!(like.inputs.get("stack"), Some(Wire::Ref(x)) if x == "$series"), "{:?}", like.inputs);
+        let read = p.model.node("land_read").expect("the polygons read");
+        assert_eq!(read.data.as_ref().map(|d| d.kind), Some(DataKind::Polygons));
+        for gone in ["land", "year", "shift_field", "noise", "cloud_field"] {
+            assert!(p.model.node(gone).is_none(), "{gone}");
+        }
+        assert_eq!(errors(&p, &d), Vec::<String>::new());
+        assert_eq!(said(&p, &d, Level::Warning, "polygons").len(), 0);
+        // up to the season of each parcel: an object for each polygon
+        let mut upto = p.clone();
+        let later = ["sample_table", "samples", "training", "model", "classify", "polygons", "plot"];
+        upto.model.nodes.retain(|n| !later.contains(&n.id.as_str()));
+        upto.model.plots.clear();
+        upto.model.outputs.clear();
+        let out = run(&upto, &d);
+        let Some(terraflux_ops::Value::Table(t)) = out.get("seasons.table") else { panic!("no table") };
+        assert_eq!(t.rows.len(), 4, "one object per parcel");
+        // a second run of Use my data finds the polygons, and a map of ids still replaces them
+        let again = sources(&p.model, &r);
+        assert!(again.iter().any(|s| s.node == "land_read" && is_polygons(s)), "{:?}", ids(&again));
+        // the polygons far from the series: told before Apply
+        let far = write_squares(&d, "far.gpkg", &moved(&QUARTERS, 0), "EPSG:32633");
+        let bad = BTreeMap::from([("land".to_string(), choice(&far)), ("series".to_string(), choice(&series))]);
+        let p = plan(&m, &r, &bad, None, &d).unwrap();
+        assert_eq!(said(&p, &d, Level::Error, "None of your 4 polygons overlaps your image").len(), 1);
+        // the polygons alone: laid on the drawn series, told so
+        let p = plan(&m, &r, &one("land", choice(&parcels)), None, &d).unwrap();
+        assert_eq!(said(&p, &d, Level::Warning, "drawn series").len(), 1);
+        assert!(p.model.node("land").is_some(), "the drawn year still reads it");
+        // points are no parcels
+        let (_, rows) = obia_scene(&d);
+        let pts = write_points(&d, "pts.gpkg", &rows, "cover");
+        let with_points = BTreeMap::from([("land".to_string(), choice(&pts)), ("series".to_string(), choice(&series))]);
+        let p = plan(&m, &r, &with_points, None, &d).unwrap();
+        assert!(p.refused.iter().any(|e| e.contains("are not polygons")), "{:?}", p.refused);
     }
 
     #[test]

@@ -469,9 +469,13 @@ impl State {
     /// Choose a file for a source of the model open (what the file picker does): its bands read, its classes read in
     /// a thread when the model reads classes of it. The reason when it cannot be.
     pub fn choose(&mut self, s: &mut Session, r: &Registry, node: &str, file: &Path) -> Result<(), String> {
-        let src = sources_of(s, r).iter().find(|x| x.node == node).cloned();
+        let all = sources_of(s, r).to_vec();
+        let src = all.iter().find(|x| x.node == node).cloned();
         let Some(src) = src else { return Err(format!("{node}: the model draws no such data")) };
-        if my_data::is_polygons(&src) {
+        // (parcels that a map of ids or polygons can be: the file says which)
+        if my_data::is_polygons(&src)
+            || (my_data::is_polygons_file(file) && my_data::takes_polygons(&s.source, &all, &src))
+        {
             return self.choose_polygons(node, file);
         }
         if my_data::is_points(&src) {
@@ -1144,7 +1148,7 @@ impl State {
     }
 
     /// The page of *Your data*: a row for each thing the model draws.
-    fn data_page(&mut self, ui: &mut Ui, sources: &[Source], dates: &[String]) {
+    fn data_page(&mut self, ui: &mut Ui, model: &Model, sources: &[Source], dates: &[String]) {
         ui.label(
             RichText::new(
                 "A file for each thing the model draws; what you leave out stays drawn. Each choice is checked as soon \
@@ -1154,7 +1158,7 @@ impl State {
         );
         let first = sources
             .iter()
-            .find(|x| self.picks.contains_key(&x.node) && x.needs == Type::Map)
+            .find(|x| self.picks.get(&x.node).is_some_and(|p| !p.points) && x.needs == Type::Map)
             .or_else(|| sources.iter().find(|x| self.picks.contains_key(&x.node) && x.needs != Type::Vector))
             .map(|x| x.node.clone());
         let reference = self.reference_now().or(first);
@@ -1182,6 +1186,8 @@ impl State {
                 if ui.button("Choose a file...").clicked()
                     && let Some(p) = if my_data::is_polygons(src) {
                         pick_polygons()
+                    } else if my_data::takes_polygons(model, sources, src) {
+                        pick_parcels()
                     } else if my_data::is_points(src) {
                         pick_points()
                     } else {
@@ -1269,7 +1275,7 @@ impl State {
                     None => p.file.display().to_string(),
                 };
                 ui.label(RichText::new(name).strong()).on_hover_text(tip);
-                if p.points && my_data::is_polygons(src) {
+                if p.points && !my_data::is_points(src) {
                     ui.label(RichText::new("polygons").weak());
                 } else if p.points {
                     // the column of the file that holds the class
@@ -1839,6 +1845,19 @@ fn pick_polygons() -> Option<PathBuf> {
         .pick_file()
 }
 
+/// The file of the parcels of a series: a map of ids (a raster) or polygons (GeoPackage, GeoJSON, Shapefile...).
+fn pick_parcels() -> Option<PathBuf> {
+    let mut both: Vec<&str> = terraflux_ops::files::RASTER_EXTENSIONS.to_vec();
+    both.extend(crate::builder::VECTOR_EXTENSIONS);
+    rfd::FileDialog::new()
+        .set_title("Your parcels: a map of numbers or polygons")
+        .add_filter("Parcels", &both)
+        .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
+        .add_filter("Vectors", &crate::builder::VECTOR_EXTENSIONS)
+        .add_filter("Every file", &["*"])
+        .pick_file()
+}
+
 /// A finding: its level, where, what, and what to do about it.
 fn finding_line(ui: &mut Ui, f: &Finding) {
     let (word, colour) = match f.level {
@@ -1973,7 +1992,7 @@ pub fn window(
             st.strip(ui, has_settings);
             let height = (ui.available_height() - 46.0).max(80.0);
             egui::ScrollArea::vertical().max_height(height).auto_shrink([false, false]).show(ui, |ui| match st.page {
-                Page::Model | Page::Data => st.data_page(ui, &sources, &dates),
+                Page::Model | Page::Data => st.data_page(ui, &s.source, &sources, &dates),
                 Page::Bands => st.bands_page(ui, &sources),
                 Page::Classes => st.classes_page(ui, &sources),
                 Page::Parameters => st.parameters_page(ui, s),

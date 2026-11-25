@@ -6846,8 +6846,8 @@ fn crop_scene() -> String {
 id = "land"
 op = "nlm.mosaic_gibbs"
 params = {{ rows = 100, columns = 100, germs = 230, r = 5, patch_classes = 4, nlmr_compat = false, rescale = false, seed = 6, crs = "EPSG:32633" }}
-note = "The parcels of four crops drawn by chance (1 soybean, 2 maize, 3 pasture, 4 forest): each connected area is a parcel (the objects below), and its crop draws the NDVI of the year. In their place, a map of your parcels, a number for each one."
-data = {{ what = "parcels: a map where each parcel has a number of its own (an id, or its crop: touching parcels of one number are one parcel)", kind = "classes" }}
+note = "The parcels of four crops drawn by chance (1 soybean, 2 maize, 3 pasture, 4 forest): each connected area is a parcel (the objects below), and its crop draws the NDVI of the year. In their place, a map of your parcels, a number for each one, or the polygons of your parcels."
+data = {{ what = "parcels: a map where each parcel has a number of its own (an id, or its crop: touching parcels of one number are one parcel), or polygons of the parcels", kind = "classes" }}
 
 [[nodes]]
 id = "shift_field"
@@ -6900,7 +6900,7 @@ fn obia_crops() -> Model {
         r#"
 format = "terraflux/1"
 name = "Crops by their seasons"
-description = "Parcels classed by the season of their vegetation. A year of NDVI, a layer every 15 days (clouds and noise drawn), is made over parcels of four crops, each with its own curve: soybean peaks early and high, maize later, pasture is low and broad, forest is high and flat. objects.series gives each parcel its profile (the mean of its cells with a value on each date: a cloud leaves the cells it covers out), and from it its season (the peak, the amplitude, the integral...) and a fit of two harmonics of the year; a few parcels are named by points, a random forest learns the crops from those columns, and objects.classify gives every parcel a crop and the probability of each. In the Viewer, select a parcel and the inspector draws its profile (the points are its dates, the gaps clouds), with the band of the samples of its class; ctrl+click another to compare. Replace the series with yours (Use my data): a stack of an index with the date in the name of each layer, and the parcels with a map of yours, a number for each parcel."
+description = "Parcels classed by the season of their vegetation. A year of NDVI, a layer every 15 days (clouds and noise drawn), is made over parcels of four crops, each with its own curve: soybean peaks early and high, maize later, pasture is low and broad, forest is high and flat. objects.series gives each parcel its profile (the mean of its cells with a value on each date: a cloud leaves the cells it covers out), and from it its season (the peak, the amplitude, the integral...) and a fit of two harmonics of the year; a few parcels are named by points, a random forest learns the crops from those columns, and objects.classify gives every parcel a crop and the probability of each. In the Viewer, select a parcel and the inspector draws its profile (the points are its dates, the gaps clouds), with the band of the samples of its class; ctrl+click another to compare. Replace the series with yours (Use my data): a stack of an index with the date in the name of each layer, and the parcels with a map of yours, a number for each parcel, or with polygons (GeoPackage, GeoJSON, Shapefile)."
 "#,
     );
     text.push_str(&crop_scene());
