@@ -215,10 +215,15 @@ pub fn op_label(n: &Node) -> String {
 }
 
 /// What a node's box names itself: the operator's label for people ("Fragmentation (FOS)") while its id is the one
-/// the app gave it, else its id (the user's own name for it stays). The model keeps the id either way.
+/// the app gave it, else its id (the user's own name for it stays). The model keeps the id either way. The setting
+/// that says what the node does follows the label ("Select by location · within").
 pub fn title(n: &Node) -> String {
     if n.uses.is_none() && crate::op_label::is_auto_id(&n.id, &n.op) {
-        crate::op_label::label(&n.op)
+        let label = crate::op_label::label(&n.op);
+        match crate::op_label::setting_shown(&n.op, &n.params) {
+            Some(s) => format!("{label} · {s}"),
+            None => label,
+        }
     } else {
         n.id.clone()
     }

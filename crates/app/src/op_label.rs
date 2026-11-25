@@ -627,10 +627,61 @@ pub fn is_auto_id(id: &str, op: &str) -> bool {
     }
 }
 
+/// What a node's title tells after its label, for the operators whose one setting says what they do: the predicate
+/// of a selection or join by location ("within", "not within", "within 500", "count, intersects"). None while the
+/// setting is not set, or reads a reference.
+pub fn setting_shown(op: &str, params: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    if !matches!(op, "vector.select_by_location" | "vector.spatial_join") {
+        return None;
+    }
+    let text = |k: &str| params.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty());
+    let predicate = text("predicate")?;
+    // (a reference, `$input` or `node.port`: its value is not known here)
+    if !predicate.chars().all(|c| c.is_ascii_alphabetic() || c == '_') {
+        return None;
+    }
+    let mut shown = match (predicate, params.get("distance").and_then(|v| v.as_f64())) {
+        ("dwithin", Some(d)) => format!("within {d}"),
+        ("dwithin", None) => "within a distance".to_string(),
+        (p, _) => p.replace('_', " "),
+    };
+    let on = |k: &str| params.get(k).is_some_and(|v| v.as_bool() == Some(true) || v.as_str() == Some("true"));
+    if op == "vector.select_by_location" && on("invert") {
+        shown = format!("not {shown}");
+    }
+    if op == "vector.spatial_join" && text("mode") == Some("summary") {
+        shown = format!("count, {shown}");
+    }
+    Some(shown)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn the_predicate_shown_after_the_label() {
+        let p = |v: serde_json::Value| v.as_object().unwrap().clone();
+        let sel = "vector.select_by_location";
+        assert_eq!(setting_shown(sel, &p(serde_json::json!({"predicate": "within"}))).as_deref(), Some("within"));
+        assert_eq!(
+            setting_shown(sel, &p(serde_json::json!({"predicate": "covered_by", "invert": true}))).as_deref(),
+            Some("not covered by")
+        );
+        assert_eq!(
+            setting_shown(sel, &p(serde_json::json!({"predicate": "dwithin", "distance": 500}))).as_deref(),
+            Some("within 500")
+        );
+        assert_eq!(
+            setting_shown("vector.spatial_join", &p(serde_json::json!({"predicate": "intersects", "mode": "summary"})))
+                .as_deref(),
+            Some("count, intersects")
+        );
+        assert_eq!(setting_shown(sel, &p(serde_json::json!({}))), None);
+        assert_eq!(setting_shown(sel, &p(serde_json::json!({"predicate": "$which"}))), None);
+        assert_eq!(setting_shown("raster.read", &p(serde_json::json!({"predicate": "within"}))), None);
+    }
     use terraflux_ops::Registry;
 
     #[test]

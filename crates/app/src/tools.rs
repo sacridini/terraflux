@@ -2497,8 +2497,9 @@ pub fn list_operators(r: &Registry, query: Option<&str>) -> String {
         }
         Some(q) => {
             let words = crate::search::words(q);
-            let (found, all) =
-                crate::search::rank(&sigs, &words, |s| format!("{} {}", s.name, s.doc), |s| s.name.clone());
+            let keywords = crate::search::keywords;
+            let text = |s: &terraflux_graph::OpSignature| format!("{} {} {}", s.name, s.doc, keywords(&s.name));
+            let (found, all) = crate::search::rank(&sigs, &words, text, |s| s.name.clone());
             let mine = mine_listed(Some(&words));
             if found.is_empty() && mine.is_empty() {
                 return format!("No operator has any of {q:?}: try other words (or guide, the methods of each field).");

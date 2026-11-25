@@ -206,15 +206,18 @@ impl Library {
     /// The operators a search finds, the best first: every word of it in the name or in what the operator does;
     /// those whose name starts with it, then whose name has it, before those whose description has it.
     pub fn find(&self, query: &str) -> Vec<&Entry> {
-        let query = query.trim().to_lowercase();
+        let query = crate::search::fold(query.trim());
         let words: Vec<&str> = query.split_whitespace().collect();
         let mut found: Vec<(u8, &Entry)> = self
             .entries
             .iter()
             .filter_map(|e| {
-                let (name, doc) = (e.name.to_lowercase(), e.doc.to_lowercase());
+                // (a shortcut by its key, not its prefix: "set" does not find them all)
+                let bare = e.name.strip_prefix(crate::op_presets::PREFIX).unwrap_or(&e.name);
+                let (name, doc) = (crate::search::fold(bare), crate::search::fold(&e.doc));
+                let extra = crate::search::keywords(&e.name);
                 let short = name.split_once('.').map_or(name.as_str(), |(_, b)| b);
-                if !words.iter().all(|w| name.contains(w) || doc.contains(w)) {
+                if !words.iter().all(|w| name.contains(w) || doc.contains(w) || extra.contains(w)) {
                     return None;
                 }
                 let rank = if short.starts_with(&query) || name.starts_with(&query) {
@@ -223,8 +226,11 @@ impl Library {
                     1
                 } else if words.iter().all(|w| name.contains(w)) {
                     2
-                } else {
+                } else if words.iter().all(|w| name.contains(w) || extra.contains(w)) {
+                    // (the words it is also found by say what it is: before a mention in a description)
                     3
+                } else {
+                    4
                 };
                 Some((rank, e))
             })
@@ -321,6 +327,8 @@ impl Wire {
 /// step of undo. The node is left selected.
 fn add_wired(s: &mut Session, r: &Registry, op: &str, wire: &Wire) -> Result<String, String> {
     let path = s.editor.path.clone();
+    let (op, preset) = crate::op_presets::resolve(op);
+    let op = op.as_str();
     let id = match crate::my_nodes::named(op) {
         Some((name, v)) => {
             let u = crate::my_nodes::get(name, v)?;
@@ -328,6 +336,7 @@ fn add_wired(s: &mut Session, r: &Registry, op: &str, wire: &Wire) -> Result<Str
         }
         None => crate::editor::add_node(&mut s.source, r, &path, op, wire.at)?,
     };
+    fill(s, &path, &id, &preset)?;
     let node = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned();
     let links = node.map(|n| crate::editor::wire_links(&n, r, &wire.refs)).unwrap_or_default();
     if !links.is_empty()
@@ -348,6 +357,8 @@ fn add_wired(s: &mut Session, r: &Registry, op: &str, wire: &Wire) -> Result<Str
 fn add_fed(s: &mut Session, r: &Registry, op: &str, feed: &Feed) -> Result<String, String> {
     let path = s.editor.path.clone();
     let at = [feed.at[0] - crate::editor_view::WIDTH, feed.at[1]];
+    let (op, preset) = crate::op_presets::resolve(op);
+    let op = op.as_str();
     let id = match crate::my_nodes::named(op) {
         Some((name, v)) => {
             let u = crate::my_nodes::get(name, v)?;
@@ -355,6 +366,7 @@ fn add_fed(s: &mut Session, r: &Registry, op: &str, feed: &Feed) -> Result<Strin
         }
         None => crate::editor::add_node(&mut s.source, r, &path, op, at)?,
     };
+    fill(s, &path, &id, &preset)?;
     let node = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == id)).cloned();
     let linked = match node.and_then(|n| crate::editor::feeding_port(&n, r, feed.ty)) {
         Some(port) => crate::editor::connect(&mut s.source, r, &path, &format!("{id}.{port}"), &feed.node, &feed.port),
@@ -403,6 +415,68 @@ fn mine_entry((name, u): &(String, terraflux_graph::UserNode)) -> Entry {
     Entry { name: format!("{}{name}", crate::my_nodes::PREFIX), doc, subject: "My nodes", group: None }
 }
 
+/// The settings of a preset put in a node just added (as text).
+fn fill(s: &mut Session, path: &[String], id: &str, params: &[(&str, serde_json::Value)]) -> Result<(), String> {
+    for (k, v) in params {
+        let text = v.as_str().map_or_else(|| v.to_string(), str::to_string);
+        crate::editor::set_text_param(&mut s.source, path, id, k, &text)?;
+    }
+    Ok(())
+}
+
+/// The shortcuts of the search ([`crate::op_presets`]) as entries, named `preset:key`.
+pub fn presets_library() -> Library {
+    let entries = crate::op_presets::PRESETS
+        .iter()
+        .map(|p| Entry {
+            name: format!("{}{}", crate::op_presets::PREFIX, p.key),
+            doc: p.doc.to_string(),
+            subject: subject_of(p.op),
+            group: None,
+        })
+        .collect();
+    Library { entries }
+}
+
+/// What a preset's row of the lists reads: the family's icon, its title strong and its operator weak after it
+/// ("Within  · select by location"); on the colour of a row `selected`, in the selection's.
+fn preset_name(
+    ui: &Ui,
+    p: &crate::op_presets::Preset,
+    family: crate::family::Family,
+    selected: bool,
+) -> egui::text::LayoutJob {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let v = ui.visuals();
+    let (weak, strong) = if selected {
+        (v.selection.stroke.color.gamma_multiply(0.75), v.selection.stroke.color)
+    } else {
+        (v.weak_text_color(), v.strong_text_color())
+    };
+    let ink = if selected { v.selection.stroke.color } else { family.colour(v.dark_mode) };
+    let icon = egui::TextFormat {
+        valign: egui::Align::Center,
+        ..egui::TextFormat::simple(crate::family::icon_font(ui.ctx(), font.size), ink)
+    };
+    let mut job = egui::text::LayoutJob::default();
+    job.append(family.icon(), 0.0, icon);
+    job.append(p.title, 6.0, egui::TextFormat::simple(font.clone(), strong));
+    job.append(
+        &format!("  · {}", crate::op_label::label(p.op).to_lowercase()),
+        0.0,
+        egui::TextFormat::simple(font, weak),
+    );
+    job
+}
+
+/// An entry's row text: a preset's by [`preset_name`], an operator's or node's by [`op_name`].
+fn entry_name(ui: &Ui, e: &Entry, selected: bool) -> egui::text::LayoutJob {
+    match crate::op_presets::named(&e.name) {
+        Some(p) => preset_name(ui, p, e.family(), selected),
+        None => op_name(ui, &e.name, e.family(), selected),
+    }
+}
+
 /// What Process a folder... does.
 pub const PROCESS_HELP: &str = "Choose a folder, then an operator (MSPA, a metric, a reclassification...): it runs on \
      every raster of the folder, file by file, each written beside the folder by its name (a table of all of them \
@@ -424,6 +498,7 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
             .map(mine_entry)
             .collect(),
     };
+    let lib_presets = presets_library();
     let mut found = mine.find(&q.query);
     let mut rest = lib.find(&q.query);
     if let Some(t) = gives {
@@ -440,6 +515,16 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
             rest.sort_by_key(|e| !r.sig(&e.name).is_some_and(|s| s.inputs.iter().any(|p| p.ty == t)));
         }
     }
+    // the shortcuts (a preset of an operator, `preset:key`) once something is typed, with the operators' filters
+    let mut presets = if q.query.trim().is_empty() { Vec::new() } else { lib_presets.find(&q.query) };
+    presets.retain(|e| {
+        let op = crate::op_presets::named(&e.name).map_or("", |p| p.op);
+        gives.is_none_or(|t| crate::editor::gives(r, op, t)) && ty.is_none_or(|t| crate::editor::takes(r, op, t))
+    });
+    if q.folder.is_some() {
+        presets.clear();
+    }
+    found.extend(presets);
     found.extend(rest);
     // a folder to process: the operators that take a map
     if q.folder.is_some() {
@@ -517,7 +602,7 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
                 egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
                     for (k, e) in found.iter().enumerate() {
                         let resp = ui.add(
-                            egui::Button::selectable(k == at, op_name(ui, &e.name, e.family(), k == at))
+                            egui::Button::selectable(k == at, entry_name(ui, e, k == at))
                                 .min_size(Vec2::new(ui.available_width(), 22.0)),
                         );
                         if k == at && (up || down) {
@@ -561,7 +646,10 @@ pub fn quick_add(ctx: &egui::Context, s: &mut Session, r: &Registry, lib: &Libra
     } else if let Some(op) = chosen {
         let added = match crate::my_nodes::named(&op) {
             Some((name, v)) => crate::my_nodes::get(name, v).and_then(|u| crate::my_nodes::add(s, r, &u)).map(|_| ()),
-            None => add(s, r, &op, &[]).map(|_| ()),
+            None => {
+                let (op, params) = crate::op_presets::resolve(&op);
+                add(s, r, &op, &params).map(|_| ())
+            }
         };
         if let Err(e) = added {
             s.editor.message = Some(e);
@@ -2642,7 +2730,7 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
             let colls = crate::settings::collections_of(&e.name);
             let room = " ".repeat(3 * colls.len());
             let resp = ui.add(
-                egui::Button::selectable(false, op_name(ui, &e.name, e.family(), false))
+                egui::Button::selectable(false, entry_name(ui, e, false))
                     .wrap_mode(egui::TextWrapMode::Truncate)
                     .right_text(RichText::new(room).size(10.5))
                     .min_size(Vec2::new(ui.available_width(), 20.0)),
@@ -2652,9 +2740,14 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
                 let sq = egui::Rect::from_center_size(egui::pos2(x - 3.5, resp.rect.center().y), Vec2::splat(7.0));
                 ui.painter().rect_filled(sq, 1.0, crate::settings::COLLECTIONS[*c as usize].1);
             }
+            // (a preset has no favourites of its own: its operator's page, only)
+            let docs_of = crate::op_presets::named(&e.name).map_or(e.name.as_str(), |p| p.op);
             resp.context_menu(|ui| {
-                if docs_item(ui, &e.name) {
+                if docs_item(ui, docs_of) {
                     ui.close();
+                }
+                if docs_of != e.name {
+                    return;
                 }
                 ui.separator();
                 ui.label(RichText::new("Favourites").weak().size(11.0));
@@ -2720,15 +2813,21 @@ fn library(ui: &mut Ui, s: &mut Session, r: &Registry, lib: &Library) {
                 });
             }
         } else {
+            // (the shortcuts first, then the operators)
+            let presets = presets_library();
+            for e in presets.find(&query) {
+                entry(ui, e, &mut chosen);
+            }
             for e in lib.find(&query) {
                 entry(ui, e, &mut chosen);
             }
         }
     });
-    if let Some(op) = chosen
-        && let Err(e) = add(s, r, &op, &[])
-    {
-        s.editor.message = Some(e);
+    if let Some(op) = chosen {
+        let (op, params) = crate::op_presets::resolve(&op);
+        if let Err(e) = add(s, r, &op, &params) {
+            s.editor.message = Some(e);
+        }
     }
 }
 
@@ -8532,6 +8631,45 @@ mod tests {
         assert_eq!(by_year(v(&["a_2010 b1", "a_2010 b2"])), v(&["a_2010 b1", "a_2010 b2"]));
         assert_eq!(by_year(v(&["landuse_2010", "landuse"])), v(&["landuse_2010", "landuse"]));
         assert_eq!(by_year(v(&["landuse_2010"])), v(&["landuse_2010"]));
+    }
+
+    #[test]
+    fn the_library_finds_the_spatial_predicates_by_other_words() {
+        let lib = Library::new(&Registry::standard());
+        for q in ["dentro", "localização", "Localizacao", "within"] {
+            let found: Vec<&str> = lib.find(q).iter().take(10).map(|e| e.name.as_str()).collect();
+            assert!(found.contains(&"vector.select_by_location"), "{q}: {found:?}");
+        }
+        // (by its curated words, before the operators whose description only mentions it)
+        assert_eq!(lib.find("within").first().map(|e| e.name.as_str()), Some("vector.select_by_location"));
+        assert!(lib.find("juntar atributos por localizacao").iter().any(|e| e.name == "vector.spatial_join"));
+    }
+
+    #[test]
+    fn a_preset_is_found_first_and_adds_its_operator_with_its_settings() {
+        let presets = presets_library();
+        assert_eq!(presets.find("within").first().map(|e| e.name.as_str()), Some("preset:within"));
+        assert!(presets.find("dentro").iter().any(|e| e.name == "preset:within"));
+        assert!(presets.find("preset").is_empty(), "not by the prefix");
+        let r = Registry::standard();
+        let mut s = Session::blank();
+        let (op, params) = crate::op_presets::resolve("preset:within");
+        let id = add(&mut s, &r, &op, &params).unwrap();
+        let n = s.source.scope(&[]).unwrap().iter().find(|n| n.id == id).unwrap();
+        assert_eq!(n.op, "vector.select_by_location");
+        assert_eq!(n.params.get("predicate"), Some(&serde_json::json!("within")));
+        // (a plain operator: as it is)
+        assert_eq!(crate::op_presets::resolve("raster.read").0, "raster.read");
+        // (wired: the node made and its setting filled, as the plain add does)
+        let id = fill_test(&mut s, &r);
+        let n = s.source.scope(&[]).unwrap().iter().find(|n| n.id == id).unwrap();
+        assert_eq!(n.params.get("predicate"), Some(&serde_json::json!("dwithin")));
+    }
+
+    /// A preset added by the path of a wire let go on the canvas (no node selected to read).
+    fn fill_test(s: &mut Session, r: &Registry) -> String {
+        let wire = Wire { refs: Vec::new(), at: [0.0, 0.0], screen: egui::Pos2::ZERO };
+        add_wired(s, r, "preset:dwithin", &wire).unwrap()
     }
 
     #[test]

@@ -19,6 +19,7 @@ mod objects_view;
 mod objects_viewer;
 mod optimize_view;
 mod prepare;
+mod presets;
 mod reference_view;
 mod sam_first_time;
 mod series_profile;

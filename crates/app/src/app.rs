@@ -3996,6 +3996,10 @@ impl TerrafluxApp {
         for e in &self.library.entries {
             all.push(Command::new(format!("Add {}", e.name), "operator", e.doc.clone(), Do::Add(e.name.clone())));
         }
+        for p in crate::op_presets::PRESETS {
+            let label = format!("Add {} ({})", p.title, crate::op_label::label(p.op));
+            all.push(Command::new(label, "operator", p.doc, Do::AddPreset(p.key.to_string())));
+        }
         for (name, u) in crate::my_nodes::reachable() {
             let doc = u.description.clone().unwrap_or_default();
             let label = if name == u.name { u.label() } else { format!("{name}@{}", u.version) };
@@ -4090,6 +4094,7 @@ impl TerrafluxApp {
                         | Do::Find
                         | Do::Add(_)
                         | Do::AddMine(_)
+                        | Do::AddPreset(_)
                         | Do::Arrange
                         | Do::Group
                         | Do::Ungroup
@@ -4115,6 +4120,12 @@ impl TerrafluxApp {
                     Do::Add(op) if op.is_empty() => s.editor.quick = Some(Default::default()),
                     Do::Add(op) => {
                         if let Err(e) = crate::builder::add(s, r, &op, &[]) {
+                            s.editor.message = Some(e);
+                        }
+                    }
+                    Do::AddPreset(key) => {
+                        let (op, params) = crate::op_presets::resolve(&format!("{}{key}", crate::op_presets::PREFIX));
+                        if let Err(e) = crate::builder::add(s, r, &op, &params) {
                             s.editor.message = Some(e);
                         }
                     }

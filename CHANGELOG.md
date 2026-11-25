@@ -7,6 +7,11 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **Shortcuts of the spatial predicates in the searches** (`crates/app/src/op_presets.rs`, `crates/app/src/builder.rs`, `crates/app/src/commands.rs`, `crates/app/src/app.rs`): typing in the quick add (`/`), the Operators pane's search or the commands (Ctrl+K) offers *Within*, *Contains*, *Intersects*, *Touches*, *Disjoint*, *Covered by*, *Within a distance* (`vector.select_by_location` with its `predicate` set) and *Count points in polygons* (`vector.spatial_join` in `summary` mode), before the operators; each adds a node of the operator with its settings filled, so there is no operator of its own to learn. The row shows the family's icon, the shortcut's name and its operator.
+- **The searches find operators by other words, without accents** (`crates/app/src/search.rs`, `crates/app/src/builder.rs`, `crates/app/src/commands.rs`, `crates/app/src/tools.rs`): words an operator's documentation lacks (`dentro`, `localização`, `sjoin`, `ST_Within`, `extract by location`, `vizinho mais próximo`...) find `vector.select_by_location`, `vector.spatial_join` and `vector.nearest` in the quick add, the Operators pane, the commands and the MCP's `list_operators`, ranked before the operators whose description only mentions them; every search ignores accents.
+- **A node's title says its predicate** (`crates/app/src/op_label.rs`, `crates/app/src/editor_view.rs`): a node of `vector.select_by_location` or `vector.spatial_join` with the name the app gave it reads *Select by location · within* (*not within* with `invert`, *within 500* for `dwithin` with a distance, *count, intersects* in `summary` mode); a node the user named keeps its name.
+
 ## [1.68.0] - 2026-11-24
 
 ### Added

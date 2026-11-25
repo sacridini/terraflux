@@ -86,6 +86,8 @@ pub enum Do {
     Template(usize),
     /// Add an operator after the node selected.
     Add(String),
+    /// Add a node of an operator with its settings filled: a shortcut of [`crate::op_presets`], by its key.
+    AddPreset(String),
     /// Save the node selected (a group or a calculator) as a node of the user's library; add one of the library's
     /// (its name) after the node selected.
     SaveNode,
@@ -126,17 +128,22 @@ pub fn cmd() -> &'static str {
 /// The commands a search finds, the best first: every word of it in the label (or in what an operator does);
 /// those whose label starts with it, then whose label has it, then the others; within a rank, in their order.
 pub fn find<'a>(all: &'a [Command], query: &str) -> Vec<&'a Command> {
-    let query = query.trim().to_lowercase();
+    let query = crate::search::fold(query.trim());
     let words: Vec<&str> = query.split_whitespace().collect();
     let mut found: Vec<(u8, &Command)> = all
         .iter()
         .filter_map(|c| {
-            let label = c.label.to_lowercase();
-            let detail = c.detail.to_lowercase();
-            let kind = c.kind.to_lowercase();
+            let label = crate::search::fold(&c.label);
+            let detail = crate::search::fold(&c.detail);
+            let kind = crate::search::fold(c.kind);
+            let extra = match &c.act {
+                Do::Add(op) => crate::search::keywords(op),
+                _ => "",
+            };
             let has = |w: &str| {
                 label.contains(w)
                     || kind.contains(w)
+                    || extra.contains(w)
                     || (matches!(c.kind, "operator" | "my node") && detail.contains(w))
             };
             if !words.iter().all(|w| has(w)) {
@@ -211,7 +218,14 @@ pub fn show(ctx: &egui::Context, open: &mut Option<Commands>, all: &[Command]) -
                         let detail = if c.kind == "operator" { String::new() } else { c.detail.clone() };
                         // (an operator's: the icon of its family before its name)
                         let text: egui::WidgetText = match &c.act {
-                            Do::Add(op) if c.kind == "operator" => {
+                            Do::Add(_) | Do::AddPreset(_) if c.kind == "operator" => {
+                                let op = match &c.act {
+                                    Do::AddPreset(key) => {
+                                        crate::op_presets::PRESETS.iter().find(|p| p.key == key).map_or("", |p| p.op)
+                                    }
+                                    Do::Add(op) => op,
+                                    _ => "",
+                                };
                                 let v = ui.visuals();
                                 let size = egui::TextStyle::Button.resolve(ui.style()).size;
                                 let ink = if on { v.selection.stroke.color } else { v.text_color() };

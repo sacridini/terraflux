@@ -9,6 +9,28 @@ const SMALL: &[&str] =
 /// What a word stands for, in the words the operators' documentation uses.
 const SYNONYMS: &[(&str, &[&str])] = &[("deforestation", &["deforest", "forest loss"])];
 
+/// The words an operator is also found by, beyond its name and documentation (folded; empty for most).
+const KEYWORDS: &[(&str, &str)] = &[
+    (
+        "vector.select_by_location",
+        "within inside dentro contains contem intersects intersecta touches toca disjoint dwithin within distance \
+         st_within st_intersects st_contains st_dwithin select by location extract by location selecionar por \
+         localizacao extrair por localizacao filtro espacial spatial filter",
+    ),
+    (
+        "vector.spatial_join",
+        "sjoin spatial join join by location join attributes by location juntar atributos por localizacao uniao \
+         espacial within dentro points in polygons pontos em poligonos count points in polygon contar pontos \
+         st_within",
+    ),
+    ("vector.nearest", "sjoin_nearest nearest neighbour nearest neighbor vizinho mais proximo join by nearest knn"),
+];
+
+/// The extra words an operator is found by (folded; empty when it has none).
+pub fn keywords(op: &str) -> &'static str {
+    KEYWORDS.iter().find(|(o, _)| *o == op).map_or("", |(_, k)| k)
+}
+
 /// A text without its accents, in small letters.
 pub fn fold(text: &str) -> String {
     text.to_lowercase()
@@ -96,6 +118,17 @@ mod tests {
             ["fragmentation", "analysis", "landscape", "ano"]
         );
         assert_eq!(words("the of"), ["the", "of"]);
+    }
+
+    #[test]
+    fn keywords_of_the_vector_predicates() {
+        assert!(keywords("vector.select_by_location").contains("dentro"));
+        assert!(keywords("vector.spatial_join").contains("sjoin"));
+        assert!(keywords("vector.nearest").contains("knn"));
+        assert_eq!(keywords("raster.read"), "");
+        for (_, k) in KEYWORDS {
+            assert_eq!(fold(k), *k, "keywords are folded");
+        }
     }
 
     #[test]
