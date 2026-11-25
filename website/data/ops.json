@@ -6890,7 +6890,7 @@
  },
  {
   "name": "data.download",
-  "doc": "Data downloaded on demand and warped onto a grid (gdalwarp straight from the servers: only the part the grid covers is read): WorldClim 2.1 (the 1970-2000 climate; CMIP6 futures), CHELSA 2.1 (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and MapBiomas Brazil (land use and cover by year), Hydrography90m (the river network of the world at 90 m: its sub-catchments, segments, basins, flow directions and accumulation, stream orders, slopes and distances), ESA WorldCover (land cover at 10 m, 2020 and 2021), Hansen's Global Forest Change (tree cover in 2000, the year of loss, gain, at 30 m), MODIS from Microsoft's Planetary Computer (the vegetation indices NDVI and EVI, 16-day at 250 m; the land surface temperature of the day and the night, 8-day at 1 km; the burned area, monthly at 500 m; the yearly gross and net primary production at 500 m), or any raster a url names; a file per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units; MODIS' indices and production × 0.0001, its temperatures × 0.02 in kelvin, its burned area the day of the year, 0 unburned).",
+  "doc": "Data downloaded on demand and warped onto a grid (gdalwarp straight from the servers: only the part the grid covers is read): WorldClim 2.1 (the 1970-2000 climate; CMIP6 futures), CHELSA 2.1 (1981-2010; CMIP6 futures), the Copernicus DEM (30 or 90 m), SoilGrids (a property at depths) and MapBiomas Brazil (land use and cover by year), Hydrography90m (the river network of the world at 90 m: its sub-catchments, segments, basins, flow directions and accumulation, stream orders, slopes and distances), ESA WorldCover (land cover at 10 m, 2020 and 2021), Hansen's Global Forest Change (tree cover in 2000, the year of loss, gain, at 30 m), MODIS from Microsoft's Planetary Computer (the vegetation indices NDVI and EVI, 16-day at 250 m; the land surface temperature of the day and the night, 8-day at 1 km; the burned area, monthly at 500 m; the yearly gross and net primary production at 500 m), or any raster a url names; a file per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units; MODIS' indices and production × 0.0001, its temperatures × 0.02 in kelvin, its burned area the day of the year, 0 unburned). For any other file a URL names (a table, a zip, a shapefile), data.download_file.",
   "inputs": [
    {
     "name": "like",
@@ -7034,6 +7034,47 @@
     "type": "text",
     "required": false,
     "doc": "auto (default), near, bilinear, cubic, average, mode... (gdalwarp's)"
+   }
+  ],
+  "access": "global",
+  "container": false
+ },
+ {
+  "name": "data.download_file",
+  "doc": "Any file a URL names saved to disk, like curl or wget (http or https; redirects followed; one connection): for a raster GDAL reads and a grid to warp it onto, data.download. The file is named by the server's Content-Disposition, else the last part of the URL's path; it is written as <name>.part and renamed when whole, so a failure or a stop leaves no half file. Without a path it goes to Terraflux's cache (TERRAFLUX_CACHE), in downloads/<16 hex digits of the url>/; a file already there is kept without asking the server, unless refresh. The path it gives can feed a setting of another node (raster.read's path, as { from = \"download.path\" }); with unzip, a .zip is extracted into a folder beside it (named as the zip without .zip) and that folder is the path.",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "path",
+    "type": "text",
+    "required": true,
+    "doc": "the file saved (the folder, with unzip)"
+   }
+  ],
+  "params": [
+   {
+    "name": "url",
+    "type": "text",
+    "required": true,
+    "doc": "the address to download: http:// or https://"
+   },
+   {
+    "name": "path",
+    "type": "text",
+    "required": false,
+    "doc": "where to save it: a file path, or an existing folder (or one ending in / or \\) to save into under the file's name (default Terraflux's cache, downloads/<hash of the url>/)"
+   },
+   {
+    "name": "unzip",
+    "type": "bool",
+    "required": false,
+    "doc": "extract a .zip into a folder beside it (default false)"
+   },
+   {
+    "name": "refresh",
+    "type": "bool",
+    "required": false,
+    "doc": "download again even if the file is there (default false)"
    }
   ],
   "access": "global",
