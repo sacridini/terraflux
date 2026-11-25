@@ -3905,6 +3905,7 @@ mod class_legend;
 #[path = "layers_panel.rs"]
 mod layers_panel;
 use layers_panel::layers_section;
+pub(crate) use layers_panel::takes_arrows;
 
 /// The vector layers drawn over a map as a figure or a picture keeps them: those of the Plot and the Layers shown,
 /// on the map's grid, with their colours, fills, widths and labels (in the figure's points, 0.6 of the Viewer's

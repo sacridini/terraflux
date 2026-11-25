@@ -3908,6 +3908,101 @@ fn drag_row(h: &mut Harness<TerrafluxApp>, from: egui::Pos2, to: egui::Pos2) {
     h.run_steps(3);
 }
 
+/// The arrows in the Layers: up and down select the layer above or below, right and left unfold and fold its legend;
+/// the Layers take them while the pointer is over them or the last click was in them, not after a click on the map.
+#[test]
+fn the_arrows_move_in_the_layers() {
+    use egui_kittest::kittest::NodeT;
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let land = data("sibuyan_landuse.tif").to_string_lossy().into_owned();
+        let classes = serde_json::json!([[1, "forest", "#228833"], [2, "cropland", "#ddaa33"]]);
+        s.source.nodes = vec![
+            Node::new("land", "raster.read").param("path", land.as_str()).param("band", "0"),
+            Node::new("drivers", "raster.read")
+                .param("path", data("sibuyan_drivers.tif").to_string_lossy().as_ref())
+                .param("band", "0"),
+            Node::new("named", "raster.legend").input("map", "land.raster").param("classes", classes),
+        ];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some() && s.value_of("named", "map").is_some()
+    });
+    h.state_mut().session.as_mut().unwrap().preview_layers =
+        vec![Layer::new("land", "raster"), Layer::new("drivers", "raster"), Layer::new("named", "map")];
+    show(&mut h, "named", "map");
+    h.run_steps(10);
+    // the layers selected, by the rows' own state
+    let picked = |h: &Harness<TerrafluxApp>| -> Vec<&'static str> {
+        ["named.map", "drivers", "land"]
+            .into_iter()
+            .filter(|n| {
+                h.query_all_by_label(n).any(|x| {
+                    x.accesskit_node().role() == egui::accesskit::Role::Button
+                        && x.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+                })
+            })
+            .collect()
+    };
+    let press = |h: &mut Harness<TerrafluxApp>, k: egui::Key| {
+        h.key_press(k);
+        h.run_steps(4);
+    };
+    // a click on the top layer: selected, and the panel active
+    let at = row_of(&h, "named.map");
+    h.event(egui::Event::PointerMoved(at));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(4);
+    assert_eq!(picked(&h), ["named.map"]);
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(picked(&h), ["drivers"], "down: the layer below");
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(picked(&h), ["land"]);
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(picked(&h), ["land"], "at the end: stays");
+    press(&mut h, egui::Key::ArrowUp);
+    assert_eq!(picked(&h), ["drivers"], "up: back");
+    press(&mut h, egui::Key::ArrowUp);
+    assert_eq!(picked(&h), ["named.map"]);
+    // its legend: folded by left, unfolded by right
+    assert!(h.query_by_label("forest").is_some(), "the legend unfolded to begin with");
+    press(&mut h, egui::Key::ArrowLeft);
+    assert!(h.query_by_label("forest").is_none(), "left folds the legend");
+    press(&mut h, egui::Key::ArrowRight);
+    assert!(h.query_by_label("forest").is_some(), "right unfolds it");
+    // a click on the map: the Layers are not active (the pointer is over the map), the arrows do not move them
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
+    let rect = h.state().session.as_ref().unwrap().preview_view.rect().unwrap();
+    h.event(egui::Event::PointerMoved(rect.center()));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: rect.center(),
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(4);
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(picked(&h), ["named.map"], "the pointer over the map: the selection stays");
+    press(&mut h, egui::Key::ArrowLeft);
+    assert!(h.query_by_label("forest").is_some(), "and the legend too");
+}
+
 /// Layers in groups, as a GIS has them: a group made from a layer's menu, shown or hidden by its box (its layers not
 /// drawn, each keeping its own box), made half opaque, folded, a layer dragged onto its row and out of its rows, the
 /// group gone with *Ungroup* and its layers kept.

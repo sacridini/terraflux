@@ -5060,7 +5060,8 @@ impl TerrafluxApp {
         // the keyboard and the player go through the maps of the layer
         let n = s.frames();
         if n > 1 {
-            let typing = ui.ctx().memory(|m| m.focused().is_some());
+            // (no step while a text is written, or while the Layers take the arrows to move and fold)
+            let typing = ui.ctx().memory(|m| m.focused().is_some()) || crate::builder::takes_arrows(ui.ctx());
             let (back, next) =
                 ui.input(|i| (crate::keymap::peek(i, "viewer_step_back"), crate::keymap::peek(i, "viewer_step_next")));
             if !typing && back {

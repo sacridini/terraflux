@@ -241,6 +241,8 @@ pub(super) fn layers_section(
     let shown_is_layer = sh.layers.iter().any(|l| l.is(&node, &port));
     let n = sh.layers.len();
     let selected_id = egui::Id::new(("layer selected", salt));
+    // the arrows (taken before the rows, as space is): the layer selected moved, its legend folded or unfolded
+    let by_key = arrow_keys(ui, s, sh, &vectors, (&node, &port), salt, selected_id);
     // the layers selected, in the order they were: the first is the one whose properties are shown (the map shown
     // when none is, as a click on a node does)
     let mut chosen: Vec<usize> = ui
@@ -253,7 +255,7 @@ pub(super) fn layers_section(
         chosen.extend(sh.layers.iter().position(|l| l.is(&node, &port)));
     }
     let selected: Option<usize> = chosen.first().copied();
-    let mut asked = Asked::default();
+    let mut asked = Asked { show: by_key, ..Default::default() };
     // space with the pointer over the Layers (no text being written): the layers selected hidden, or shown again
     // when every one of them was hidden (taken before the rows, so a box that has the focus does not turn too)
     if !chosen.is_empty()
@@ -845,6 +847,12 @@ fn layer_row(
     };
     let top = ui.cursor().top();
     let (rect, row) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click_and_drag());
+    // (the row an arrow key selected comes into view)
+    let scroll_id = egui::Id::new(("layer scroll", salt));
+    if ui.data(|d| d.get_temp::<String>(scroll_id)).is_some_and(|k| k == key_of(&sh.layers[i])) {
+        ui.scroll_to_rect(rect, None);
+        ui.data_mut(|d| d.remove::<String>(scroll_id));
+    }
     row.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name));
     let visuals = ui.visuals().clone();
     if selected {
@@ -1043,6 +1051,117 @@ fn layer_row(
     ui.data_mut(|d| d.insert_temp(open_id, open));
     let whole = Rect::from_min_max(Pos2::new(rect.left(), top), Pos2::new(rect.right(), ui.cursor().top()));
     (whole, started, released)
+}
+
+/// Whether the Layers take the arrow keys: the pointer is over them, or the last click was in them (a click
+/// elsewhere ends it, and so does the panel not being drawn for a few frames). Called every frame.
+fn panel_active(ui: &Ui, salt: &str) -> bool {
+    let id = egui::Id::new(("layers keyed", salt));
+    let now = ui.ctx().cumulative_pass_nr();
+    let over = ui.rect_contains_pointer(ui.max_rect());
+    let (mut clicked, last) = ui.data(|d| d.get_temp::<(bool, u64)>(id)).unwrap_or((false, 0));
+    if now > last + 2 {
+        clicked = false;
+    }
+    if ui.input(|i| i.pointer.any_pressed()) {
+        clicked = over;
+    }
+    ui.data_mut(|d| d.insert_temp(id, (clicked, now)));
+    // (for the others who read the same keys: the Layers take them now)
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(TAKEN), (over || clicked, now)));
+    over || clicked
+}
+
+/// Where the Layers say whether they take the arrows (see [`takes_arrows`]).
+const TAKEN: &str = "layers take the arrows";
+
+/// Whether a Layers panel takes the arrow keys (it was active in this pass or the last): the player of the
+/// Viewer's frames, which reads left and right too, leaves them to it.
+pub fn takes_arrows(ctx: &egui::Context) -> bool {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<(bool, u64)>(egui::Id::new(TAKEN))).is_some_and(|(on, at)| on && now <= at + 1)
+}
+
+/// The arrow keys while the Layers are active (see [`panel_active`], no text being written): up and down select
+/// the layer above or below in the order shown (a layer in a folded group skipped), with Shift the range from the
+/// anchor; left and right fold or unfold the legend of the layer selected. The keys are taken, so nothing else
+/// reads them. The map to show, when a plain move selected one that is not shown.
+fn arrow_keys(
+    ui: &mut Ui,
+    s: &Session,
+    sh: &Shown,
+    vectors: &[(String, String, Arc<terraflux_raster::vector::Vector>)],
+    (node, port): (&str, &str),
+    salt: &str,
+    selected_id: egui::Id,
+) -> Option<(String, String)> {
+    let active = panel_active(ui, salt);
+    if !active || ui.ctx().text_edit_focused() {
+        return None;
+    }
+    let (shift, other) = ui.input(|i| (i.modifiers.shift, i.modifiers.alt || i.modifiers.command));
+    if other {
+        return None;
+    }
+    let ids = ["viewer_layer_prev", "viewer_layer_next", "viewer_step_back", "viewer_step_next"];
+    let hit = ui.input_mut(|i| crate::keymap::consume(i, &ids));
+    if hit.is_empty() {
+        return None;
+    }
+    let key = |j: usize| key_of(&sh.layers[j]);
+    let at = |k: &str| sh.layers.iter().position(|l| key_of(l) == k);
+    let order: Vec<usize> = items_of(&sh.layers, &sh.groups)
+        .into_iter()
+        .filter_map(|it| match it {
+            Item::Layer(i) if !group_at(&sh.layers[i], &sh.groups).is_some_and(|gi| sh.groups[gi].collapsed) => Some(i),
+            _ => None,
+        })
+        .collect();
+    let chosen: Vec<usize> =
+        ui.data(|d| d.get_temp::<Vec<String>>(selected_id)).unwrap_or_default().iter().filter_map(|k| at(k)).collect();
+    let cursor_id = egui::Id::new(("layer cursor", salt));
+    let anchor_id = egui::Id::new(("layer anchor", salt));
+    // where it is: the last one moved to, while still selected; else the first selected, else the map shown
+    let cur = ui
+        .data(|d| d.get_temp::<String>(cursor_id))
+        .and_then(|k| at(&k))
+        .filter(|j| chosen.contains(j))
+        .or(chosen.first().copied())
+        .or(sh.layers.iter().position(|l| l.is(node, port)));
+    if hit.contains(&"viewer_step_back") || hit.contains(&"viewer_step_next") {
+        if let Some(j) = cur {
+            let open_id = egui::Id::new(("layer row", salt, key(j))).with("open");
+            ui.data_mut(|d| d.insert_temp(open_id, hit.contains(&"viewer_step_next")));
+        }
+        return None;
+    }
+    let up = hit.contains(&"viewer_layer_prev");
+    let place = cur.and_then(|j| order.iter().position(|o| *o == j));
+    let to = match (place, up) {
+        (Some(p), true) => p.saturating_sub(1),
+        (Some(p), false) => (p + 1).min(order.len().saturating_sub(1)),
+        (None, true) => order.len().saturating_sub(1),
+        (None, false) => 0,
+    };
+    let new = *order.get(to)?;
+    let keys = if shift {
+        let anchor = ui.data(|d| d.get_temp::<String>(anchor_id)).and_then(|k| at(&k)).or(cur).unwrap_or(new);
+        let from = order.iter().position(|o| *o == anchor).unwrap_or(to);
+        let (lo, hi) = (from.min(to), from.max(to));
+        std::iter::once(anchor).chain(order[lo..=hi].iter().copied().filter(|j| *j != anchor)).map(key).collect()
+    } else {
+        ui.data_mut(|d| d.insert_temp(anchor_id, key(new)));
+        vec![key(new)]
+    };
+    ui.data_mut(|d| {
+        d.insert_temp(selected_id, keys);
+        d.insert_temp(cursor_id, key(new));
+        d.insert_temp(egui::Id::new(("layer scroll", salt)), key(new));
+    });
+    // (a plain move shows the map, as a plain click does)
+    let l = &sh.layers[new];
+    let is_map = l.minus.is_none() && !vectors.iter().any(|(vn, vp, _)| l.is(vn, vp)) && objects_of(s, l).is_none();
+    (!shift && is_map && !l.is(node, port)).then(|| (l.node.clone(), l.port.clone()))
 }
 
 /// The layers selected (their keys, the first the one whose properties show) after a click on the row of layer `i`
