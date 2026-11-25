@@ -681,6 +681,93 @@ pub fn apply_classes(m: &mut Model, node: &str, user: &[UserClass]) -> Result<Op
     )))
 }
 
+/// The cells' side a drawn node has, in metres: its own `resolution` (the nodes of `nlm.*`, 1 when not set), else
+/// that of the first `nlm.*` upstream. None when it is not drawn, or its cells are in degrees or set by a setting.
+fn drawn_cell(m: &Model, id: &str) -> Option<f64> {
+    let mut seen = BTreeSet::new();
+    let mut todo = vec![id.to_string()];
+    while let Some(k) = todo.pop() {
+        if !seen.insert(k.clone()) {
+            continue;
+        }
+        let n = m.node(&k)?;
+        if n.op.starts_with("nlm.") && !n.inputs.contains_key("like") {
+            let crs = n.params.get("crs").and_then(Json::as_str).unwrap_or("");
+            if crs.contains("4326") || crs.contains("longlat") {
+                return None;
+            }
+            if let Some(v) = n.params.get("resolution") {
+                return v.as_f64().filter(|r| *r > 0.0);
+            }
+        }
+        let up: Vec<String> = reads(n).iter().filter_map(|r| target_of(r)).filter(|t| !t.starts_with('$')).collect();
+        // (an nlm.* that reads no other, and sets no resolution, has cells of 1)
+        if n.op.starts_with("nlm.") && up.is_empty() && !n.inputs.contains_key("like") {
+            return Some(1.0);
+        }
+        todo.extend(up);
+    }
+    None
+}
+
+/// The nodes that read a node, directly or through others, with a setting measured in cells that is set (as
+/// [`crate::cells`] knows them): the node and what it sets, as `scale (2)`.
+fn cells_downstream(m: &Model, id: &str) -> Vec<(String, String, String)> {
+    let mut found = BTreeSet::new();
+    let mut todo = vec![id.to_string()];
+    while let Some(k) = todo.pop() {
+        for n in m.nodes.iter().filter(|n| n.id != k) {
+            if reads(n).iter().any(|r| target_of(r).as_deref() == Some(k.as_str())) && found.insert(n.id.clone()) {
+                todo.push(n.id.clone());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for n in m.nodes.iter().filter(|n| found.contains(&n.id) && !n.bypass) {
+        let Some(names) = crate::cells::cell_settings(&n.op) else { continue };
+        let set: Vec<String> =
+            names.iter().filter_map(|k| crate::cells::value(m, n, k).flatten().map(|v| format!("{k} ({v})"))).collect();
+        if !set.is_empty() {
+            out.push((n.id.clone(), n.op.clone(), set.join(", ")));
+        }
+    }
+    out
+}
+
+/// A note for a drawn data replaced by a file with other cells: the settings downstream measured in cells were
+/// chosen for the drawn ones. None when the cells are alike or unknown, or nothing downstream is set in cells.
+fn cells_note(m: &Model, s: &Source, file: &Grid) -> Option<String> {
+    if s.op == INPUT || file.geo.is_geographic() == Some(true) {
+        return None;
+    }
+    let (w, h) = file.resolution();
+    let drawn = drawn_cell(m, &s.node)?;
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0)
+        || [w, h].iter().all(|c| (c - drawn).abs() <= 0.01 * drawn)
+    {
+        return None;
+    }
+    let unit = if file.geo.linear_unit() == 1.0 { "m" } else { "ft" };
+    let down = cells_downstream(m, &s.node);
+    if down.is_empty() {
+        return None;
+    }
+    let list: Vec<String> = down.iter().map(|(id, _, set)| format!("{id} {set}")).collect();
+    let tip = if down.iter().any(|(_, op, _)| op == "segment.multiresolution") {
+        " An empty scale takes the one segment.scale suggests for your image."
+    } else {
+        ""
+    };
+    Some(format!(
+        "{}: the template's cells are {} and yours are {}, and what is set in cells was chosen for the template's \
+         ({}): choose it again, or try another.{tip}",
+        s.node,
+        crate::cells::cells_text([drawn, drawn], "m"),
+        crate::cells::cells_text([w, h], unit),
+        list.join("; "),
+    ))
+}
+
 fn same_grid(a: &Grid, b: &Grid) -> bool {
     let near = |x: &f64, y: &f64| (x - y).abs() <= 1e-9 * (1.0 + x.abs().max(y.abs()));
     let crs = match (a.geo.epsg(), b.geo.epsg()) {
@@ -1191,6 +1278,9 @@ pub fn plan(
         }
         out.nodes.splice(at..at, chain);
         notes.push(format!("{}: the drawn node taken away; what read it reads {end}", s.node));
+        if c.scene.is_none() {
+            notes.extend(cells_note(m, s, grid));
+        }
     }
 
     // every band of a file as a date (CLUE-S): the demand reads a stack of the file, and the node that stacked the
@@ -1284,8 +1374,8 @@ pub fn plan(
 }
 
 /// The problems of the planned model: those of the model's check, and of its data as the data of any model is
-/// read ([`terraflux_exec::load_inputs`] and [`terraflux_exec::lint::lint`]), without those of grids of the inputs
-/// that a `raster.match` puts right; and the bands of an image the model reads that the image has no role for.
+/// read ([`terraflux_exec::load_inputs`] and [`terraflux_exec::lint::lint`], which leaves alone the inputs that a
+/// `raster.match` puts on a grid); and the bands of an image the model reads that the image has no role for.
 pub fn check(plan: &Plan, base: &Path) -> Vec<Finding> {
     let r = Registry::standard();
     let mut out: Vec<Finding> = terraflux_graph::check(&plan.model, &r)
@@ -1308,21 +1398,7 @@ pub fn check(plan: &Plan, base: &Path) -> Vec<Finding> {
             action: None,
         }),
         Ok(inputs) => {
-            let matched: BTreeSet<&str> = plan
-                .model
-                .nodes
-                .iter()
-                .filter(|n| n.op == "raster.match")
-                .filter_map(|n| match n.inputs.get("raster") {
-                    Some(Wire::Ref(r)) => r.strip_prefix('$'),
-                    _ => None,
-                })
-                .collect();
-            out.extend(terraflux_exec::lint::lint(&plan.model, &inputs).into_iter().filter(|f| {
-                let name = f.at.trim_start_matches('$').split('/').next().unwrap_or("");
-                !(f.message.contains("reference grid")
-                    && (matched.contains(name) || plan.inputs.iter().any(|i| i == name)))
-            }));
+            out.extend(terraflux_exec::lint::lint(&plan.model, &inputs));
         }
     }
     out
@@ -2724,6 +2800,35 @@ mod tests {
             let k = t.columns.iter().position(|c| c == "mean_nir").unwrap();
             assert!(t.rows.iter().all(|row| (0.5..0.55).contains(&row[k])), "{:?}", t.rows[0]);
         }
+    }
+
+    #[test]
+    fn a_file_with_other_cells_than_the_drawn_ones_says_what_is_set_in_cells() {
+        let r = Registry::standard();
+        let d = dir("cells-note");
+        // (drawn on 1 m cells, a file of 10 m: slic's size was chosen for the drawn ones)
+        let f = write_bands(&d, "s2.tif", &S2, |b, row, col| 1000.0 * (b + 1) as f64 + (row + col) as f64);
+        let mut m = image_model(true);
+        let p = plan(&m, &r, &one("image", choice(&f)), None, &d).unwrap();
+        let note = p.notes.iter().find(|n| n.contains("the template's cells")).expect("a note");
+        for part in ["image:", "1 m", "10 m", "segments size (4)", "choose it again"] {
+            assert!(note.contains(part), "{part}: {note}");
+        }
+        assert!(!note.contains("segment.scale"), "{note}");
+        // (the multiresolution scale is named, with what to do)
+        m.nodes[3] = Node::new("segments", "segment.multiresolution").input("image", "image.image").param("scale", 2);
+        let p = plan(&m, &r, &one("image", choice(&f)), None, &d).unwrap();
+        let note = p.notes.iter().find(|n| n.contains("the template's cells")).unwrap();
+        assert!(note.contains("segments scale (2)") && note.contains("An empty scale"), "{note}");
+        // (drawn on 10 m cells too: nothing to say)
+        m.nodes[0] = Node::new("land", "nlm.fbm").param("rows", 20).param("columns", 20).param("resolution", 10);
+        let p = plan(&m, &r, &one("image", choice(&f)), None, &d).unwrap();
+        assert!(!p.notes.iter().any(|n| n.contains("the template's cells")), "{:?}", p.notes);
+        // (a setting of nothing in cells downstream: nothing to say)
+        m.nodes[0] = Node::new("land", "nlm.fbm").param("rows", 20).param("columns", 20);
+        m.nodes[3] = Node::new("segments", "segment.threshold").input("image", "image.image");
+        let p = plan(&m, &r, &one("image", choice(&f)), None, &d).unwrap();
+        assert!(!p.notes.iter().any(|n| n.contains("the template's cells")), "{:?}", p.notes);
     }
 
     /// A folder of Sentinel-2's bands: B02, B03, B04 and B08 on 10 m cells, B11 and B12 on 20 m, and a true colour

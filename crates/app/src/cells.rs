@@ -132,7 +132,7 @@ fn upstream(m: &Model, n: &Node) -> BTreeSet<String> {
 
 /// What a setting of a node is in a model: its value (none: not set), or none of the outer when it is computed (a
 /// node's output) and so unknown.
-fn value(m: &Model, n: &Node, name: &str) -> Option<Option<Value>> {
+pub(crate) fn value(m: &Model, n: &Node, name: &str) -> Option<Option<Value>> {
     let v = match n.inputs.get(name) {
         Some(Source::Literal(v)) => Some(v),
         Some(Source::Ref(_)) => return None,
@@ -184,7 +184,7 @@ fn num(x: f64) -> String {
 }
 
 /// The cells' size for the text: `3 m`, `3 x 4 m`.
-fn cells_text(c: [f64; 2], unit: &str) -> String {
+pub(crate) fn cells_text(c: [f64; 2], unit: &str) -> String {
     if (c[0] - c[1]).abs() <= 1e-6 * c[0] {
         format!("{} {unit}", num(c[0]))
     } else {

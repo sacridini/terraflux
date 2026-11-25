@@ -170,13 +170,35 @@ pub fn lint(model: &Model, inputs: &BTreeMap<String, Value>) -> Vec<Finding> {
         out.push(Finding { level, at: at.to_string(), message, fix: fix.map(String::from), action: None });
     };
     let used = uses(model);
-    // the reference grid: the start's, else the first map's
+    // inputs a raster.match puts on another grid (their own grid does not matter), and those it puts them on
+    let mut all = Vec::new();
+    walk(&model.nodes, &mut all);
+    let (mut matched, mut likes) = (BTreeSet::new(), Vec::new());
+    for n in all.iter().filter(|n| n.op == "raster.match") {
+        if let Some(Source::Ref(r)) = n.inputs.get("raster")
+            && let Some(name) = r.strip_prefix('$')
+        {
+            matched.insert(name.to_string());
+        }
+        if let Some(Source::Ref(r)) = n.inputs.get("like")
+            && let Some(name) = r.strip_prefix('$')
+        {
+            likes.push(name.to_string());
+        }
+    }
+    // the reference grid: the start's, else the one the others are matched to, else the first map's
     let reference = role(&used, inputs, &["start", "t0"], |v| grids(v).is_some())
+        .filter(|k| !matched.contains(*k))
         .cloned()
+        .or_else(|| likes.into_iter().find(|k| inputs.get(k).is_some_and(|v| grids(v).is_some())))
+        .or_else(|| inputs.iter().find(|(k, v)| grids(v).is_some() && !matched.contains(*k)).map(|(k, _)| k.clone()))
         .or_else(|| inputs.iter().find(|(_, v)| grids(v).is_some()).map(|(k, _)| k.clone()));
     if let Some(r) = &reference {
         let g0 = grids(&inputs[r]).unwrap();
         for (name, v) in inputs {
+            if matched.contains(name) && name != r {
+                continue;
+            }
             let Some(g) = grids(v) else { continue };
             let at = format!("${name}");
             if g.width != g0.width || g.height != g0.height {
@@ -415,6 +437,26 @@ mod tests {
             }),
         );
         assert!(lint(&model(), &inputs).is_empty());
+    }
+
+    #[test]
+    fn an_input_put_on_the_grid_by_raster_match_is_not_flagged() {
+        let g = Arc::new(Grid::new(4, 1));
+        let mut other = Grid::new(2, 1);
+        other.transform[0] = 10.0;
+        // the matched input sorts before the one it is matched to: it must not become the reference
+        let mut m = Model::new("t");
+        m.nodes.push(Node::new("a_match", "raster.match").input("raster", "$a_height").input("like", "$z_image"));
+        m.nodes
+            .push(Node::new("seg", "segment.multiresolution").input("image", "$z_image").input("h", "a_match.raster"));
+        let mut inputs = BTreeMap::new();
+        inputs.insert("a_height".to_string(), map(&Arc::new(other), vec![1.0, 2.0]));
+        inputs.insert("z_image".to_string(), map(&g, vec![1.0, 2.0, 3.0, 4.0]));
+        assert!(lint(&m, &inputs).iter().all(|f| f.level != Level::Error), "{:?}", lint(&m, &inputs));
+        // without the match the mismatch is an error
+        let mut m2 = Model::new("t");
+        m2.nodes.push(Node::new("seg", "segment.multiresolution").input("image", "$z_image").input("h", "$a_height"));
+        assert!(lint(&m2, &inputs).iter().any(|f| f.level == Level::Error));
     }
 
     /// The model of the presets' names (`t0`, `t1`...), and the same one with other names and a chain between the inputs and what
