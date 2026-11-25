@@ -115,10 +115,18 @@ fn save(h: &mut Harness<TerrafluxApp>, name: &str) {
 /// Node pane (a node's settings are on its box and in the panel beside it), the operators and the preparation in
 /// their drawers at the window's left edge.
 fn layout(below: Vec<Pane>) -> DockState<Pane> {
+    layout_at(below, 0.52)
+}
+
+/// [`layout`] with the model taking `share` of the height.
+fn layout_at(below: Vec<Pane>, share: f32) -> DockState<Pane> {
     let mut d = DockState::new(vec![Pane::Model]);
-    d.main_surface_mut().split_below(NodeIndex::root(), 0.52, below);
+    d.main_surface_mut().split_below(NodeIndex::root(), share, below);
     d
 }
+
+/// The share of the height the model takes in the pictures of templates: room for whole boxes and their thumbnails.
+const MODEL_SHARE: f32 = 0.6;
 
 /// A template run, its graph over the Viewer showing the plot `front`, the node `select` selected.
 fn template(h: &mut Harness<TerrafluxApp>, name: &str, select: &str, front: &str) {
@@ -131,10 +139,29 @@ fn template(h: &mut Harness<TerrafluxApp>, name: &str, select: &str, front: &str
     // (the Viewer shows the Plot asked for, the node asked for selected)
     terraflux_app::builder::open_plot(s, &terraflux_ops::Registry::standard(), front);
     s.selected = Some(select.to_string());
-    a.dock = Some(layout(vec![Pane::Viewer]));
+    // (the strip that offers Use my data hidden: it would cover the top of the graph)
+    s.my_data.hidden = true;
+    a.dock = Some(layout_at(vec![Pane::Viewer], MODEL_SHARE));
     h.run_steps(3);
     let a = h.state_mut();
     a.session.as_mut().unwrap().editor.fit();
+}
+
+/// The canvas brought to `zoom` at least, about the middle of the Model pane: a fit that leaves the boxes as
+/// compact chips (their names cut) shows them whole, their ports and settings, as a picture of the builder should.
+fn whole_boxes(h: &mut Harness<TerrafluxApp>, zoom: f32) {
+    h.run_steps(3);
+    let e = &mut h.state_mut().session.as_mut().unwrap().editor;
+    let (Some(cam), Some(origin)) = (e.camera(), e.screen_at(egui::Pos2::ZERO)) else { return };
+    if cam.zoom >= zoom {
+        return;
+    }
+    // (the canvas's corner on the screen; the middle of the Model pane, above the Viewer, under the bars)
+    let corner = origin - cam.pan;
+    let middle = egui::pos2(SIZE.0 / 2.0, (corner.y + SIZE.1 * MODEL_SHARE) / 2.0);
+    let at = (middle - origin) / cam.zoom;
+    e.set_camera(middle - corner - at * zoom, zoom);
+    h.run_steps(3);
 }
 
 #[test]
@@ -143,6 +170,7 @@ fn readme_images() {
     // the builder: a forest's fragmentation, its graph over its maps
     let mut h = harness();
     template(&mut h, "Fragmentation of a forest", "fos", "plot_fos");
+    whole_boxes(&mut h, 0.65);
     save(&mut h, "builder.png");
 
     // conservation planning: Zonation's priority rank
@@ -153,6 +181,7 @@ fn readme_images() {
     // land change: a city that grows in a loop
     let mut h = harness();
     template(&mut h, "A city that grows (a loop)", "growth", "plot_city");
+    whole_boxes(&mut h, 0.6);
     save(&mut h, "land-change.png");
 
     // the satellite under a land use map
