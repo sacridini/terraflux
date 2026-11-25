@@ -151,7 +151,7 @@ fn fitted(
     op: &str,
     inputs: &[&str],
     outputs: &[&str],
-    settings: &[(&str, &str)],
+    settings: &[(&str, &str, f32)],
     icon: bool,
     measure: &mut dyn FnMut(&str, &FontId) -> f32,
 ) -> f32 {
@@ -165,10 +165,10 @@ fn fitted(
         let gap = if l > 0.0 && r > 0.0 { GAP } else { 0.0 };
         w = w.max(PAD + l + gap + r + PAD);
     }
-    for (setting, value) in settings {
+    for (setting, value, extra) in settings {
         let end = value.char_indices().nth(VALUE_FIT).map_or(value.len(), |(i, _)| i);
         let v = measure(&value[..end], &port_font());
-        w = w.max(PAD + measure(setting, &port_font()) + if v > 0.0 { GAP + v } else { 0.0 } + PAD);
+        w = w.max(PAD + measure(setting, &port_font()) + if v > 0.0 { GAP + v } else { 0.0 } + extra + PAD);
     }
     ((w / 10.0).ceil() * 10.0).max(WIDTH)
 }
@@ -256,6 +256,18 @@ pub enum Kind {
     /// What the box does not edit (it reads another value, a file, a script, a table of rules or metrics, a list):
     /// a click opens the node's settings panel beside the box.
     Complex,
+    /// The `path` of a file operator: a click opens the dialog that chooses the file.
+    File,
+}
+
+/// What a row of a file operator's `path` says when it is not given and must be.
+const CHOOSE: &str = "choose a file…";
+/// The room the folder icon takes at the right end of such a row.
+const FOLDER_W: f32 = 14.0;
+
+/// Whether a setting is the `path` of a file operator (the box chooses it by a dialog).
+fn is_file_path(op: &str, name: &str) -> bool {
+    name == "path" && terraflux_graph::FILE_OPS.contains(&op)
 }
 
 /// One setting of a node as its box shows it: its name, its value (the one given, else the default its doc
@@ -309,7 +321,9 @@ fn feeds(t: Type, want: Type) -> bool {
 
 /// How a setting of the operator `op` (`v`: the value it was given, if any) is edited on the box.
 fn setting_kind(op: &str, p: &terraflux_graph::PortSpec, v: Option<&serde_json::Value>) -> Kind {
-    if by_hand_name(op, p) || v.is_some_and(by_hand_value) {
+    if is_file_path(op, &p.name) && !v.is_some_and(by_hand_value) {
+        Kind::File
+    } else if by_hand_name(op, p) || v.is_some_and(by_hand_value) {
         Kind::Complex
     } else if !p.choices.is_empty() {
         Kind::Choice
@@ -540,7 +554,9 @@ fn node_settings(n: &Node, r: &Registry, open: bool, on: bool) -> SettingRows {
                 None => SettingRow {
                     name: p.name.clone(),
                     // (the default as the doc says it, without the word)
-                    value: {
+                    value: if p.required && is_file_path(&n.op, &p.name) {
+                        CHOOSE.to_string()
+                    } else {
                         let d = crate::node_view::default_of(&p.doc);
                         cut(d.strip_prefix("default ").unwrap_or(&d), VALUE_MAX)
                     },
@@ -605,10 +621,14 @@ pub fn node_width(n: &Node, r: &Registry) -> f32 {
 }
 
 /// The texts of a node's settings that widen its box: each name with its value, and the row that unfolds them.
-fn setting_texts(set: &SettingRows) -> Vec<(&str, &str)> {
-    let mut out: Vec<(&str, &str)> = set.rows.iter().map(|s| (s.name.as_str(), s.value.as_str())).collect();
+fn setting_texts(set: &SettingRows) -> Vec<(&str, &str, f32)> {
+    let mut out: Vec<(&str, &str, f32)> = set
+        .rows
+        .iter()
+        .map(|s| (s.name.as_str(), s.value.as_str(), if s.kind == Kind::File { FOLDER_W } else { 0.0 }))
+        .collect();
     if set.folded > 0 {
-        out.push((set.label.as_str(), ""));
+        out.push((set.label.as_str(), "", 0.0));
     }
     out
 }
@@ -887,6 +907,13 @@ pub enum Action {
     RunOnFolder(String),
     /// The file a read node reads asked for in a dialog (its menu's "Change file..."): [`Action::SetFile`] then.
     ChangeFile(String),
+    /// The `path` of a node chosen in a dialog (a click on its row, its file or its picture's place): set as an
+    /// edit of the setting; `folder` asks for a folder.
+    ChoosePath {
+        node: String,
+        name: String,
+        folder: bool,
+    },
     /// A read node made to read another file; its links and other settings stay.
     SetFile(String, std::path::PathBuf),
     /// An input of the model made a node (a `raster.read` of its file).
@@ -1441,6 +1468,9 @@ fn start_edit(
             options.extend(spec.choices.iter().cloned());
             Editing::Choice { options, current: value_in_field(given) }
         }
+        Kind::File => {
+            return Some(Ok(Action::ChoosePath { node: n.id.clone(), name: spec.name.clone(), folder: false }));
+        }
         _ => {
             let init = value_in_field(given);
             Editing::Text { text: init.clone(), init, hint: crate::node_view::default_of(&spec.doc), focused: false }
@@ -1773,6 +1803,18 @@ impl EditorState {
         self.on_screen(b.setting_row(b.settings.rows.iter().position(|r| r.name == name)?).center())
     }
 
+    /// Where the place of a node's picture is on the screen (its middle).
+    pub fn screen_of_thumb(&self, node: &str) -> Option<Pos2> {
+        let s = self.scene.as_ref()?;
+        self.on_screen(s.boxes[*s.index.get(node)?].thumb_rect()?.center())
+    }
+
+    /// Where the file a node's box names in its foot is on the screen (its middle).
+    pub fn screen_of_foot(&self, node: &str) -> Option<Pos2> {
+        let s = self.scene.as_ref()?;
+        self.on_screen(s.boxes[*s.index.get(node)?].foot()?.center())
+    }
+
     /// Where the gear of a node's box is on the screen.
     pub fn screen_of_gear(&self, node: &str) -> Option<Pos2> {
         let s = self.scene.as_ref()?;
@@ -2035,6 +2077,30 @@ impl BoxAt {
     fn foot(&self) -> Option<Rect> {
         self.file.as_ref()?;
         Some(Rect::from_min_max(Pos2::new(self.rect.left(), self.rect.bottom() - FOOT), self.rect.max))
+    }
+
+    /// Whether the foot of the box names a file a click chooses again (a file operator's `path`, given).
+    fn foot_picks(&self) -> bool {
+        !self.source && self.file.is_some() && is_file_path(&self.op, "path")
+    }
+
+    /// Whether the box asks for its file: a file operator whose `path` must be given and is not (its row says so).
+    fn needs_path(&self) -> bool {
+        !self.source
+            && self.file.is_none()
+            && self.settings.rows.iter().any(|r| r.name == "path" && r.kind == Kind::File && r.value == CHOOSE)
+    }
+
+    /// What the dialog of its file asks for, in a few words (`image`: the picture's place says "the image" of a
+    /// raster).
+    fn path_hint(&self, image: bool) -> &'static str {
+        if crate::node_view::writes_path(&self.op) {
+            "click to choose where to write it"
+        } else if image && self.op.starts_with("raster.") {
+            "click to choose the image"
+        } else {
+            "click to choose the file"
+        }
     }
 
     /// The type of what it gives first, for a box of data (its colour marks the box): a model's input, a node that
@@ -4885,6 +4951,17 @@ pub fn show(
             }
         }
     }
+    // a click on the file the foot of a file operator names (not a drag): another one is chosen
+    if resp.clicked()
+        && let Some(w) = at
+        && !adding
+        && cam.zoom >= PORTS_FROM
+        && let Some(Hit::Body(i)) = scene.hit(w, reach(cam))
+        && scene.boxes[i].foot_picks()
+        && scene.boxes[i].foot().is_some_and(|f| f.contains(w))
+    {
+        actions.push(Action::ChoosePath { node: scene.boxes[i].key.clone(), name: "path".into(), folder: false });
+    }
     // a right click on a connected input takes its connection away
     if resp.secondary_clicked()
         && let Some(w) = at
@@ -4912,7 +4989,14 @@ pub fn show(
         st.menu_row = at.filter(|_| cam.zoom >= PORTS_FROM).and_then(|w| {
             let (i, k) = match scene.hit(w, reach(cam)) {
                 Some(Hit::Socket(i, k)) => (i, k),
-                Some(Hit::Body(i)) => (i, scene.boxes[i].row_at(w)?),
+                Some(Hit::Body(i)) => match scene.boxes[i].row_at(w) {
+                    Some(k) => (i, k),
+                    // (the file its foot names: the menu of its `path`)
+                    None if scene.boxes[i].foot_picks() && scene.boxes[i].foot().is_some_and(|f| f.contains(w)) => {
+                        return Some((scene.boxes[i].key.clone(), "path".to_string()));
+                    }
+                    None => return None,
+                },
                 _ => return None,
             };
             let b = &scene.boxes[i];
@@ -5023,15 +5107,43 @@ pub fn show(
             // the row of settings it was opened on: its own value back, or hidden from the box (or shown again)
             if let (Some(n), Some((_, name))) = (this, st.menu_row.as_ref().filter(|(k, _)| *k == key)) {
                 let (node, name) = (key.clone(), name.clone());
-                if n.params.get(&name).is_some_and(|v| terraflux_graph::setting_ref(v).is_some()) {
+                let file = is_file_path(&n.op, &name);
+                // a file operator's `path`: chosen in a dialog (first in the menu)
+                if file && !n.params.get(&name).is_some_and(|v| terraflux_graph::setting_ref(v).is_some()) {
+                    let help = if crate::node_view::writes_path(&n.op) {
+                        "where the file is written, chosen in a dialog"
+                    } else {
+                        "the file, chosen in a dialog"
+                    };
+                    let (node1, name1) = (node.clone(), name.clone());
+                    item(ui, "Choose a file...", help, Action::ChoosePath { node: node1, name: name1, folder: false });
+                    if crate::node_view::folder_path(&n.op) {
+                        let help = if n.op.starts_with("swat.") {
+                            "a TxtInOut folder (with file.cio)"
+                        } else {
+                            "every raster of a folder, as one stack"
+                        };
+                        let (node, name) = (node.clone(), name.clone());
+                        item(ui, "Choose a folder...", help, Action::ChoosePath { node, name, folder: true });
+                    }
+                }
+                // (the file its foot names is no row: nothing to hide, no separator)
+                if file && file_of(n).is_some() {
+                    ui.separator();
+                } else if n.params.get(&name).is_some_and(|v| terraflux_graph::setting_ref(v).is_some()) {
                     let text = String::new();
                     item(ui, "Use a value of its own", USE_OWN_HELP, Action::SetParam { node, name, text });
-                } else if n.hidden.contains(&name) {
-                    item(ui, "Show on the node", SHOW_SETTING_HELP, Action::ShowSetting { node, name, show: true });
+                    ui.separator();
                 } else {
-                    item(ui, "Hide from the node", HIDE_SETTING_HELP, Action::ShowSetting { node, name, show: false });
+                    if n.hidden.contains(&name) {
+                        let show = Action::ShowSetting { node, name, show: true };
+                        item(ui, "Show on the node", SHOW_SETTING_HELP, show);
+                    } else {
+                        let show = Action::ShowSetting { node, name, show: false };
+                        item(ui, "Hide from the node", HIDE_SETTING_HELP, show);
+                    }
+                    ui.separator();
                 }
-                ui.separator();
             }
             let on = st.menu_row.as_ref().filter(|(k, _)| *k == key).map(|(_, name)| name.clone());
             item(ui, "Settings...", SETTINGS_HELP, Action::OpenSettings(key.clone(), on));
@@ -5132,8 +5244,16 @@ pub fn show(
                     && scene.boxes[i]
                         .row_at(w)
                         .is_some_and(|k| scene.boxes[i].settings.rows[k].kind != Kind::Complex) => {}
+            // (the file a click on its foot chooses, and the place of the picture of a node that asks for its file:
+            // their clicks act, a double click does not open the node)
+            Some(Hit::Body(i))
+                if cam.zoom >= PORTS_FROM
+                    && (scene.boxes[i].foot().is_some_and(|f| scene.boxes[i].foot_picks() && f.contains(w))
+                        || scene.boxes[i].needs_path()
+                            && scene.boxes[i].thumb_rect().is_some_and(|t| t.contains(w))) => {}
             Some(Hit::Head(i) | Hit::Body(i)) if !scene.boxes[i].source => {
                 let b = &scene.boxes[i];
+                // (a node with nothing to show, a reader without its file among them: nothing, see show_in_viewer)
                 actions.push(if b.container { Action::Enter(b.key.clone()) } else { Action::Open(b.key.clone()) });
             }
             // on a reroute point: taken away; on a wire (nothing else under the pointer): a point there
@@ -5388,10 +5508,24 @@ pub fn show(
             }
             painter.with_clip_rect(on_screen.expand(2.0).intersect(rect)).galley(at, galley, v.strong_text_color());
             if let (Some(f), Some(file)) = (b.foot(), &b.file) {
+                // (a file operator's: the folder icon at the right end, the name before it)
+                let icon = if b.foot_picks() { FOLDER_W } else { 0.0 };
+                if icon > 0.0 && ports {
+                    let hot = ui
+                        .input(|i| i.pointer.hover_pos())
+                        .is_some_and(|q| Rect::from_min_max(screen(f.min), screen(f.max)).contains(q));
+                    painter.text(
+                        screen(Pos2::new(f.right() - 8.0, f.center().y + 0.5)),
+                        Align2::RIGHT_CENTER,
+                        egui_phosphor::regular::FOLDER_OPEN,
+                        crate::family::icon_font(ui.ctx(), size(12.0)),
+                        if hot { crate::theme::accent() } else { v.weak_text_color() },
+                    );
+                }
                 painter.text(
                     screen(Pos2::new(f.left() + 8.0, f.center().y + 0.5)),
                     Align2::LEFT_CENTER,
-                    file_label(file, ((f.width() - 16.0) / estimate("x", &file_font())).max(8.0) as usize),
+                    file_label(file, ((f.width() - 16.0 - icon) / estimate("x", &file_font())).max(8.0) as usize),
                     FontId::monospace(size(10.5)),
                     faint,
                 );
@@ -5487,17 +5621,33 @@ pub fn show(
                     FontId::monospace(size(11.0)),
                     colour,
                 );
+                // a file's row: the folder icon at its right end (the accent under the pointer), the value before it
+                let mut end = on_screen.right() - 9.0 * cam.zoom;
+                if row.kind == Kind::File {
+                    let hot = ui.input(|i| i.pointer.hover_pos()).is_some_and(|q| {
+                        let r = b.setting_row(k);
+                        Rect::from_min_max(screen(r.min), screen(r.max)).contains(q)
+                    });
+                    painter.text(
+                        Pos2::new(end, y),
+                        Align2::RIGHT_CENTER,
+                        egui_phosphor::regular::FOLDER_OPEN,
+                        crate::family::icon_font(ui.ctx(), size(12.0)),
+                        if hot { crate::theme::accent() } else { v.weak_text_color() },
+                    );
+                    end -= FOLDER_W * cam.zoom;
+                }
                 if row.value.is_empty() {
                     continue;
                 }
-                let ink = if row.reads {
+                let ink = if row.reads || row.value == CHOOSE && !row.given {
                     crate::theme::accent()
                 } else if row.given {
                     v.text_color()
                 } else {
                     faint
                 };
-                let room = on_screen.right() - 9.0 * cam.zoom - name.right() - 8.0 * cam.zoom;
+                let room = end - name.right() - 8.0 * cam.zoom;
                 let mut job =
                     egui::text::LayoutJob::simple_singleline(row.value.clone(), FontId::monospace(size(11.0)), ink);
                 job.wrap = egui::text::TextWrapping {
@@ -5507,7 +5657,7 @@ pub fn show(
                     overflow_character: Some('…'),
                 };
                 let galley = painter.layout_job(job);
-                let at = Pos2::new(on_screen.right() - 9.0 * cam.zoom - galley.size().x, y - galley.size().y / 2.0);
+                let at = Pos2::new(end - galley.size().x, y - galley.size().y / 2.0);
                 painter.galley(at, galley, ink);
             }
             if let Some(f) = b.more_settings() {
@@ -5571,6 +5721,33 @@ pub fn show(
                     clip.add(
                         egui::epaint::RectShape::filled(at, 3.0, Color32::WHITE.gamma_multiply(alpha))
                             .with_texture(tex.id(), uv),
+                    );
+                }
+                // the node asks for its file: the place says so, in the accent (brighter under the pointer)
+                None if b.needs_path() => {
+                    let hot = ui.input(|i| i.pointer.hover_pos()).is_some_and(|q| area.contains(q));
+                    let accent = crate::theme::accent();
+                    let ink = if hot { accent } else { accent.gamma_multiply(0.8) };
+                    if hot {
+                        clip.rect_filled(area, 4.0, accent.gamma_multiply(0.10));
+                    }
+                    let big = (24.0 * cam.zoom).clamp(14.0, 40.0);
+                    let label = if crate::node_view::writes_path(&b.op) { "choose where to write" } else { CHOOSE };
+                    let small = (12.0 * cam.zoom).clamp(8.0, 18.0);
+                    let c = area.center();
+                    clip.text(
+                        Pos2::new(c.x, c.y - small * 0.7),
+                        Align2::CENTER_CENTER,
+                        egui_phosphor::regular::FOLDER_OPEN,
+                        crate::family::icon_font(ui.ctx(), big),
+                        ink,
+                    );
+                    clip.text(
+                        Pos2::new(c.x, c.y + big * 0.5 + small * 0.2),
+                        Align2::CENTER_CENTER,
+                        label,
+                        FontId::proportional(small),
+                        ink,
                     );
                 }
                 None => {
@@ -6109,7 +6286,35 @@ pub fn show(
                     );
                     let icon = if kind == Kind::Text { egui::CursorIcon::Text } else { egui::CursorIcon::PointingHand };
                     resp.clone().on_hover_cursor(icon);
+                    if kind == Kind::File {
+                        resp.clone().on_hover_text_at_pointer(b.path_hint(false));
+                    }
                 }
+            }
+            // the place of the picture of a node that asks for its file: brighter, a click chooses it
+            Some(Hit::Body(i))
+                if ports
+                    && scene.boxes[i].needs_path()
+                    && scene.boxes[i].thumb_rect().is_some_and(|t| t.contains(to_world(p, &cam))) =>
+            {
+                resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+                resp.clone().on_hover_text_at_pointer(scene.boxes[i].path_hint(true));
+            }
+            // the file the foot of a file operator names: a click chooses another
+            Some(Hit::Body(i))
+                if ports
+                    && scene.boxes[i].foot_picks()
+                    && scene.boxes[i].foot().is_some_and(|f| f.contains(to_world(p, &cam))) =>
+            {
+                let b = &scene.boxes[i];
+                painter.rect_filled(
+                    Rect::from_min_max(screen(b.foot().unwrap().min), screen(b.foot().unwrap().max)).shrink(1.0),
+                    3.0,
+                    v.widgets.hovered.bg_fill.gamma_multiply(0.45),
+                );
+                resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+                let hint = b.path_hint(false).replace("choose the file", "choose another file");
+                resp.clone().on_hover_text_at_pointer(format!("{}\n{hint}", b.file.clone().unwrap_or_default()));
             }
             // the picture of a result: what the output holds, a click shows it
             Some(Hit::Body(i))
@@ -6883,8 +7088,16 @@ b"
         assert_eq!(kind("metrics.landscape", &metrics, None), Kind::Complex);
         assert_eq!(kind("x.y", &metrics, None), Kind::Text);
         let path = PortSpec::optional("path", Type::Text, "a file");
-        assert_eq!(kind("raster.read", &path, None), Kind::Complex);
+        // a file operator's path is chosen in a dialog; one that reads another value, or another operator's, is not
+        assert_eq!(kind("raster.read", &path, None), Kind::File);
+        assert_eq!(kind("raster.write", &path, Some(json!("a.tif"))), Kind::File);
+        assert_eq!(kind("raster.write", &path, Some(json!("$where"))), Kind::Complex);
+        assert_eq!(kind("x.y", &path, None), Kind::Complex);
         // the rows of a real operator carry it
+        let w = Node::new("w", "raster.write");
+        let set = node_settings(&w, standard(), false, true);
+        let row = set.rows.iter().find(|r| r.name == "path").expect("the path row");
+        assert_eq!((row.kind, row.given, row.value.as_str()), (Kind::File, false, CHOOSE));
         let n = Node::new("opt", "prioritize.optimize").param("solver", "highs").param("gap", 0.1);
         let set = node_settings(&n, standard(), false, true);
         let of = |name: &str| set.rows.iter().find(|r| r.name == name).map(|r| r.kind);

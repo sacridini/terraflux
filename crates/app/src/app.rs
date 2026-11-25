@@ -658,6 +658,8 @@ pub struct Session {
     pub viewer_toggle: bool,
     /// The nodes to run up to, one after the other, to show their outputs (files dropped on the Viewer).
     pub show_queue: Vec<String>,
+    /// A path the next file or folder dialog of a node's `path` gives without opening (tests: no dialog can open).
+    pub path_answer: Option<String>,
     /// The nodes still to run up to, one run each, after the one going on (the selection's "Run to them").
     pub run_queue: Vec<String>,
     /// The nodes of rasters dropped at once (two or more), a layer each, that the Layers offer to join as one
@@ -1045,6 +1047,7 @@ impl Session {
             viewer_out: false,
             viewer_toggle: false,
             show_queue: Vec::new(),
+            path_answer: None,
             run_queue: Vec::new(),
             dropped_rasters: Vec::new(),
             task: None,

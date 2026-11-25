@@ -3538,6 +3538,24 @@ fn canvas(ui: &mut Ui, s: &mut Session, r: &Registry) {
                 }
                 Ok(false)
             }
+            // a node's `path` chosen in a dialog (its row, its file or the place of its picture), set as an edit of
+            // the setting is
+            Action::ChoosePath { node, name, folder } => {
+                select(s, r, &node);
+                let op = s.source.scope(&path).and_then(|v| v.iter().find(|n| n.id == node)).map(|n| n.op.clone());
+                let picked = match op {
+                    Some(_) if folder => crate::node_view::choose_folder(s),
+                    Some(op) => crate::node_view::choose_path(s, &op),
+                    None => None,
+                };
+                match picked {
+                    Some(p) => crate::editor::set_param(&mut s.source, &path, &node, &name, &p).map(|_| {
+                        s.fields.clear();
+                        true
+                    }),
+                    None => Ok(false),
+                }
+            }
             Action::SetFile(node, p) => {
                 change_file(s, r, &node, &p);
                 Ok(false)

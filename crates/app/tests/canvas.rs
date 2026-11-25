@@ -1098,6 +1098,97 @@ fn a_number_is_typed_on_the_box() {
     assert_eq!(param_now(&h, "opt", "gap"), Some(serde_json::json!(4)));
 }
 
+/// Readers and writers of files, some with their file and some without it, at a readable zoom.
+fn files_harness(name: &str) -> Harness<'static, TerrafluxApp> {
+    let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/inputs/sibuyan_landuse.tif");
+    let mut m = Model::new("files");
+    let mut nodes = vec![
+        Node::new("rd", "raster.read"),
+        Node::new("wr", "raster.write"),
+        Node::new("wr2", "raster.write").param("path", "out/given.tif"),
+        Node::new("rd2", "raster.read").param("path", data.to_string_lossy().as_ref()),
+        Node::new("wr3", "raster.write"),
+    ];
+    for (k, n) in nodes.iter_mut().enumerate() {
+        n.pos = Some([(k % 3) as f32 * 450.0, (k / 3) as f32 * 420.0]);
+    }
+    m.nodes = std::mem::take(&mut nodes);
+    let mut h = harness(open(&m, name));
+    h.state_mut().session.as_mut().unwrap().editor.look(egui::vec2(20.0, 20.0), 0.8);
+    h.run_steps(4);
+    h
+}
+
+/// The answer the next dialog of a node's file gives (a dialog cannot open in a test).
+fn answer(h: &mut Harness<TerrafluxApp>, path: &str) {
+    h.state_mut().session.as_mut().unwrap().path_answer = Some(path.to_string());
+}
+
+/// The row of a file operator's `path` chooses the file in a dialog: the file is set as any edit of a setting (one
+/// step of undo), its name then in the foot, where a click chooses another; the menu of the row offers the dialogs;
+/// a box that asks for its file says so on the row and in the place of its picture, where a click chooses it too.
+#[test]
+fn the_path_of_a_file_operator_is_chosen_on_the_box() {
+    use egui_kittest::kittest::Queryable;
+    use terraflux_app::editor_view::Kind;
+    let _lock = settings_lock();
+    terraflux_app::settings::update(|s| s.node_settings = true);
+    let mut h = files_harness("canvas-files-path.toml");
+    let row = |h: &Harness<TerrafluxApp>, id: &str| {
+        editor(h).settings_of(id).unwrap().rows.iter().find(|r| r.name == "path").cloned()
+    };
+    let r = row(&h, "wr").expect("the path row");
+    assert_eq!((r.kind, r.given, r.value.as_str()), (Kind::File, false, "choose a file…"));
+    assert!(row(&h, "wr2").is_none(), "given: the foot names the file, no row");
+    // a click on the row: the dialog's answer is the setting, as an edit that undo takes back
+    answer(&mut h, "out/made.tif");
+    let at = row_of(&mut h, "wr", "path");
+    click(&mut h, at);
+    assert_eq!(param_now(&h, "wr", "path"), Some(serde_json::json!("out/made.tif")));
+    assert_eq!(h.state().session.as_ref().unwrap().selected.as_deref(), Some("wr"));
+    assert!(h.state().session.as_ref().unwrap().path_answer.is_none(), "the dialog was asked");
+    undo(&mut h);
+    assert_eq!(param_now(&h, "wr", "path"), None);
+    // a double click on the row chooses the file and does not open the node
+    h.run_steps(60);
+    let at = row_of(&mut h, "wr", "path");
+    answer(&mut h, "twice.tif");
+    double_click(&mut h, at);
+    assert_eq!(param_now(&h, "wr", "path"), Some(serde_json::json!("twice.tif")));
+    assert_ne!(h.state_mut().focused(), Some(Pane::Viewer), "not the Viewer");
+    assert!(h.state().session.as_ref().unwrap().editor.panel.is_none(), "nor the settings");
+    // a click on the foot that names the file chooses another
+    h.run_steps(12);
+    answer(&mut h, "other.tif");
+    let foot = editor(&h).screen_of_foot("wr2").expect("a foot");
+    click(&mut h, foot);
+    assert_eq!(param_now(&h, "wr2", "path"), Some(serde_json::json!("other.tif")));
+    // the menu on the row: a file; a folder too for a reader
+    let foot = editor(&h).screen_of_foot("rd2").expect("a foot");
+    right_click(&mut h, foot);
+    assert!(h.query_by_label("Choose a file...").is_some() && h.query_by_label("Choose a folder...").is_some());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    let at = row_of(&mut h, "wr3", "path");
+    right_click(&mut h, at);
+    assert!(h.query_by_label("Choose a folder...").is_none(), "a writer writes a file");
+    answer(&mut h, "menu.tif");
+    h.get_by_label("Choose a file...").click();
+    h.run_steps(3);
+    assert_eq!(param_now(&h, "wr3", "path"), Some(serde_json::json!("menu.tif")));
+    // a reader that asks for its file (the place of its picture asks for it: ChangeFile, tested with the pictures):
+    // a double click on the box does nothing, there is nothing to show (no Viewer, no dialog)
+    h.run_steps(60);
+    answer(&mut h, "head.tif");
+    let at = editor(&h).screen_of("rd").unwrap();
+    double_click(&mut h, at);
+    assert_eq!(param_now(&h, "rd", "path"), None, "the double click chooses nothing");
+    assert!(h.state().session.as_ref().unwrap().editor.panel.is_none());
+    assert!(!h.state().session.as_ref().unwrap().running(), "and runs nothing");
+    assert_ne!(h.state_mut().focused(), Some(Pane::Viewer), "nor brings the Viewer");
+    h.state_mut().session.as_mut().unwrap().path_answer = None;
+}
+
 /// Where the panel of a node's settings is on the screen (none: closed).
 fn panel_rect(h: &Harness<TerrafluxApp>) -> Option<egui::Rect> {
     let open = h.state().session.as_ref().unwrap().editor.panel.is_some();

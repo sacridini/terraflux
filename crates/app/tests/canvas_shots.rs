@@ -21,6 +21,16 @@ fn out() -> PathBuf {
 
 /// A window of `size` points drawn at `ppp` pixels a point, in the theme `theme`.
 fn harness(size: (f32, f32), ppp: f32, theme: &str) -> Harness<'static, TerrafluxApp> {
+    harness_of(size, ppp, theme, |_| None)
+}
+
+/// The same with the model `model` saved as a file and opened (the settings are made first).
+fn harness_of(
+    size: (f32, f32),
+    ppp: f32,
+    theme: &str,
+    model: impl FnOnce(&std::path::Path) -> Option<PathBuf>,
+) -> Harness<'static, TerrafluxApp> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&dir).unwrap();
     // (a settings file of its own, written once: never the user's)
@@ -38,11 +48,12 @@ fn harness(size: (f32, f32), ppp: f32, theme: &str) -> Harness<'static, Terraflu
         eframe::egui_wgpu::RendererOptions::PREDICTABLE,
     );
     terraflux_app::canvas_gpu::install(&rs);
+    let app = TerrafluxApp::new(model(&dir));
     let mut h = Harness::builder()
         .with_size(size)
         .with_pixels_per_point(ppp)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut TerrafluxApp| app.frame(ui), TerrafluxApp::new(None));
+        .build_ui_state(|ui, app: &mut TerrafluxApp| app.frame(ui), app);
     h.run_steps(2);
     h
 }
@@ -377,4 +388,39 @@ fn thumbs_shots() {
 fn s_fit(h: &mut Harness<TerrafluxApp>) {
     h.state_mut().session.as_mut().unwrap().editor.fit();
     h.run_steps(4);
+}
+
+/// The boxes of the file operators: a reader and a writer that ask for their file (the picture's place and the
+/// row say so), then with their files given (the foot names it, the folder icon at its right), in both themes.
+#[test]
+#[ignore = "pictures of the canvas for a look: run with --ignored"]
+fn file_shots() {
+    use terraflux_graph::{Model, Node};
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    for (theme, tag) in [("Slate", "dark"), ("Paper", "light")] {
+        for given in [false, true] {
+            let word = if given { "given" } else { "asked" };
+            let mut h = harness_of(SIZE, 1.0, theme, |dir| {
+                let mut m = Model::new("files");
+                let mut read = Node::new("read", "raster.read");
+                read.pos = Some([0.0, 0.0]);
+                let mut write = Node::new("write", "raster.write").input("value", "read.raster");
+                write.pos = Some([400.0, 0.0]);
+                if given {
+                    read = read.param("path", "C:/data/sibuyan_landuse_2020.tif");
+                    write = write.param("path", "C:/results/forest_mspa.tif");
+                }
+                m.nodes = vec![read, write];
+                let p = dir.join("canvas-shots-files.toml");
+                m.save(&p).unwrap();
+                Some(p)
+            });
+            h.state_mut().session.as_mut().unwrap().wait();
+            terraflux_app::settings::update(|s| s.node_settings = true);
+            s_fit(&mut h);
+            look_at(&mut h, "read", 1.0);
+            save(&mut h, &format!("files_{word}_{tag}.png"));
+        }
+    }
+    println!("the pictures are in {}", out().display());
 }

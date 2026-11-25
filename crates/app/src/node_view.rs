@@ -1652,29 +1652,9 @@ fn value_cell(
     if name == "path"
         && terraflux_graph::FILE_OPS.contains(&n.op.as_str())
         && ui.add(crate::app::accent_button("Choose...", true)).clicked()
+        && let Some(p) = choose_path(s, &n.op)
     {
-        let dialog = match n.op.as_str() {
-            terraflux_graph::PLUGIN => rfd::FileDialog::new().add_filter("WebAssembly", &["wasm", "wat"]),
-            "vector.read" | "vector.write" => rfd::FileDialog::new()
-                .add_filter("Vectors", &crate::builder::VECTOR_EXTENSIONS)
-                .add_filter("Every file", &["*"]),
-            "table.read" | "table.write" => rfd::FileDialog::new()
-                .add_filter("Tables", &["csv", "tsv", "txt", "json"])
-                .add_filter("Every file", &["*"]),
-            "swat.run" | "swat.load" => rfd::FileDialog::new().add_filter("A zipped TxtInOut folder", &["zip"]),
-            "move.read_tracks" => rfd::FileDialog::new()
-                .add_filter("Movebank files", &["csv", "gz", "zip"])
-                .add_filter("Every file", &["*"]),
-            _ => rfd::FileDialog::new()
-                .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
-                .add_filter("Every file", &["*"]),
-        };
-        let writes = ["raster.write", "landscape.mspa_tiled", "vector.write", "table.write"].contains(&n.op.as_str());
-        let picked = if writes { dialog.save_file() } else { dialog.pick_file() };
-        if let Some(p) = picked {
-            let p = p.to_string_lossy().into_owned();
-            change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &p));
-        }
+        change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &p));
     }
     // a folder: every raster in it, as one stack; SWAT+'s TxtInOut
     if name == "path"
@@ -1687,12 +1667,56 @@ fn value_cell(
                 "every raster of a folder, as one stack"
             })
             .clicked()
-        && let Some(p) = rfd::FileDialog::new().pick_folder()
+        && let Some(p) = choose_folder(s)
     {
-        let p = p.to_string_lossy().into_owned();
         change = Some(crate::editor::set_param(&mut s.source, path, &n.id, name, &p));
     }
     change
+}
+
+/// Whether the `path` of the operator `op` is a file it writes (a save dialog picks it), not one it reads.
+pub fn writes_path(op: &str) -> bool {
+    ["raster.write", "landscape.mspa_tiled", "vector.write", "table.write"].contains(&op)
+}
+
+/// Whether the `path` of the operator `op` may be a folder (every raster in it, a SWAT+ TxtInOut).
+pub fn folder_path(op: &str) -> bool {
+    matches!(op, "raster.read" | "swat.run" | "swat.load")
+}
+
+/// The dialog that picks the `path` of a node of the operator `op` (filters by operator; a save dialog for the
+/// writers, an open dialog for the others): the path chosen. The session may hold an answer to give in its place
+/// (tests: a dialog cannot open there).
+pub fn choose_path(s: &mut Session, op: &str) -> Option<String> {
+    if let Some(p) = s.path_answer.take() {
+        return Some(p);
+    }
+    let dialog = match op {
+        terraflux_graph::PLUGIN => rfd::FileDialog::new().add_filter("WebAssembly", &["wasm", "wat"]),
+        "vector.read" | "vector.write" => rfd::FileDialog::new()
+            .add_filter("Vectors", &crate::builder::VECTOR_EXTENSIONS)
+            .add_filter("Every file", &["*"]),
+        "table.read" | "table.write" => rfd::FileDialog::new()
+            .add_filter("Tables", &["csv", "tsv", "txt", "json"])
+            .add_filter("Every file", &["*"]),
+        "swat.run" | "swat.load" => rfd::FileDialog::new().add_filter("A zipped TxtInOut folder", &["zip"]),
+        "move.read_tracks" => rfd::FileDialog::new()
+            .add_filter("Movebank files", &["csv", "gz", "zip"])
+            .add_filter("Every file", &["*"]),
+        _ => rfd::FileDialog::new()
+            .add_filter("Rasters", &terraflux_ops::files::RASTER_EXTENSIONS)
+            .add_filter("Every file", &["*"]),
+    };
+    let picked = if writes_path(op) { dialog.save_file() } else { dialog.pick_file() };
+    picked.map(|p| p.to_string_lossy().into_owned())
+}
+
+/// The dialog that picks a folder for the `path` of a node (see [`choose_path`] for the answer a test gives).
+pub fn choose_folder(s: &mut Session) -> Option<String> {
+    if let Some(p) = s.path_answer.take() {
+        return Some(p);
+    }
+    rfd::FileDialog::new().pick_folder().map(|p| p.to_string_lossy().into_owned())
 }
 
 /// The items of a value edited item by item: a list of numbers or texts, or a table of them by name (an object
