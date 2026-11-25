@@ -6773,7 +6773,11 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
     ui.data_mut(|d| d.insert_temp(id, layers_open));
     sh.view.name = main_name.clone();
     // the map shown as opaque as its layer is (hidden when its layer is)
-    sh.view.opacity = drawn_list.iter().find(|l| l.is(&node, &port)).map(|l| if l.visible { l.opacity } else { 0.0 });
+    // (the one that is no layer, hidden by its box in the Layers: not drawn)
+    sh.view.opacity = match drawn_list.iter().find(|l| l.is(&node, &port)) {
+        Some(l) => Some(if l.visible { l.opacity } else { 0.0 }),
+        None => layers_panel::shown_off(ui, salt, &node, &port).then_some(0.0),
+    };
     let mut hover = None;
     // the map compared, in the colouring of both (none while its look is being made)
     let other = match (&compared, &shared) {

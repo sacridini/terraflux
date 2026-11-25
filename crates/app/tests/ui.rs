@@ -4003,6 +4003,114 @@ fn the_arrows_move_in_the_layers() {
     assert!(h.query_by_label("forest").is_some(), "and the legend too");
 }
 
+/// Space in the Layers turns the layers selected on or off, as the arrows move: with the pointer over the Layers or
+/// after a click in them (the pointer then over the map), and the map's own Space (the data hidden) does not read it
+/// too. A layer off is not drawn, the map shown included: all off is the basemap alone, one on again is drawn.
+#[test]
+fn space_turns_the_layers_off_and_on() {
+    use terraflux_app::builder::Layer;
+    use terraflux_graph::Node;
+    let mut h = harness(new_app(None));
+    h.run_steps(2);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.source.nodes = vec![
+            Node::new("land", "raster.read")
+                .param("path", data("sibuyan_landuse.tif").to_string_lossy().as_ref())
+                .param("band", "0"),
+            Node::new("drivers", "raster.read")
+                .param("path", data("sibuyan_drivers.tif").to_string_lossy().as_ref())
+                .param("band", "0"),
+        ];
+        s.edited();
+        s.start(Box::new(|| {}));
+    }
+    until(&mut h, "the run", |a| {
+        let s = a.session.as_ref().unwrap();
+        !s.running() && s.value_of("land", "raster").is_some() && s.value_of("drivers", "raster").is_some()
+    });
+    h.state_mut().session.as_mut().unwrap().preview_layers =
+        vec![Layer::new("land", "raster"), Layer::new("drivers", "raster")];
+    show(&mut h, "drivers", "raster");
+    h.run_steps(10);
+    let on = |h: &Harness<TerrafluxApp>| -> Vec<bool> {
+        h.state().session.as_ref().unwrap().preview_layers.iter().map(|l| l.visible).collect()
+    };
+    let hide_data = |h: &Harness<TerrafluxApp>| h.state().session.as_ref().unwrap().preview_view.hide_data;
+    let click = |h: &mut Harness<TerrafluxApp>, at: egui::Pos2| {
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        h.run_steps(4);
+    };
+    let space = |h: &mut Harness<TerrafluxApp>| {
+        h.key_press(egui::Key::Space);
+        h.run_steps(4);
+    };
+    until(&mut h, "the map drawn", |a| a.session.as_ref().unwrap().preview_view.rect().is_some());
+    let map = h.state().session.as_ref().unwrap().preview_view.rect().unwrap().center();
+    // (a) a click on a row, the pointer over the map: Space turns that layer
+    let row = row_of(&h, "drivers");
+    click(&mut h, row);
+    h.event(egui::Event::PointerMoved(map));
+    h.run_steps(2);
+    space(&mut h);
+    assert_eq!(on(&h), [true, false], "space after a click in the Layers: the layer selected off");
+    assert!(!hide_data(&h), "and the map's data not hidden");
+    space(&mut h);
+    assert_eq!(on(&h), [true, true], "space again: on");
+    assert!(!hide_data(&h));
+    // (b) the pointer over the panel
+    let row = row_of(&h, "drivers");
+    h.event(egui::Event::PointerMoved(row));
+    h.run_steps(2);
+    space(&mut h);
+    assert_eq!(on(&h), [true, false], "space over the Layers: off");
+    space(&mut h);
+    assert_eq!(on(&h), [true, true]);
+    // (c) every layer off: nothing of the model drawn (the pixel is the data hidden's), one on: drawn again
+    let hide_all = |h: &mut Harness<TerrafluxApp>| h.get_by_label("Hide every layer").click();
+    hide_all(&mut h);
+    h.run_steps(4);
+    assert_eq!(on(&h), [false, false]);
+    h.event(egui::Event::PointerMoved(egui::Pos2::new(1.0, 1.0)));
+    h.run_steps(2);
+    let off = centre_pixel(&mut h);
+    shot(&mut h, "40-layers-all-hidden");
+    assert_eq!(
+        h.state().session.as_ref().unwrap().preview_view.opacity,
+        Some(0.0),
+        "the map shown is not drawn when its layer is off"
+    );
+    h.state_mut().session.as_mut().unwrap().preview_view.hide_data = true;
+    let blank = centre_pixel(&mut h);
+    h.state_mut().session.as_mut().unwrap().preview_view.hide_data = false;
+    assert_eq!(off, blank, "all layers off: the data not drawn");
+    h.state_mut().session.as_mut().unwrap().preview_layers[0].visible = true;
+    h.run_steps(4);
+    assert_ne!(centre_pixel(&mut h), blank, "one on again: drawn");
+    // (d) the map shown that is no layer (shown, not kept) has its box too: every layer off hides it with them
+    h.state_mut().session.as_mut().unwrap().preview_layers = vec![Layer::new("land", "raster")];
+    h.run_steps(4);
+    h.state_mut().session.as_mut().unwrap().preview_view.hide_data = false;
+    let drawn_pixel = centre_pixel(&mut h);
+    assert_ne!(drawn_pixel, blank);
+    hide_all(&mut h);
+    h.run_steps(4);
+    assert_eq!(on(&h), [false]);
+    assert_eq!(centre_pixel(&mut h), blank, "layers off and the map shown not kept off too: nothing drawn");
+    h.get_by_label("Show every layer").click();
+    h.run_steps(4);
+    assert_eq!(on(&h), [true]);
+    assert_eq!(centre_pixel(&mut h), drawn_pixel, "all on again: drawn");
+}
+
 /// Layers in groups, as a GIS has them: a group made from a layer's menu, shown or hidden by its box (its layers not
 /// drawn, each keeping its own box), made half opaque, folded, a layer dragged onto its row and out of its rows, the
 /// group gone with *Ungroup* and its layers kept.

@@ -47,6 +47,8 @@ struct Asked {
     solo: Option<usize>,
     /// All shown, or all hidden.
     all: Option<bool>,
+    /// The map shown that is no layer, its box turned: hidden (true) or shown.
+    shown_off: Option<bool>,
     /// An output of the run added on top; the map shown kept as a layer.
     add: Option<(String, String)>,
     pin: bool,
@@ -242,7 +244,9 @@ pub(super) fn layers_section(
     let n = sh.layers.len();
     let selected_id = egui::Id::new(("layer selected", salt));
     // the arrows (taken before the rows, as space is): the layer selected moved, its legend folded or unfolded
-    let by_key = arrow_keys(ui, s, sh, &vectors, (&node, &port), salt, selected_id);
+    // (the panel active once a frame: the pointer over it, or the last click in it)
+    let active = panel_active(ui, salt);
+    let by_key = arrow_keys(ui, s, sh, &vectors, (&node, &port), (active, salt), selected_id);
     // the layers selected, in the order they were: the first is the one whose properties are shown (the map shown
     // when none is, as a click on a node does)
     let mut chosen: Vec<usize> = ui
@@ -256,15 +260,26 @@ pub(super) fn layers_section(
     }
     let selected: Option<usize> = chosen.first().copied();
     let mut asked = Asked { show: by_key, ..Default::default() };
-    // space with the pointer over the Layers (no text being written): the layers selected hidden, or shown again
-    // when every one of them was hidden (taken before the rows, so a box that has the focus does not turn too)
+    // space while the Layers are active, as the arrows (no text being written): the layers selected hidden, or shown
+    // again when every one of them was hidden (taken before the rows, so a box that has the focus does not turn too;
+    // the key is taken, so the map, drawn after, does not hide its data with it)
     if !chosen.is_empty()
+        && active
         && !ui.ctx().text_edit_focused()
-        && ui.rect_contains_pointer(ui.max_rect())
         && ui.input_mut(|i| crate::keymap::pressed(i, "viewer_hide"))
     {
         let on = !chosen.iter().all(|i| sh.layers[*i].visible);
         asked.visible = Some((chosen.clone(), on));
+    }
+    // (the map shown that is no layer has its box too: Space turns it when no layer is selected)
+    let off = !shown_is_layer && shown_off(ui, salt, &node, &port);
+    if chosen.is_empty()
+        && !shown_is_layer
+        && active
+        && !ui.ctx().text_edit_focused()
+        && ui.input_mut(|i| crate::keymap::pressed(i, "viewer_hide"))
+    {
+        asked.shown_off = Some(!off);
     }
     // the run's other maps and features, to add
     let more: Vec<(String, String)> = others
@@ -274,7 +289,7 @@ pub(super) fn layers_section(
         .chain(objects_values(s, r))
         .filter(|(n, p)| !sh.layers.iter().any(|l| l.is(n, p)))
         .collect();
-    toolbar(ui, sh, &more, (shown_is_layer, main_name), (selected, &chosen), &mut asked);
+    toolbar(ui, sh, &more, (shown_is_layer, main_name, off), (selected, &chosen), &mut asked);
     if let Some(fold) = asked.fold.take() {
         ui.data_mut(|d| {
             d.insert_temp(egui::Id::new("layers unfolded"), !fold);
@@ -335,7 +350,7 @@ pub(super) fn layers_section(
                     ui.spacing_mut().item_spacing.y = 0.0;
                     // the map shown that is no layer: a row of its own, kept by the pin
                     if !shown_is_layer {
-                        shown_row(ui, main_name, &mut asked);
+                        shown_row(ui, main_name, off, &mut asked);
                         if let Some(shown) = shown {
                             indented(ui, |ui| shown_legend(ui, s, (&node, &port), shown));
                         }
@@ -438,11 +453,24 @@ pub(super) fn layers_section(
 }
 
 /// The map shown that is no layer: its name in italics and the pin that keeps it as a layer.
-fn shown_row(ui: &mut Ui, main_name: &str, asked: &mut Asked) {
+fn shown_row(ui: &mut Ui, main_name: &str, off: bool, asked: &mut Asked) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::hover());
+    // its box: shown on the map, or hidden (as a layer's)
+    let mut on = !off;
+    let shown_box = ui
+        .put(
+            Rect::from_min_size(Pos2::new(rect.left() + 2.0, rect.top()), Vec2::new(18.0, rect.height())),
+            egui::Checkbox::without_text(&mut on),
+        )
+        .on_hover_text("shown on the map, or hidden");
+    shown_box
+        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, format!("show {main_name}")));
+    if shown_box.changed() {
+        asked.shown_off = Some(!on);
+    }
     let pin = icon_button_at(
         ui,
-        Rect::from_min_size(rect.min + Vec2::new(3.0, 2.0), Vec2::splat(20.0)),
+        Rect::from_min_size(rect.min + Vec2::new(23.0, 2.0), Vec2::splat(20.0)),
         Icon::Pin,
         true,
     )
@@ -476,13 +504,13 @@ fn shown_row(ui: &mut Ui, main_name: &str, asked: &mut Asked) {
         },
     );
     job.wrap = egui::text::TextWrapping {
-        max_width: (rect.width() - 34.0).max(10.0),
+        max_width: (rect.width() - 54.0).max(10.0),
         max_rows: 1,
         break_anywhere: true,
         overflow_character: Some('…'),
     };
     let galley = ui.fonts_mut(|f| f.layout_job(job));
-    ui.painter().galley(Pos2::new(rect.left() + 30.0, rect.center().y - galley.size().y / 2.0), galley, Color32::WHITE);
+    ui.painter().galley(Pos2::new(rect.left() + 50.0, rect.center().y - galley.size().y / 2.0), galley, Color32::WHITE);
     let line = ui.visuals().widgets.noninteractive.bg_stroke;
     ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, line);
 }
@@ -698,7 +726,7 @@ fn toolbar(
     ui: &mut Ui,
     sh: &Shown,
     more: &[(String, String)],
-    (shown_is_layer, main_name): (bool, &str),
+    (shown_is_layer, main_name, off): (bool, &str, bool),
     (selected, chosen): (Option<usize>, &[usize]),
     asked: &mut Asked,
 ) {
@@ -782,10 +810,16 @@ fn toolbar(
             {
                 asked.zoom = at;
             }
-            let all = sh.layers.iter().all(|l| l.visible);
-            if icon_button(ui, Icon::Eye, n > 0, if all { "Hide every layer" } else { "Show every layer" })
-                .on_hover_text(if all { "hide every layer" } else { "show every layer" })
-                .clicked()
+            // (the map shown that is no layer counts too)
+            let all = sh.layers.iter().all(|l| l.visible) && (shown_is_layer || !off);
+            if icon_button(
+                ui,
+                Icon::Eye,
+                n > 0 || !shown_is_layer,
+                if all { "Hide every layer" } else { "Show every layer" },
+            )
+            .on_hover_text(if all { "hide every layer" } else { "show every layer" })
+            .clicked()
             {
                 asked.all = Some(!all);
             }
@@ -1072,6 +1106,24 @@ fn panel_active(ui: &Ui, salt: &str) -> bool {
     over || clicked
 }
 
+/// Whether the map shown, when it is no layer, was hidden by its box in the Layers (kept for that map alone: another
+/// shown is drawn).
+pub(super) fn shown_off(ui: &Ui, salt: &str, node: &str, port: &str) -> bool {
+    let id = egui::Id::new(("layer selected", salt)).with("shown off");
+    ui.data(|d| d.get_temp::<(String, String)>(id)).is_some_and(|(n, p)| n == node && p == port)
+}
+
+fn set_shown_off(ui: &Ui, selected_id: egui::Id, node: &str, port: &str, off: bool) {
+    let id = selected_id.with("shown off");
+    ui.data_mut(|d| {
+        if off {
+            d.insert_temp(id, (node.to_string(), port.to_string()));
+        } else {
+            d.remove_temp::<(String, String)>(id);
+        }
+    });
+}
+
 /// Where the Layers say whether they take the arrows (see [`takes_arrows`]).
 const TAKEN: &str = "layers take the arrows";
 
@@ -1092,10 +1144,9 @@ fn arrow_keys(
     sh: &Shown,
     vectors: &[(String, String, Arc<terraflux_raster::vector::Vector>)],
     (node, port): (&str, &str),
-    salt: &str,
+    (active, salt): (bool, &str),
     selected_id: egui::Id,
 ) -> Option<(String, String)> {
-    let active = panel_active(ui, salt);
     if !active || ui.ctx().text_edit_focused() {
         return None;
     }
@@ -2813,6 +2864,11 @@ fn act(
         if let Some(gi) = group_at(&sh.layers[i], &sh.groups) {
             sh.groups[gi].visible = true;
         }
+    }
+    // the map shown that is no layer, hidden or shown (by its box, Space, or the bar's every layer)
+    let off = asked.shown_off.or(asked.all.map(|on| !on));
+    if let Some(off) = off.filter(|_| !sh.layers.iter().any(|l| l.is(node, port))) {
+        set_shown_off(ui, selected_id, node, port, off);
     }
     if let Some(on) = asked.all {
         for l in &mut sh.layers {

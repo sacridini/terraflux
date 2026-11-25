@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Fixed
+- **Space turns the layers selected off and on in the Viewer's Layers, and every layer can be off** (`crates/app/src/layers_panel.rs`, `crates/app/src/builder.rs`): Space followed the pointer only, so after a click in the Layers and the pointer over the map it hid the whole map instead and the layer's tick stayed; it now follows the same rule as the arrows (the pointer over the panel, or a click in it last) and the map does not read it then. The map shown that is not kept as a layer has a tick of its own and is hidden with *Hide every layer*, so with every tick off the map is empty.
+
 ## [1.71.0] - 2026-11-25
 
 ### Added
