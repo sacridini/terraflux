@@ -96,7 +96,12 @@ fn the_inspector_draws_the_profile_of_the_object_its_samples_band_and_a_second_o
         (1..=o.count as u32).filter(|&i| o.cells[i as usize - 1] >= 60 && o.class_of[i as usize - 1] > 0).collect();
     let a = big[0];
     let class = o.class_of[a as usize - 1];
-    let b = *big.iter().find(|&&i| i != a && o.class_of[i as usize - 1] == class).expect("a second parcel of the crop");
+    // (the largest, whose cell is well inside the map: one at its edge is under the map's own controls)
+    let b = *big
+        .iter()
+        .filter(|&&i| i != a && o.class_of[i as usize - 1] == class)
+        .max_by_key(|&&i| o.cells[i as usize - 1])
+        .expect("a second parcel of the crop");
     let cell = |id| terraflux_app::objects_inspect::sample_cell(&o, id).expect("an object");
     let (row, col) = cell(a);
     click_cell(&mut h, row, col, egui::Modifiers::NONE);
@@ -108,10 +113,10 @@ fn the_inspector_draws_the_profile_of_the_object_its_samples_band_and_a_second_o
     assert!(d.values > 12 && d.values <= 24, "{} dates with a value", d.values);
     let name = o.classes[class as usize - 1].name.clone();
     assert_eq!(d.class.as_deref(), Some(name.as_str()));
-    assert_eq!(d.band, 7, "the seven samples of {name}");
+    assert_eq!(d.band, 12, "the twelve samples of {name}");
     // (the band is the median and the quartiles of the samples' series, by date)
     let samples = series_view::samples_of(h.state().session.as_ref().unwrap(), &o, &name);
-    assert_eq!(samples.len(), 7);
+    assert_eq!(samples.len(), 12);
     // ctrl+click another parcel: a second profile to compare
     let (row, col) = cell(b);
     click_cell(&mut h, row, col, egui::Modifiers::COMMAND);

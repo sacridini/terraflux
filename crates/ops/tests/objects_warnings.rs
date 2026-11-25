@@ -76,13 +76,16 @@ fn reflectance_in_ten_thousands_is_said() {
     assert!(!said(&w, "very different scales"), "{w:?}");
     let w = quadtree(stack(georeferenced(8, 8), vec![ramp(n, 0.01, 0.6)]));
     assert!(w.is_empty(), "{w:?}");
+    // (one layer alone, heights in metres or class codes, is not read as reflectance)
+    let w = quadtree(stack(georeferenced(8, 8), vec![ramp(n, 2.0, 30.0)]));
+    assert!(!said(&w, "divide it by 10 000"), "{w:?}");
 }
 
 #[test]
 fn objects_features_reads_the_image_too() {
     let grid = georeferenced(8, 8);
     let o = Objects::from_labels(grid.clone(), (1..=64).collect(), 64).unwrap();
-    let image = stack(grid, vec![ramp(64, 1000.0, 9000.0)]);
+    let image = stack(grid, vec![ramp(64, 1000.0, 9000.0), ramp(64, 2000.0, 8000.0)]);
     let (out, w) = run(
         "objects.features",
         vec![("objects", Value::Objects(Arc::new(o))), ("image", image)],

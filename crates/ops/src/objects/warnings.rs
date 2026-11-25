@@ -68,9 +68,10 @@ pub(super) fn image(
             ));
         }
     }
-    // most of the cells of most of the bands above 1.5: not a 0 to 1 reflectance
+    // most of the cells of most of the bands above 1.5: not a 0 to 1 reflectance (an image of bands: one layer
+    // alone is as often heights, an index or classes, which are not reflectance)
     let high = bands.iter().filter(|(_, s)| quantile(s, 0.5) > 1.5 && s[0] >= 0.0).count();
-    if 2 * high > bands.len() {
+    if bands.len() > 1 && 2 * high > bands.len() {
         ctx.warn(format!(
             "node {node:?}: the image looks like reflectance in 0 to 10 000 (most cells are above 1.5): if it is, \
              divide it by 10 000 (raster.calc) so that the thresholds and the indices mean what they should"

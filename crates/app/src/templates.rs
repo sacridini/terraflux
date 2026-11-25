@@ -4742,7 +4742,7 @@ description = "An image cut into objects of alike cells (multiresolution segment
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the ground truth of the image below."
 
 [[nodes]]
@@ -4811,13 +4811,13 @@ description = "Objects of an image classed with a height model, the way a lidar 
 [[nodes]]
 id = "ground"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 24, r = 12, patch_classes = 4, nlmr_compat = false, rescale = false, seed = 6 }
+params = { rows = 120, columns = 120, germs = 24, r = 12, patch_classes = 4, nlmr_compat = false, rescale = false, seed = 6, crs = "EPSG:32633" }
 note = "The ground cover drawn by chance: 1 water, 2 forest, 3 grassland, 4 cropland."
 
 [[nodes]]
 id = "footprints"
 op = "nlm.random_rectangular_cluster"
-params = { rows = 120, columns = 120, minl = 5, maxl = 12, seed = 7 }
+params = { rows = 120, columns = 120, minl = 5, maxl = 12, seed = 7, crs = "EPSG:32633" }
 note = "Rectangles of random values: the tallest of them are the buildings' footprints."
 
 [[nodes]]
@@ -4830,7 +4830,7 @@ note = "The scene's classes: the buildings (5, urban) on the ground, never on th
 [[nodes]]
 id = "relief"
 op = "nlm.gaussian_field"
-params = { rows = 120, columns = 120, range = 6, seed = 8 }
+params = { rows = 120, columns = 120, range = 6, seed = 8, crs = "EPSG:32633" }
 note = "A smooth field that makes the heights vary."
 
 [[nodes]]
@@ -4853,7 +4853,8 @@ data = { what = "a height model, the height above the ground on the image's grid
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "image.image" }
-note = "Objects from the image alone, at the scale ESP suggests."
+params = { scale = 2 }
+note = "Objects from the image alone, at scale 2, about the one ESP suggests for this image."
 
 [[nodes]]
 id = "features"
@@ -4899,7 +4900,7 @@ description = "Objects held to the parcels: the segmentation takes the parcels a
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the ground truth of the image below."
 
 [[nodes]]
@@ -4921,7 +4922,8 @@ note = "Nine square parcels over the image, numbered from 1 (in their place, a v
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "image.image", bounds = "parcels.zones" }
-note = "Objects by multiresolution segmentation, kept inside the parcels: an object that would grow over a boundary stops at it."
+params = { scale = 2 }
+note = "Objects by multiresolution segmentation at scale 2 (about the one ESP suggests for this image), kept inside the parcels: an object that would grow over a boundary stops at it."
 why = "A parcel is a unit of management: an object that spans two of them has the spectra of both and belongs to neither."
 
 [[nodes]]
@@ -4973,7 +4975,7 @@ description = "Single tree crowns from a canopy height model (nDSM): the canopy 
 [[nodes]]
 id = "relief"
 op = "nlm.gaussian_field"
-params = { rows = 120, columns = 120, range = 9, nugget = 0, seed = 12 }
+params = { rows = 120, columns = 120, range = 9, nugget = 0, seed = 12, crs = "EPSG:32633" }
 note = "A smooth field of bumps: where it is high there are crowns."
 
 [[nodes]]
@@ -5056,25 +5058,25 @@ description = "Water that is a river or a lake, built land that is a road or a b
 [[nodes]]
 id = "relief"
 op = "nlm.gaussian_field"
-params = { rows = 120, columns = 120, range = 20, nugget = 0, seed = 3 }
+params = { rows = 120, columns = 120, range = 20, nugget = 0, seed = 3, crs = "EPSG:32633" }
 note = "A smooth field that bends the river."
 
 [[nodes]]
 id = "slope"
 op = "nlm.planar_gradient"
-params = { rows = 120, columns = 120, direction = 90 }
+params = { rows = 120, columns = 120, direction = 90, crs = "EPSG:32633" }
 note = "A ramp across the map: where the bent ramp is 0.5 there is the river."
 
 [[nodes]]
 id = "slope2"
 op = "nlm.planar_gradient"
-params = { rows = 120, columns = 120, direction = 0 }
+params = { rows = 120, columns = 120, direction = 0, crs = "EPSG:32633" }
 note = "Another ramp, at a right angle: a straight road where it is 0.25."
 
 [[nodes]]
 id = "blobs"
 op = "nlm.gaussian_field"
-params = { rows = 120, columns = 120, range = 6, nugget = 0, seed = 9 }
+params = { rows = 120, columns = 120, range = 6, nugget = 0, seed = 9, crs = "EPSG:32633" }
 note = "Smooth bumps: the lakes where high, the buildings where low."
 
 [[nodes]]
@@ -5174,7 +5176,7 @@ description = "Water without samples: the NDWI, (green - nir) / (green + nir), i
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the ground truth of the image below."
 
 [[nodes]]
@@ -5241,7 +5243,7 @@ description = "The scale of the segmentation chosen by the data (unsupervised pa
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "A map of five classes drawn by chance: only the ground truth of the image below."
 
 [[nodes]]
@@ -6248,7 +6250,7 @@ const OBIA_SCENE: &str = r#"
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the ground truth of the image below."
 
 [[nodes]]
@@ -6263,15 +6265,20 @@ data = { what = "a multispectral image, a layer per band (named blue, green, red
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "image.image" }
-note = "Objects by multiresolution segmentation. Without `scale` it takes the first scale segment.scale suggests for the image (the `scale` output says which); raise it for larger objects, lower it for smaller ones."
+params = { scale = 2 }
+note = "Objects by multiresolution segmentation at scale 2, about the first scale segment.scale suggests for this image (leave `scale` out and the segmenter takes that one itself, and tells it in its `scale` output); raise it for larger objects, lower it for smaller ones. The samples below are points on these objects: another scale cuts other objects."
 why = "shape 0.1 and compactness 0.5 are eCognition's usual start; the scale is in the image's units, so the one found for the image is the safest."
 "#;
 
 /// The attributes the template's `objects.features` gives (not the id or the cells): what ml.pca reads in "Classify objects by principal components".
-const OBIA_PCA_COLUMNS: &str = "[\"mean_blue\", \"mean_green\", \"mean_red\", \"mean_nir\", \"mean_swir1\", \"mean_swir2\", \"sd_blue\", \"sd_green\", \"sd_red\", \"sd_nir\", \"sd_swir1\", \"sd_swir2\", \"min_blue\", \"min_green\", \"min_red\", \"min_nir\", \"min_swir1\", \"min_swir2\", \"max_blue\", \"max_green\", \"max_red\", \"max_nir\", \"max_swir1\", \"max_swir2\", \"ndvi\", \"ndwi\", \"area\", \"compactness\", \"glcm_homogeneity\"]";
+const OBIA_PCA_COLUMNS: &str = "[\"mean_blue\", \"mean_green\", \"mean_red\", \"mean_nir\", \"mean_swir1\", \"mean_swir2\", \"sd_blue\", \"sd_green\", \"sd_red\", \"sd_nir\", \"sd_swir1\", \"sd_swir2\", \"min_blue\", \"min_green\", \"min_red\", \"min_nir\", \"min_swir1\", \"min_swir2\", \"max_blue\", \"max_green\", \"max_red\", \"max_nir\", \"max_swir1\", \"max_swir2\", \"ndvi\", \"ndwi\"]";
+
+/// The attributes the forests of the object templates read: those of the basic set but mean_green, which moves with
+/// mean_red (r = 0.98) and would only be told as one of two almost equal.
+const OBIA_PREDICTORS: &str = "[\"mean_blue\", \"mean_red\", \"mean_nir\", \"mean_swir1\", \"mean_swir2\", \"sd_blue\", \"sd_green\", \"sd_red\", \"sd_nir\", \"sd_swir1\", \"sd_swir2\", \"ndvi\", \"area\", \"compactness\", \"glcm_homogeneity\"]";
 
 /// The points of the samples' table, `x`, `y` and the class of each (SAMPLE_ROWS).
-const OBIA_SAMPLE_ROWS: &str = r#"[[9.5, 104.5, "water"], [85.5, 46.5, "water"], [5.5, 38.5, "water"], [9.5, 86.5, "water"], [68.5, 112.5, "water"], [84.5, 78.5, "water"], [10.5, 18.5, "water"], [83.5, 62.5, "water"], [10.5, 3.5, "forest"], [98.5, 30.5, "forest"], [29.5, 97.5, "forest"], [100.5, 19.5, "forest"], [89.5, 22.5, "forest"], [23.5, 110.5, "forest"], [39.5, 91.5, "forest"], [38.5, 103.5, "forest"], [65.5, 90.5, "grassland"], [92.5, 100.5, "grassland"], [87.5, 114.5, "grassland"], [29.5, 20.5, "grassland"], [106.5, 111.5, "grassland"], [94.5, 7.5, "grassland"], [115.5, 69.5, "cropland"], [96.5, 55.5, "cropland"], [114.5, 8.5, "cropland"], [114.5, 85.5, "cropland"], [104.5, 75.5, "cropland"], [74.5, 7.5, "cropland"], [76.5, 16.5, "cropland"], [49.5, 110.5, "cropland"], [71.5, 60.5, "urban"], [60.5, 70.5, "urban"], [26.5, 43.5, "urban"], [59.5, 44.5, "urban"], [55.5, 58.5, "urban"], [20.5, 35.5, "urban"], [64.5, 61.5, "urban"], [50.5, 31.5, "urban"]]"#;
+const OBIA_SAMPLE_ROWS: &str = r#"[[8.5, 105.5, "water"], [84.5, 44.5, "water"], [9.5, 17.5, "water"], [68.5, 113.5, "water"], [85.5, 77.5, "water"], [4.5, 38.5, "water"], [9.5, 86.5, "water"], [82.5, 61.5, "water"], [77.5, 100.5, "water"], [22.5, 13.5, "water"], [20.5, 92.5, "water"], [66.5, 102.5, "water"], [99.5, 23.5, "forest"], [23.5, 111.5, "forest"], [10.5, 3.5, "forest"], [42.5, 79.5, "forest"], [67.5, 26.5, "forest"], [111.5, 46.5, "forest"], [38.5, 102.5, "forest"], [25.5, 75.5, "forest"], [82.5, 26.5, "forest"], [35.5, 114.5, "forest"], [39.5, 91.5, "forest"], [29.5, 96.5, "forest"], [107.5, 109.5, "grassland"], [37.5, 5.5, "grassland"], [51.5, 96.5, "grassland"], [94.5, 6.5, "grassland"], [87.5, 115.5, "grassland"], [38.5, 24.5, "grassland"], [90.5, 100.5, "grassland"], [64.5, 91.5, "grassland"], [44.5, 15.5, "grassland"], [60.5, 101.5, "grassland"], [29.5, 20.5, "grassland"], [50.5, 111.5, "cropland"], [115.5, 10.5, "cropland"], [115.5, 85.5, "cropland"], [74.5, 6.5, "cropland"], [97.5, 55.5, "cropland"], [96.5, 83.5, "cropland"], [116.5, 68.5, "cropland"], [83.5, 19.5, "cropland"], [114.5, 25.5, "cropland"], [105.5, 74.5, "cropland"], [104.5, 91.5, "cropland"], [96.5, 66.5, "cropland"], [56.5, 71.5, "urban"], [4.5, 71.5, "urban"], [51.5, 30.5, "urban"], [21.5, 35.5, "urban"], [36.5, 52.5, "urban"], [68.5, 57.5, "urban"], [70.5, 79.5, "urban"], [59.5, 44.5, "urban"], [10.5, 58.5, "urban"], [55.5, 58.5, "urban"], [24.5, 55.5, "urban"], [17.5, 68.5, "urban"]]"#;
 
 /// "Classify an image by clicking samples".
 fn obia_samples() -> Model {
@@ -6279,7 +6286,7 @@ fn obia_samples() -> Model {
         r#"
 format = "terraflux/1"
 name = "Classify an image by clicking samples"
-description = "An image classified by examples, the way a user would in eCognition or QGIS: the image is cut into objects (multiresolution segmentation at the scale ESP suggests), their attributes are measured, a few objects of each class are named by points (their cell picks the object), a random forest learns the classes from them and gives every object a class and the probability of each class. Its accuracy is cross-validated by place (objects.folds keeps the objects that touch in one fold) and, to compare, by folds drawn at random: the second is the higher, because a test object has its twin in the training. The objects as polygons and as a map. Replace the image with yours (Use my data) and the points with yours: in the Viewer, click objects with the class's name."
+description = "An image classified by examples, the way a user would in eCognition or QGIS: the image is cut into objects (multiresolution segmentation at scale 2, about the one ESP suggests for this image), their attributes are measured, a few objects of each class are named by points (their cell picks the object), a random forest learns the classes from them and gives every object a class and the probability of each class. Its accuracy is cross-validated by place (objects.folds keeps the objects of a square of 30 m in one fold) and, to compare, by folds drawn at random: the second is the higher, because a test object has its twin in the training. The objects as polygons and as a map. Replace the image with yours (Use my data) and the points with yours: in the Viewer, click objects with the class's name."
 "#,
     );
     text.push_str(OBIA_SCENE);
@@ -6295,7 +6302,7 @@ why = "These are the columns the forest learns from; the classification needs th
 [[nodes]]
 id = "sample_table"
 op = "table.of"
-note = "The samples: a point (x and y in the image's coordinates) on an object of each class, with the class's name. Eight per class, over different objects. In its place, the points you clicked in the Viewer (or a vector.read of points with a `class` column)."
+note = "The samples: a point (x and y in the image's coordinates) on an object of each class, with the class's name. Twelve per class (eleven of grassland, the class with the fewest objects), over different objects. In its place, the points you clicked in the Viewer (or a vector.read of points with a `class` column)."
 why = "A point picks the object under it: the more different the objects of a class you name, the better the forest knows the class."
 
 [nodes.params]
@@ -6319,23 +6326,23 @@ why = "Classes are numbered by their names in alphabetical order, so the model's
 id = "folds"
 op = "objects.folds"
 inputs = { objects = "training.objects", samples = "training.table" }
-params = { method = "neighbours", k = 5, seed = 1 }
-note = "The samples dealt into five folds for a cross-validation, objects that touch always in the same fold (the samples' table with a column fold)."
-why = "Neighbouring objects look alike: with folds drawn at random a test object has a twin in the training and the accuracy comes out too high (Ploton et al. 2020; Meyer and Pebesma 2022). Keeping the neighbours in one fold tests the forest on objects it has not seen anything like."
+params = { method = "blocks", size = 30, k = 4, seed = 1 }
+note = "The samples dealt into four folds for a cross-validation by place: the objects are put in squares of 30 m, and the squares dealt to the folds, so the objects of one square are always in the same fold (the samples' table with a column fold). With so many samples the objects that touch make a few groups only, and method neighbours, which keeps them in one fold, needs fewer samples or a smaller k."
+why = "Neighbouring objects look alike: with folds drawn at random a test object has a twin in the training and the accuracy comes out too high (Ploton et al. 2020; Meyer and Pebesma 2022). Keeping the objects of a place in one fold tests the forest on objects it has not seen anything like (Roberts et al. 2017)."
 
 [[nodes]]
 id = "model"
 op = "ml.fit"
 inputs = { table = "folds.table" }
-params = { column = "class", fold = "fold", method = "random_forest", seed = 1 }
-note = "A random forest on the samples' table (the target is the column class, the column fold only names the test folds, every other column a predictor). `cv` is its accuracy with each fold left out, by place: the row all is the figure to quote."
+params = { column = "class", columns = OBIA_PREDICTORS, fold = "fold", method = "random_forest", seed = 1 }
+note = "A random forest on the samples' table (the target is the column class, the column fold only names the test folds, `columns` the predictors: the attributes but mean_green, which moves with mean_red, r = 0.98). `cv` is its accuracy with each fold left out, by place: the row all is the figure to quote."
 why = "The forest works without tuning and says which attributes mattered (the importance output). The model itself is fitted on every sample."
 
 [[nodes]]
 id = "random_model"
 op = "ml.fit"
 inputs = { table = "training.table" }
-params = { column = "class", cv = 5, method = "random_forest", seed = 1 }
+params = { column = "class", columns = OBIA_PREDICTORS, cv = 4, method = "random_forest", seed = 1 }
 note = "The same forest cross-validated with folds drawn at random, for comparison: compare the row all of its `cv` with the one of `model`. The accuracy by random folds is the higher, because the twins of the test objects are in the training; the difference is what the neighbours lend."
 why = "A map's accuracy matters where the model is used, on objects it has not met: that is what the folds by place measure."
 
@@ -6366,7 +6373,8 @@ inputs = { value = "classify.map" }
 params = { title = "The classes of the objects" }
 "#,
     );
-    Model::from_toml(&text.replace("SAMPLE_ROWS", OBIA_SAMPLE_ROWS)).expect("a template is a model")
+    Model::from_toml(&text.replace("SAMPLE_ROWS", OBIA_SAMPLE_ROWS).replace("OBIA_PREDICTORS", OBIA_PREDICTORS))
+        .expect("a template is a model")
 }
 
 /// "Unsupervised classes of objects".
@@ -6375,7 +6383,7 @@ fn obia_clusters() -> Model {
         r#"
 format = "terraflux/1"
 name = "Unsupervised classes of objects"
-description = "Objects classified without samples: the image is cut into objects (multiresolution segmentation at the scale ESP suggests), their attributes are measured, and k-means groups the objects whose attributes are alike (the table of the objects is the table k-means reads; the number of clusters is the best silhouette from 2 to 10). objects.classify gives every object its cluster, 'cluster 1' and on, numbered by the first principal component of their centres, the same from one run to the next. The clusters are groups of alike objects, not classes: look at their centres and at the map, and name them. Replace the image with yours (Use my data); a self-organizing map (ml.som with clusters) takes the place of k-means as it is."
+description = "Objects classified without samples: the image is cut into objects (multiresolution segmentation at scale 2, about the one ESP suggests for this image), their attributes are measured, and k-means groups the objects whose attributes are alike (the table of the objects is the table k-means reads; the number of clusters is the best silhouette from 2 to 10). objects.classify gives every object its cluster, 'cluster 1' and on, numbered by the first principal component of their centres, the same from one run to the next. The clusters are groups of alike objects, not classes: look at their centres and at the map, and name them. Replace the image with yours (Use my data); a self-organizing map (ml.som with clusters) takes the place of k-means as it is."
 "#,
     );
     text.push_str(OBIA_SCENE);
@@ -6434,25 +6442,21 @@ params = { title = "The choice of k (inertia and silhouette)" }
     Model::from_toml(&text).expect("a template is a model")
 }
 
-/// The samples of the template's first scene: those of the five classes without the urban ones (the first scene has
-/// none).
-fn obia_first_samples() -> String {
-    let rows: Vec<serde_json::Value> = serde_json::from_str(OBIA_SAMPLE_ROWS).expect("the samples are a list");
-    let kept: Vec<&serde_json::Value> = rows.iter().filter(|r| r[2] != "urban").collect();
-    serde_json::to_string(&kept).expect("a list is text")
-}
+/// The points of the samples of the second-scene template's first scene (four classes: urban is cropland there), on
+/// the objects of its segmentation at scale 1.5 (SAMPLE_ROWS).
+const OBIA_FIRST_SAMPLE_ROWS: &str = r#"[[83.5, 45.5, "water"], [5.5, 113.5, "water"], [3.5, 14.5, "water"], [71.5, 109.5, "water"], [82.5, 78.5, "water"], [8.5, 86.5, "water"], [4.5, 40.5, "water"], [20.5, 12.5, "water"], [81.5, 61.5, "water"], [80.5, 96.5, "water"], [16.5, 98.5, "water"], [95.5, 38.5, "water"], [71.5, 25.5, "forest"], [20.5, 115.5, "forest"], [4.5, 3.5, "forest"], [113.5, 57.5, "forest"], [34.5, 72.5, "forest"], [102.5, 17.5, "forest"], [36.5, 98.5, "forest"], [24.5, 3.5, "forest"], [114.5, 38.5, "forest"], [86.5, 26.5, "forest"], [27.5, 86.5, "forest"], [32.5, 111.5, "forest"], [55.5, 6.5, "grassland"], [116.5, 114.5, "grassland"], [52.5, 85.5, "grassland"], [110.5, 2.5, "grassland"], [29.5, 30.5, "grassland"], [89.5, 93.5, "grassland"], [89.5, 114.5, "grassland"], [92.5, 11.5, "grassland"], [57.5, 102.5, "grassland"], [33.5, 14.5, "grassland"], [100.5, 105.5, "grassland"], [64.5, 88.5, "grassland"], [67.5, 71.5, "cropland"], [116.5, 8.5, "cropland"], [5.5, 57.5, "cropland"], [46.5, 115.5, "cropland"], [115.5, 64.5, "cropland"], [48.5, 29.5, "cropland"], [81.5, 17.5, "cropland"], [104.5, 93.5, "cropland"], [40.5, 66.5, "cropland"], [91.5, 58.5, "cropland"], [18.5, 36.5, "cropland"], [65.5, 43.5, "cropland"]]"#;
 
 /// "Classify a second scene with the model of the first".
 fn obia_second_scene() -> Model {
     let text = r##"
 format = "terraflux/1"
 name = "Classify a second scene with the model of the first"
-description = "A model carried to another scene. The first scene has four classes (water, forest, grassland, cropland): a random forest learns them from a few clicked samples, and the model is written to a file (ml.write) and read back (ml.read), as it would be to classify a scene in another model. The second scene is the same ground with a fifth class, urban, that the first never had, and it is brighter (another date or sensor). objects.classify on it warns twice: the scene is brighter than the training's, and many objects lie outside what the model saw (MESS), which it marks in the columns mess and novel (the Viewer hatches them). raster.match_histogram brings the second scene to the first's histogram over the area both show (the mask) and the objects are classed again: the warning of the shift is gone, the objects that stay novel are mostly the urban ones, and the other classes are classed much better than before. Matching histograms does not make a class the model never learned: it only shows it."
+description = "A model carried to another scene. The first scene has four classes (water, forest, grassland, cropland): a random forest learns them from a few clicked samples, and the model is written to a file (ml.write) and read back (ml.read), as it would be to classify a scene in another model. The second scene is the same ground with a fifth class, urban, that the first never had, and it is brighter (another date or sensor). objects.classify on it warns twice: the scene is brighter than the training's, and many objects lie outside what the model saw (MESS), which it marks in the columns mess and novel (the Viewer hatches them). raster.match_histogram brings the second scene to the first's histogram over the area both show (the mask) and the objects are classed again: the warning of the shift is gone, and the objects that stay novel, which it still tells, are mostly the urban ones, and the other classes are classed much better than before. Matching histograms does not make a class the model never learned: it only shows it."
 
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): the ground of the second scene, and the truth to compare with."
 
 [[nodes]]
@@ -6475,8 +6479,8 @@ data = { what = "the image the model is trained on, a layer per band (named blue
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "first.image" }
-params = { scale = 2.5 }
-note = "The objects of the first scene."
+params = { scale = 1.5 }
+note = "The objects of the first scene, at scale 1.5: a finer cut than the other templates', so that the class with the fewest objects, grassland, has ten or more to give samples."
 why = "The same scale and settings must make the objects of the second scene: the attributes of an object depend on how it was cut."
 
 [[nodes]]
@@ -6510,8 +6514,8 @@ note = "The objects under the points, with their attributes: the table the fores
 id = "fit"
 op = "ml.fit"
 inputs = { table = "training.table" }
-params = { column = "class", columns = ["mean_blue", "mean_green", "mean_red", "mean_nir", "mean_swir1", "mean_swir2", "ndvi"], method = "random_forest", seed = 1 }
-note = "A random forest on the samples' table, reading the mean of each band and NDVI (`columns`: the shape and the texture of an object do not carry from one scene to another as the colours do). The model keeps, besides its trees, what it was trained on: the range, the quantiles, the mean and the deviation of every attribute, and the training rows, which is what tells a second scene what lies outside."
+params = { column = "class", columns = ["mean_blue", "mean_red", "mean_nir", "mean_swir1", "mean_swir2", "ndvi"], method = "random_forest", seed = 1 }
+note = "A random forest on the samples' table, reading the mean of the bands and NDVI (`columns`: the shape and the texture of an object do not carry from one scene to another as the colours do; the green is left out, it moves with the red, r = 0.98, and adds nothing). The model keeps, besides its trees, what it was trained on: the range, the quantiles, the mean and the deviation of every attribute, and the training rows, which is what tells a second scene what lies outside."
 why = "A model is only sure of what it has seen: novelty (MESS) measures how far an object's attributes lie from the training's."
 refs = ["Elith et al. 2010", "Mesgaran et al. 2014"]
 
@@ -6542,14 +6546,14 @@ data = { what = "the second image, with the same bands as the first", kind = "st
 id = "second"
 op = "raster.calc"
 inputs = { s = "second_raw.image" }
-params = { expression = "out image = s * 1.4 + 0.03" }
+params = { expression = "out image = s * 1.6 + 0.05" }
 note = "The second scene brighter: another date, sensor or processing, as a gain and an offset of the light."
 
 [[nodes]]
 id = "second_segments"
 op = "segment.multiresolution"
 inputs = { image = "second.image" }
-params = { scale = 2.5 }
+params = { scale = 1.5 }
 note = "The objects of the second scene, at the first scene's scale."
 
 [[nodes]]
@@ -6583,7 +6587,7 @@ refs = ["van der Walt et al. 2014"]
 id = "matched_segments"
 op = "segment.multiresolution"
 inputs = { image = "matched.raster" }
-params = { scale = 2.5 }
+params = { scale = 1.5 }
 note = "The objects of the matched scene."
 
 [[nodes]]
@@ -6596,7 +6600,7 @@ note = "Their attributes."
 id = "classify"
 op = "objects.classify"
 inputs = { objects = "matched_features.objects", model = "model.model", samples = "training.table" }
-note = "The same model on the matched scene: no warning of a shift; the objects that stay novel are mostly those of the class the model never saw (all of them, here, against a few of the others)."
+note = "The same model on the matched scene: no warning of a shift; the objects that stay novel, which it still tells, are those of the class the model never saw (all of them, here, against a few of the others)."
 
 [[nodes]]
 id = "polygons"
@@ -6624,7 +6628,7 @@ op = "view.plot"
 inputs = { value = "classify.map" }
 params = { title = "The second scene after raster.match_histogram" }
 "##;
-    Model::from_toml(&text.replace("SAMPLE_ROWS", &obia_first_samples())).expect("a template is a model")
+    Model::from_toml(&text.replace("SAMPLE_ROWS", OBIA_FIRST_SAMPLE_ROWS)).expect("a template is a model")
 }
 
 /// "Classify objects by principal components of their attributes".
@@ -6633,7 +6637,7 @@ fn obia_components() -> Model {
         r#"
 format = "terraflux/1"
 name = "Classify objects by principal components of their attributes"
-description = "Objects classified by the principal components of their attributes: the image is cut into objects (multiresolution segmentation at the scale ESP suggests), many attributes are measured (the mean, the deviation, the minimum and the maximum of each band, NDVI and the shape and texture), ml.pca reduces them to four components that repeat nothing, objects.join puts the components on the objects, a few objects of each class are named by points, a random forest learns the classes from the components alone, and every object takes a class and the probability of each. Replace the image with yours (Use my data) and the points with yours: in the Viewer, click objects with the class's name."
+description = "Objects classified by the principal components of their attributes: the image is cut into objects (multiresolution segmentation at scale 2, about the one ESP suggests for this image), many attributes are measured (the mean, the deviation, the minimum and the maximum of each band, NDVI and NDWI), ml.pca reduces them to four components that repeat nothing, objects.join puts the components on the objects, a few objects of each class are named by points, a random forest learns the classes from the components alone, and every object takes a class and the probability of each. Replace the image with yours (Use my data) and the points with yours: in the Viewer, click objects with the class's name."
 "#,
     );
     text.push_str(OBIA_SCENE);
@@ -6643,8 +6647,8 @@ description = "Objects classified by the principal components of their attribute
 id = "features"
 op = "objects.features"
 inputs = { objects = "segments.objects", image = "image.image" }
-params = { features = ["mean", "sd", "min", "max", "ndvi", "ndwi", "area", "compactness", "homogeneity"] }
-note = "Many attributes of each object: for each band the mean, the standard deviation, the minimum and the maximum, NDVI and NDWI, the area, the compactness and the homogeneity of the texture."
+params = { features = ["mean", "sd", "min", "max", "ndvi", "ndwi"] }
+note = "Many attributes of each object, all of them spectral: for each band the mean, the standard deviation, the minimum and the maximum, and NDVI and NDWI."
 why = "Most of them say the same thing (the bands move together), which is what a reduction is for."
 
 [[nodes]]
@@ -6652,7 +6656,7 @@ id = "pca"
 op = "ml.pca"
 inputs = { table = "features.table" }
 params = { columns = PCA_COLUMNS, components = 4 }
-note = "The principal components of the objects' attributes (`columns` names them: the table also has the id, the cells and the area, which are not attributes of the ground), each attribute divided by its standard deviation first. Four are kept: look at the explained output for the variance they hold, and raise `components` (a whole number) if it is too little, or give a share (0.95) to keep that much."
+note = "The principal components of the objects' attributes (`columns` names them: the table also has the id and the cells, which are not attributes of the ground), each attribute divided by its standard deviation first. Four are kept: look at the explained output for the variance they hold, and raise `components` (a whole number) if it is too little, or give a share (0.95) to keep that much."
 why = "The classes of a land cover separate along a few directions of the attributes: the components are not correlated, so the forest does not split its choice among attributes that repeat each other. Four is fixed, not a share of the variance, so the columns the forest reads (pc1 to pc4) are the same in every run."
 refs = ["Pearson 1901", "Hotelling 1933"]
 
@@ -6667,7 +6671,7 @@ why = "The model reads the objects' attributes by name; without this step the co
 [[nodes]]
 id = "sample_table"
 op = "table.of"
-note = "The samples: a point (x and y in the image's coordinates) on an object of each class, with the class's name. Eight per class, over different objects. In its place, the points you clicked in the Viewer (or a vector.read of points with a `class` column)."
+note = "The samples: a point (x and y in the image's coordinates) on an object of each class, with the class's name. Twelve per class (eleven of grassland, the class with the fewest objects), over different objects. In its place, the points you clicked in the Viewer (or a vector.read of points with a `class` column)."
 why = "A point picks the object under it: the more different the objects of a class you name, the better the forest knows the class."
 
 [nodes.params]
@@ -6743,7 +6747,7 @@ description = "The scale of a segmentation chosen by objects drawn as a referenc
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "A map of five classes drawn by chance in patches: the regions the image is made of, and so the truth of what a segmentation should find."
 
 [[nodes]]
@@ -6810,7 +6814,7 @@ fn crop_layer(doy: u32) -> String {
 }
 
 /// The points of the samples of "Crops by their seasons": `x`, `y` and the crop of each (SAMPLE_ROWS).
-const CROP_SAMPLE_ROWS: &str = r#"[[11.5, 91.5, "soybean"], [94.5, 95.5, "soybean"], [82.5, 87.5, "soybean"], [90.5, 57.5, "soybean"], [16.5, 54.5, "soybean"], [17.5, 43.5, "soybean"], [59.5, 29.5, "soybean"], [57.5, 92.5, "maize"], [13.5, 81.5, "maize"], [35.5, 74.5, "maize"], [65.5, 58.5, "maize"], [69.5, 42.5, "maize"], [81.5, 39.5, "maize"], [68.5, 24.5, "maize"], [25.5, 77.5, "pasture"], [4.5, 91.5, "pasture"], [74.5, 75.5, "pasture"], [97.5, 68.5, "pasture"], [82.5, 53.5, "pasture"], [2.5, 40.5, "pasture"], [20.5, 18.5, "pasture"], [5.5, 98.5, "forest"], [88.5, 96.5, "forest"], [95.5, 78.5, "forest"], [43.5, 66.5, "forest"], [93.5, 51.5, "forest"], [75.5, 39.5, "forest"], [93.5, 19.5, "forest"]]"#;
+const CROP_SAMPLE_ROWS: &str = r#"[[75.5, 57.5, "soybean"], [2.5, 3.5, "soybean"], [7.5, 91.5, "soybean"], [58.5, 1.5, "soybean"], [21.5, 45.5, "soybean"], [96.5, 93.5, "soybean"], [50.5, 88.5, "soybean"], [85.5, 26.5, "soybean"], [62.5, 24.5, "soybean"], [31.5, 75.5, "soybean"], [89.5, 6.5, "soybean"], [55.5, 55.5, "soybean"], [18.5, 89.5, "maize"], [94.5, 5.5, "maize"], [14.5, 4.5, "maize"], [94.5, 79.5, "maize"], [58.5, 37.5, "maize"], [19.5, 51.5, "maize"], [91.5, 38.5, "maize"], [52.5, 8.5, "maize"], [68.5, 91.5, "maize"], [66.5, 60.5, "maize"], [37.5, 28.5, "maize"], [44.5, 54.5, "maize"], [71.5, 78.5, "pasture"], [7.5, 29.5, "pasture"], [82.5, 2.5, "pasture"], [10.5, 78.5, "pasture"], [45.5, 27.5, "pasture"], [43.5, 63.5, "pasture"], [93.5, 31.5, "pasture"], [33.5, 97.5, "pasture"], [59.5, 96.5, "pasture"], [66.5, 31.5, "pasture"], [29.5, 38.5, "pasture"], [5.5, 47.5, "pasture"], [29.5, 15.5, "forest"], [82.5, 97.5, "forest"], [6.5, 97.5, "forest"], [98.5, 7.5, "forest"], [67.5, 53.5, "forest"], [9.5, 52.5, "forest"], [43.5, 79.5, "forest"], [96.5, 45.5, "forest"], [57.5, 7.5, "forest"], [43.5, 41.5, "forest"], [94.5, 75.5, "forest"], [7.5, 75.5, "forest"]]"#;
 
 /// The nodes of "Crops by their seasons" that draw the year: the crops of the parcels, a field that shifts their
 /// season, noise, and the clouds, and a layer of NDVI for each date.
@@ -6835,25 +6839,25 @@ fn crop_scene() -> String {
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = {{ rows = 100, columns = 100, germs = 300, r = 5, patch_classes = 4, nlmr_compat = false, rescale = false, seed = 6 }}
+params = {{ rows = 100, columns = 100, germs = 230, r = 5, patch_classes = 4, nlmr_compat = false, rescale = false, seed = 6, crs = "EPSG:32633" }}
 note = "The parcels of four crops drawn by chance (1 soybean, 2 maize, 3 pasture, 4 forest): the truth of the scene below, only to draw the NDVI and to check the result."
 
 [[nodes]]
 id = "shift_field"
 op = "nlm.gaussian_field"
-params = {{ rows = 100, columns = 100, range = 20, seed = 8 }}
+params = {{ rows = 100, columns = 100, range = 20, seed = 8, crs = "EPSG:32633" }}
 note = "A smooth field that moves the season of a place by up to 12 days either way: the same crop is not sown on the same day everywhere."
 
 [[nodes]]
 id = "noise"
 op = "nlm.random"
-params = {{ rows = 100, columns = 100, seed = 3 }}
+params = {{ rows = 100, columns = 100, seed = 3, crs = "EPSG:32633" }}
 note = "The noise of each cell, turned into a different noise on each date."
 
 [[nodes]]
 id = "cloud_field"
 op = "nlm.gaussian_field"
-params = {{ rows = 100, columns = 100, range = 12, seed = 11 }}
+params = {{ rows = 100, columns = 100, range = 12, seed = 11, crs = "EPSG:32633" }}
 note = "A smooth field the clouds are cut from: on each date the places where it is high, shifted by the date, are under cloud (20 % of the cells)."
 
 [[nodes]]
@@ -6913,7 +6917,7 @@ refs = ["Jonsson and Eklundh 2004", "Savitzky and Golay 1964", "Jakubauskas et a
 [[nodes]]
 id = "sample_table"
 op = "table.of"
-note = "The samples: a point (x and y in the image's coordinates) on a parcel of each crop, with the crop's name. Eight a crop, on different parcels. In its place, the points you clicked in the Viewer."
+note = "The samples: a point (x and y in the image's coordinates) on a parcel of each crop, with the crop's name. Twelve a crop, on different parcels. In its place, the points you clicked in the Viewer."
 why = "A point picks the parcel under it: name parcels of different looks, and enough of them."
 
 [nodes.params]
@@ -6936,7 +6940,7 @@ note = "The parcels under the points, with their columns: the table the forest l
 id = "model"
 op = "ml.fit"
 inputs = { table = "training.table" }
-params = { column = "class", columns = ["ndvi_max", "ndvi_min", "ndvi_amplitude", "ndvi_peak_doy", "ndvi_integral", "ndvi_hmean", "ndvi_amp1", "ndvi_phase1", "ndvi_amp2", "ndvi_phase2", "ndvi_rmse", "cells"], method = "random_forest", seed = 1 }
+params = { column = "class", columns = ["ndvi_max", "ndvi_min", "ndvi_peak_doy", "ndvi_amp1", "ndvi_phase2", "cells"], method = "random_forest", seed = 1 }
 note = "A random forest on the season and the harmonics (`columns` names them; the parcel's size is there to show it matters little). The start and the end of a season are left out: a flat series, the forest's, has none."
 why = "Columns with a missing value drop the parcel from the fit: the ones named have a value for every parcel. The importance output tells which columns the crops differ by."
 
@@ -7086,6 +7090,13 @@ note = "The points as features, with the class as an attribute."
     ] {
         add_class(&mut m, &[], &r, &c).unwrap_or_else(|e| panic!("{}: {e}", c.name));
     }
+    // (the forests read the attributes but mean_green, which moves with mean_red)
+    let predictors: serde_json::Value = serde_json::from_str(OBIA_PREDICTORS).expect("a list of names");
+    for fit in m.nodes.iter_mut().filter_map(|n| n.body.as_mut()).flat_map(|b| b.nodes.iter_mut()) {
+        if fit.op == "ml.fit" {
+            fit.params.insert("columns".into(), predictors.clone());
+        }
+    }
     let why = |m: &mut Model, id: &str, note: &str, why: &str| {
         let n = m.nodes.iter_mut().find(|n| n.id == id).expect("a class of the tree");
         n.note = Some(note.into());
@@ -7165,13 +7176,13 @@ description = "Land cover change from two images, by objects: each date is cut i
 [[nodes]]
 id = "land_2000"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "The first date's classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): only the truth of the image below."
 
 [[nodes]]
 id = "patches"
 op = "nlm.gaussian_field"
-params = { rows = 120, columns = 120, range = 25, seed = 9 }
+params = { rows = 120, columns = 120, range = 25, seed = 9, crs = "EPSG:32633" }
 note = "Where the land changes: the highest of the field."
 
 [[nodes]]
@@ -7201,13 +7212,15 @@ data = { what = "the second date's multispectral image, on the first's grid, the
 id = "segments_2000"
 op = "segment.multiresolution"
 inputs = { image = "image_2000.image" }
-note = "Objects of the first date at the scale ESP suggests."
+params = { scale = 2 }
+note = "Objects of the first date at scale 2, about the one ESP suggests for this image."
 
 [[nodes]]
 id = "segments_2020"
 op = "segment.multiresolution"
 inputs = { image = "image_2020.image" }
-note = "Objects of the second date: its own segmentation (the two may differ; objects.temporal links them cell by cell)."
+params = { scale = 2 }
+note = "Objects of the second date: its own segmentation, at the same scale (the two may differ; objects.temporal links them cell by cell)."
 
 [[nodes]]
 id = "features_2000"
@@ -7506,15 +7519,15 @@ mod tests {
         assert_eq!(o.classes.len(), 5);
         let Some(Value::Table(c)) = out.get("training.counts") else { panic!("no counts") };
         assert!(c.rows.iter().all(|r| r[1] >= 5.0), "{:?}", c.rows);
-        // the cross-validation by place and by random folds: both are computed, and keeping the neighbours together does
-        // not give a higher accuracy than random folds beyond the noise of 40 samples (a fold is 8 of them)
+        // the cross-validation by place and by random folds: both are computed (four folds and the row all), and folds
+        // by place do not give a higher accuracy than random folds beyond the noise of 59 samples
         let (Some(Value::Table(spatial)), Some(Value::Table(random))) = (out.get("model.cv"), out.get("random_model.cv"))
         else {
             panic!("no cv tables")
         };
-        assert_eq!((spatial.rows.len(), random.rows.len()), (6, 6));
+        assert_eq!((spatial.rows.len(), random.rows.len()), (5, 5));
         assert_eq!(spatial.labels["fold"].last().map(String::as_str), Some("all"));
-        let (by_place, by_chance) = (spatial.rows[5][2], random.rows[5][2]);
+        let (by_place, by_chance) = (spatial.rows[4][2], random.rows[4][2]);
         println!("samples: accuracy {acc:.4}; cross-validated by place {by_place:.3}, by random folds {by_chance:.3}");
         assert!((0.0..=1.0).contains(&by_place) && (0.0..=1.0).contains(&by_chance));
         assert!(by_place <= by_chance + 0.15, "by place {by_place}, by chance {by_chance}");
@@ -8357,6 +8370,108 @@ mod tests {
         assert!((lo - 1.0).abs() < 1e-9 && (hi - 100.0).abs() < 1e-9, "{lo} to {hi}");
         let Some(Value::Map(c)) = out.get("current.current") else { panic!("no current") };
         assert!(c.data.iter().any(|v| v.is_finite() && *v > 0.0));
+    }
+
+    /// A template opened as the application opens it (`Session::from_model`: the graph's checks and the data's
+    /// findings), then run whole: what the Problems pane would count, as (errors, warnings) with their texts.
+    fn opened(t: &Template, dir: &std::path::Path) -> (Vec<String>, Vec<String>) {
+        use terraflux_exec::lint::Level;
+        use terraflux_graph::Severity;
+        let mut m = t.model();
+        // (the files the template writes go to a folder of the test, not to the working directory)
+        for n in m.nodes.iter_mut().filter(|n| ["vector.write", "ml.write", "ml.read"].contains(&n.op.as_str())) {
+            if let Some(p) = n.params.get("path").and_then(|p| p.as_str()).map(str::to_string) {
+                n.params.insert("path".into(), dir.join(p).to_string_lossy().replace('\\', "/").into());
+            }
+        }
+        let mut s = crate::app::Session::from_model(m).expect("a template opens");
+        s.wait();
+        let (mut errors, mut warnings) = (Vec::new(), Vec::new());
+        s.start(Box::new(|| {}));
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        while s.running() && std::time::Instant::now() < until {
+            s.poll();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!s.running(), "{}: the run did not end", t.name);
+        if let Some(e) = &s.error {
+            errors.push(format!("run: {e}"));
+        }
+        if let Some(e) = &s.load_error {
+            errors.push(format!("data: {e}"));
+        }
+        for i in s.shown_issues() {
+            let line = format!("{}: {}", i.at, i.message);
+            if i.severity == Severity::Error { errors.push(line) } else { warnings.push(line) }
+        }
+        for f in &s.findings {
+            let line = format!("{}: {}", f.at, f.message);
+            match f.level {
+                Level::Error => errors.push(line),
+                Level::Warning => warnings.push(line),
+                _ => {}
+            }
+        }
+        warnings.extend(s.warnings.iter().map(|w| format!("run: {w}")));
+        for a in s.advice().iter().filter(|a| a.level == crate::advice::Level::Warning) {
+            warnings.push(format!("{}: {}", a.at.join(", "), a.message));
+        }
+        // (the count the pane shows is the one made here)
+        assert_eq!(crate::problems_view::counts(&s), (errors.len(), warnings.len()), "{}", t.name);
+        (errors, warnings)
+    }
+
+    /// The templates of the group Objects (OBIA) open with no error and with at most the warnings that teach
+    /// something there (the number each may keep): a template just opened should not look broken. The warnings
+    /// are printed (`-- --nocapture`).
+    #[test]
+    fn the_object_templates_open_with_few_warnings() {
+        let kept: [(&str, usize); 16] = [
+            // (the folds drawn at random, told on purpose: its accuracy is the higher)
+            ("Classify an image by clicking samples", 1),
+            ("Classify an image by rules", 0),
+            ("Each class its own way", 0),
+            // (no `scale` given: the template shows the scale the image suggests)
+            ("Segment an image into polygons", 1),
+            ("Land cover change by objects", 0),
+            ("Trees and buildings from a height model", 0),
+            ("Classes by parcel", 0),
+            ("Separate tree crowns", 0),
+            ("Roads and rivers by the skeleton", 0),
+            // (the k the silhouette chose, at the end of the range)
+            ("Unsupervised classes of objects", 1),
+            ("Classify objects by principal components of their attributes", 0),
+            // (the scale chosen: the point of the template)
+            ("Choose the segmentation by reference objects", 1),
+            // (the point of the template: the brighter scene and the objects outside, and the urban objects that stay outside)
+            ("Classify a second scene with the model of the first", 3),
+            ("Crops by their seasons", 0),
+            // (the threshold Otsu found: the point of the template)
+            ("Water by Otsu on the NDWI", 1),
+            // (the scale chosen: the point of the template)
+            ("The scale chosen by itself", 1),
+        ];
+        let group: Vec<&Template> = TEMPLATES.iter().filter(|t| t.group == OBJECTS).collect();
+        assert_eq!(group.len(), kept.len(), "a template of the group is missing from the list");
+        let dir = std::env::temp_dir().join(format!("terraflux-obia-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut too_many = Vec::new();
+        for (name, most) in kept {
+            let t = group.iter().find(|t| t.name == name).unwrap_or_else(|| panic!("no template {name}"));
+            let (errors, warnings) = opened(t, &dir);
+            println!("{name}: {} errors, {} warnings", errors.len(), warnings.len());
+            for e in &errors {
+                println!("    error: {e}");
+            }
+            for w in &warnings {
+                println!("    warning: {w}");
+            }
+            if !errors.is_empty() || warnings.len() > most {
+                too_many.push(format!("{name}: {} errors, {} warnings (at most {most})", errors.len(), warnings.len()));
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(too_many.is_empty(), "{too_many:#?}");
     }
 }
 
