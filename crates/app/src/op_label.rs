@@ -126,6 +126,7 @@ const OVERRIDES: &[(&str, &str)] = &[
     ("cost.transition", "Cost transition"),
     ("crafty.allocate", "CRAFTY allocation"),
     ("data.download", "Download data"),
+    ("data.download_file", "Download a file"),
     ("data.environment90m", "Catchment environment"),
     ("data.stac", "Satellite scenes (STAC)"),
     ("demand.from_maps", "Demand from rasters"),

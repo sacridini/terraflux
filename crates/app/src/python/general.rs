@@ -733,6 +733,38 @@ pub(super) fn special(n: &Node, var: &str, sc: &Scope) -> Result<Option<Code>, S
             let code = format!("{}{var} = {call}({})\n", rest(n, &known), all.join(", "));
             (code, one(var, "raster"), Need::Nothing)
         }
+        "data.download_file" => {
+            // (not in the library: the standard library's urllib and zipfile)
+            let url = setting(n, "url", sc)?.ok_or("its url is not given")?;
+            let target = setting(n, "path", sc)?.unwrap_or_else(|| text("downloads"));
+            let refresh = match n.params.get("refresh") {
+                None | Some(Value::Null) => "False".to_string(),
+                Some(_) => setting(n, "refresh", sc)?.unwrap_or_else(|| "False".into()),
+            };
+            let unzip = match n.params.get("unzip") {
+                None | Some(Value::Null) => "False".to_string(),
+                Some(_) => setting(n, "unzip", sc)?.unwrap_or_else(|| "False".into()),
+            };
+            let mut code = rest(n, &["url", "path", "unzip", "refresh"]);
+            code.push_str("import os, urllib.parse, urllib.request, zipfile\n");
+            code.push_str(&format!("{var}_url = {url}\n{var} = {target}\n"));
+            code.push_str(&format!(
+                "if os.path.isdir({var}) or {var}.endswith((\"/\", \"\\\\\")):\n    \
+                 {var} = os.path.join({var}, os.path.basename(urllib.parse.unquote(urllib.parse.urlparse({var}_url).path)) or \"download\")\n"
+            ));
+            code.push_str(&format!(
+                "if {refresh} or not os.path.exists({var}):\n    \
+                 os.makedirs(os.path.dirname(os.path.abspath({var})), exist_ok=True)\n    \
+                 urllib.request.urlretrieve({var}_url, {var})\n"
+            ));
+            code.push_str(&format!(
+                "if {unzip}:\n    \
+                 _dir = {var}[:-4] if {var}.lower().endswith(\".zip\") else {var} + \"_unzipped\"\n    \
+                 zipfile.ZipFile({var}).extractall(_dir)\n    \
+                 {var} = _dir\n"
+            ));
+            (code, one(var, "path"), Need::Nothing)
+        }
         "data.stac" => {
             let mut code = String::new();
             let mut args = vec![setting(n, "url", sc)?.ok_or("its url is not given")?];

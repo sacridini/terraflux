@@ -21,6 +21,7 @@ mod cost;
 mod data;
 mod differ;
 mod dispersal;
+mod download_file;
 mod extinction;
 mod forest_code;
 mod futures_tools;

@@ -257,6 +257,7 @@ const PHRASES: &[(&str, &str)] = &[
         "A stratified random sample of the cells of <map>[, {n} per stratum][ by <sizes>]; seed {seed}.",
     ),
     ("data.download", "Data downloaded[ from {source}][ ({variable})][ onto the grid of <like>][, cut to <area>]."),
+    ("data.download_file", "The file at {url} downloaded[ to {path}]."),
     (
         "data.stac",
         "The scenes of {collection} from a STAC catalogue[ ({assets})][ of {datetime}][ onto the grid of <like>].",

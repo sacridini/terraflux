@@ -7,6 +7,9 @@ version.
 
 ## [Unreleased]
 
+### Added
+- **`data.download_file`: any file a link names, downloaded** (`crates/ops/src/download_file.rs`): like curl or wget, an http or https `url` (redirects followed) saved to `path` (a file, or a folder to save into with the file's name) or, without it, to Terraflux's cache; the name the server gives (Content-Disposition), else the link's. Written to a `.part` first, so a failed or stopped download leaves no half file; the server's error said plainly ("the server answered 404 Not Found"). Kept once downloaded: the next runs make no request (`refresh` downloads it again). `unzip` extracts a zip beside it and gives the folder. Its output `path` can feed another node's setting, e.g. the `path` of raster.read, vector.read or table.read. The Python script downloads it with the standard library.
+
 ## [1.70.0] - 2026-11-25
 
 ### Added

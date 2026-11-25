@@ -722,7 +722,8 @@ impl Operator for Download {
              per layer kept in the cache (Terraflux's, TERRAFLUX_CACHE), downloaded once. Classes are resampled \
              by the most common cell, values bilinearly. The values are the servers' (CHELSA's scaled integers: \
              × 0.1, and - 273.15 for temperatures; SoilGrids' in its mapped units; MODIS' indices and production \
-             × 0.0001, its temperatures × 0.02 in kelvin, its burned area the day of the year, 0 unburned).",
+             × 0.0001, its temperatures × 0.02 in kelvin, its burned area the day of the year, 0 unburned). For \
+             any other file a URL names (a table, a zip, a shapefile), data.download_file.",
             Access::Global,
         )
         .input(PortSpec::optional("like", Type::Raster, "the map whose grid to fill (else extent and cellsize)"))

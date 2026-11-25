@@ -33,6 +33,7 @@ pub mod conn;
 pub mod cost;
 pub mod crafty;
 pub mod data;
+pub mod download_file;
 pub mod demand;
 pub mod differ;
 pub mod dinamica;
@@ -464,6 +465,7 @@ impl Registry {
         clumondo::register(&mut r);
         crafty::register(&mut r);
         data::register(&mut r);
+        download_file::register(&mut r);
         stac::register(&mut r);
         env90m::register(&mut r);
         markov::register(&mut r);
