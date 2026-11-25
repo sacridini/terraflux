@@ -69,6 +69,7 @@ params = { seed = 1 }
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "image.image" }
+params = { scale = 2 }
 
 [[nodes]]
 id = "features"
@@ -81,10 +82,16 @@ op = "objects.samples"
 inputs = { objects = "features.objects", samples = "samples.vector" }
 
 [[nodes]]
+id = "folds"
+op = "objects.folds"
+inputs = { objects = "training.objects", samples = "training.table" }
+params = { method = "blocks", size = 30, k = 4, seed = 1 }
+
+[[nodes]]
 id = "model"
 op = "ml.fit"
-inputs = { table = "training.table" }
-params = { column = "class", method = "random_forest", seed = 1 }
+inputs = { table = "folds.table" }
+params = { column = "class", columns = ["mean_blue", "mean_red", "mean_nir", "mean_swir1", "mean_swir2", "sd_blue", "sd_green", "sd_red", "sd_nir", "sd_swir1", "sd_swir2", "ndvi", "area", "compactness", "glcm_homogeneity"], fold = "fold", method = "random_forest", seed = 1 }
 
 [[nodes]]
 id = "classify"
@@ -92,18 +99,27 @@ op = "objects.classify"
 inputs = { objects = "features.objects", model = "model.model", samples = "training.table" }
 ```
 
-The model also has nodes for the example points (`sample_table`, `samples`), the polygons (`polygons`, `write`) and a
-Plot (`plot`). Click the last node, `plot`, and press ++ctrl+enter++ (**Run to here** in the Model pane's bar): the
-nodes it needs run, and the Viewer shows the map of classes.
+The model also has nodes for the example points (`sample_table`, `samples`), a second forest for comparison
+(`random_model`), the polygons (`polygons`, `write`) and a Plot (`plot`). The node `folds` deals the samples into four
+folds by place ([[objects.folds]]) so that `model` can tell, with its `cv` output, how well it does on objects far from
+those it learned from; part 5 takes this up. The forest reads the attributes but `mean_green`, which moves with
+`mean_red` (their correlation is 0.98) and would only be told as one of two almost equal.
+
+The template opens with one warning in the Problems pane, on purpose: the node `random_model` fits the same forest
+with folds drawn at random, to compare with the folds by place, and the warning says that random folds give a higher
+accuracy than the model will have on other places.
+
+Click the last node, `plot`, and press ++ctrl+enter++ (**Run to here** in the Model pane's bar): the nodes it needs
+run, and the Viewer shows the map of classes.
 
 ## Look at the objects
 
-Click the node `segments`. The Viewer shows the objects, each outlined, and says how many there are: 116 in this
+Click the node `segments`. The Viewer shows the objects, each outlined, and says how many there are: 107 in this
 scene. In the controls
 beside the map, **Fill** chooses how they are coloured (*no fill*, *by class* once they have classes, or *a colour
 each*), and **Outline** and *width* the lines.
 
-![The objects over the image](/img/tutorials/object-based-image-analysis/first-map-by-objects/objects.png "The 116 objects of the template, outlined over the image in true colour. An object stops where the colour changes; a big uniform area (the town in the middle) is cut into a few large objects.")
+![The objects over the image](/img/tutorials/object-based-image-analysis/first-map-by-objects/objects.png "The 107 objects of the template, outlined over the image in true colour. An object stops where the colour changes; a big uniform area (the town in the middle) is cut into a score of large objects.")
 
 - Move the pointer over the map: the object under it is told and outlined.
 - Click an object to select it. Below the map the attribute table has a row per object, and the selected object's
@@ -113,20 +129,23 @@ each*), and **Outline** and *width* the lines.
 
 ![One object and its neighbours](/img/tutorials/object-based-image-analysis/first-map-by-objects/selected.png "An object selected (orange) and, after N, its neighbours (blue), drawn here as the Viewer draws them. The inspector lists the attributes of the selected object.")
 
-The size of the objects comes from the **scale** of the segmentation. The template gives none, so
-[[segment.multiresolution]] takes the first scale that [[segment.scale]] suggests for the image (the `scale` output
-says which one: 1.92 here). Select `segments`, set `scale` in the Node pane to a larger value, run again, and the
-objects are larger and fewer; to a smaller one, and they are smaller and more numerous. Move the slider to see it
-on this scene, with the scale from half to four times the suggestion.
+The size of the objects comes from the **scale** of the segmentation. Left empty, [[segment.multiresolution]] takes
+the first scale that [[segment.scale]] suggests for the image (its `scale` output says which one, and a warning
+tells it was used: 1.92 on this scene). The template sets `scale = 2`, close to that suggestion, so that the
+example points always fall on the same objects: the samples of the template are points, and a point picks the object
+under it, so another scale would put some of them on objects of a different look. Select `segments`, set `scale` in
+the Node pane to a larger value, run again, and the objects are larger and fewer; to a smaller one, and they are
+smaller and more numerous. Move the slider to see it on this scene, with the scale from half to four times the
+template's 2.
 
 ```tfslider
-label: Scale (times the suggested 1.92)
-caption: "The same image segmented with the scale set to 0.5, 1, 2 and 4 times the one that segment.scale suggests (shape 0.1 and compactness 0.5, the node's defaults). Each is a run of segment.multiresolution."
+label: Scale (times the template's 2)
+caption: "The same image segmented with the scale set to 0.5, 1, 2 and 4 times the template's scale of 2 (about the 1.92 that segment.scale suggests; shape 0.1 and compactness 0.5, the node's defaults). Each is a run of segment.multiresolution."
 frames:
-  - { value: 0.5, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_0.5.png, caption: "Scale 0.96", stats: { Objects: "401" } }
-  - { value: 1, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_1.png, caption: "Scale 1.92 (the suggestion)", stats: { Objects: "116" } }
-  - { value: 2, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_2.png, caption: "Scale 3.85", stats: { Objects: "30" } }
-  - { value: 4, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_4.png, caption: "Scale 7.7", stats: { Objects: "17" } }
+  - { value: 0.5, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_0.5.png, caption: "Scale 1", stats: { Objects: "383" } }
+  - { value: 1, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_1.png, caption: "Scale 2 (the template)", stats: { Objects: "107" } }
+  - { value: 2, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_2.png, caption: "Scale 4", stats: { Objects: "29" } }
+  - { value: 4, src: /img/tutorials/object-based-image-analysis/first-map-by-objects/scale_4.png, caption: "Scale 8", stats: { Objects: "16" } }
 chart:
   type: line
   data: /data/tutorials/object-based-image-analysis/first-map-by-objects/scales.csv
@@ -135,8 +154,8 @@ chart:
   ylabel: Objects
 ```
 
-At half the scale the town is broken into pieces; at four times it, the image has 17 objects and some of them hold
-two classes. The suggestion sits between.
+At half the scale the town is broken into pieces; at four times it, the image has 16 objects and some of them hold
+two classes. The template's scale sits between.
 
 !!! tip
     Objects should be about the size of the things you want to map: smaller than a forest stand, a few times larger
@@ -146,7 +165,7 @@ two classes. The suggestion sits between.
 
 ## Click the samples
 
-The template comes with 38 example points. Replace them with yours, by clicking on the objects:
+The template comes with 59 example points, twelve of each class (eleven of grassland, the class with the fewest objects). Replace them with yours, by clicking on the objects:
 
 <div class="steps" markdown>
 
@@ -164,7 +183,7 @@ The template comes with 38 example points. Replace them with yours, by clicking 
 
 </div>
 
-![The template's samples on the objects](/img/tutorials/object-based-image-analysis/first-map-by-objects/samples.png "The template's 38 example points, a coloured dot on an object each, over the objects: eight per class, six of grassland. The palette would mark each class *few*.")
+![The template's samples on the objects](/img/tutorials/object-based-image-analysis/first-map-by-objects/samples.png "The template's 59 example points, a coloured dot on an object each, over the objects: twelve per class, eleven of grassland. Every class has the 10 the palette asks for, so none is marked *few*.")
 
 Apply adds two nodes to the model, a table of your points and the points made from it, and connects them to the node
 `training`, in place of the template's own points. Run to `plot` again: the map has changed with your examples.
@@ -172,9 +191,9 @@ Click `classify` and set the **Fill** to *by class*: each object has the colour 
 the probability of each class and the **margin** (the largest probability minus the next). Where the margin is low,
 the forest hesitates: those are the objects where one more sample helps most.
 
-![The map of classes](/img/tutorials/object-based-image-analysis/first-map-by-objects/classes.png "Left: the classes the forest gave the objects, from the template's 38 points. Right: the classes the scene was drawn from. 93.8 % of the cells have the right class; the mistakes are along the borders and in a few small objects.")
+![The map of classes](/img/tutorials/object-based-image-analysis/first-map-by-objects/classes.png "Left: the classes the forest gave the objects, from the template's 59 points. Right: the classes the scene was drawn from. 94.8 % of the cells have the right class; the mistakes are along the borders and in a few small objects.")
 
-Here the forest knows the truth, so it can be counted: 93.8 % of the 14,400 cells of the map have the class the
+Here the forest knows the truth, so it can be counted: 94.8 % of the 14,400 cells of the map have the class the
 scene was drawn from. In your own image you will not have that number, which is why the next section exists.
 
 ![The margin of each object](/img/tutorials/object-based-image-analysis/first-map-by-objects/margin.png "The margin of every object: yellow where one class is far ahead, dark where two are close. The dark objects are slivers along the borders between classes, where the blur of the image mixes two classes.")
@@ -231,10 +250,10 @@ params = { class = "reference", design = "objects" }
 
 </div>
 
-With the template's 116 objects, no class has 50 of them, so [[objects.sample]] gives every object of each class: the
-sample is the whole map. That is a limit of this small example, and it has a cost: the 38 objects the forest learned
-from are in it too. Labelled from the scene's truth, the sample gives the matrix below; leave the 38 training objects
-out and the forest is right on 61 of the other 78 objects (78 %), a little worse than the matrix says. On a real image,
+With the template's 107 objects, no class has 50 of them, so [[objects.sample]] gives every object of each class: the
+sample is the whole map. That is a limit of this small example, and it has a cost: the 59 objects the forest learned
+from are in it too. Labelled from the scene's truth, the sample gives the matrix below; leave the 59 training objects
+out and the forest is right on 39 of the other 48 objects (81 %), worse than the matrix says. On a real image,
 with hundreds of objects per class, a sample of 50 holds few of the objects you clicked.
 
 ```tftable
@@ -243,7 +262,7 @@ labels: { map: "Map \\ reference" }
 heat: true
 digits: 0
 align: { map: left }
-caption: "The confusion matrix of the 116 objects of the template (every object, since no class has 50), labelled from the scene's truth: the class the map gave (rows) against the true class (columns). 95 are on the diagonal, 81.9 %; kappa 0.77."
+caption: "The confusion matrix of the 107 objects of the template (every object, since no class has 50), labelled from the scene's truth: the class the map gave (rows) against the true class (columns). 95 are on the diagonal, 88.8 %; kappa 0.86."
 ```
 
 The outputs are tables: the **confusion matrix** (the map's classes in rows, the reference's in columns), the user's
@@ -256,12 +275,12 @@ are right more often than the rest of the map.
     The example image is drawn from a map of classes, the node `land`, so there the truth is known. With an image of
     yours it is not, and the sample of objects labelled by you is the way to know.
 
-The matrix is read row by row: of the 32 objects the map called grassland, 20 are grassland, 5 are cropland, 3 forest,
-3 water and 1 urban. Those objects are mostly on the borders, which the margin map showed. The other tables hold the user's and
+The matrix is read row by row: of the 22 objects the map called grassland, 19 are grassland, 1 is cropland, 1 forest and
+1 water. Those objects are mostly on the borders, which the margin map showed. The other tables hold the user's and
 producer's accuracies and the areas with their confidence intervals. `design = "objects"` tells [[objects.accuracy]] how the
 sample was drawn (every object of a class had the same chance, as [[objects.sample]] does it), so that the area estimates
 weight each sampled object by its area. Here the sample is **every** object, so the area estimates have no sampling error:
-the intervals are 0, and the area-weighted overall accuracy is 96.4 %, against 81.9 % by objects, because the large
+the intervals are 0, and the area-weighted overall accuracy is 98.0 %, against 88.8 % by objects, because the large
 objects are the ones the forest gets right. With a real sample the intervals are not 0. To report an accuracy, give the overall number
 with its interval, the matrix, and how the sample was drawn.
 
@@ -293,11 +312,12 @@ instead, [[objects.to_map]] gives one number per class (`what = "class"`).
 
 Things to watch with real images:
 
-- **Scale of the values.** Reflectance from 0 to 1, or digital numbers from 0 to 10000? Leave the segmentation's
-  `scale` empty so that it follows the image.
+- **Scale of the values.** Reflectance from 0 to 1, or digital numbers from 0 to 10000? The template's `scale = 2`
+  fits its own image. On yours, empty the `scale` of `segments` so that it follows the image (its `scale` output tells
+  the one it took), then choose from there.
 - **Few samples.** Under 10 per class the palette says *few*: add more, in different looks of the class.
 - **Coordinate system.** The polygons carry the image's, so an image without one gives polygons that a GIS cannot
-  place.
+  place (the template's image has EPSG:32633, drawn on purpose).
 - **Big images.** [[segment.multiresolution]] cuts a large image into tiles (`tile` and `margin`) and reads big
   images in windows from disk.
 

@@ -1,8 +1,8 @@
 """Figures of "Your first map by objects in 10 minutes" (tutorials/object-based-image-analysis/first-map-by-objects.md).
 
 The template of the page, "Classify an image by clicking samples" (its nodes as templates.rs writes them: the synthetic
-scene nlm.mosaic_gibbs -> nlm.image, multiresolution at the scale ESP suggests, features, the 38 example points, a random
-forest, the classes, the polygons), run as it is, plus the page's check (objects.sample, labelled here from the scene's
+scene nlm.mosaic_gibbs -> nlm.image, multiresolution at scale 2 (about what ESP suggests), features, the 59 example points, folds by
+place, a random forest, the classes, the polygons), run as it is, plus the page's check (objects.sample, labelled here from the scene's
 truth, objects.accuracy). The figures draw what the page walks through: the image, its objects, the samples, the classes,
 the margin, the accuracy and the scale slider.
 Run with: python website/figures/object-based-image-analysis/first-map-by-objects.py   (at most 2 threads: it sets them)
@@ -35,15 +35,15 @@ NAMES = ["cropland", "forest", "grassland", "urban", "water"]  # alphabetical: t
 TRUTH = {1: "water", 2: "forest", 3: "grassland", 4: "cropland", 5: "urban"}  # the scene's codes
 COLORS = {"water": "#2b6cb0", "forest": "#1a6b3a", "grassland": "#9bc53d", "cropland": "#e3b341", "urban": "#c2338a"}
 
-# the points of the template's table (x, y, class): 38 of them, the page says
-SAMPLE_ROWS = """[[9.5, 104.5, "water"], [85.5, 46.5, "water"], [5.5, 38.5, "water"], [9.5, 86.5, "water"], [68.5, 112.5, "water"], [84.5, 78.5, "water"], [10.5, 18.5, "water"], [83.5, 62.5, "water"], [10.5, 3.5, "forest"], [98.5, 30.5, "forest"], [29.5, 97.5, "forest"], [100.5, 19.5, "forest"], [89.5, 22.5, "forest"], [23.5, 110.5, "forest"], [39.5, 91.5, "forest"], [38.5, 103.5, "forest"], [65.5, 90.5, "grassland"], [92.5, 100.5, "grassland"], [87.5, 114.5, "grassland"], [29.5, 20.5, "grassland"], [106.5, 111.5, "grassland"], [94.5, 7.5, "grassland"], [115.5, 69.5, "cropland"], [96.5, 55.5, "cropland"], [114.5, 8.5, "cropland"], [114.5, 85.5, "cropland"], [104.5, 75.5, "cropland"], [74.5, 7.5, "cropland"], [76.5, 16.5, "cropland"], [49.5, 110.5, "cropland"], [71.5, 60.5, "urban"], [60.5, 70.5, "urban"], [26.5, 43.5, "urban"], [59.5, 44.5, "urban"], [55.5, 58.5, "urban"], [20.5, 35.5, "urban"], [64.5, 61.5, "urban"], [50.5, 31.5, "urban"]]"""
+# the points of the template's table (x, y, class): 59 of them, twelve per class (eleven of grassland)
+SAMPLE_ROWS = """[[8.5, 105.5, "water"], [84.5, 44.5, "water"], [9.5, 17.5, "water"], [68.5, 113.5, "water"], [85.5, 77.5, "water"], [4.5, 38.5, "water"], [9.5, 86.5, "water"], [82.5, 61.5, "water"], [77.5, 100.5, "water"], [22.5, 13.5, "water"], [20.5, 92.5, "water"], [66.5, 102.5, "water"], [99.5, 23.5, "forest"], [23.5, 111.5, "forest"], [10.5, 3.5, "forest"], [42.5, 79.5, "forest"], [67.5, 26.5, "forest"], [111.5, 46.5, "forest"], [38.5, 102.5, "forest"], [25.5, 75.5, "forest"], [82.5, 26.5, "forest"], [35.5, 114.5, "forest"], [39.5, 91.5, "forest"], [29.5, 96.5, "forest"], [107.5, 109.5, "grassland"], [37.5, 5.5, "grassland"], [51.5, 96.5, "grassland"], [94.5, 6.5, "grassland"], [87.5, 115.5, "grassland"], [38.5, 24.5, "grassland"], [90.5, 100.5, "grassland"], [64.5, 91.5, "grassland"], [44.5, 15.5, "grassland"], [60.5, 101.5, "grassland"], [29.5, 20.5, "grassland"], [50.5, 111.5, "cropland"], [115.5, 10.5, "cropland"], [115.5, 85.5, "cropland"], [74.5, 6.5, "cropland"], [97.5, 55.5, "cropland"], [96.5, 83.5, "cropland"], [116.5, 68.5, "cropland"], [83.5, 19.5, "cropland"], [114.5, 25.5, "cropland"], [105.5, 74.5, "cropland"], [104.5, 91.5, "cropland"], [96.5, 66.5, "cropland"], [56.5, 71.5, "urban"], [4.5, 71.5, "urban"], [51.5, 30.5, "urban"], [21.5, 35.5, "urban"], [36.5, 52.5, "urban"], [68.5, 57.5, "urban"], [70.5, 79.5, "urban"], [59.5, 44.5, "urban"], [10.5, 58.5, "urban"], [55.5, 58.5, "urban"], [24.5, 55.5, "urban"], [17.5, 68.5, "urban"]]"""
 
 SCENE = """format = "terraflux/1"
 
 [[nodes]]
 id = "land"
 op = "nlm.mosaic_gibbs"
-params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4 }
+params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 
 [[nodes]]
 id = "image"
@@ -55,6 +55,7 @@ params = { seed = 1 }
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "image.image" }
+params = { scale = 2 }
 """
 
 CLASSIFY = """
@@ -82,10 +83,22 @@ op = "objects.samples"
 inputs = { objects = "features.objects", samples = "samples.vector" }
 
 [[nodes]]
+id = "folds"
+op = "objects.folds"
+inputs = { objects = "training.objects", samples = "training.table" }
+params = { method = "blocks", size = 30, k = 4, seed = 1 }
+
+[[nodes]]
 id = "model"
 op = "ml.fit"
+inputs = { table = "folds.table" }
+params = { column = "class", columns = ["mean_blue", "mean_red", "mean_nir", "mean_swir1", "mean_swir2", "sd_blue", "sd_green", "sd_red", "sd_nir", "sd_swir1", "sd_swir2", "ndvi", "area", "compactness", "glcm_homogeneity"], fold = "fold", method = "random_forest", seed = 1 }
+
+[[nodes]]
+id = "random_model"
+op = "ml.fit"
 inputs = { table = "training.table" }
-params = { column = "class", method = "random_forest", seed = 1 }
+params = { column = "class", columns = ["mean_blue", "mean_red", "mean_nir", "mean_swir1", "mean_swir2", "sd_blue", "sd_green", "sd_red", "sd_nir", "sd_swir1", "sd_swir2", "ndvi", "area", "compactness", "glcm_homogeneity"], cv = 4, method = "random_forest", seed = 1 }
 
 [[nodes]]
 id = "classify"
@@ -184,9 +197,10 @@ def main():
     m = base + node("ids", "objects.to_map", '{ objects = "segments.objects" }', '{ what = "id" }')
     m += node("cls", "objects.to_map", '{ objects = "classify.objects" }', '{ what = "class" }')
     m += CHECK
+    m += node("auto", "segment.multiresolution", '{ image = "image.image" }')  # no scale: the one ESP suggests
     w = {"image.image": "image.tif", "image.truth": "truth.tif", "ids.map": "ids.tif", "cls.map": "cls.tif",
-         "segments.scale": "scale.json", "classify.table": "classify.csv",
-         "segments.table": "objects.csv", "model.importance": "importance.csv"}
+         "auto.scale": "scale.json", "classify.table": "classify.csv",
+         "segments.table": "objects.csv", "model.importance": "importance.csv", "model.cv": "cv_place.csv", "random_model.cv": "cv_random.csv"}
     r = figs.run(figs.add_writes(m, w), work, "--threads", "2", "--no-journal")
     print(r.stdout[-600:], r.stderr[-1500:])
     out = work / "output"
@@ -304,8 +318,9 @@ def main():
         ok += NAMES[t - 1] == c
     print("training objects", len(train), "of", len(cmap), "others right", ok, "of", tot)
 
-    # 8. the scale: the same classification at several scales (the template's own scale first)
+    # 8. the scale: the same segmentation at half to four times the template's scale 2 (ESP suggests `sc`)
     print("suggested", sc)
+    sc = 2.0
     factors = [0.5, 1, 2, 4]
     ms = SCENE.rsplit("[[nodes]]", 1)[0]  # no segments node
     wr = {}

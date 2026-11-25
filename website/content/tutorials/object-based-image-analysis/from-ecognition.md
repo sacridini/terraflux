@@ -76,6 +76,7 @@ its NDWI, vegetation by its NDVI (forest and grassland apart by the short-wave i
 id = "segments"
 op = "segment.multiresolution"
 inputs = { image = "image.image" }
+params = { scale = 2 }
 
 [[nodes]]
 id = "features"
@@ -120,7 +121,8 @@ inputs = { objects = "same.objects" }
 
 1. **Segment.** [[segment.multiresolution]] takes `scale`, `shape` and `compactness` as eCognition does; `shape = 0.1`
    and `compactness = 0.5` are the usual start. Left without `scale`, it takes the first one [[segment.scale]]
-   suggests for the image; [[segment.optimize]] goes further and scores the objects of each scale in a list
+   suggests for the image (the template sets `scale = 2`, close to the 1.92 that suggestion is on its image, so that it
+   always gives the same objects); [[segment.optimize]] goes further and scores the objects of each scale in a list
    (the variance inside them and Moran's I between them) and keeps the best.
 2. **Measure.** [[objects.features]] with `features = ["mean", "ndvi", "ndwi"]`: only what the rules read. NDVI and
    NDWI are found from the bands named `red`, `nir` and `green`.
