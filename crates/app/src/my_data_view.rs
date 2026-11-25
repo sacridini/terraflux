@@ -228,7 +228,8 @@ struct Pick {
     /// An image with no file of the user's: a Sentinel-2 scene of an area.
     scene: Option<my_data::Scene>,
     /// Points with a class (the samples): `bands` are the file's columns that can hold the class, `band` the one
-    /// chosen (none: the one guessed), and no band, table of classes or grid.
+    /// chosen (none: the one guessed), and no band, table of classes or grid. Polygons (parcels, reference objects)
+    /// are the same without a class column.
     points: bool,
 }
 
@@ -470,6 +471,9 @@ impl State {
     pub fn choose(&mut self, s: &mut Session, r: &Registry, node: &str, file: &Path) -> Result<(), String> {
         let src = sources_of(s, r).iter().find(|x| x.node == node).cloned();
         let Some(src) = src else { return Err(format!("{node}: the model draws no such data")) };
+        if my_data::is_polygons(&src) {
+            return self.choose_polygons(node, file);
+        }
         if my_data::is_points(&src) {
             return self.choose_points(node, file);
         }
@@ -530,6 +534,34 @@ impl State {
                     file: file.to_path_buf(),
                     bands: f.columns,
                     band: f.class,
+                    template: None,
+                    classes: Cls::None,
+                    crosswalk: BTreeMap::new(),
+                    like: None,
+                    image: None,
+                    files: Vec::new(),
+                    scene: None,
+                    points: true,
+                };
+                self.picks.insert(node.to_string(), pick);
+                Ok(())
+            }
+            Err(e) => {
+                self.problems.insert(node.to_string(), e.clone());
+                Err(e)
+            }
+        }
+    }
+
+    /// Choose a file of polygons (the parcels, the reference objects): read now, so a file that holds none says so.
+    fn choose_polygons(&mut self, node: &str, file: &Path) -> Result<(), String> {
+        match my_data::polygons_file(file) {
+            Ok(_) => {
+                self.problems.remove(node);
+                let pick = Pick {
+                    file: file.to_path_buf(),
+                    bands: Vec::new(),
+                    band: None,
                     template: None,
                     classes: Cls::None,
                     crosswalk: BTreeMap::new(),
@@ -1148,7 +1180,9 @@ impl State {
             let pick = self.picks.get(&src.node);
             ui.horizontal_wrapped(|ui| {
                 if ui.button("Choose a file...").clicked()
-                    && let Some(p) = if my_data::is_points(src) {
+                    && let Some(p) = if my_data::is_polygons(src) {
+                        pick_polygons()
+                    } else if my_data::is_points(src) {
                         pick_points()
                     } else {
                         crate::fixes::pick_file("raster.read").map(PathBuf::from)
@@ -1235,7 +1269,9 @@ impl State {
                     None => p.file.display().to_string(),
                 };
                 ui.label(RichText::new(name).strong()).on_hover_text(tip);
-                if p.points {
+                if p.points && my_data::is_polygons(src) {
+                    ui.label(RichText::new("polygons").weak());
+                } else if p.points {
                     // the column of the file that holds the class
                     let shown = p.band.clone().unwrap_or_default();
                     ui.label(RichText::new("class in column").weak());
@@ -1781,7 +1817,6 @@ fn scene_form(
     });
 }
 
-/// A finding: its level, where, what, and what to do about it.
 /// The file of the points of the samples: features (GeoPackage, GeoJSON, Shapefile...) or a table of x, y and the class.
 fn pick_points() -> Option<PathBuf> {
     let mut both: Vec<&str> = crate::builder::VECTOR_EXTENSIONS.to_vec();
@@ -1795,6 +1830,16 @@ fn pick_points() -> Option<PathBuf> {
         .pick_file()
 }
 
+/// The file of polygons of the parcels or the reference objects: features (GeoPackage, GeoJSON, Shapefile...).
+fn pick_polygons() -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .set_title("Your polygons")
+        .add_filter("Vectors", &crate::builder::VECTOR_EXTENSIONS)
+        .add_filter("Every file", &["*"])
+        .pick_file()
+}
+
+/// A finding: its level, where, what, and what to do about it.
 fn finding_line(ui: &mut Ui, f: &Finding) {
     let (word, colour) = match f.level {
         Level::Error => ("Error", ui.visuals().error_fg_color),

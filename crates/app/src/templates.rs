@@ -4917,6 +4917,7 @@ op = "vector.grid_zones"
 inputs = { map = "land.map" }
 params = { size = 40 }
 note = "Nine square parcels over the image, numbered from 1 (in their place, a vector.read of your parcels: a file of polygons, in the image's coordinates)."
+data = { what = "parcels: polygons of the lots the objects keep to (a cadastre, fields, management units), a feature each, in any coordinate system", kind = "polygons" }
 
 [[nodes]]
 id = "segments"
@@ -6459,6 +6460,7 @@ id = "land"
 op = "nlm.mosaic_gibbs"
 params = { rows = 120, columns = 120, germs = 30, r = 12, patch_classes = 5, nlmr_compat = false, rescale = false, seed = 4, crs = "EPSG:32633" }
 note = "A map of five classes drawn by chance (1 water, 2 forest, 3 grassland, 4 cropland, 5 urban): the ground of the second scene, and the truth to compare with."
+data = { what = "the true classes of the second scene, to measure the map against (the images are drawn of them: bring yours with its own images)", kind = "classes" }
 
 [[nodes]]
 id = "first_classes"
@@ -6779,6 +6781,7 @@ op = "vector.filter"
 inputs = { vector = "region_polygons.vector" }
 params = { expression = "id % 4 == 0" }
 note = "A handful of the regions, every fourth: the reference objects. In their place, the polygons you draw in the Viewer over the places that matter (Draw on the map, then Add as reference objects), or a vector.read of polygons."
+data = { what = "reference objects: polygons drawn around objects you know, as the segmentation should cut them (20 to 50, over the different looks of the image)", kind = "polygons" }
 why = "A reference is a sample, 20 to 50 objects drawn over the different looks of the image, not a map of it all: the segmentation is judged where it was drawn."
 
 [[nodes]]
@@ -6843,7 +6846,8 @@ fn crop_scene() -> String {
 id = "land"
 op = "nlm.mosaic_gibbs"
 params = {{ rows = 100, columns = 100, germs = 230, r = 5, patch_classes = 4, nlmr_compat = false, rescale = false, seed = 6, crs = "EPSG:32633" }}
-note = "The parcels of four crops drawn by chance (1 soybean, 2 maize, 3 pasture, 4 forest): the truth of the scene below, only to draw the NDVI and to check the result."
+note = "The parcels of four crops drawn by chance (1 soybean, 2 maize, 3 pasture, 4 forest): each connected area is a parcel (the objects below), and its crop draws the NDVI of the year. In their place, a map of your parcels, a number for each one."
+data = {{ what = "parcels: a map where each parcel has a number of its own (an id, or its crop: touching parcels of one number are one parcel)", kind = "classes" }}
 
 [[nodes]]
 id = "shift_field"
@@ -6896,7 +6900,7 @@ fn obia_crops() -> Model {
         r#"
 format = "terraflux/1"
 name = "Crops by their seasons"
-description = "Parcels classed by the season of their vegetation. A year of NDVI, a layer every 15 days (clouds and noise drawn), is made over parcels of four crops, each with its own curve: soybean peaks early and high, maize later, pasture is low and broad, forest is high and flat. objects.series gives each parcel its profile (the mean of its cells with a value on each date: a cloud leaves the cells it covers out), and from it its season (the peak, the amplitude, the integral...) and a fit of two harmonics of the year; a few parcels are named by points, a random forest learns the crops from those columns, and objects.classify gives every parcel a crop and the probability of each. In the Viewer, select a parcel and the inspector draws its profile (the points are its dates, the gaps clouds), with the band of the samples of its class; ctrl+click another to compare. Replace the series with yours (Use my data): a stack of an index with the date in the name of each layer, over parcels of your own (segment.from_vector of the lots)."
+description = "Parcels classed by the season of their vegetation. A year of NDVI, a layer every 15 days (clouds and noise drawn), is made over parcels of four crops, each with its own curve: soybean peaks early and high, maize later, pasture is low and broad, forest is high and flat. objects.series gives each parcel its profile (the mean of its cells with a value on each date: a cloud leaves the cells it covers out), and from it its season (the peak, the amplitude, the integral...) and a fit of two harmonics of the year; a few parcels are named by points, a random forest learns the crops from those columns, and objects.classify gives every parcel a crop and the probability of each. In the Viewer, select a parcel and the inspector draws its profile (the points are its dates, the gaps clouds), with the band of the samples of its class; ctrl+click another to compare. Replace the series with yours (Use my data): a stack of an index with the date in the name of each layer, and the parcels with a map of yours, a number for each parcel."
 "#,
     );
     text.push_str(&crop_scene());

@@ -451,14 +451,15 @@ impl<'a> Checker<'a> {
                 for why in d.problems() {
                     self.warn(&at, why);
                 }
-                let points = d.kind == crate::DataKind::Points;
+                let points = matches!(d.kind, crate::DataKind::Points | crate::DataKind::Polygons);
                 let gives = sig.outputs_of(n).iter().any(|p| {
                     matches!(p.ty, Type::Map | Type::Stack | Type::Raster | Type::Any)
                         || (points && p.ty == Type::Vector)
                 });
                 if !sig.container && !gives {
                     if points {
-                        self.warn(&at, format!("{} gives no features, and `data` says it stands for points", n.op));
+                        let what = if d.kind == crate::DataKind::Points { "points" } else { "polygons" };
+                        self.warn(&at, format!("{} gives no features, and `data` says it stands for {what}", n.op));
                     } else {
                         self.warn(&at, format!("{} gives no map or stack, and `data` says it stands for one", n.op));
                     }

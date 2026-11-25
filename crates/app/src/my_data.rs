@@ -447,7 +447,7 @@ fn source_of(m: &Model, r: &Registry, n: &Node) -> Source {
         let sig = m.node(c).and_then(|c| r.sig(&c.op));
         sig.and_then(|s| s.inputs.iter().find(|i| &i.name == p)).is_some_and(|i| i.ty == Type::Stack)
     });
-    let points = n.data.as_ref().is_some_and(|d| d.kind == DataKind::Points);
+    let points = n.data.as_ref().is_some_and(|d| matches!(d.kind, DataKind::Points | DataKind::Polygons));
     let stack = !points
         && (stack_out
             || stack_in
@@ -475,19 +475,29 @@ fn source_of(m: &Model, r: &Registry, n: &Node) -> Source {
     }
 }
 
+/// Whether a node that is not marked only helps to draw the data that is: nothing outside the nodes reads it, and
+/// every node that does is marked as data or is itself such a node (`year` of the crops, made of the drawn fields
+/// and read by the series, which is marked). `seen` stops a loop.
+fn only_draws(m: &Model, id: &str, seen: &mut BTreeSet<String>) -> bool {
+    if !seen.insert(id.to_string()) {
+        return true;
+    }
+    let rd = readers(m, id);
+    !rd.outside
+        && !rd.nodes.is_empty()
+        && rd.nodes.iter().all(|(c, _)| m.node(c).is_some_and(|c| c.data.is_some() || only_draws(m, &c.id, seen)))
+}
+
 /// The data of the model a file can replace, at its top level: the nodes that stand for the user's data (`data`) in
 /// the model's order, then the `nlm.*` without the mark that something other than a node of `data` reads (the
-/// ones only such nodes read are inside a drawn map, as the suitability of a simulated change), the `raster.read`
-/// without a file, and the model's inputs without a path or that carry `data` (the user's file, read straight).
+/// ones only such nodes read, directly or through other drawing nodes, only help to draw them, as the suitability of
+/// a simulated change or the land an image is drawn of: they go with them), the `raster.read` without a file, and
+/// the model's inputs without a path or that carry `data` (the user's file, read straight).
 pub fn sources(m: &Model, r: &Registry) -> Vec<Source> {
     let mut out: Vec<Source> = m.nodes.iter().filter(|n| n.data.is_some()).map(|n| source_of(m, r, n)).collect();
     for n in m.nodes.iter().filter(|n| n.data.is_none()) {
         let loose = if n.op.starts_with("nlm.") {
-            let rd = readers(m, &n.id);
-            let inside = !rd.outside
-                && !rd.nodes.is_empty()
-                && rd.nodes.iter().all(|(c, _)| m.node(c).is_some_and(|c| c.data.is_some()));
-            !inside
+            !only_draws(m, &n.id, &mut BTreeSet::new())
         } else {
             n.op == "raster.read" && n.params.get("path").and_then(|p| p.as_str()).is_none_or(|p| p.trim().is_empty())
         };
@@ -523,9 +533,20 @@ pub fn sources(m: &Model, r: &Registry) -> Vec<Source> {
     out
 }
 
+/// Whether a source stands for features (points or polygons): a file of them, no grid.
+pub fn is_vector(s: &Source) -> bool {
+    s.needs == Type::Vector
+}
+
 /// Whether a source stands for points with a class each (the samples of a classifier).
 pub fn is_points(s: &Source) -> bool {
-    s.needs == Type::Vector
+    is_vector(s) && !is_polygons(s)
+}
+
+/// Whether a source stands for polygons (the parcels the objects keep to, the reference objects a segmentation is
+/// measured against).
+pub fn is_polygons(s: &Source) -> bool {
+    is_vector(s) && s.data.as_ref().is_some_and(|d| d.kind == DataKind::Polygons)
 }
 
 /// The names a column of the class goes by, the first found is taken.
@@ -788,6 +809,97 @@ fn points_findings(at: &str, f: &PointsFile, class: &str, ground: Option<(&Grid,
     out
 }
 
+/// A file of polygons read (a parcel map, the reference objects): its features, or why it cannot be used.
+pub fn polygons_file(path: &Path) -> Result<Vector, String> {
+    if is_table_file(path) {
+        return Err(format!(
+            "{}: polygons are features (GeoPackage, GeoJSON, Shapefile...), not a table",
+            path.display()
+        ));
+    }
+    let v = terraflux_gdal::read_vector(path, None).map_err(|e| format!("{}: {e}", path.display()))?;
+    if v.is_empty() {
+        return Err(format!("{}: no polygons in it", path.display()));
+    }
+    let not = v.geometries.iter().filter(|g| !g.is_polygonal()).count();
+    if not > 0 {
+        return Err(format!(
+            "{}: {not} of its {} features are not polygons (points or lines): the file must hold polygons only",
+            path.display(),
+            v.len()
+        ));
+    }
+    Ok(v)
+}
+
+/// What is wrong with the polygons a user brings, in words: how many overlap the image (their coordinate system
+/// carried to the image's). `ground` is the grid of the user's image and its coordinate system; none when the image
+/// is the template's own (not known before it runs).
+fn polygons_findings(at: &str, v: &Vector, ground: Option<(&Grid, Option<&str>)>) -> Vec<Finding> {
+    let say = |level, message: String, fix: &str| Finding {
+        level,
+        at: at.to_string(),
+        message,
+        fix: Some(fix.to_string()),
+        action: None,
+    };
+    let Some((grid, crs)) = ground else { return Vec::new() };
+    let n = v.len();
+    let mut out = Vec::new();
+    let mut shown = v.clone();
+    match (&v.crs, crs) {
+        (None, Some(to)) => out.push(say(
+            Level::Warning,
+            format!("Your polygons carry no coordinate system: they are taken to be in your image's ({to})."),
+            "give the file a coordinate system (EPSG:4326, a UTM zone...)",
+        )),
+        (Some(from), Some(to)) if !terraflux_gdal::same_crs(from, to).unwrap_or(true) => {
+            match terraflux_gdal::reproject_vector(v, to) {
+                Ok(r) if r.geometries.len() == n => shown = r,
+                _ => {
+                    out.push(say(
+                        Level::Warning,
+                        "Your polygons' coordinate system could not be carried to your image's: whether they overlap it is not known."
+                            .into(),
+                        "give the file a coordinate system GDAL knows (EPSG:4326, a UTM zone...)",
+                    ));
+                    return out;
+                }
+            }
+        }
+        _ => {}
+    }
+    let b = grid_bounds(grid);
+    let boxes: Vec<Option<[f64; 4]>> = shown.geometries.iter().map(|g| g.bounds()).collect();
+    let k = boxes.iter().flatten().filter(|p| p[0] <= b[2] && p[2] >= b[0] && p[1] <= b[3] && p[3] >= b[1]).count();
+    let lo = |i: usize| boxes.iter().flatten().map(|p| p[i]).fold(f64::INFINITY, f64::min);
+    let hi = |i: usize| boxes.iter().flatten().map(|p| p[i]).fold(f64::NEG_INFINITY, f64::max);
+    let spans = format!(
+        "your image covers x {} to {}, y {} to {}; the polygons x {} to {}, y {} to {}",
+        short(b[0]),
+        short(b[2]),
+        short(b[1]),
+        short(b[3]),
+        short(lo(0)),
+        short(hi(2)),
+        short(lo(1)),
+        short(hi(3)),
+    );
+    let tip = "check the file's coordinate system (it is carried to the image's), or choose another file";
+    if k == 0 {
+        out.push(say(Level::Error, format!("None of your {n} polygons overlaps your image ({spans})."), tip));
+    } else if k * 2 < n {
+        out.push(say(Level::Error, format!("Only {k} of your {n} polygons overlap your image ({spans})."), tip));
+    } else if k < n {
+        out.push(say(
+            Level::Warning,
+            format!("{} of your {n} polygons lie outside your image: the cells there are in no polygon.", n - k),
+            tip,
+        ));
+    }
+    out
+}
+
 /// The nodes and inputs the data of a node is made from: what the nodes that read it read, and so on upstream.
 fn upstream(m: &Model, id: &str) -> BTreeSet<String> {
     let mut seen = BTreeSet::new();
@@ -809,12 +921,67 @@ fn upstream(m: &Model, id: &str) -> BTreeSet<String> {
     seen
 }
 
+/// The extent of the grid a drawn node is made on, as the nlm nodes draw it (their origin at the bottom left, 0, 0, the
+/// cells of `resolution`, 1 when not set): from the first of them found upstream that is not set `like` another.
+fn drawn_bounds(m: &Model, id: &str) -> Option<[f64; 4]> {
+    let mut seen = BTreeSet::new();
+    let mut todo = vec![id.to_string()];
+    while let Some(k) = todo.pop() {
+        if !seen.insert(k.clone()) {
+            continue;
+        }
+        let n = m.node(&k)?;
+        if n.op.starts_with("nlm.") && !n.inputs.contains_key("like") {
+            let get = |p: &str| n.params.get(p).and_then(Json::as_f64);
+            let res = get("resolution").unwrap_or(1.0);
+            return Some([0.0, 0.0, get("columns")? * res, get("rows")? * res]);
+        }
+        todo.extend(reads(n).iter().filter_map(|r| target_of(r)).filter(|t| !t.starts_with('$')));
+    }
+    None
+}
+
+/// The nodes that read a node, directly or through others.
+fn downstream(m: &Model, id: &str) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut todo = vec![id.to_string()];
+    while let Some(k) = todo.pop() {
+        for (n, _) in readers(m, &k).nodes {
+            if seen.insert(n.clone()) {
+                todo.push(n);
+            }
+        }
+    }
+    seen
+}
+
+/// Whether a drawn map is turned into objects by a node that reads it (`segment.*`: the parcels of a series).
+fn makes_objects(m: &Model, s: &Source) -> bool {
+    readers(m, &s.node).nodes.iter().any(|(c, _)| m.node(c).is_some_and(|c| c.op.starts_with("segment.")))
+}
+
+/// The images (and stacks) the nodes made from a source read: the ground of the objects a drawn map makes.
+fn grounds_downstream<'a>(m: &Model, srcs: &'a [Source], s: &Source) -> Vec<&'a Source> {
+    let mut reached = BTreeSet::new();
+    let mut todo: Vec<String> = downstream(m, &s.node).into_iter().collect();
+    while let Some(k) = todo.pop() {
+        let Some(n) = m.node(&k) else { continue };
+        for r in reads(n) {
+            if let Some(t) = target_of(&r) {
+                let t = t.trim_start_matches('$').to_string();
+                if t != s.node && reached.insert(t.clone()) {
+                    todo.push(t);
+                }
+            }
+        }
+    }
+    srcs.iter().filter(|g| g.needs == Type::Stack || is_image(g)).filter(|g| reached.contains(&g.node)).collect()
+}
+
 /// The images (and stacks) the samples of a source sit on: what the nodes that read the points are made from.
 fn grounds<'a>(m: &Model, srcs: &'a [Source], s: &Source) -> Vec<&'a Source> {
     let up = upstream(m, &s.node);
-    srcs.iter()
-        .filter(|g| g.needs != Type::Vector && (g.needs == Type::Stack || is_image(g)) && up.contains(&g.node))
-        .collect()
+    srcs.iter().filter(|g| !is_vector(g) && (g.needs == Type::Stack || is_image(g)) && up.contains(&g.node)).collect()
 }
 
 /// The points a template draws (a `vector.from_table` of a `table.of`'s rows), in the coordinates of its drawn image.
@@ -839,10 +1006,11 @@ fn drawn_points(m: &Model, s: &Source) -> Option<Vec<[f64; 2]>> {
     )
 }
 
-/// Whether a choice of points can be made: the file read and the column of its class, or why not.
-fn vet_points(m: &Model, s: &Source, c: &Choice) -> Result<(PointsFile, String), String> {
+/// Whether a choice of features (points or polygons) can be made at all: from a file, for a node whose one output
+/// the model reads, and nothing of a map's (band, classes, roles...).
+fn vet_vector(m: &Model, s: &Source, c: &Choice, what: &str) -> Result<(), String> {
     if s.op == INPUT {
-        return Err("points are read from a file of features, not as an input".into());
+        return Err(format!("{what} are read from a file of features, not as an input"));
     }
     if readers(m, &s.node).ports.len() > 1 {
         return Err("the model reads more than one of its outputs: it cannot be replaced by a file".into());
@@ -856,8 +1024,17 @@ fn vet_points(m: &Model, s: &Source, c: &Choice) -> Result<(PointsFile, String),
         || c.dates
         || !c.crosswalk.is_empty()
     {
-        return Err("points take a file of points and the column of their class, nothing else".into());
+        return Err(format!(
+            "{what} take a file of {what}{}, nothing else",
+            if what == "points" { " and the column of their class" } else { "" }
+        ));
     }
+    Ok(())
+}
+
+/// Whether a choice of points can be made: the file read and the column of its class, or why not.
+fn vet_points(m: &Model, s: &Source, c: &Choice) -> Result<(PointsFile, String), String> {
+    vet_vector(m, s, c, "points")?;
     let f = points_file(&c.file)?;
     let class = match &c.class_column {
         Some(k) => k.clone(),
@@ -1302,6 +1479,31 @@ fn target_of(r: &str) -> Option<String> {
     }
 }
 
+/// The drawn node `id` taken out of the model and `chain` put in its place: at its position, the notes that named it
+/// naming the chain, its parameters and scenario values gone, and what it read set down in `candidates` (taken away
+/// after, when nothing else reads it).
+fn splice_in(out: &mut Model, id: &str, mut chain: Vec<Node>, candidates: &mut Vec<String>) {
+    let at = out.nodes.iter().position(|n| n.id == id).expect("a source is a node of the model");
+    let old_node = out.nodes.remove(at);
+    candidates.extend(reads(&old_node).iter().filter_map(|r| target_of(r)));
+    if let Some([x, y]) = old_node.pos {
+        for (k, n) in chain.iter_mut().enumerate() {
+            n.pos = Some([x, y + 140.0 * k as f32]);
+        }
+    }
+    let ids: Vec<String> = chain.iter().map(|n| n.id.clone()).collect();
+    for f in out.notes.iter_mut().filter(|f| f.nodes.contains(&id.to_string())) {
+        f.nodes.retain(|k| k != id);
+        f.nodes.extend(ids.clone());
+    }
+    let prefix = format!("{id}.");
+    out.parameters.retain(|p| !p.key.starts_with(&prefix));
+    for sc in out.scenarios.iter_mut() {
+        sc.values.retain(|k, _| !k.starts_with(&prefix));
+    }
+    out.nodes.splice(at..at, chain);
+}
+
 /// The model with the files chosen in place of the data they stand for (a copy: the model given is not changed).
 /// `choices` is by the source's node; `reference` is the source whose grid the others are put on (none: the first
 /// map chosen); `base` is the model's folder. The choices that cannot be made are left out and told in
@@ -1321,8 +1523,17 @@ pub fn plan(
     let mut ok: Vec<(&Source, &Choice, Grid)> = Vec::new();
     // the points of the samples, with the column of their class
     let mut pts: Vec<(&Source, &Choice, PointsFile, String)> = Vec::new();
+    // the polygons of the parcels or the reference objects
+    let mut polys: Vec<(&Source, &Choice, Vector)> = Vec::new();
     for s in &srcs {
         let Some(c) = choices.get(&s.node) else { continue };
+        if is_polygons(s) {
+            match vet_vector(m, s, c, "polygons").and_then(|_| polygons_file(&c.file)) {
+                Ok(v) => polys.push((s, c, v)),
+                Err(e) => refused.push(format!("{}: {e}", s.node)),
+            }
+            continue;
+        }
         if is_points(s) {
             match vet_points(m, s, c) {
                 Ok((f, class)) => pts.push((s, c, f, class)),
@@ -1335,7 +1546,7 @@ pub fn plan(
             Err(e) => refused.push(format!("{}: {e}", s.node)),
         }
     }
-    if ok.is_empty() && pts.is_empty() {
+    if ok.is_empty() && pts.is_empty() && polys.is_empty() {
         return Err(if refused.is_empty() {
             "choose the file of at least one data".into()
         } else {
@@ -1352,7 +1563,7 @@ pub fn plan(
             .map(|(s, _, g)| (s.node.clone(), g.clone(), s.needs)),
     }
     .map(|(n, g, t)| (n, g, t == Type::Stack));
-    // (only points chosen: no grid to put anything on)
+    // (only points or polygons chosen: no grid to put anything on)
     let (ref_node, ref_grid, ref_stack) = if ok.is_empty() {
         (String::new(), Grid::new(1, 1), false)
     } else {
@@ -1731,25 +1942,7 @@ pub fn plan(
                 }
             }
         }
-        let at = out.nodes.iter().position(|n| n.id == s.node).expect("a source is a node of the model");
-        let old_node = out.nodes.remove(at);
-        candidates.extend(reads(&old_node).iter().filter_map(|r| target_of(r)));
-        if let Some([x, y]) = old_node.pos {
-            for (k, n) in chain.iter_mut().enumerate() {
-                n.pos = Some([x, y + 140.0 * k as f32]);
-            }
-        }
-        let ids: Vec<String> = chain.iter().map(|n| n.id.clone()).collect();
-        for f in out.notes.iter_mut().filter(|f| f.nodes.contains(&s.node)) {
-            f.nodes.retain(|k| k != &s.node);
-            f.nodes.extend(ids.clone());
-        }
-        let prefix = format!("{}.", s.node);
-        out.parameters.retain(|p| !p.key.starts_with(&prefix));
-        for sc in out.scenarios.iter_mut() {
-            sc.values.retain(|k, _| !k.starts_with(&prefix));
-        }
-        out.nodes.splice(at..at, chain);
+        splice_in(&mut out, &s.node, chain, &mut candidates);
         let labels = class_labels(&f.features, class);
         let mut per: BTreeMap<&str, usize> = BTreeMap::new();
         labels.iter().filter(|l| !l.is_empty()).for_each(|l| *per.entry(l.as_str()).or_default() += 1);
@@ -1775,35 +1968,102 @@ pub fn plan(
         }
         notices.extend(points_findings(&s.node, f, class, ground.as_ref().map(|(g, crs)| (*g, crs.as_deref()))));
     }
-    // the drawn points left on an image that was replaced: they are on the template's image, not on the user's
-    for s in srcs.iter().filter(|s| is_points(s) && !pts.iter().any(|(p, ..)| p.node == s.node)) {
-        if choices.contains_key(&s.node) {
+    // the polygons (parcels, reference objects): a file of features read in place of the drawn ones; what reads them
+    // carries their coordinate system to the image's (the objects' operators lay vectors on the grid they work on)
+    for (s, c, v) in &polys {
+        let whole = std::path::absolute(&c.file).unwrap_or_else(|_| c.file.clone());
+        let file = whole.to_string_lossy().replace('\\', "/");
+        let why = format!("in place of the drawn {}: your file {file}", s.node);
+        let on = grounds(m, &srcs, s);
+        let ground = ok.iter().find(|(o, ..)| on.iter().any(|g| g.node == o.node)).map(|(_, c, grid)| {
+            let crs =
+                if c.scene.is_some() { Some("EPSG:4326".to_string()) } else { terraflux_ops::prepare::crs_of(grid) };
+            (grid, crs)
+        });
+        let id = fresh(&mut taken, &format!("{}_read", s.node));
+        let mut n = Node::new(&id, "vector.read")
+            .param("path", file.clone())
+            .note("Your polygons, as features; what reads them lays them on the image's grid, carrying their coordinate system to the image's.")
+            .why(&why);
+        n.data = s.data.clone();
+        let cur = format!("{id}.vector");
+        repoint(&mut out, &format!("{}.{}", s.node, s.port), &cur);
+        splice_in(&mut out, &s.node, vec![n], &mut candidates);
+        notes.push(format!(
+            "{}: your file {file}, {} polygons, in place of the drawn ones; their coordinate system is carried to the image's by what reads them",
+            s.node,
+            v.len()
+        ));
+        if ground.is_none() && !on.is_empty() {
+            notices.push(Finding {
+                level: Level::Warning,
+                at: s.node.clone(),
+                message: format!(
+                    "Your {} polygons are read on the template's drawn image, which has coordinates of its own: bring your image too.",
+                    v.len()
+                ),
+                fix: Some("choose your image".into()),
+                action: None,
+            });
+        }
+        notices.extend(polygons_findings(&s.node, v, ground.as_ref().map(|(g, crs)| (*g, crs.as_deref()))));
+    }
+    // what is drawn on the template's image, left on an image that was replaced: the example points and the parcels
+    // or reference objects are on the template's grid, not on the user's
+    for s in srcs.iter().filter(|s| !choices.contains_key(&s.node)) {
+        let map_of_objects = !is_vector(s) && s.needs == Type::Map && makes_objects(m, s);
+        if !(is_vector(s) || map_of_objects) {
             continue;
         }
-        let on = grounds(m, &srcs, s);
+        let on = if map_of_objects { grounds_downstream(m, &srcs, s) } else { grounds(m, &srcs, s) };
         let Some((_, _, grid)) = ok.iter().find(|(o, ..)| on.iter().any(|g| g.node == o.node)) else { continue };
-        let tip =
-            "bring a file of your points with their class, or click them in the Viewer after Apply (the Samples box)";
-        let message = match drawn_points(m, s) {
-            Some(p) if !p.is_empty() => {
-                let b = grid_bounds(grid);
-                let k = p.iter().filter(|p| inside(&b, **p)).count();
-                if k == 0 {
-                    format!("The template's example points are on its drawn image and none falls on yours: {tip}.")
-                } else {
-                    format!(
-                        "The template's example points are on its drawn image, not on yours: {k} of its {} fall inside your image's extent by their numbers only, and name the template's classes, not what is under them: {tip}.",
-                        p.len()
-                    )
+        let message = if is_points(s) {
+            let tip = "bring a file of your points with their class, or click them in the Viewer after Apply (the Samples box)";
+            match drawn_points(m, s) {
+                Some(p) if !p.is_empty() => {
+                    let b = grid_bounds(grid);
+                    let k = p.iter().filter(|p| inside(&b, **p)).count();
+                    if k == 0 {
+                        format!("The template's example points are on its drawn image and none falls on yours: {tip}.")
+                    } else {
+                        format!(
+                            "The template's example points are on its drawn image, not on yours: {k} of its {} fall inside your image's extent by their numbers only, and name the template's classes, not what is under them: {tip}.",
+                            p.len()
+                        )
+                    }
                 }
+                _ => format!("The template's example points are on its drawn image, not on yours: {tip}."),
             }
-            _ => format!("The template's example points are on its drawn image, not on yours: {tip}."),
+        } else {
+            let noun = s
+                .what
+                .split_once(':')
+                .map_or(if is_polygons(s) { "polygons" } else { "data" }, |(n, _)| n.trim())
+                .to_string();
+            let tip = if is_polygons(s) {
+                format!("bring a file of your {noun} (polygons: a GeoPackage, GeoJSON or Shapefile)")
+            } else {
+                format!("bring a map of your {noun} (a number for each one)")
+            };
+            let apart = drawn_bounds(m, &s.node).map(|d| {
+                let b = grid_bounds(grid);
+                d[0] < b[2] && d[2] > b[0] && d[1] < b[3] && d[3] > b[1]
+            });
+            match apart {
+                Some(false) => {
+                    format!("The template's {noun} are drawn on its own image and none lies on yours: {tip}.")
+                }
+                Some(true) => format!(
+                    "The template's {noun} are drawn on its own image, not on yours: they overlap your image's extent by their numbers only, and are not where yours are: {tip}."
+                ),
+                None => format!("The template's {noun} are drawn on its own image, not on yours: {tip}."),
+            }
         };
         notices.push(Finding {
             level: Level::Warning,
             at: s.node.clone(),
             message,
-            fix: Some("choose a file of points for it".into()),
+            fix: Some(if is_vector(s) { "choose a file for it" } else { "choose a map for it" }.into()),
             action: None,
         });
         stray.push(s.node.clone());
@@ -3964,5 +4224,302 @@ mod tests {
         let p = plan(&m, &r, &one("samples", choice(&points)), None, &d).unwrap();
         assert!(p.stray.is_empty());
         assert_eq!(said(&p, &d, Level::Warning, "example points").len(), 0);
+    }
+
+    const PARCELS: &str = "Classes by parcel";
+    const REFERENCE: &str = "Choose the segmentation by reference objects";
+    const CROPS: &str = "Crops by their seasons";
+    const ROLES: [Option<&str>; 6] =
+        [Some("blue"), Some("green"), Some("red"), Some("nir"), Some("swir1"), Some("swir2")];
+
+    /// An image of six bands on 20 x 20 cells of 10 m, x 1000 to 1200 and y 1000 to 1200 of UTM 33N, in blocks of
+    /// 5 cells that alternate (so a segmentation finds objects).
+    fn user_image(d: &Path, name: &str) -> PathBuf {
+        let p = write_bands(d, name, &ROLES, |b, row, col| {
+            0.1 * (b + 1) as f64 + 0.2 * (((row / 5) + (col / 5)) % 2) as f64
+        });
+        let mut r = terraflux_ops::files::read_raster(&p).unwrap();
+        r.grid.geo = terraflux_raster::GeoTags {
+            geokeys: Some(vec![1, 1, 0, 3, 1024, 0, 1, 1, 1025, 0, 1, 1, 3072, 0, 1, 32633]),
+            ..Default::default()
+        };
+        r.write(&p).unwrap();
+        p
+    }
+
+    /// A GeoPackage of squares `[west, south, east, north]` given in UTM 33N, written in `crs` (the layer `parcels`).
+    fn write_squares(d: &Path, name: &str, squares: &[[f64; 4]], crs: &str) -> PathBuf {
+        let ring = |s: &[f64; 4]| vec![[s[0], s[1]], [s[2], s[1]], [s[2], s[3]], [s[0], s[3]], [s[0], s[1]]];
+        let v = Vector {
+            geometries: squares.iter().map(|s| Geometry::Polygon(vec![ring(s)])).collect(),
+            attributes: vec![("lot".to_string(), Column::Numbers((1..=squares.len()).map(|k| k as f64).collect()))],
+            crs: Some("EPSG:32633".into()),
+        };
+        let v = if crs == "EPSG:32633" { v } else { terraflux_gdal::reproject_vector(&v, crs).unwrap() };
+        let p = d.join(name);
+        let _ = std::fs::remove_file(&p);
+        terraflux_gdal::write_vector(&p, "parcels", &v).unwrap();
+        p
+    }
+
+    /// The four quarters of the user's image.
+    const QUARTERS: [[f64; 4]; 4] = [
+        [1000.0, 1000.0, 1100.0, 1100.0],
+        [1100.0, 1000.0, 1200.0, 1100.0],
+        [1000.0, 1100.0, 1100.0, 1200.0],
+        [1100.0, 1100.0, 1200.0, 1200.0],
+    ];
+
+    /// The squares moved 100 km east, from the `from`th on.
+    fn moved(squares: &[[f64; 4]], from: usize) -> Vec<[f64; 4]> {
+        squares
+            .iter()
+            .enumerate()
+            .map(|(i, q)| if i >= from { [q[0] + 1e5, q[1], q[2] + 1e5, q[3]] } else { *q })
+            .collect()
+    }
+
+    #[test]
+    fn the_parcels_of_a_template_are_polygons_a_file_replaces() {
+        let r = Registry::standard();
+        let m = template(PARCELS);
+        let s = sources(&m, &r);
+        // (the land only draws the image and the parcels: not offered)
+        assert_eq!(ids(&s), ["image", "parcels"]);
+        assert!(is_polygons(&s[1]) && !is_points(&s[1]) && is_vector(&s[1]) && !is_polygons(&s[0]));
+        assert_eq!(s[1].data.as_ref().unwrap().kind, DataKind::Polygons);
+        let d = dir("parcels");
+        let image = user_image(&d, "scene.tif");
+        // the parcels in another coordinate system than the image's: carried to it by what reads them
+        let parcels = write_squares(&d, "parcels.gpkg", &QUARTERS, "EPSG:4326");
+        let both = BTreeMap::from([("image".to_string(), choice(&image)), ("parcels".to_string(), choice(&parcels))]);
+        let p = plan(&m, &r, &both, None, &d).unwrap();
+        assert!(p.refused.is_empty(), "{:?}", p.refused);
+        for gone in ["parcels", "image", "land"] {
+            assert!(p.model.node(gone).is_none(), "{gone}");
+        }
+        let read = p.model.node("parcels_read").expect("the parcels read");
+        assert_eq!(read.op, "vector.read");
+        assert_eq!(read.data.as_ref().map(|d| d.kind), Some(DataKind::Polygons));
+        for (node, port) in [("segments", "bounds"), ("features", "thematic")] {
+            let n = p.model.node(node).unwrap();
+            assert!(matches!(n.inputs.get(port), Some(Wire::Ref(x)) if x == "parcels_read.vector"), "{node}");
+        }
+        assert!(p.stray.is_empty(), "{:?}", p.stray);
+        assert_eq!(errors(&p, &d), Vec::<String>::new());
+        // it runs: every object is told its parcel, whole in it
+        let out = run(&p, &d);
+        let Some(terraflux_ops::Value::Table(t)) = out.get("features.table") else { panic!("no table") };
+        let mode = t.columns.iter().position(|c| c == "th_mode").unwrap();
+        let share = t.columns.iter().position(|c| c == "th_share").unwrap();
+        assert!(t.rows.len() >= 4, "{} objects", t.rows.len());
+        assert!(t.rows.iter().all(|r| r[mode].is_finite() && r[share] > 0.99), "{:?}", &t.rows[..3]);
+        let modes: BTreeSet<i64> = t.rows.iter().map(|r| r[mode] as i64).collect();
+        assert_eq!(modes.len(), 4, "{modes:?}");
+        // a second run of Use my data finds the parcels again
+        assert!(sources(&p.model, &r).iter().any(|s| s.node == "parcels_read" && is_polygons(s)));
+    }
+
+    #[test]
+    fn an_image_replaced_without_the_parcels_says_so_before_apply() {
+        let r = Registry::standard();
+        let m = template(PARCELS);
+        let d = dir("parcels-stray");
+        let image = user_image(&d, "scene.tif");
+        let p = plan(&m, &r, &one("image", choice(&image)), None, &d).unwrap();
+        assert_eq!(p.stray, ["parcels"]);
+        let told = said(&p, &d, Level::Warning, "none lies on yours");
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert!(
+            told[0].starts_with(
+                "The template's parcels are drawn on its own image and none lies on yours: bring a file of your parcels"
+            ),
+            "{}",
+            told[0]
+        );
+        assert!(check(&p, &d).iter().any(|f| f.at == "parcels" && f.level == Level::Warning));
+        assert!(!check(&p, &d).iter().any(|f| f.at == "parcels" && f.level == Level::Error));
+        // the drawn parcels are on the template's grid: the run gives them no object, th_share is NaN
+        let out = run(&p, &d);
+        let Some(terraflux_ops::Value::Table(t)) = out.get("features.table") else { panic!("no table") };
+        let share = t.columns.iter().position(|c| c == "th_share").unwrap();
+        assert!(t.rows.iter().all(|r| !r[share].is_finite()), "the drawn parcels hold nothing of the image");
+        // the parcels only: told that they are read on the drawn image
+        let parcels = write_squares(&d, "parcels.gpkg", &QUARTERS, "EPSG:32633");
+        let p = plan(&m, &r, &one("parcels", choice(&parcels)), None, &d).unwrap();
+        assert!(p.stray.is_empty());
+        assert_eq!(said(&p, &d, Level::Warning, "read on the template's drawn image").len(), 1);
+    }
+
+    #[test]
+    fn the_parcels_are_checked_against_the_image_before_apply() {
+        let r = Registry::standard();
+        let m = template(PARCELS);
+        let d = dir("parcels-check");
+        let image = user_image(&d, "scene.tif");
+        let plan_of = |file: &Path| {
+            let both = BTreeMap::from([("image".to_string(), choice(&image)), ("parcels".to_string(), choice(file))]);
+            plan(&m, &r, &both, None, &d).unwrap()
+        };
+        // far from the image
+        let p = plan_of(&write_squares(&d, "far.gpkg", &moved(&QUARTERS, 0), "EPSG:32633"));
+        assert_eq!(said(&p, &d, Level::Error, "None of your 4 polygons overlaps your image").len(), 1);
+        // one of four: under half
+        let p = plan_of(&write_squares(&d, "one.gpkg", &moved(&QUARTERS, 1), "EPSG:32633"));
+        assert_eq!(said(&p, &d, Level::Error, "Only 1 of your 4 polygons overlap your image").len(), 1);
+        // three of four: told, not stopped
+        let three: Vec<[f64; 4]> = moved(&QUARTERS[..1], 0).into_iter().chain(QUARTERS[1..].iter().copied()).collect();
+        let p = plan_of(&write_squares(&d, "three.gpkg", &three, "EPSG:4326"));
+        assert_eq!(said(&p, &d, Level::Warning, "1 of your 4 polygons lie outside your image").len(), 1);
+        assert!(errors(&p, &d).iter().all(|e| !e.contains("polygons")), "{:?}", errors(&p, &d));
+        // points are no parcels; a table is no features
+        let (_, rows) = obia_scene(&d);
+        let pts = write_points(&d, "points.gpkg", &rows, "cover");
+        let both = BTreeMap::from([("image".to_string(), choice(&image)), ("parcels".to_string(), choice(&pts))]);
+        let p = plan(&m, &r, &both, None, &d).unwrap();
+        assert!(p.refused.iter().any(|e| e.contains("are not polygons")), "{:?}", p.refused);
+        let csv = write_csv(&d, "t.csv", &rows, "x,y,class");
+        assert!(polygons_file(&csv).unwrap_err().contains("not a table"));
+        // nothing else with a file of polygons
+        let mut c = choice(&write_squares(&d, "ok.gpkg", &QUARTERS, "EPSG:32633"));
+        c.band = Some("1".into());
+        let bad = plan(&m, &r, &BTreeMap::from([("parcels".to_string(), c)]), None, &d);
+        assert!(bad.unwrap_err().contains("polygons take a file of polygons"));
+    }
+
+    #[test]
+    fn the_reference_objects_are_polygons_a_file_replaces() {
+        let r = Registry::standard();
+        let m = template(REFERENCE);
+        let s = sources(&m, &r);
+        assert_eq!(ids(&s), ["image", "reference"]);
+        assert!(is_polygons(&s[1]));
+        assert!(s[1].what.starts_with("reference objects:"), "{}", s[1].what);
+        let d = dir("reference");
+        let image = user_image(&d, "scene.tif");
+        let try_run = |p: &Plan| {
+            let inputs = terraflux_exec::load_inputs(&p.model, &d, &Default::default()).unwrap();
+            terraflux_exec::Engine::default().run(&p.model, &inputs, &mut terraflux_exec::Quiet)
+        };
+        // the image alone: the reference stays on the template's image
+        let p = plan(&m, &r, &one("image", choice(&image)), None, &d).unwrap();
+        assert_eq!(p.stray, ["reference"]);
+        let told = said(&p, &d, Level::Warning, "none lies on yours");
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert!(
+            told[0].starts_with(
+                "The template's reference objects are drawn on its own image and none lies on yours: bring a file of your reference objects"
+            ),
+            "{}",
+            told[0]
+        );
+        // and the run says why it cannot score
+        let e = try_run(&p).err().expect("an error").to_string();
+        assert!(e.contains("no reference object lies on the image"), "{e}");
+        // blocks of the image as the reference
+        let blocks =
+            [[1000.0, 1150.0, 1050.0, 1200.0], [1050.0, 1150.0, 1100.0, 1200.0], [1000.0, 1100.0, 1050.0, 1150.0]];
+        let refs = write_squares(&d, "reference.gpkg", &blocks, "EPSG:4326");
+        let both = BTreeMap::from([("image".to_string(), choice(&image)), ("reference".to_string(), choice(&refs))]);
+        let p = plan(&m, &r, &both, None, &d).unwrap();
+        assert!(p.refused.is_empty() && p.stray.is_empty(), "{:?}", p.refused);
+        assert_eq!(errors(&p, &d), Vec::<String>::new());
+        for gone in ["reference", "land", "regions", "region_polygons", "image"] {
+            assert!(p.model.node(gone).is_none(), "{gone}");
+        }
+        let out = try_run(&p).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(out.get("scales.value"), Some(terraflux_ops::Value::Number(_))));
+        // outside the image: told before Apply
+        let off = write_squares(&d, "off.gpkg", &moved(&blocks, 0), "EPSG:32633");
+        let both = BTreeMap::from([("image".to_string(), choice(&image)), ("reference".to_string(), choice(&off))]);
+        let p = plan(&m, &r, &both, None, &d).unwrap();
+        assert_eq!(said(&p, &d, Level::Error, "None of your 3 polygons overlaps your image").len(), 1);
+    }
+
+    /// A series of 8 dates of an index on the user's image's grid, the date in each layer's name.
+    fn user_series(d: &Path, name: &str) -> PathBuf {
+        let names: Vec<String> = (0..8).map(|k| format!("ndvi_2023{:02}15", k + 1)).collect();
+        let names: Vec<Option<&str>> = names.iter().map(|n| Some(n.as_str())).collect();
+        write_bands(d, name, &names, |b, row, col| 0.2 + 0.05 * b as f64 + 0.3 * ((row / 10 + col / 10) % 2) as f64)
+    }
+
+    #[test]
+    fn the_parcels_of_the_crops_are_a_map_the_series_must_agree_with() {
+        let r = Registry::standard();
+        let m = template(CROPS);
+        let s = sources(&m, &r);
+        // (the fields that draw the year only help to draw it)
+        assert_eq!(ids(&s), ["land", "series", "samples"]);
+        assert!(s[0].what.starts_with("parcels:"), "{}", s[0].what);
+        assert_eq!(s[0].needs, Type::Map);
+        let d = dir("crops");
+        let series = user_series(&d, "series.tif");
+        // the series alone: the parcels are still the drawn ones, on another grid
+        let p = plan(&m, &r, &one("series", choice(&series)), None, &d).unwrap();
+        assert!(p.stray.contains(&"land".to_string()), "{:?}", p.stray);
+        let told = said(&p, &d, Level::Warning, "none lies on yours");
+        assert!(
+            told.iter().any(|t| t.starts_with(
+                "The template's parcels are drawn on its own image and none lies on yours: bring a map of your parcels"
+            )),
+            "{told:?}"
+        );
+        // the parcels as a map of ids, on the series' grid: no stray, and the objects are the user's
+        let parcels = write(&d, "parcels.tif", (20, 20), 10.0, |row, col| 1.0 + (row / 10 * 2 + col / 10) as f64);
+        let both = BTreeMap::from([("land".to_string(), choice(&parcels)), ("series".to_string(), choice(&series))]);
+        let p = plan(&m, &r, &both, None, &d).unwrap();
+        assert!(p.refused.is_empty() && !p.stray.contains(&"land".to_string()), "{:?} {:?}", p.refused, p.stray);
+        for gone in ["land", "year", "shift_field", "noise", "cloud_field"] {
+            assert!(p.model.node(gone).is_none(), "{gone}");
+        }
+        // up to the season of each parcel (the samples are the template's, not the user's)
+        let mut upto = p.clone();
+        let later = ["sample_table", "samples", "training", "model", "classify", "polygons", "plot"];
+        upto.model.nodes.retain(|n| !later.contains(&n.id.as_str()));
+        upto.model.plots.clear();
+        upto.model.outputs.clear();
+        let out = run(&upto, &d);
+        let Some(terraflux_ops::Value::Table(t)) = out.get("seasons.table") else { panic!("no table") };
+        assert_eq!(t.rows.len(), 4, "four parcels");
+    }
+
+    #[test]
+    fn the_drawn_maps_that_only_help_to_draw_the_data_are_not_offered() {
+        let r = Registry::standard();
+        let offered =
+            |name: &str| -> Vec<String> { sources(&template(name), &r).into_iter().map(|s| s.node).collect() };
+        let o = offered("Trees and buildings from a height model");
+        assert!(["ground", "footprints", "relief"].iter().all(|g| !o.contains(&g.to_string())), "{o:?}");
+        let o = offered("Land cover change by objects");
+        assert!(["land_2000", "patches"].iter().all(|g| !o.contains(&g.to_string())), "{o:?}");
+        assert_eq!(offered("Kinds of landscapes"), ["cover"]);
+        // a drawn map that feeds the image and the truth the result is measured against stays: it says what for
+        let o = sources(&template("Classify a second scene with the model of the first"), &r);
+        let land = o.iter().find(|s| s.node == "land").expect("the truth stays");
+        assert!(land.what.starts_with("the true classes of the second scene"), "{}", land.what);
+        // by the model's graph: through a drawing node, up to a marked one; a plot or an analysis keeps it
+        let mut m = Model::new("t");
+        for id in ["a", "b", "c", "d"] {
+            m.nodes.push(Node::new(id, "nlm.fbm").param("rows", 10).param("columns", 10));
+        }
+        let calc = |id: &str, x: &str, y: Option<&str>| {
+            let n = Node::new(id, "raster.calc").input("x", x).param("expression", "x");
+            match y {
+                Some(y) => n.input("y", y),
+                None => n,
+            }
+        };
+        m.nodes.push(calc("mid", "a.map", Some("b.map")));
+        m.nodes.push(calc("data", "mid.map", None).data(Data::new("a map", DataKind::Values)));
+        m.nodes.push(calc("use", "data.map", Some("c.map")));
+        m.nodes.push(Node::new("plot", "view.plot").input("value", "d.map"));
+        assert_eq!(ids(&sources(&m, &r)), ["data", "c", "d"]);
+    }
+
+    #[test]
+    fn polygons_are_a_data_kind_of_the_graph_and_the_tools() {
+        assert_eq!(DataKind::parse("polygons"), Some(DataKind::Polygons));
+        let m = template(PARCELS);
+        assert!(terraflux_graph::check(&m, &Registry::standard()).iter().all(|i| !i.message.contains("`data`")));
     }
 }

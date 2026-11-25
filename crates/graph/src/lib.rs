@@ -716,11 +716,21 @@ pub enum DataKind {
     /// Points with a class each (the samples a classifier learns from): a file of features with a column of the
     /// class, or a table of x, y and the class. Use my data reads them; they have no grid.
     Points,
+    /// Polygons (parcels, reference objects): a file of features GDAL reads. Use my data reads them; they have no
+    /// grid, and are put on the image's coordinate system by what reads them.
+    Polygons,
 }
 
 impl DataKind {
-    pub const ALL: [DataKind; 6] =
-        [DataKind::Classes, DataKind::Values, DataKind::Mask, DataKind::Stack, DataKind::Image, DataKind::Points];
+    pub const ALL: [DataKind; 7] = [
+        DataKind::Classes,
+        DataKind::Values,
+        DataKind::Mask,
+        DataKind::Stack,
+        DataKind::Image,
+        DataKind::Points,
+        DataKind::Polygons,
+    ];
 
     /// The kind as it is written in the model file.
     pub fn name(self) -> &'static str {
@@ -731,6 +741,7 @@ impl DataKind {
             DataKind::Stack => "stack",
             DataKind::Image => "image",
             DataKind::Points => "points",
+            DataKind::Polygons => "polygons",
         }
     }
 
@@ -1505,6 +1516,18 @@ params = { expression = "out x = a ** 2" }
         assert_eq!(m.node("new").unwrap().params["expression"], "out x = a ** 2");
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(notes[0].starts_with("node \"calc\": its expression was in map algebra's old syntax"), "{notes:?}");
+    }
+
+    #[test]
+    fn a_data_of_kind_polygons_round_trips() {
+        let mut m = Model::new("parcels");
+        let d = Data::new("parcels: polygons of the lots", DataKind::Polygons);
+        m.nodes.push(Node::new("parcels", "vector.grid_zones").input("map", "$c").data(d.clone()));
+        assert_eq!(DataKind::parse(" Polygons"), Some(DataKind::Polygons));
+        assert!(DataKind::ALL.contains(&DataKind::Polygons));
+        let toml = m.to_toml().unwrap();
+        assert!(toml.contains("kind = \"polygons\""), "{toml}");
+        assert_eq!(Model::from_toml(&toml).unwrap().nodes[0].data, Some(d));
     }
 
     #[test]

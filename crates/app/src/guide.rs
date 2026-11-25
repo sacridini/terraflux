@@ -95,7 +95,7 @@ business as usual, a protection policy...). run_model takes `scenario`.",
 `assumptions` (what it takes for granted: the classes' meaning, a stationary rate) and `alternatives` (what was \
 considered and set aside, and why) when there are.
 - A node that stands for a data of the user's (a map the template draws, to be replaced by the user's file) has \
-`data`: `what` (\"a land use map, the first date\"), `kind` (classes, values, mask, stack, image, points), `classes` (code -> name, \
+`data`: `what` (\"a land use map, the first date\"), `kind` (classes, values, mask, stack, image, points, polygons), `classes` (code -> name, \
 the classes the method expects) and `expect` (for values: \"1 or more\", a unit). Read it in show_model before \
 replacing the node: it says which of the user's files goes there and what its classes must be (reclassify the file \
 to them); set it with edit_node (`data`; null clears it) on the nodes that take the place of the user's data in a \

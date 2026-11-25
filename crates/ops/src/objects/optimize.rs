@@ -359,6 +359,13 @@ impl Operator for Optimize {
         if by_reference.is_some() && reference.is_none() {
             return Err(bad(format!("objective {objective_name}: connect the reference it is measured against")));
         }
+        if reference.as_ref().is_some_and(|r| r.labels.iter().all(|&k| k == 0)) {
+            return Err(bad(
+                "no reference object lies on the image: the polygons are outside its extent (or in another coordinate \
+                 system than the image's, or on the template's drawn image)"
+                    .into(),
+            ));
+        }
         let cells = l.grid.cells() as u64;
         // as many runs at once as the memory of the runs allows, as the tiles of segment.multiresolution
         let per = cells.max(1) * (l.data.len() as u64 * 40 + 200);
