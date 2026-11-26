@@ -7,6 +7,11 @@ version.
 
 ## [Unreleased]
 
+## [1.71.3] - 2026-11-26
+
+### Fixed
+- **The Viewer's Layers no longer widen by themselves** (`crates/app/src/builder.rs`, `crates/app/src/layers_panel.rs`): egui keeps a panel as wide as what it holds, and in a larger text (Slate at 1.2, for one) the opacity's slider of the layer selected, sized by the room left on its line, went a little past the panel's edge, so the panel widened at every frame up to two fifths of the Viewer. What the panel holds no longer widens it (it is as wide as by default or as dragged; a line too wide is cut at its edge), and the sliders of opacity and gamma leave the room their value takes in the size of the text chosen.
+
 ## [1.71.2] - 2026-11-25
 
 ### Fixed
