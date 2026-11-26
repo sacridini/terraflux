@@ -2021,7 +2021,7 @@ fn layer_menu(
 fn opacity_slider(ui: &mut Ui, opacity: &mut f32) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Opacity").size(11.5));
-        ui.spacing_mut().slider_width = (ui.available_width() - 56.0).clamp(40.0, 220.0);
+        ui.spacing_mut().slider_width = (ui.available_width() - value_room(ui, "100%")).clamp(40.0, 220.0);
         ui.add(
             egui::Slider::new(opacity, 0.0..=1.0)
                 .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
@@ -2029,6 +2029,15 @@ fn opacity_slider(ui: &mut Ui, opacity: &mut f32) {
         )
         .on_hover_text("how opaque the layer is over the ones under it");
     });
+}
+
+/// The room a slider's value takes at its right: the space before it and its box, as wide as `widest` written in
+/// the size of the text chosen (a slider given the rest of the line fits in it at every size of the text).
+fn value_room(ui: &Ui, widest: &str) -> f32 {
+    let font = ui.style().drag_value_text_style.resolve(ui.style());
+    let text = ui.painter().layout_no_wrap(widest.to_string(), font, Color32::WHITE).size().x;
+    let s = ui.spacing();
+    s.item_spacing.x + (text + 2.0 * s.button_padding.x).max(s.interact_size.x)
 }
 
 /// How a layer is mixed with the ones under it (see [`crate::blend`]); the map shown is the base of the picture, so
@@ -2174,7 +2183,7 @@ fn rgb_controls(ui: &mut Ui, s: &Session, l: &mut Layer, salt: &str) {
     }
     ui.horizontal(|ui| {
         ui.label(RichText::new("gamma").size(11.5));
-        ui.spacing_mut().slider_width = (ui.available_width() - 60.0).clamp(40.0, 180.0);
+        ui.spacing_mut().slider_width = (ui.available_width() - value_room(ui, "0.00")).clamp(40.0, 180.0);
         ui.add(egui::Slider::new(&mut rgb.gamma, GAMMAS).logarithmic(true).max_decimals(2))
             .on_hover_text("above 1 brightens the middle tones, below 1 darkens them");
     });

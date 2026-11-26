@@ -6764,11 +6764,19 @@ pub fn output(ui: &mut Ui, s: &mut Session, r: &Registry, sh: &mut Shown, salt: 
         .max_size((ui.available_width() * 0.4).max(170.0))
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(Margin::same(8)))
         .show_collapsible(ui, &mut layers_open, |ui| {
-            egui::ScrollArea::vertical().id_salt(("layers scroll", salt)).show(ui, |ui| {
+            // (the panel as wide as it is, by default or dragged: what it holds never widens it; egui keeps a panel
+            // as wide as its contents, so a line a little too wide for it, a slider sized by the room left, widened
+            // it a little more at every frame, up to its widest; a line too wide is cut at its edge instead)
+            let room = ui.max_rect();
+            let mut inside =
+                ui.new_child(egui::UiBuilder::new().max_rect(room).layout(*ui.layout()).id_salt("layers inside"));
+            egui::ScrollArea::vertical().id_salt(("layers scroll", salt)).show(&mut inside, |ui| {
                 let shown =
                     look.as_ref().map(|l| layers_panel::ShownLegend { r, look: l, names: legend_classes.as_deref() });
                 layers_section(ui, s, r, sh, &others, &main_name, shown.as_ref(), salt);
             });
+            let height = inside.min_rect().height();
+            ui.advance_cursor_after_rect(Rect::from_min_size(room.min, Vec2::new(room.width(), height)));
         });
     ui.data_mut(|d| d.insert_temp(id, layers_open));
     sh.view.name = main_name.clone();

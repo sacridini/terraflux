@@ -4111,6 +4111,30 @@ fn space_turns_the_layers_off_and_on() {
     assert_eq!(centre_pixel(&mut h), drawn_pixel, "all on again: drawn");
 }
 
+/// The Layers keep their width, whatever they hold: in a larger text the properties of a layer (its opacity's
+/// slider, sized by the room left on its line) once went past the panel's edge, and egui keeping a panel as wide as
+/// what it holds, the panel widened a little at every frame by itself, up to its widest.
+#[test]
+fn the_layers_keep_their_width() {
+    use egui_kittest::kittest::NodeT;
+    let mut h = layers_of(&["land", "slope"]);
+    // (a wide screen: room for the panel to widen, its widest two fifths of the Viewer)
+    h.set_size(egui::vec2(2400.0, 820.0));
+    h.run_steps(4);
+    click_row(&mut h, "slope", Default::default());
+    assert!(h.query_by_label("Opacity").is_some(), "the properties of the layer selected");
+    // (the width of the panel: the row of a layer, from the panel's side to the other)
+    let width = |h: &Harness<TerrafluxApp>| -> f64 {
+        let w = |n: &egui_kittest::Node| n.accesskit_node().bounding_box().map_or(0.0, |b| b.x1 - b.x0);
+        h.query_all_by_label("land").map(|n| w(&n)).fold(0.0, f64::max)
+    };
+    let before = width(&h);
+    // the larger text (in this harness alone: the settings are the program's, for every test beside it)
+    terraflux_app::theme::apply_with(&h.ctx, 1.6);
+    h.run_steps(60);
+    assert_eq!(width(&h), before, "the Layers widened by themselves");
+}
+
 /// Layers in groups, as a GIS has them: a group made from a layer's menu, shown or hidden by its box (its layers not
 /// drawn, each keeping its own box), made half opaque, folded, a layer dragged onto its row and out of its rows, the
 /// group gone with *Ungroup* and its layers kept.
