@@ -731,6 +731,34 @@ def md_config():
 
 DOC_MD = None  # the Markdown of docstrings: one converter, reset between texts
 INCLUDE = re.compile(r"^\{\{<\s*include\s+(\S+)\s*>\}\}[ \t]*$", re.M)
+DOCTEST_DIRECTIVE = re.compile(r"[ \t]*#\s*doctest:.*$", re.M)  # `# doctest: +SKIP`: for the test runner, not the reader
+
+
+def doctest_fences(text: str) -> str:
+    """A docstring's `>>>` blocks written amid its prose as fenced pycon code (Markdown would read each `>` as a
+    quote: three nested blockquotes, no code), their doctest directives dropped. Fenced code is left as it is."""
+    lines, out, i, fence = text.split("\n"), [], 0, None
+    while i < len(lines):
+        ln = lines[i]
+        s = ln.lstrip()
+        if fence:
+            fence = None if s.startswith(fence) else fence
+        elif s.startswith(("```", "~~~")):
+            fence = s[:3]
+        elif s.startswith(">>>"):
+            ind = ln[:len(ln) - len(s)]
+            block = []
+            while i < len(lines) and lines[i].strip():  # the example runs to the next blank line
+                b = lines[i]
+                block.append(DOCTEST_DIRECTIVE.sub("", b[len(ind):] if b.startswith(ind) else b.lstrip()))
+                i += 1
+            if out and out[-1].strip():
+                out.append("")
+            out += [ind + "```pycon", *(ind + b for b in block), ind + "```", ""]
+            continue
+        out.append(ln)
+        i += 1
+    return "\n".join(out)
 
 
 def doc_md(text: str, inline=False) -> str:
@@ -742,7 +770,7 @@ def doc_md(text: str, inline=False) -> str:
         DOC_MD = markdown.Markdown(extensions=exts, extension_configs={
             "pymdownx.highlight": {"css_class": "highlight", "guess_lang": False, "use_pygments": True},
             "pymdownx.arithmatex": {"generic": True}})
-    text = re.sub(r"::[ \t]*$", ":", API.autorefs(text), flags=re.M)
+    text = re.sub(r"::[ \t]*$", ":", API.autorefs(doctest_fences(text)), flags=re.M)
     DOC_MD.reset()
     out = DOC_MD.convert(text)
     if inline and out.count("<p>") == 1 and out.startswith("<p>") and out.endswith("</p>"):
@@ -801,7 +829,7 @@ def api_sections(obj: dict) -> str:
         elif t == "ex":
             parts = []
             for kind, text in sec["i"]:
-                parts.append(doc_md(text) if kind == "t" else highlight(text, "pycon"))
+                parts.append(doc_md(text) if kind == "t" else highlight(DOCTEST_DIRECTIVE.sub("", text), "pycon"))
             out.append(f'<p class="api-sec">{esc(sec["h"])}</p><div class="api-examples">{"".join(parts)}</div>')
         elif t == "adm":
             kind = re.sub(r"[^a-z]+", "-", sec["h"].lower()).strip("-")
